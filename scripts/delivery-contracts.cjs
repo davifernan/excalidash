@@ -38,13 +38,32 @@ function checkPrAdmission({ body, draft = false, authorType = "User" }) {
   }
 
   const requiredChecks = [
-    "Multica HANDOFF posted",
-    "Local verification complete",
-    "Ready for Hans-Friedrich",
+    {
+      label: "Multica HANDOFF posted",
+      acceptedStarts: ["Multica HANDOFF posted"],
+    },
+    {
+      label: "Local verification complete",
+      acceptedStarts: ["Local verification complete"],
+    },
+    {
+      label: "Ready for Hans-Friedrich",
+      acceptedStarts: [
+        "Ready for Hans-Friedrich",
+        "Hans-Friedrich completed the one general review",
+      ],
+    },
   ];
-  const missingChecks = requiredChecks.filter(
-    (label) => !new RegExp(`^- \\[x\\] ${escapeRegExp(label)}\\s*$`, "im").test(text),
-  );
+  const lines = text.split(/\r?\n/);
+  const missingChecks = requiredChecks
+    .filter(({ acceptedStarts }) => !acceptedStarts.some((start) => {
+      const checkedLabel = new RegExp(
+        `^- \\[x\\] ${escapeRegExp(start)}(?:[ \\t]+.*)?[ \\t]*$`,
+        "i",
+      );
+      return lines.some((line) => checkedLabel.test(line));
+    }))
+    .map(({ label }) => label);
 
   if (missingChecks.length > 0) {
     return {

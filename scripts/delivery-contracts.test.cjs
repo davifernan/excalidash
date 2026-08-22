@@ -25,6 +25,15 @@ function readyBody(extra = "") {
 ${extra}`;
 }
 
+function reviewedReadyBody() {
+  return `Multica-Issue: NIL-316
+
+- [x] Multica HANDOFF posted for the reviewed product head and the re-admitted test-only head.
+- [x] Local verification complete for finding-fix head \`85f5554\`.
+- [x] Hans-Friedrich completed the one general review on \`33c8112\`.
+`;
+}
+
 function marker(overrides = {}) {
   const value = {
     schema: 1,
@@ -54,6 +63,42 @@ test("admits exactly one ready Multica PR", () => {
     ok: true,
     code: "ready",
     primaryIssue: "NIL-385",
+  });
+});
+
+test("admits the explanatory ready-gate labels from PR #13", () => {
+  assert.deepEqual(checkPrAdmission({ body: reviewedReadyBody() }), {
+    ok: true,
+    code: "ready",
+    primaryIssue: "NIL-316",
+  });
+
+  const readinessDetails = readyBody()
+    .replace("Multica HANDOFF posted", "Multica HANDOFF posted for head abc123")
+    .replace("Local verification complete", "Local verification complete for head abc123")
+    .replace("Ready for Hans-Friedrich", "Ready for Hans-Friedrich on head abc123");
+  assert.equal(checkPrAdmission({ body: readinessDetails }).code, "ready");
+});
+
+test("still rejects an unchecked box or a missing ready-gate label", () => {
+  const unchecked = reviewedReadyBody().replace(
+    "- [x] Multica HANDOFF posted",
+    "- [ ] Multica HANDOFF posted",
+  );
+  assert.deepEqual(checkPrAdmission({ body: unchecked }), {
+    ok: false,
+    code: "ready-gate",
+    message: "Review admission is missing: Multica HANDOFF posted.",
+  });
+
+  const missingLabel = reviewedReadyBody().replace(
+    "- [x] Local verification complete for finding-fix head `85f5554`.",
+    "- [x] Finding-fix head `85f5554` was verified locally.",
+  );
+  assert.deepEqual(checkPrAdmission({ body: missingLabel }), {
+    ok: false,
+    code: "ready-gate",
+    message: "Review admission is missing: Local verification complete.",
   });
 });
 
