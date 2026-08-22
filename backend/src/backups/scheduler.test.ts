@@ -14,6 +14,35 @@ const buildPrisma = () => ({
   auditLog: { deleteMany: vi.fn().mockResolvedValue({ count: 7 }) },
 });
 
+const authCleanupRunsAt = async (schedule: string, tickAt: Date): Promise<number> => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(tickAt.getTime() - 1000));
+  const prisma = buildPrisma();
+  const stop = startScheduledMaintenance({
+    backups: {
+      prisma: prisma as any,
+      databaseUrl: undefined,
+      schedule: null,
+      backupDir: "/not-used",
+      assetStorageDir: "/not-used",
+      retentionDays: 14,
+    },
+    authCleanup: {
+      prisma: prisma as any,
+      schedule,
+      tokenRetentionDays: 30,
+      auditRetentionDays: 365,
+    },
+  });
+
+  try {
+    await vi.advanceTimersByTimeAsync(1000);
+    return prisma.refreshToken.deleteMany.mock.calls.length;
+  } finally {
+    stop?.();
+  }
+};
+
 afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -218,5 +247,42 @@ describe("auth data retention", () => {
     expect(stop).toEqual(expect.any(Function));
     expect(prisma.refreshToken.deleteMany).toHaveBeenCalledTimes(1);
     stop?.();
+  });
+});
+
+describe("maintenance cron day fields", () => {
+  it("runs when the month day matches but the restricted week day does not", async () => {
+    const thursdayFirst = new Date(2024, 7, 1, 3, 0, 0);
+
+    await expect(authCleanupRunsAt("0 0 3 1 * 1", thursdayFirst)).resolves.toBe(1);
+  });
+
+  it("runs when the week day matches but the restricted month day does not", async () => {
+    const mondayEighth = new Date(2024, 6, 8, 3, 0, 0);
+
+    await expect(authCleanupRunsAt("0 0 3 1 * 1", mondayEighth)).resolves.toBe(1);
+  });
+
+  it("does not run when neither restricted day field matches", async () => {
+    const tuesdayNinth = new Date(2024, 6, 9, 3, 0, 0);
+
+    await expect(authCleanupRunsAt("0 0 3 1 * 1", tuesdayNinth)).resolves.toBe(0);
+  });
+
+  it("keeps a lone month-day restriction and both wildcards unchanged", async () => {
+    const thursdayFirst = new Date(2024, 7, 1, 3, 0, 0);
+    const mondayEighth = new Date(2024, 6, 8, 3, 0, 0);
+
+    await expect(authCleanupRunsAt("0 0 3 1 * *", thursdayFirst)).resolves.toBe(1);
+    await expect(authCleanupRunsAt("0 0 3 1 * *", mondayEighth)).resolves.toBe(0);
+    await expect(authCleanupRunsAt("0 0 3 * * *", mondayEighth)).resolves.toBe(1);
+  });
+
+  it("keeps a lone week-day restriction unchanged", async () => {
+    const thursdayFirst = new Date(2024, 7, 1, 3, 0, 0);
+    const mondayEighth = new Date(2024, 6, 8, 3, 0, 0);
+
+    await expect(authCleanupRunsAt("0 0 3 * * 1", mondayEighth)).resolves.toBe(1);
+    await expect(authCleanupRunsAt("0 0 3 * * 1", thursdayFirst)).resolves.toBe(0);
   });
 });
