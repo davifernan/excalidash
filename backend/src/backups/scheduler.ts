@@ -38,6 +38,8 @@ type ParsedCron = {
   daysOfMonth: CronPart;
   months: CronPart;
   daysOfWeek: CronPart;
+  daysOfMonthRestricted: boolean;
+  daysOfWeekRestricted: boolean;
 };
 
 const parseDatabasePath = (databaseUrl?: string): string | null => {
@@ -110,18 +112,25 @@ const parseCronSchedule = (raw: string, label: string): ParsedCron => {
     daysOfMonth: parseCronPart(normalized[3], 1, 31),
     months: parseCronPart(normalized[4], 1, 12),
     daysOfWeek: parseCronPart(normalized[5], 0, 7),
+    daysOfMonthRestricted: normalized[3] !== "*",
+    daysOfWeekRestricted: normalized[5] !== "*",
   };
 };
 
 const cronMatches = (cron: ParsedCron, date: Date): boolean => {
   const day = date.getDay();
+  const dayOfMonthMatches = cron.daysOfMonth.has(date.getDate());
+  const dayOfWeekMatches = cron.daysOfWeek.has(day) || (day === 0 && cron.daysOfWeek.has(7));
+  const dayMatches =
+    cron.daysOfMonthRestricted && cron.daysOfWeekRestricted
+      ? dayOfMonthMatches || dayOfWeekMatches
+      : dayOfMonthMatches && dayOfWeekMatches;
   return (
     cron.seconds.has(date.getSeconds()) &&
     cron.minutes.has(date.getMinutes()) &&
     cron.hours.has(date.getHours()) &&
-    cron.daysOfMonth.has(date.getDate()) &&
     cron.months.has(date.getMonth() + 1) &&
-    (cron.daysOfWeek.has(day) || (day === 0 && cron.daysOfWeek.has(7)))
+    dayMatches
   );
 };
 
