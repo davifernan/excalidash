@@ -29,34 +29,62 @@ test.describe("Excalidraw features we merely have to leave alone", () => {
     await deleteDrawing(request, drawing.id);
   });
 
-  test("the laser pointer shows up once somebody else is on the board", async ({
+  test("offers one outer laser pointer with its shortcut even when alone", async ({
     browser,
     request,
   }) => {
     const drawing = await createDrawing(request, { name: "Native Laser" });
 
-    // The laser lives in the extra-tools dropdown, not flat in the toolbar.
-    const laserOffered = async (page: Page) => {
-      await page.locator('.App-toolbar [data-testid="dropdown-menu-button"]').click();
-      await page.waitForTimeout(300);
-      const count = await page.locator('[data-testid="toolbar-LaserPointer"]').count();
-      await page.keyboard.press("Escape");
-      return count > 0;
-    };
-
     const alone = await browser.newContext();
     const pageA = await alone.newPage();
     await openEditor(pageA, drawing.id);
-    expect(await laserOffered(pageA)).toBe(false);
 
-    const second = await browser.newContext();
-    const pageB = await second.newPage();
-    await openEditor(pageB, drawing.id);
-    await pageA.waitForTimeout(2500);
-    expect(await laserOffered(pageA)).toBe(true);
+    const outerLaser = pageA.locator('[data-testid="toolbar-LaserPointer"]');
+    await expect(outerLaser).toBeVisible();
+    await expect(outerLaser).toHaveAttribute("aria-label", /K/);
+    await expect(outerLaser).toHaveAttribute("aria-keyshortcuts", "K");
+
+    await pageA.locator('.App-toolbar [data-testid="dropdown-menu-button"]').click();
+    await expect(pageA.locator('[data-testid="toolbar-laser"]')).toBeHidden();
+    await pageA.keyboard.press("Escape");
+    await pageA.locator(".excalidraw__canvas.interactive").click({ position: { x: 600, y: 400 } });
+    await pageA.keyboard.press("k");
+    await expect(outerLaser).toBeChecked();
 
     await alone.close();
-    await second.close();
+    await deleteDrawing(request, drawing.id);
+  });
+
+  test("keeps the board-title back button without repeating it in the main menu", async ({
+    page,
+    request,
+  }) => {
+    const drawing = await createDrawing(request, { name: "Single Back Route" });
+    await openEditor(page, drawing.id);
+
+    await expect(page.getByTestId("editor-back")).toBeVisible();
+    await page.getByTestId("main-menu-trigger").click();
+    await expect(page.getByText("Back to dashboard", { exact: true })).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await page.getByTestId("editor-back").click();
+    await expect(page).toHaveURL(/\/$/);
+
+    await deleteDrawing(request, drawing.id);
+  });
+
+  test("keeps one mobile back route when the board-title island stands down", async ({
+    page,
+    request,
+  }) => {
+    const drawing = await createDrawing(request, { name: "Mobile Back Route" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openEditor(page, drawing.id);
+
+    await expect(page.getByTestId("editor-back")).toHaveCount(0);
+    await page.getByTestId("main-menu-trigger").click();
+    await expect(page.getByText("Back to dashboard", { exact: true })).toBeVisible();
+
     await deleteDrawing(request, drawing.id);
   });
 });

@@ -18,6 +18,7 @@ import { WorkshopTimerWidget } from "./WorkshopTimerWidget";
 import { InviteHereOverlay, type InviteHereUiState } from "./InviteHereOverlay";
 import { CursorChatComposer } from "./CursorChatComposer";
 import { MobileTimerCorner } from "./MobileTimerCorner";
+import { installLaserPointerDomBridge } from "../../integrations/excalidraw/domBridge";
 
 type EditorViewProps = {
   id?: string;
@@ -107,6 +108,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const excalidrawRoot = useExcalidrawRoot(editorContainerRef);
   const { zenMode, mobile } = useExcalidrawUiState(editorContainerRef);
 
+  React.useEffect(() => {
+    if (!excalidrawRoot) return;
+    return installLaserPointerDomBridge(excalidrawRoot);
+  }, [excalidrawRoot]);
+
   return (
     // The canvas fills the window and never changes size again. The old header
     // pushed it down by 4rem and animated the height back on every toggle, which
@@ -146,11 +152,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
             excalidrawAPI={onSetExcalidrawAPI}
             UIOptions={UIOptions}
             viewModeEnabled={!canEdit}
-            // Excalidraw hides its own laser pointer until it believes a session
-            // is live. The pointer payload already carries `tool: "laser"` end to
-            // end, so the only thing missing was this admission that someone else
-            // is here. Alone on a board a laser points at nobody, hence peers.
-            isCollaborating={peers.length > 0}
+            // In the pinned package this flag only admits the outer laser
+            // control. ExcaliDash has a live collaboration transport even while
+            // this user is alone, so the tool must not disappear with presence.
+            isCollaborating
             validateEmbeddable={validateEmbeddableLink}
             renderEmbeddable={(element, appState) => {
               const data = getAssetWidgetData(element);
@@ -193,15 +198,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
               </Footer>
             )}
             <MainMenu>
-              {/*
-                The way back, in the one place that exists at every window size.
-                On the mobile layout the island stands down so it does not cover
-                Excalidraw's tool row, and this becomes the only route home.
-              */}
-              <MainMenu.Item onSelect={onBackClick} icon={<ArrowLeft size={16} />}>
-                Back to dashboard
-              </MainMenu.Item>
-              <MainMenu.Separator />
+              {mobile ? (
+                <>
+                  {/* The title island stands down on mobile, so this is not a duplicate there. */}
+                  <MainMenu.Item onSelect={onBackClick} icon={<ArrowLeft size={16} />}>
+                    Back to dashboard
+                  </MainMenu.Item>
+                  <MainMenu.Separator />
+                </>
+              ) : null}
               <MainMenu.DefaultItems.ToggleTheme />
               <MainMenu.DefaultItems.SaveAsImage />
               <MainMenu.Item onSelect={onExportClick} icon={<Download size={16} />}>
