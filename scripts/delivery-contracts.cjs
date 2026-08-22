@@ -6,7 +6,10 @@ const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
 
 const REVIEW_MARKER = /<!-- excalidash-review:v1\s*([\s\S]*?)\s*-->/m;
+const FIX_VERIFICATION_MARKER = /<!-- excalidash-fix-verification:v1\s*([\s\S]*?)\s*-->/gm;
+const FIX_VERIFICATION_MARKER_START = /<!-- excalidash-fix-verification:v1\b/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const LOWER_SHA_PATTERN = /^[0-9a-f]{40}$/;
 const REVIEW_RESULTS = new Set([
   "clean",
   "findings",
@@ -15,6 +18,8 @@ const REVIEW_RESULTS = new Set([
 ]);
 const REQUIRED_GIT_IDENTITY = "Nilo <127136134+davifernan@users.noreply.github.com>";
 const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+const FIX_EVIDENCE_TYPES = new Set(["objective-red-green", "finding-verification"]);
+const FIX_VERIFIER_ROLES = new Set(["pr-overseer", "finding-verifier"]);
 
 function checkPrAdmission({ body, draft = false, authorType = "User" }) {
   if (draft) {
@@ -118,6 +123,177 @@ function parseReviewMarker(body) {
   }
 
   return marker;
+}
+
+function parseFixVerificationMarker(body) {
+  const matches = [...(body || "").matchAll(FIX_VERIFICATION_MARKER)];
+  if (matches.length === 0) {
+    throw new Error(
+      "Fix-verification comment is missing the excalidash-fix-verification:v1 marker.",
+    );
+  }
+  if (matches.length !== 1) {
+    throw new Error("A fix-verification comment must contain exactly one marker.");
+  }
+
+  let marker;
+  try {
+    marker = JSON.parse(matches[0][1]);
+  } catch (error) {
+    throw new Error(`Fix-verification marker is not valid JSON: ${error.message}`);
+  }
+
+  if (
+    marker.schema !== 1 ||
+    !LOWER_SHA_PATTERN.test(marker.from_sha || "") ||
+    !LOWER_SHA_PATTERN.test(marker.to_sha || "") ||
+    marker.from_sha === marker.to_sha ||
+    !FIX_EVIDENCE_TYPES.has(marker.evidence_type) ||
+    !isNonEmptyString(marker.finding?.id) ||
+    !isHttpsUrl(marker.finding?.url) ||
+    !FIX_VERIFIER_ROLES.has(marker.recorded_by?.role) ||
+    !isNonEmptyString(marker.recorded_by?.actor) ||
+    !isValidFixRecipe(marker.recipe)
+  ) {
+    throw new Error("Fix-verification marker does not satisfy schema version 1.");
+  }
+
+  return marker;
+}
+
+function checkFixVerificationCoverage({ fromSha, toSha, comments = [] }) {
+  if (!LOWER_SHA_PATTERN.test(fromSha || "") || !LOWER_SHA_PATTERN.test(toSha || "")) {
+    throw new Error("Fix-verification coverage requires valid from and to SHAs.");
+  }
+  if (fromSha === toSha) {
+    throw new Error("Fix-verification coverage requires a non-empty SHA delta.");
+  }
+  if (!Array.isArray(comments)) {
+    throw new Error("Fix-verification coverage requires a comment array.");
+  }
+
+  const validRecords = [];
+  let invalidRecords = 0;
+  for (const [index, comment] of comments.entries()) {
+    if (!FIX_VERIFICATION_MARKER_START.test(comment?.body || "")) continue;
+    try {
+      const marker = parseFixVerificationMarker(comment?.body);
+      if (
+        !isNonEmptyString(comment?.user?.login) ||
+        comment.user.login.toLowerCase() !== marker.recorded_by.actor.toLowerCase()
+      ) {
+        throw new Error("Fix-verification marker actor differs from its GitHub comment author.");
+      }
+      validRecords.push({ index, comment, marker });
+    } catch {
+      invalidRecords += 1;
+    }
+  }
+
+  const matchingRecords = validRecords.filter(
+    ({ marker }) => marker.from_sha === fromSha && marker.to_sha === toSha,
+  );
+  matchingRecords.sort(compareNewestCommentFirst);
+
+  const match = matchingRecords[0];
+  if (!match) {
+    return {
+      covered: false,
+      code: "uncovered",
+      fromSha,
+      toSha,
+      invalidRecords,
+    };
+  }
+
+  return {
+    covered: true,
+    code: "covered",
+    fromSha,
+    toSha,
+    invalidRecords,
+    record: {
+      commentId: match.comment.id,
+      evidenceType: match.marker.evidence_type,
+      finding: match.marker.finding,
+      recordedBy: match.marker.recorded_by,
+      recipe: match.marker.recipe,
+    },
+  };
+}
+
+function isValidFixRecipe(recipe) {
+  if (
+    !recipe ||
+    !isNonEmptyString(recipe.command) ||
+    !isCommandResult(recipe.from) ||
+    !isCommandResult(recipe.to)
+  ) {
+    return false;
+  }
+
+  if (recipe.kind === "test") {
+    return Boolean(
+      isNonEmptyString(recipe.instrument?.path) &&
+      LOWER_SHA_PATTERN.test(recipe.instrument?.blob_sha || "") &&
+      recipe.from.exit_code !== 0 &&
+      isNonEmptyString(recipe.from.assertion) &&
+      recipe.from.output.includes(recipe.from.assertion) &&
+      recipe.to.exit_code === 0,
+    );
+  }
+
+  if (recipe.kind === "configuration") {
+    return Boolean(
+      isNonEmptyString(recipe.subject?.key) &&
+      isNonEmptyString(recipe.subject?.from_value) &&
+      isNonEmptyString(recipe.subject?.to_value) &&
+      recipe.subject.from_value !== recipe.subject.to_value &&
+      recipe.from.output !== recipe.to.output &&
+      recipe.from.output.includes(recipe.subject.from_value) &&
+      recipe.to.output.includes(recipe.subject.to_value),
+    );
+  }
+
+  return false;
+}
+
+function isCommandResult(result) {
+  return Boolean(
+    result &&
+    Number.isInteger(result.exit_code) &&
+    result.exit_code >= 0 &&
+    result.exit_code <= 255 &&
+    isNonEmptyString(result.output),
+  );
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isHttpsUrl(value) {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function compareNewestCommentFirst(left, right) {
+  const leftTime = Date.parse(left.comment.created_at || "") || 0;
+  const rightTime = Date.parse(right.comment.created_at || "") || 0;
+  if (rightTime !== leftTime) return rightTime - leftTime;
+
+  try {
+    const leftId = BigInt(left.comment.id);
+    const rightId = BigInt(right.comment.id);
+    if (leftId !== rightId) return leftId > rightId ? -1 : 1;
+  } catch {
+    // Keep deterministic API-order fallback for malformed fixture ids.
+  }
+  return right.index - left.index;
 }
 
 function validateHansReview({ expectedHeadSha, review, comments = [] }) {
@@ -447,6 +623,12 @@ async function main() {
     return;
   }
 
+  if (command === "fix-verification") {
+    const input = JSON.parse(await readStdin());
+    process.stdout.write(`${JSON.stringify(checkFixVerificationCoverage(input))}\n`);
+    return;
+  }
+
   if (command === "commits") {
     const commits = readCommitRange(process.env.PR_BASE_SHA, process.env.PR_HEAD_SHA);
     const result = admitCommitContracts({
@@ -470,7 +652,7 @@ async function main() {
   }
 
   throw new Error(
-    "Usage: delivery-contracts.cjs admission|commits|review|reviewed-head|event",
+    "Usage: delivery-contracts.cjs admission|commits|review|reviewed-head|fix-verification|event",
   );
 }
 
@@ -491,7 +673,9 @@ module.exports = {
   admitCommitContracts,
   checkPrAdmission,
   checkCommitContracts,
+  checkFixVerificationCoverage,
   parseReviewMarker,
+  parseFixVerificationMarker,
   checkReviewedHead,
   validateHansReview,
 };
