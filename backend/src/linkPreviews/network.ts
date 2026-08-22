@@ -1,14 +1,14 @@
-import { lookup as dnsLookup } from "node:dns/promises";
 import http, { type IncomingHttpHeaders, type IncomingMessage } from "node:http";
 import https from "node:https";
-import { isIP, type TcpNetConnectOpts } from "node:net";
+import { type TcpNetConnectOpts } from "node:net";
 import { Readable } from "node:stream";
 import type { Duplex } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
-import { BoundedTaskQueue } from "../utils/boundedTaskQueue";
-import { isPublicAddress } from "./addressPolicy";
+import { PreviewFetchError, resolvePublicAddresses, type ResolvedAddress } from "./resolver";
 
 export { isPublicAddress } from "./addressPolicy";
+export { PreviewFetchError, resolvePublicAddresses } from "./resolver";
+export type { ResolvedAddress } from "./resolver";
 
 export type PreviewFetchKind = "html" | "image";
 
@@ -24,7 +24,6 @@ export type PreviewNetworkLimits = {
   maxDecodedBytes: number;
 };
 
-export type ResolvedAddress = { address: string; family: 4 | 6 };
 export type PreviewFetchResult = {
   body: Buffer;
   contentType: string;
@@ -35,19 +34,9 @@ export type PreviewFetchResult = {
 /** Longest marker searched for, so a split across chunk boundaries is still seen. */
 const MARKER_OVERLAP = 10;
 
-export class PreviewFetchError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "PreviewFetchError";
-  }
-}
-
 export type PreviewNetworkDeps = {
   /** Supplies DNS answers only. Address policy is deliberately not injectable. */
-  lookup?: (hostname: string) => Promise<ResolvedAddress[]>;
+  lookup?: (hostname: string, signal?: AbortSignal) => Promise<ResolvedAddress[]>;
   request?: (
     url: URL,
     address: ResolvedAddress,
@@ -58,74 +47,8 @@ export type PreviewNetworkDeps = {
   connect?: (options: TcpNetConnectOpts) => Duplex;
 };
 
-const dnsQueue = new BoundedTaskQueue();
-
 const timeoutError = (part: string) =>
   new PreviewFetchError("TIMEOUT", `The remote ${part} did not finish in time.`);
-
-async function withTimeout<T>(
-  work: Promise<T>,
-  timeoutMs: number,
-  part: string,
-  signal?: AbortSignal,
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  let abort: (() => void) | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(timeoutError(part)), timeoutMs);
-      }),
-      new Promise<T>((_resolve, reject) => {
-        abort = () => reject(timeoutError("request"));
-        if (signal?.aborted) abort();
-        else signal?.addEventListener("abort", abort, { once: true });
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (abort) signal?.removeEventListener("abort", abort);
-  }
-}
-
-export async function resolvePublicAddresses(
-  rawHostname: string,
-  timeoutMs: number,
-  signal: AbortSignal,
-  options: {
-    lookup?: (hostname: string) => Promise<ResolvedAddress[]>;
-    concurrency?: number;
-    maxWaiting?: number;
-  } = {},
-): Promise<ResolvedAddress[]> {
-  const hostname = rawHostname.replace(/^\[|\]$/g, "");
-  const literalFamily = isIP(hostname);
-  const found = literalFamily
-    ? [{ address: hostname, family: literalFamily as 4 | 6 }]
-    : await withTimeout(
-        dnsQueue.run(
-          {
-            concurrency: options.concurrency ?? 8,
-            maxWaiting: options.maxWaiting ?? 64,
-            signal,
-          },
-          () =>
-            options.lookup
-              ? options.lookup(hostname)
-              : (dnsLookup(hostname, { all: true, verbatim: true }) as Promise<ResolvedAddress[]>),
-        ),
-        timeoutMs,
-        "name lookup",
-        signal,
-      );
-  if (signal.aborted) throw timeoutError("request");
-  if (found.length === 0) throw new PreviewFetchError("DNS_EMPTY", "The host has no address.");
-  if (found.some(({ address }) => !isPublicAddress(address))) {
-    throw new PreviewFetchError("SSRF_BLOCKED", "The address points to a non-public network.");
-  }
-  return found;
-}
 
 /**
  * The request options that pin a fetch to an address that has been checked.
@@ -156,6 +79,8 @@ export function pinnedRequestOptions(
     port: url.port || undefined,
     path: `${url.pathname}${url.search}`,
     method: "GET" as const,
+    // Pin this explicitly instead of inheriting a Node-major-dependent default.
+    maxHeaderSize: 16 * 1024,
     ...(connect ? { createConnection: connect } : { agent: false as const }),
     servername: url.hostname.replace(/^\[|\]$/g, ""),
     headers: {

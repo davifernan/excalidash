@@ -87,6 +87,7 @@ describe("what a pinned request is actually addressed to", () => {
     expect(options.headers.Host).toBe("rebind.example");
     expect(options.servername).toBe("rebind.example");
     expect(options.path).toBe("/page?x=1");
+    expect(options.maxHeaderSize).toBe(16 * 1024);
   });
 
   it("differs between the two branches only in how the socket is made", () => {
@@ -454,18 +455,24 @@ describe("bounded pinned fetching", () => {
 });
 
 describe("DNS work admission", () => {
-  it("keeps timed-out underlying lookups inside the concurrency ceiling", async () => {
+  it("cancels timed-out lookups and frees their slots without crossing the ceiling", async () => {
     let active = 0;
     let maximum = 0;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const lookup = vi.fn(async () => {
-      active += 1;
-      maximum = Math.max(maximum, active);
-      await gate;
-      active -= 1;
-      return [{ address: "93.184.216.34", family: 4 as const }];
-    });
+    const lookup = vi.fn(
+      (_hostname: string, signal?: AbortSignal) =>
+        new Promise<Array<{ address: string; family: 4 }>>((_resolve, reject) => {
+          active += 1;
+          maximum = Math.max(maximum, active);
+          signal?.addEventListener(
+            "abort",
+            () => {
+              active -= 1;
+              reject(signal.reason);
+            },
+            { once: true },
+          );
+        }),
+    );
 
     const attempts = Array.from({ length: 6 }, (_, index) =>
       resolvePublicAddresses(`slow-${index}.test`, 20, new AbortController().signal, {
@@ -474,10 +481,10 @@ describe("DNS work admission", () => {
         maxWaiting: 8,
       }),
     );
-    await Promise.allSettled(attempts);
+    const results = await Promise.allSettled(attempts);
+    expect(results.every(({ status }) => status === "rejected")).toBe(true);
     expect(maximum).toBe(2);
-    expect(lookup).toHaveBeenCalledTimes(2);
-    release();
-    await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(6));
+    expect(lookup).toHaveBeenCalledTimes(6);
+    expect(active).toBe(0);
   });
 });
