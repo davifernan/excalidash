@@ -93,10 +93,11 @@ export const bindSocketCollaborators = ({
     });
     users.forEach((user) => {
       if (user.presenceId === selfId) return;
-      if (!user.isActive) {
-        collaborators.delete(user.presenceId);
-        return;
-      }
+      // Presence-list membership is the connection lifetime. `isActive` only
+      // says whether this browser currently has the board in focus. Removing
+      // an inactive peer makes Excalidraw treat the person as having left and
+      // synchronously clear userToFollow, so switching tabs ends follow mode.
+      // A real departure is handled above when the id is absent altogether.
       const existing = collaborators.get(user.presenceId) || {};
       collaborators.set(user.presenceId, {
         ...existing,

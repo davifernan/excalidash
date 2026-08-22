@@ -58,6 +58,51 @@ describe("socket collaborators", () => {
     binding.dispose();
   });
 
+  it("keeps an inactive connected peer in Excalidraw so follow mode is not cancelled", () => {
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const socket = new FakeSocket();
+    let collaborators = new Map<string, any>();
+    const api = {
+      getAppState: () => ({ collaborators }),
+      updateScene: vi.fn((scene: any) => {
+        collaborators = scene.collaborators;
+      }),
+    };
+    bindSocketCollaborators({
+      socket: socket as any,
+      api,
+      onPeersChange: vi.fn(),
+    });
+
+    socket.trigger("presence-update", [
+      {
+        presenceId: "follow-target",
+        name: "Target",
+        color: "#123456",
+        isActive: true,
+      },
+    ]);
+    expect(collaborators.has("follow-target")).toBe(true);
+
+    socket.trigger("presence-update", [
+      {
+        presenceId: "follow-target",
+        name: "Target",
+        color: "#123456",
+        isActive: false,
+      },
+    ]);
+
+    // Excalidraw clears appState.userToFollow when its target disappears from
+    // this map. A blurred tab is still connected and must therefore stay in
+    // the map; an empty presence update remains the real-departure signal.
+    expect(collaborators.has("follow-target")).toBe(true);
+  });
+
   it("preserves the large-selection status when presence refreshes the collaborator name", () => {
     vi.stubGlobal(
       "requestAnimationFrame",
