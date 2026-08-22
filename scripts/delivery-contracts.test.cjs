@@ -245,6 +245,67 @@ test("delivery event identity survives workflow retries and ignores overseer com
   );
 });
 
+test("closed PR identity distinguishes merge state without weakening deduplication", () => {
+  function closedEvent(merged) {
+    return buildDeliveryEvent({
+      eventName: "pull_request",
+      repository: "davifernan/excalidash",
+      payload: {
+        action: "closed",
+        pull_request: {
+          number: 7,
+          head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+          author_association: "OWNER",
+          merged,
+        },
+      },
+    });
+  }
+
+  const manualClose = closedEvent(false);
+  const repeatedManualClose = closedEvent(false);
+  const mergeClose = closedEvent(true);
+
+  assert.equal(
+    manualClose.idempotencyKey,
+    `davifernan/excalidash#7:pull_request:7:closed:${FIX_SHA}:merged=false`,
+  );
+  assert.equal(
+    mergeClose.idempotencyKey,
+    `davifernan/excalidash#7:pull_request:7:closed:${FIX_SHA}:merged=true`,
+  );
+  assert.notEqual(manualClose.idempotencyKey, mergeClose.idempotencyKey);
+  assert.equal(manualClose.idempotencyKey, repeatedManualClose.idempotencyKey);
+  assert.equal(
+    new Set([
+      manualClose.idempotencyKey,
+      repeatedManualClose.idempotencyKey,
+      mergeClose.idempotencyKey,
+    ]).size,
+    2,
+  );
+});
+
+test("non-closed PR identity retains its existing contract", () => {
+  const synchronize = buildDeliveryEvent({
+    eventName: "pull_request",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "synchronize",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+        author_association: "OWNER",
+      },
+    },
+  });
+
+  assert.equal(
+    synchronize.idempotencyKey,
+    `davifernan/excalidash#7:pull_request:7:synchronize:${FIX_SHA}`,
+  );
+});
+
 test("untrusted public comments never reach the PR Overseer webhook", () => {
   assert.deepEqual(
     buildDeliveryEvent({

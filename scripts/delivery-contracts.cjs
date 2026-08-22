@@ -302,7 +302,9 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
   }
 
   if (eventName === "pull_request") {
-    event.delivery_event_id = `${eventName}:${event.pr}:${event.action}:${event.head_sha}`;
+    const mergeState = event.action === "closed" ? `:merged=${event.merged}` : "";
+    event.delivery_event_id =
+      `${eventName}:${event.pr}:${event.action}:${event.head_sha}${mergeState}`;
   } else if (eventName === "pull_request_review") {
     event.delivery_event_id = `${eventName}:${event.review_id}`;
   } else if (eventName === "issue_comment") {
