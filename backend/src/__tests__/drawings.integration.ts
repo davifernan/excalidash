@@ -50,13 +50,13 @@ describe("Security Sanitization - Image Data URLs", () => {
           created: Date.now(),
         },
       };
-      const result = sanitizeDrawingData({
-        elements: [],
-        appState: { viewBackgroundColor: "#ffffff" },
-        files,
-      });
-      const resultFiles = result.files as Record<string, any>;
-      expect(resultFiles["file-1"].dataURL).toBe("");
+      expect(() =>
+        sanitizeDrawingData({
+          elements: [],
+          appState: { viewBackgroundColor: "#ffffff" },
+          files,
+        }),
+      ).toThrow("Image data URL exceeds the configured storage limit.");
     });
     it("should allow dataURL under configured limit", () => {
       configureSecuritySettings({ maxDataUrlSize: 5000 });
