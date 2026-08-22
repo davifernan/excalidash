@@ -19,6 +19,7 @@ import {
   sanitizeSvg,
   elementSchema,
   appStateSchema,
+  DrawingDataValidationError,
 } from "./security";
 import { config } from "./config";
 import { authModeService, requireAuth, optionalAuth } from "./middleware/auth";
@@ -308,80 +309,117 @@ const drawingBaseSchema = z.object({
   collectionId: z.union([z.string().trim().min(1), z.null()]).optional(),
   preview: z.string().nullable().optional(),
 });
+
+const addDrawingSanitizationIssue = (ctx: z.RefinementCtx, error: unknown): void => {
+  if (error instanceof DrawingDataValidationError) {
+    ctx.addIssue({
+      code: "custom",
+      message: error.message,
+      params: {
+        validationCode: error.code,
+        maxBytes: error.maxBytes,
+      },
+    });
+    return;
+  }
+
+  console.error("Sanitization failed:", error);
+  ctx.addIssue({
+    code: "custom",
+    message: "Invalid or malicious drawing data detected",
+  });
+};
+
 const drawingCreateSchema = drawingBaseSchema
   .extend({
     elements: elementSchema.array().default([]),
     appState: appStateSchema.default({}),
     files: filesFieldSchema,
   })
-  .refine(
-    (data) => {
-      try {
-        const sanitized = sanitizeDrawingData(data);
-        Object.assign(data, sanitized);
-        return true;
-      } catch (error) {
-        console.error("Sanitization failed:", error);
-        return false;
-      }
-    },
-    { message: "Invalid or malicious drawing data detected" },
-  );
+  .superRefine((data, ctx) => {
+    try {
+      const sanitized = sanitizeDrawingData(data);
+      Object.assign(data, sanitized);
+    } catch (error) {
+      addDrawingSanitizationIssue(ctx, error);
+    }
+  });
 const drawingUpdateSchemaBase = drawingBaseSchema.extend({
   elements: elementSchema.array().optional(),
   appState: appStateSchema.optional(),
   files: filesFieldSchema,
   version: z.number().int().positive().optional(),
 });
-export const sanitizeDrawingUpdateData = (data: {
+type DrawingUpdateData = {
   elements?: unknown[];
   appState?: Record<string, unknown>;
   files?: Record<string, unknown>;
   preview?: string | null;
   name?: string;
   collectionId?: string | null;
-}): boolean => {
+};
+
+const applyDrawingUpdateSanitization = (data: DrawingUpdateData): void => {
   const hasSceneFields =
     data.elements !== undefined || data.appState !== undefined || data.files !== undefined;
   const hasPreviewField = data.preview !== undefined;
-  const needsSanitization = hasSceneFields || hasPreviewField;
+  const sanitizedData = { ...data };
+  if (hasSceneFields) {
+    const fullData = {
+      elements: Array.isArray(data.elements) ? data.elements : [],
+      appState: typeof data.appState === "object" && data.appState !== null ? data.appState : {},
+      files: data.files || {},
+      preview: data.preview,
+      name: data.name,
+      collectionId: data.collectionId,
+    };
+    const sanitized = sanitizeDrawingData(fullData);
+    if (data.elements !== undefined) sanitizedData.elements = sanitized.elements;
+    if (data.appState !== undefined) sanitizedData.appState = sanitized.appState;
+    if (data.files !== undefined) sanitizedData.files = sanitized.files;
+    if (data.preview !== undefined) sanitizedData.preview = sanitized.preview;
+    Object.assign(data, sanitizedData);
+  } else if (hasPreviewField && typeof data.preview === "string") {
+    data.preview = sanitizeSvg(data.preview);
+  }
+};
+
+export const sanitizeDrawingUpdateData = (data: DrawingUpdateData): boolean => {
   try {
-    const sanitizedData = { ...data };
-    if (hasSceneFields) {
-      const fullData = {
-        elements: Array.isArray(data.elements) ? data.elements : [],
-        appState: typeof data.appState === "object" && data.appState !== null ? data.appState : {},
-        files: data.files || {},
-        preview: data.preview,
-        name: data.name,
-        collectionId: data.collectionId,
-      };
-      const sanitized = sanitizeDrawingData(fullData);
-      if (data.elements !== undefined) sanitizedData.elements = sanitized.elements;
-      if (data.appState !== undefined) sanitizedData.appState = sanitized.appState;
-      if (data.files !== undefined) sanitizedData.files = sanitized.files;
-      if (data.preview !== undefined) sanitizedData.preview = sanitized.preview;
-      Object.assign(data, sanitizedData);
-    } else if (hasPreviewField && typeof data.preview === "string") {
-      data.preview = sanitizeSvg(data.preview);
-      Object.assign(data, { ...data, preview: data.preview });
-    } else if (hasPreviewField && data.preview === null) {
-      Object.assign(data, sanitizedData);
-    }
+    applyDrawingUpdateSanitization(data);
     return true;
   } catch (error) {
-    console.error("Sanitization failed:", error);
-    if (!needsSanitization) {
-      return true;
+    if (!(error instanceof DrawingDataValidationError)) {
+      console.error("Sanitization failed:", error);
     }
     return false;
   }
 };
-const drawingUpdateSchema = drawingUpdateSchemaBase.refine(
-  (data) => sanitizeDrawingUpdateData(data as any),
-  { message: "Invalid or malicious drawing data detected" },
-);
+const drawingUpdateSchema = drawingUpdateSchemaBase.superRefine((data, ctx) => {
+  try {
+    applyDrawingUpdateSanitization(data as DrawingUpdateData);
+  } catch (error) {
+    addDrawingSanitizationIssue(ctx, error);
+  }
+});
 const respondWithValidationErrors = (res: express.Response, issues: z.ZodIssue[]) => {
+  const drawingValidationIssue = issues.find((issue) => {
+    const params = (issue as z.ZodIssue & { params?: Record<string, unknown> }).params;
+    return issue.code === "custom" && typeof params?.validationCode === "string";
+  });
+  if (drawingValidationIssue) {
+    const params = (drawingValidationIssue as z.ZodIssue & { params: Record<string, unknown> })
+      .params;
+    const details = typeof params.maxBytes === "number" ? { maxBytes: params.maxBytes } : undefined;
+    res.status(400).json({
+      error: "Validation error",
+      code: params.validationCode,
+      message: drawingValidationIssue.message,
+      ...(details ? { details } : {}),
+    });
+    return;
+  }
+
   if (config.nodeEnv === "production") {
     res.status(400).json({ error: "Validation error", message: "Invalid request data" });
   } else {

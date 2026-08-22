@@ -14,6 +14,26 @@ export interface SecurityConfig {
   /** Maximum size for dataURL in bytes (default: 10MB) */
   maxDataUrlSize: number;
 }
+
+export const DRAWING_VALIDATION_CODES = {
+  imageDataUrlTooLarge: "IMAGE_DATA_URL_TOO_LARGE",
+} as const;
+
+export type DrawingValidationCode =
+  (typeof DRAWING_VALIDATION_CODES)[keyof typeof DRAWING_VALIDATION_CODES];
+
+export class DrawingDataValidationError extends Error {
+  readonly code: DrawingValidationCode;
+  readonly maxBytes?: number;
+
+  constructor(options: { code: DrawingValidationCode; message: string; maxBytes?: number }) {
+    super(options.message);
+    this.name = "DrawingDataValidationError";
+    this.code = options.code;
+    this.maxBytes = options.maxBytes;
+  }
+}
+
 const defaultConfig: SecurityConfig = { maxDataUrlSize: 10 * 1024 * 1024 };
 let activeConfig: SecurityConfig = { ...defaultConfig };
 /**
@@ -410,8 +430,15 @@ export const sanitizeDrawingData = (data: {
                   const hasSuspiciousContent = suspiciousPatterns.some((pattern) =>
                     pattern.test(value),
                   );
-                  const isTooLarge = value.length > MAX_DATAURL_SIZE;
-                  if (hasSuspiciousContent || isTooLarge) {
+                  const isTooLarge = Buffer.byteLength(value, "utf8") > MAX_DATAURL_SIZE;
+                  if (isTooLarge) {
+                    throw new DrawingDataValidationError({
+                      code: DRAWING_VALIDATION_CODES.imageDataUrlTooLarge,
+                      message: "Image data URL exceeds the configured storage limit.",
+                      maxBytes: MAX_DATAURL_SIZE,
+                    });
+                  }
+                  if (hasSuspiciousContent) {
                     file[key] = "";
                   } else {
                     file[key] = value;
@@ -445,6 +472,9 @@ export const sanitizeDrawingData = (data: {
       preview: sanitizedPreview,
     };
   } catch (error) {
+    if (error instanceof DrawingDataValidationError) {
+      throw error;
+    }
     console.error("Data sanitization failed:", error);
     throw new Error("Invalid or malicious drawing data detected");
   }
