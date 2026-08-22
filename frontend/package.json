@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/copy-excalidraw-assets.mjs --public && vite --port 6767",
-    "build": "tsc -b && vite build && node scripts/copy-excalidraw-assets.mjs --dist",
+    "typecheck": "tsc -b",
+    "build": "npm run typecheck && vite build && node scripts/copy-excalidraw-assets.mjs --dist",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
