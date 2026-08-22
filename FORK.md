@@ -22,7 +22,7 @@ running ExcaliDash needs no checkout, no toolchain and no build memory:
 ```bash
 curl -O https://raw.githubusercontent.com/davifernan/ExcaliDash/main/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/davifernan/ExcaliDash/main/.env.production.example
-cp .env.production.example .env   # also set JWT_SECRET and CSRF_SECRET
+cp .env.production.example .env   # replace FRONTEND_URL; also set JWT_SECRET and CSRF_SECRET
 docker compose --env-file .env -f docker-compose.prod.yml pull
 docker compose --env-file .env -f docker-compose.prod.yml up -d
 ```
