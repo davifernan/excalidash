@@ -7,6 +7,7 @@ import type { PrismaClient } from "../generated/client";
 import { cleanupTestDb, createTestUser, getTestPrisma, setupTestDb } from "../__tests__/testUtils";
 import { createDocumentPageManager } from "../server/socketDocumentPages";
 import { createAsset } from "./assetService";
+import { resolveStoragePath } from "./assetStorage";
 import { deriveAssetPageCount } from "./documentPageCount";
 import {
   DOCUMENT_WIDGET_LIMIT,
@@ -72,9 +73,9 @@ describe("authoritative document widget state", () => {
     ).id;
   });
 
-  it("derives and persists a missing text page count from stored bytes", async () => {
+  it("derives a legacy text page count once and reuses the persisted value", async () => {
     const text = "line\n".repeat(5_000);
-    const { asset } = await upload(text, {
+    const { asset, blob } = await upload(text, {
       kind: "TEXT",
       mimeType: "text/plain; charset=utf-8",
       originalName: "notes.txt",
@@ -82,6 +83,12 @@ describe("authoritative document widget state", () => {
 
     await expect(deriveAssetPageCount(prisma, storageDir, asset.id)).resolves.toBe(2);
     expect((await prisma.asset.findUnique({ where: { id: asset.id } }))?.pageCount).toBe(2);
+
+    // Removing the source bytes turns a second derivation attempt into ENOENT.
+    // Success therefore proves that the second access uses the materialized
+    // database value and never enters the byte-reading/pagination path again.
+    await rm(resolveStoragePath(storageDir, blob.storageKey));
+    await expect(deriveAssetPageCount(prisma, storageDir, asset.id)).resolves.toBe(2);
   });
 
   it("materializes and removes the authoritative widget binding", async () => {
