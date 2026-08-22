@@ -30,8 +30,24 @@ const fixtures = [
   },
 ];
 
+const productionDefaultFixture = {
+  kind: "TEXT" as const,
+  source: `${"a".repeat(10_000)}\n${"b".repeat(9_998)}\n`,
+};
+
 describe("document pagination package contract", () => {
   it.each(fixtures)("keeps server and browser equal for $name", ({ kind, source, budget }) => {
     expect(paginateOnServer(source, kind, budget)).toEqual(paginateInBrowser(source, kind, budget));
+  });
+
+  it("keeps server and browser equal at the production default budget", () => {
+    const { kind, source } = productionDefaultFixture;
+    const serverPages = paginateOnServer(source, kind);
+    const browserPages = paginateInBrowser(source, kind);
+
+    expect(serverPages.length, "server and browser default-budget page counts").toBe(
+      browserPages.length,
+    );
+    expect(serverPages).toEqual(browserPages);
   });
 });
