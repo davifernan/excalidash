@@ -15,6 +15,7 @@ const Database = require("better-sqlite3") as any;
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -54,6 +55,7 @@ describe("operational health endpoints", () => {
   });
 
   it("reports healthy writable storage and exposes cache age", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
     let now = Date.parse("2026-08-22T12:00:00.000Z");
     const { app, database } = makeApp({ now: () => now });
 
@@ -77,13 +79,14 @@ describe("operational health endpoints", () => {
     expect(database.$executeRawUnsafe).toHaveBeenCalledWith(
       'UPDATE "SystemConfig" SET "id" = "id" WHERE 1 = 0',
     );
+    expect(errorLog).not.toHaveBeenCalled();
   });
 
   it("returns 503 when the database writer path is unavailable", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const failure = new Error("attempt to write a readonly database");
     const database = {
-      $executeRawUnsafe: vi
-        .fn()
-        .mockRejectedValue(new Error("attempt to write a readonly database")),
+      $executeRawUnsafe: vi.fn().mockRejectedValue(failure),
     } satisfies DatabaseWriteClient;
     const { app } = makeApp({ database });
 
@@ -92,6 +95,8 @@ describe("operational health endpoints", () => {
     expect(response.status).toBe(503);
     expect(response.body.status).toBe("error");
     expect(response.body.checks.database).toEqual({ status: "error", writable: false });
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledWith("[readiness] Database check failed:", failure);
   });
 
   it("uses a real SQLite write statement that fails on a read-only connection", async () => {
@@ -122,6 +127,20 @@ describe("operational health endpoints", () => {
     expect(response.body.checks.disk).toEqual({
       status: "critical",
       freePercent: 4.9,
+      minimumFreePercent: 20,
+    });
+  });
+
+  it("uses the reported one-decimal disk percentage for the operating floor", async () => {
+    const { app } = makeApp({ readFreeDiskPercent: vi.fn().mockResolvedValue(19.96) });
+
+    const response = await request(app).get("/ready");
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("ok");
+    expect(response.body.checks.disk).toEqual({
+      status: "ok",
+      freePercent: 20,
       minimumFreePercent: 20,
     });
   });

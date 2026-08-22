@@ -79,7 +79,8 @@ const checkDatabase = async (database: DatabaseWriteClient): Promise<DatabaseChe
   try {
     await assertDatabaseWritable(database);
     return { status: "ok", writable: true };
-  } catch {
+  } catch (error) {
+    console.error("[readiness] Database check failed:", error);
     return { status: "error", writable: false };
   }
 };
@@ -94,12 +95,14 @@ const checkDisk = async (
     if (freePercent === null) {
       return { status: "unknown", freePercent: null, minimumFreePercent };
     }
+    const reportedFreePercent = Math.round(freePercent * 10) / 10;
     return {
-      status: freePercent < minimumFreePercent ? "critical" : "ok",
-      freePercent: Math.round(freePercent * 10) / 10,
+      status: reportedFreePercent < minimumFreePercent ? "critical" : "ok",
+      freePercent: reportedFreePercent,
       minimumFreePercent,
     };
-  } catch {
+  } catch (error) {
+    console.error("[readiness] Disk check failed:", error);
     return { status: "unknown", freePercent: null, minimumFreePercent };
   }
 };
@@ -151,7 +154,8 @@ const checkBackup = async (
       ageSeconds: Math.floor(ageMs / 1000),
       maximumAgeSeconds,
     };
-  } catch {
+  } catch (error) {
+    console.error("[readiness] Backup check failed:", error);
     return {
       status: "unavailable",
       scheduled: true,
