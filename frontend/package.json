@@ -14,7 +14,6 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "check:max-lines": "node ../scripts/check-source-line-count.cjs",
     "check:dead-code": "npx --yes knip@5.88.1 --include files,dependencies,devDependencies",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
