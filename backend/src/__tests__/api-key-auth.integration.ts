@@ -111,6 +111,96 @@ describe("API key authentication", () => {
     expect(drawingsResponse.status).toBe(200);
   });
 
+  it("rejects scene replacement without the current drawing version", async () => {
+    const drawing = await prisma.drawing.create({
+      data: {
+        name: "Server-authoritative scene",
+        elements: JSON.stringify([{ id: "server-element", type: "rectangle" }]),
+        appState: JSON.stringify({ viewBackgroundColor: "#ffffff" }),
+        files: JSON.stringify({}),
+        userId,
+        version: 1,
+      },
+    });
+
+    const response = await request(app)
+      .put(`/drawings/${drawing.id}`)
+      .set("Authorization", `Bearer ${apiKeyToken}`)
+      .send({ elements: [], appState: {}, files: {} });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      error: "Conflict",
+      code: "VERSION_REQUIRED",
+      currentVersion: 1,
+    });
+
+    const stored = await prisma.drawing.findUniqueOrThrow({ where: { id: drawing.id } });
+    expect(JSON.parse(stored.elements)).toEqual([{ id: "server-element", type: "rectangle" }]);
+    expect(stored.version).toBe(1);
+  });
+
+  it("accepts scene replacement with the current drawing version", async () => {
+    const drawing = await prisma.drawing.create({
+      data: {
+        name: "Versioned scene",
+        elements: JSON.stringify([{ id: "old-element", type: "rectangle" }]),
+        appState: JSON.stringify({ viewBackgroundColor: "#ffffff" }),
+        files: JSON.stringify({}),
+        userId,
+        version: 3,
+      },
+    });
+    const replacement = [{ id: "new-element", type: "rectangle" }];
+
+    const response = await request(app)
+      .put(`/drawings/${drawing.id}`)
+      .set("Authorization", `Bearer ${apiKeyToken}`)
+      .send({ elements: replacement, appState: {}, files: {}, version: 3 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ elements: replacement, version: 4 });
+
+    const stored = await prisma.drawing.findUniqueOrThrow({ where: { id: drawing.id } });
+    expect(JSON.parse(stored.elements)).toEqual(replacement);
+    expect(stored.version).toBe(4);
+  });
+
+  it("rejects scene replacement with a stale drawing version", async () => {
+    const originalElements = [{ id: "current-element", type: "rectangle" }];
+    const drawing = await prisma.drawing.create({
+      data: {
+        name: "Concurrently changed scene",
+        elements: JSON.stringify(originalElements),
+        appState: JSON.stringify({ viewBackgroundColor: "#ffffff" }),
+        files: JSON.stringify({}),
+        userId,
+        version: 5,
+      },
+    });
+
+    const response = await request(app)
+      .put(`/drawings/${drawing.id}`)
+      .set("Authorization", `Bearer ${apiKeyToken}`)
+      .send({
+        elements: [{ id: "stale-element", type: "ellipse" }],
+        appState: {},
+        files: {},
+        version: 4,
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      error: "Conflict",
+      code: "VERSION_CONFLICT",
+      currentVersion: 5,
+    });
+
+    const stored = await prisma.drawing.findUniqueOrThrow({ where: { id: drawing.id } });
+    expect(JSON.parse(stored.elements)).toEqual(originalElements);
+    expect(stored.version).toBe(5);
+  });
+
   it("rejects API key management with API key auth", async () => {
     const response = await request(app)
       .get("/auth/api-keys")

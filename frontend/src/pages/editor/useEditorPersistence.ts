@@ -141,11 +141,52 @@ export const useEditorPersistence = ({
       const normalizedElementsForSave = Array.from(
         normalizeImageElementStatus(persistableElements, persistableFiles),
       );
+      const rebaseOntoLatest = async (
+        elementsToSave: readonly any[],
+        filesToSave: Record<string, any> | undefined,
+      ) => {
+        const latest = await api.getDrawing(drawingId);
+        const latestVersion = Number(latest?.version);
+        if (!Number.isInteger(latestVersion)) {
+          throw new DrawingSaveConflictError();
+        }
+
+        const mergedElements = reconcileElements(
+          elementsToSave,
+          Array.isArray(latest?.elements) ? latest.elements : [],
+          {
+            // The merged scene is applied to the open editor below, so
+            // whatever is being typed, dragged or drawn right now must
+            // survive it. Without this a rebase mid-gesture pulls the element
+            // out of the person's hand.
+            protect: heldElementIds(refs.excalidrawAPI.current?.getAppState?.() ?? null),
+          },
+        );
+        const mergedFiles = filesToSave ? { ...(latest?.files || {}), ...filesToSave } : undefined;
+
+        refs.currentDrawingVersion.current = latestVersion;
+        refs.excalidrawAPI.current?.updateScene({
+          elements: mergedElements,
+          captureUpdate: CAPTURE_UPDATE_NEVER,
+        });
+        refs.latestElements.current = mergedElements;
+
+        return { elements: mergedElements, files: mergedFiles };
+      };
       const persistScene = async (
         elementsToSave: readonly any[],
         filesToSave: Record<string, any> | undefined,
         attempt: number,
       ): Promise<void> => {
+        const currentVersion = refs.currentDrawingVersion.current;
+        if (typeof currentVersion !== "number" || !Number.isInteger(currentVersion)) {
+          // A missing version is an unknown base, not permission to overwrite.
+          // Load the server scene first and merge the local change onto it so
+          // the first write this editor sends is already versioned.
+          const rebased = await rebaseOntoLatest(elementsToSave, filesToSave);
+          await persistScene(rebased.elements, rebased.files, attempt);
+          return;
+        }
         try {
           const updated = await api.updateDrawing(drawingId, {
             // Copied because Drawing.elements is mutable and the caller's array
@@ -153,7 +194,7 @@ export const useEditorPersistence = ({
             elements: [...elementsToSave],
             appState: persistableAppState,
             ...(filesToSave ? { files: filesToSave } : {}),
-            version: refs.currentDrawingVersion.current ?? undefined,
+            version: currentVersion,
           });
           if (typeof updated.version === "number") {
             refs.currentDrawingVersion.current = updated.version;
@@ -176,38 +217,8 @@ export const useEditorPersistence = ({
             // rule the live updates use, and save the result.
             if (attempt > 0) throw new DrawingSaveConflictError();
 
-            const latest = await api.getDrawing(drawingId);
-            const latestVersion = Number(latest?.version);
-            if (!Number.isInteger(latestVersion)) {
-              throw new DrawingSaveConflictError();
-            }
-
-            const merged = reconcileElements(
-              elementsToSave,
-              Array.isArray(latest?.elements) ? latest.elements : [],
-              {
-                // The merged scene is applied to the open editor below, so
-                // whatever is being typed, dragged or drawn right now must
-                // survive it. Without this a conflict resolved mid-gesture
-                // pulls the element out of the person's hand.
-                protect: heldElementIds(refs.excalidrawAPI.current?.getAppState?.() ?? null),
-              },
-            );
-            const mergedFiles = filesToSave
-              ? { ...(latest?.files || {}), ...filesToSave }
-              : undefined;
-
-            refs.currentDrawingVersion.current = latestVersion;
-            // Show the merged scene. Without this the editor still holds the
-            // pre-merge elements, and the next save would drop the other
-            // writer's work all over again.
-            refs.excalidrawAPI.current?.updateScene({
-              elements: merged,
-              captureUpdate: CAPTURE_UPDATE_NEVER,
-            });
-            refs.latestElements.current = merged;
-
-            await persistScene(merged, mergedFiles, 1);
+            const rebased = await rebaseOntoLatest(elementsToSave, filesToSave);
+            await persistScene(rebased.elements, rebased.files, 1);
             return;
           }
           throw err;
@@ -398,11 +409,16 @@ export const useEditorPersistence = ({
       const elements = refs.latestElements.current;
       if (!drawingId || !elements) return;
       if (refs.lastPersistedElements.current === elements) return;
+      const version = refs.currentDrawingVersion.current;
+      // There is no reliable time for a read/rebase round-trip once the page
+      // is disappearing. The interactive save path above establishes the
+      // version before queueing changes; never weaken the server contract here.
+      if (typeof version !== "number" || !Number.isInteger(version)) return;
 
       const body = JSON.stringify({
         elements,
         appState: getPersistedAppState(refs.latestAppState.current),
-        version: refs.currentDrawingVersion.current ?? undefined,
+        version,
       });
 
       try {

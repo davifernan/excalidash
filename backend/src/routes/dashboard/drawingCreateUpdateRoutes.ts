@@ -188,11 +188,16 @@ export const registerDrawingCreateUpdateRoutes = (
         payload.appState !== undefined ||
         payload.files !== undefined;
 
-      if (
-        isSceneUpdate &&
-        payload.version !== undefined &&
-        payload.version !== existingDrawing.version
-      ) {
+      if (isSceneUpdate && payload.version === undefined) {
+        return res.status(409).json({
+          error: "Conflict",
+          code: "VERSION_REQUIRED",
+          message: "Scene updates require the current drawing version.",
+          currentVersion: existingDrawing.version,
+        });
+      }
+
+      if (isSceneUpdate && payload.version !== existingDrawing.version) {
         return res.status(409).json({
           error: "Conflict",
           code: "VERSION_CONFLICT",
@@ -239,7 +244,7 @@ export const registerDrawingCreateUpdateRoutes = (
       }
 
       const updateWhere: Prisma.DrawingWhereInput = { id };
-      if (isSceneUpdate && payload.version !== undefined) {
+      if (isSceneUpdate) {
         updateWhere.version = payload.version;
       }
 
@@ -313,14 +318,12 @@ export const registerDrawingCreateUpdateRoutes = (
             where: { id },
             select: { version: true },
           });
-          if (isSceneUpdate && payload.version !== undefined) {
-            return res.status(409).json({
-              error: "Conflict",
-              code: "VERSION_CONFLICT",
-              message: "Drawing has changed since this editor state was loaded.",
-              currentVersion: latestDrawing?.version ?? null,
-            });
-          }
+          return res.status(409).json({
+            error: "Conflict",
+            code: "VERSION_CONFLICT",
+            message: "Drawing has changed since this editor state was loaded.",
+            currentVersion: latestDrawing?.version ?? null,
+          });
         }
         throw error;
       }

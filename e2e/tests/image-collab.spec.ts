@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
-import { createDrawing, deleteDrawing, getDrawing, updateDrawing } from "./helpers/api";
+import { createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
 
 type FileBearingEmit = {
   at: number;
@@ -316,21 +316,21 @@ test.describe("Issue #25 - image sync + deletion across tabs", () => {
     await waitForElementPresent(page2, elementId);
     await waitForFileInEditor(page2, fileId);
 
-    const snapshot = await page1.evaluate(() => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
-      const elements = api.getSceneElementsIncludingDeleted();
-      const files = api.getFiles?.() || {};
-      const appState = api.getAppState?.() || {};
-      return {
-        elements,
-        files,
-        appState: {
-          viewBackgroundColor: appState.viewBackgroundColor ?? "#ffffff",
-          gridSize: appState.gridSize ?? null,
+    // Page 3 must prove the browser's versioned persistence path, rather than
+    // bypassing it with an unversioned API replacement. Wait until page 1's
+    // debounced save has committed both halves of the image to the server.
+    await expect
+      .poll(
+        async () => {
+          const persisted = await getDrawing(request, drawing.id);
+          return {
+            element: persisted.elements?.some((element: any) => element.id === elementId),
+            file: Boolean(persisted.files?.[fileId]),
+          };
         },
-      };
-    });
-    await updateDrawing(request, drawing.id, snapshot);
+        { timeout: 15_000 },
+      )
+      .toEqual({ element: true, file: true });
 
     const page3 = await openEditorTab(context, drawing.id);
     await waitForFileInEditor(page3, fileId);

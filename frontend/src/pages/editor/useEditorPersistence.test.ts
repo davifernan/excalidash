@@ -64,6 +64,41 @@ describe("useEditorPersistence", () => {
     vi.mocked(api.isAxiosError).mockReturnValue(false);
   });
 
+  it("loads and merges the server scene before saving when its version is unknown", async () => {
+    const localElement = { id: "local", type: "rectangle", version: 1 };
+    const serverElement = { id: "server", type: "ellipse", version: 1 };
+    vi.mocked(compressExcalidrawFiles).mockResolvedValue({
+      files: {},
+      changed: false,
+      changedIds: [],
+    });
+    vi.mocked(api.getDrawing).mockResolvedValue({
+      version: 7,
+      elements: [serverElement],
+      files: {},
+    } as any);
+    vi.mocked(api.updateDrawing).mockResolvedValue({ version: 8 } as any);
+    const refs = createRefs({});
+    refs.currentDrawingVersion.current = null;
+    const { result } = renderPersistence(refs);
+
+    await act(async () => {
+      await result.current.saveDataRef.current?.("drawing", [localElement], {}, {});
+    });
+
+    expect(api.getDrawing).toHaveBeenCalledWith("drawing");
+    expect(api.updateDrawing).toHaveBeenCalledTimes(1);
+    expect(api.updateDrawing).toHaveBeenCalledWith(
+      "drawing",
+      expect.objectContaining({
+        elements: [localElement, serverElement],
+        version: 7,
+      }),
+    );
+    expect(refs.latestElements.current).toEqual([localElement, serverElement]);
+    expect(refs.currentDrawingVersion.current).toBe(8);
+  });
+
   it("keeps a failed save visible to the next file delta", async () => {
     const previouslySyncedFiles = {
       image: { id: "image", dataURL: "data:image/png;base64,previous" },
