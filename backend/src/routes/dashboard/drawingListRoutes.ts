@@ -6,6 +6,14 @@ import { getUserTrashCollectionId, toPublicTrashCollectionId } from "./trash";
 import { SortDirection, SortField } from "./types";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
+const DEFAULT_PAGE_SIZE = 50;
+
+const parsePageLimit = (value: unknown, maxPageSize: number): number => {
+  const parsed = typeof value === "string" ? Number.parseInt(value, 10) : NaN;
+  if (!Number.isFinite(parsed)) return Math.min(DEFAULT_PAGE_SIZE, maxPageSize);
+  return Math.min(Math.max(parsed, 1), maxPageSize);
+};
+
 export const registerDrawingListRoutes = (app: express.Express, context: DrawingRouteContext) => {
   const {
     prisma,
@@ -107,12 +115,8 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
             ? "asc"
             : "desc";
 
-      const rawLimit = limit ? Number.parseInt(limit as string, 10) : undefined;
       const rawOffset = offset ? Number.parseInt(offset as string, 10) : undefined;
-      const parsedLimit =
-        rawLimit !== undefined && Number.isFinite(rawLimit)
-          ? Math.min(Math.max(rawLimit, 1), MAX_PAGE_SIZE)
-          : undefined;
+      const parsedLimit = parsePageLimit(limit, MAX_PAGE_SIZE);
       const parsedOffset =
         rawOffset !== undefined && Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : undefined;
       // API keys are automation credentials. They can list drawings, but do
@@ -156,8 +160,7 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
             ? { createdAt: parsedSortDirection }
             : { updatedAt: parsedSortDirection };
 
-      const queryOptions: Prisma.DrawingFindManyArgs = { where, orderBy };
-      if (parsedLimit !== undefined) queryOptions.take = parsedLimit;
+      const queryOptions: Prisma.DrawingFindManyArgs = { where, orderBy, take: parsedLimit };
       if (parsedOffset !== undefined) queryOptions.skip = parsedOffset;
       if (!shouldIncludeData) queryOptions.select = summarySelect;
 
@@ -247,12 +250,8 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
             ? "asc"
             : "desc";
 
-      const rawLimit = limit ? Number.parseInt(limit as string, 10) : undefined;
       const rawOffset = offset ? Number.parseInt(offset as string, 10) : undefined;
-      const parsedLimit =
-        rawLimit !== undefined && Number.isFinite(rawLimit)
-          ? Math.min(Math.max(rawLimit, 1), MAX_PAGE_SIZE)
-          : undefined;
+      const parsedLimit = parsePageLimit(limit, MAX_PAGE_SIZE);
       const parsedOffset =
         rawOffset !== undefined && Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : undefined;
 
@@ -310,8 +309,8 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       const queryOptions: Prisma.DrawingFindManyArgs = {
         where: whereDrawing,
         orderBy,
+        take: parsedLimit,
       };
-      if (parsedLimit !== undefined) queryOptions.take = parsedLimit;
       if (parsedOffset !== undefined) queryOptions.skip = parsedOffset;
       if (!shouldIncludeData) queryOptions.select = summarySelect;
 
