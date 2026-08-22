@@ -17,6 +17,7 @@ import {
 } from "../../assets/documentWidgetState";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
+import { publishDrawingName } from "../../server/socketDrawingName";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -40,6 +41,7 @@ export const registerDrawingCreateUpdateRoutes = (
     getShareToken,
     respondWithAuthErrorIfPresent,
     collaborationAccess,
+    io,
   } = context;
   app.post(
     "/drawings",
@@ -333,6 +335,9 @@ export const registerDrawingCreateUpdateRoutes = (
       // otherwise keep receiving the board until the periodic sweep caught up.
       if (payload.collectionId !== undefined) {
         await collaborationAccess.recheckDrawingAccess(id);
+      }
+      if (payload.name !== undefined) {
+        publishDrawingName({ io, drawingId: id, name: updatedDrawing.name });
       }
 
       return res.json({

@@ -22,7 +22,7 @@ describe("socket collaboration security and follow state", () => {
       drawing: {
         findUnique: async () => {
           accessLookups += 1;
-          return allowed ? { userId: BOOTSTRAP_USER_ID } : null;
+          return allowed ? { userId: BOOTSTRAP_USER_ID, name: "Live board" } : null;
         },
       },
       drawingLinkShare: { findFirst: async () => null },
@@ -86,6 +86,18 @@ describe("socket collaboration security and follow state", () => {
       button: "up",
     });
     expect(lastEmission("cursor-move", room("drawing-1"))?.payload.presenceId).toBe("socket-old");
+  });
+
+  it("sends the persisted drawing name privately to a room joiner", async () => {
+    const socket = await io.connect("socket-name-snapshot");
+
+    const ack = await join(socket);
+
+    expect(ack).toMatchObject({ ok: true });
+    expect(lastEmission("drawing-name-update", "socket-name-snapshot")?.payload).toEqual({
+      drawingId: "drawing-1",
+      name: "Live board",
+    });
   });
 
   it("logs a document page snapshot failure without rejecting the room join", async () => {

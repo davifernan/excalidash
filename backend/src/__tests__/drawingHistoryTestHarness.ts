@@ -84,6 +84,8 @@ export function buildApp(options: { userId?: string } = {}) {
   };
   app.use(attachUser);
 
+  const drawingUpdateSchema = { safeParse: vi.fn() };
+
   registerDrawingRoutes(app, {
     prisma,
     requireAuth: attachUser,
@@ -100,7 +102,7 @@ export function buildApp(options: { userId?: string } = {}) {
     sanitizeText: (input: unknown) => String(input ?? ""),
     validateImportedDrawing: vi.fn().mockReturnValue(true),
     drawingCreateSchema: { safeParse: vi.fn().mockReturnValue({ success: true, data: {} }) } as any,
-    drawingUpdateSchema: { safeParse: vi.fn() } as any,
+    drawingUpdateSchema: drawingUpdateSchema as any,
     respondWithValidationErrors: vi.fn(),
     collectionNameSchema: { safeParse: vi.fn() } as any,
     ensureTrashCollection: vi.fn(),
@@ -119,5 +121,5 @@ export function buildApp(options: { userId?: string } = {}) {
     logAuditEvent: vi.fn(),
   } as any);
 
-  return { app, prisma, io, emit };
+  return { app, prisma, io, emit, drawingUpdateSchema };
 }
