@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: '20'
       - run: node --test scripts/*.test.cjs
+      - run: node scripts/delivery-routing-probe.cjs
 
   frontend-typecheck:
     name: Frontend Typecheck

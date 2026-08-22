@@ -180,14 +180,22 @@ function checkPrAdmission({ body, draft = false, authorType = "User", impactMani
   }
 
   const lines = (body || "").split(/\r?\n/);
-  const missingChecks = READY_GATE_LINES.filter(
-    (required) => !lines.includes(required),
-  );
+  const checkedLabels = lines.map(parseReadyGateLabel).filter(Boolean);
+  const missingChecks = READY_GATE_LINES.filter((required) => {
+    const requiredLabel = required.slice("- [x] ".length);
+    return !checkedLabels.some(
+      (actual) => actual === requiredLabel ||
+        actual.startsWith(`${requiredLabel} `) ||
+        actual.startsWith(`${requiredLabel}\t`),
+    );
+  });
   if (missingChecks.length > 0) {
     return {
       ok: false,
       code: "ready-gate",
-      message: `Review admission is missing exact line(s): ${missingChecks.join(", ")}.`,
+      message:
+        "Review admission requires checked line(s) beginning with the exact label(s): " +
+        `${missingChecks.join(", ")}.`,
     };
   }
 
@@ -217,6 +225,11 @@ function checkPrAdmission({ body, draft = false, authorType = "User", impactMani
     impact: impactManifest.effective,
     visualEvidence: impactManifest.visual_evidence,
   };
+}
+
+function parseReadyGateLabel(line) {
+  const match = /^- \[[xX]\] (.*?)[ \t]*$/.exec(line);
+  return match ? match[1] : null;
 }
 
 function parsePrDeliveryContract(body) {

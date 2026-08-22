@@ -92,7 +92,7 @@ Use `Delivery-Slices: none` for package-only control-plane work. A slice cannot 
 primary package, and duplicate slices are invalid. The Package Session is the canonical owner
 session recorded on the package.
 
-The admission gate also requires these checked lines exactly:
+The admission gate requires these exact labels at the start of checked lines:
 
 ```text
 - [x] Multica HANDOFF posted
@@ -100,7 +100,9 @@ The admission gate also requires these checked lines exactly:
 - [x] Ready for Hans-Friedrich
 ```
 
-Wording changes are protocol changes and fail admission. The Hans workflow checks the merge
+An uppercase checkbox marker (`[X]`), trailing horizontal whitespace, and explanatory text
+after whitespace following the complete label are accepted. The label itself is case-sensitive
+and cannot be rewritten or replaced by a semantic alias. The Hans workflow checks the merge
 candidate with `scripts/delivery-v2.cjs admission` before requesting the one full review.
 
 ## Diff-derived impact manifest

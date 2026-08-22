@@ -495,6 +495,66 @@ test("delivery event identity survives workflow retries and ignores overseer com
   );
 });
 
+test("delivery events distinguish an absent contract from a malformed one", () => {
+  const eventWithoutContract = buildDeliveryEvent({
+    eventName: "pull_request",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "opened",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+        author_association: "OWNER",
+        body: "Draft notes only.",
+      },
+    },
+  });
+  assert.equal(eventWithoutContract.event.primary_package, null);
+
+  assert.throws(
+    () => buildDeliveryEvent({
+      eventName: "pull_request",
+      repository: "davifernan/excalidash",
+      payload: {
+        action: "opened",
+        pull_request: {
+          number: 7,
+          head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+          author_association: "OWNER",
+          body: `Multica-Package: NIL-404
+Multica-Package: NIL-405
+Delivery-Slices: none
+Package-Session: not-a-session
+Impact-Manifest: generated from git diff
+Visual-Evidence: skipped: no visible frontend product delta`,
+        },
+      },
+    }),
+    /exactly one `Multica-Package/,
+  );
+
+  assert.throws(
+    () => buildDeliveryEvent({
+      eventName: "pull_request_review",
+      repository: "davifernan/excalidash",
+      payload: {
+        action: "submitted",
+        pull_request: {
+          number: 7,
+          head: { sha: FIX_SHA },
+          body: `Multica-Package: NIL-404
+Delivery-Slices: none
+Package-Session: not-a-session
+Impact-Manifest: generated from git diff
+Visual-Evidence: skipped: no visible frontend product delta`,
+        },
+        review: { id: 42, commit_id: SHA, user: { login: "the-hans-friedrich[bot]" } },
+      },
+    }),
+    /exactly one real `Package-Session/,
+  );
+});
+
 test("closed PR identity distinguishes merge state without weakening deduplication", () => {
   function closedEvent(merged) {
     return buildDeliveryEvent({

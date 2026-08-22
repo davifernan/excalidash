@@ -272,25 +272,39 @@ test("PR admission rejects drafts, bots, placeholders, and incomplete package bo
   );
 });
 
-test("the three ready-gate lines are compared character-for-character", () => {
+test("ready-gate labels stay exact while tolerating checked-case, suffixes, and right whitespace", () => {
   const altered = prBody({
     gates: [
       "- [x] Multica HANDOFF posted for this head",
-      "- [x] Local verification complete",
-      "- [x] Ready for Hans-Friedrich",
+      "- [X] Local verification complete",
+      "- [x] Ready for Hans-Friedrich ",
     ],
   });
   const result = checkPrAdmission({ body: altered, impactManifest: impact([]) });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.code, "ready-gate");
-  assert.match(result.message, /- \[x\] Multica HANDOFF posted/);
+  assert.equal(result.code, "ready");
 
-  const changedCase = checkPrAdmission({
+  const changedLabelCase = checkPrAdmission({
     body: prBody().replace("Multica HANDOFF posted", "Multica Handoff posted"),
     impactManifest: impact([]),
   });
-  assert.equal(changedCase.code, "ready-gate");
+  assert.equal(changedLabelCase.code, "ready-gate");
+  assert.match(changedLabelCase.message, /exact label/);
+
+  const unchecked = checkPrAdmission({
+    body: prBody().replace("- [x] Local verification", "- [ ] Local verification"),
+    impactManifest: impact([]),
+  });
+  assert.equal(unchecked.code, "ready-gate");
+
+  const semanticAlias = checkPrAdmission({
+    body: prBody().replace(
+      "Ready for Hans-Friedrich",
+      "Hans-Friedrich completed the one general review",
+    ),
+    impactManifest: impact([]),
+  });
+  assert.equal(semanticAlias.code, "ready-gate");
 });
 
 test("frontend product admission rejects a visual-evidence skip", () => {

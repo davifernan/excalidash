@@ -544,11 +544,10 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
 }
 
 function parseOptionalPrDeliveryContract(body) {
-  try {
-    return parsePrDeliveryContract(body);
-  } catch {
-    return null;
-  }
+  const text = body || "";
+  const hasDeliveryField = /^(?:Multica-Package|Delivery-Slices|Package-Session|Impact-Manifest|Visual-Evidence):/im
+    .test(text);
+  return hasDeliveryField ? parsePrDeliveryContract(text) : null;
 }
 
 async function main() {

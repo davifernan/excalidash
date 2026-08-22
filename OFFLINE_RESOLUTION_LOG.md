@@ -1,12 +1,12 @@
 # Offline Resolution Log
 
-Bundle: `ZimengXiong/ExcaliDash` offline export generated 2026-05-22. All work was local in `repository/`; no GitHub comments, commits, pushes, or PRs were created.
+Bundle: `ZimengXiong/ExcaliDash` offline export generated 2026-05-22. All work was local in `repository/`; no GitHub comments, commits, pushes, or PRs were created. This file is a historical snapshot, not a statement of current repository policy; Delivery v2 removed the line-count gate.
 
 ## Artifact/patch format
 
 - Patch format: unified Git diff from the bundled repository `HEAD` to this local working tree.
 - Human log format: Markdown tables for each open issue and open PR, with local disposition, closure work, primary files, validation, and risk.
-- Line-count rule: `scripts/check-source-line-count.cjs` enforces `MAX_SOURCE_LINES` or 399 by default; there are no legacy exceptions.
+- Historical line-count rule at bundle resolution time: `scripts/check-source-line-count.cjs` enforced `MAX_SOURCE_LINES` or 399 by default; Delivery v2 later removed that script and rule.
 
 ## Open issue disposition
 
@@ -69,9 +69,9 @@ Bundle: `ZimengXiong/ExcaliDash` offline export generated 2026-05-22. All work w
 
 | Command | Result |
 |---|---|
-| `node scripts/check-source-line-count.cjs` | passed after README/test split: 272 files checked; max 399; no legacy exceptions |
-| `npm --prefix backend run check:max-lines` | passed: 272 files checked; max 399; no legacy exceptions |
-| `npm --prefix frontend run check:max-lines` | passed: 272 files checked; max 399; no legacy exceptions |
+| `node scripts/check-source-line-count.cjs` (historical; removed by Delivery v2) | passed after README/test split: 272 files checked; max 399; no legacy exceptions |
+| `npm --prefix backend run check:max-lines` (historical; removed by Delivery v2) | passed: 272 files checked; max 399; no legacy exceptions |
+| `npm --prefix frontend run check:max-lines` (historical; removed by Delivery v2) | passed: 272 files checked; max 399; no legacy exceptions |
 | `cd frontend && npx tsc -b` | passed |
 | `cd frontend && npx vitest run --reporter=verbose` | passed: 16 files / 66 tests |
 | `make help` | passed |
@@ -196,7 +196,7 @@ Bundle: `ZimengXiong/ExcaliDash` offline export generated 2026-05-22. All work w
 - `frontend/src/utils/importUtils.ts`
 - `frontend/src/utils/passwordPolicy.ts`
 - `make/release.mk`
-- `scripts/check-source-line-count.cjs`
+- `scripts/check-source-line-count.cjs` (historical; removed by Delivery v2)
 
 ## Recommended commit grouping
 
