@@ -7,13 +7,17 @@ const {
   buildDeliveryEvent,
   admitCommitContracts,
   checkCommitContracts,
+  checkFixVerificationCoverage,
   checkPrAdmission,
   checkReviewedHead,
+  parseFixVerificationMarker,
   validateHansReview,
 } = require("./delivery-contracts.cjs");
 
 const SHA = "a".repeat(40);
 const FIX_SHA = "b".repeat(40);
+const NEXT_SHA = "c".repeat(40);
+const TEST_BLOB_SHA = "d".repeat(40);
 const NILO_IDENTITY = "Nilo <127136134+davifernan@users.noreply.github.com>";
 
 function readyBody(extra = "") {
@@ -46,6 +50,45 @@ function review(body = marker()) {
     user: { login: "the-hans-friedrich[bot]" },
     body,
     submitted_at: "2026-08-22T17:00:00Z",
+  };
+}
+
+function fixVerificationMarker(overrides = {}) {
+  const value = {
+    schema: 1,
+    from_sha: SHA,
+    to_sha: FIX_SHA,
+    evidence_type: "objective-red-green",
+    finding: {
+      id: "PR-12-R123",
+      url: "https://github.com/davifernan/excalidash/pull/12#discussion_r123",
+    },
+    recorded_by: { role: "pr-overseer", actor: "davi" },
+    recipe: {
+      kind: "test",
+      command: "node --test scripts/delivery-contracts.test.cjs",
+      instrument: {
+        path: "scripts/delivery-contracts.test.cjs",
+        blob_sha: TEST_BLOB_SHA,
+      },
+      from: {
+        exit_code: 1,
+        assertion: "the exact recorded SHA delta must be covered",
+        output: "AssertionError: the exact recorded SHA delta must be covered; false !== true",
+      },
+      to: { exit_code: 0, output: "tests 1; pass 1; fail 0" },
+    },
+    ...overrides,
+  };
+  return `<!-- excalidash-fix-verification:v1\n${JSON.stringify(value)}\n-->`;
+}
+
+function fixVerificationComment(overrides = {}) {
+  return {
+    id: 99,
+    user: { login: "davi" },
+    created_at: "2026-08-22T20:00:00Z",
+    body: fixVerificationMarker(overrides),
   };
 }
 
@@ -285,6 +328,129 @@ test("reviewed-head check rejects a marker that disagrees with its review record
         comments: [],
       }),
     /No valid Hans review with an excalidash-review:v1 marker exists for this PR/,
+  );
+});
+
+test("an exact recorded fix delta is machine-readably covered", () => {
+  const result = checkFixVerificationCoverage({
+    fromSha: SHA,
+    toSha: FIX_SHA,
+    comments: [fixVerificationComment()],
+  });
+
+  assert.equal(result.covered, true, "the exact recorded SHA delta must be covered");
+  assert.equal(result.record.evidenceType, "objective-red-green");
+  assert.equal(result.record.finding.id, "PR-12-R123");
+  assert.equal(result.record.recordedBy.actor, "davi");
+});
+
+test("a missing record and a push beyond the recorded fix are uncovered", () => {
+  assert.deepEqual(
+    checkFixVerificationCoverage({ fromSha: SHA, toSha: FIX_SHA, comments: [] }),
+    {
+      covered: false,
+      code: "uncovered",
+      fromSha: SHA,
+      toSha: FIX_SHA,
+      invalidRecords: 0,
+    },
+  );
+
+  const pushedResult = checkFixVerificationCoverage({
+    fromSha: SHA,
+    toSha: NEXT_SHA,
+    comments: [fixVerificationComment()],
+  });
+  assert.equal(pushedResult?.covered, false);
+  assert.equal(pushedResult?.code, "uncovered");
+});
+
+test("fix-verification test recipes bind the instrument and both observations", () => {
+  const parsed = parseFixVerificationMarker(fixVerificationMarker());
+  assert.equal(parsed?.recipe.instrument.blob_sha, TEST_BLOB_SHA);
+  assert.equal(parsed?.recipe.from.exit_code, 1);
+  assert.match(parsed?.recipe.from.output, /AssertionError/);
+  assert.equal(parsed?.recipe.to.exit_code, 0);
+
+  const withoutInstrumentHash = JSON.parse(
+    /<!-- excalidash-fix-verification:v1\s*([\s\S]*?)\s*-->/m.exec(
+      fixVerificationMarker(),
+    )[1],
+  );
+  delete withoutInstrumentHash.recipe.instrument.blob_sha;
+  assert.throws(
+    () => parseFixVerificationMarker(
+      `<!-- excalidash-fix-verification:v1\n${JSON.stringify(withoutInstrumentHash)}\n-->`,
+    ),
+    /does not satisfy schema version 1/,
+  );
+});
+
+test("configuration recipes describe the varied key without inventing a test file", () => {
+  const recipe = {
+    kind: "configuration",
+    command: "docker compose -f docker-compose.prod.yml config",
+    subject: {
+      key: "services.backend.image",
+      from_value: "zimengxiong/excalidash-backend:latest",
+      to_value: "zimengxiong/excalidash-backend:0.4.18",
+    },
+    from: { exit_code: 0, output: "image: zimengxiong/excalidash-backend:latest" },
+    to: { exit_code: 0, output: "image: zimengxiong/excalidash-backend:0.4.18" },
+  };
+  const parsed = parseFixVerificationMarker(
+    fixVerificationMarker({ recipe }),
+  );
+  assert.equal(parsed?.recipe.kind, "configuration");
+  assert.equal(parsed?.recipe.subject.key, "services.backend.image");
+});
+
+test("a finding verifier can record the same reproducible schema", () => {
+  const parsed = parseFixVerificationMarker(
+    fixVerificationMarker({
+      evidence_type: "finding-verification",
+      recorded_by: { role: "finding-verifier", actor: "finding-verifier[bot]" },
+    }),
+  );
+
+  assert.equal(parsed.evidence_type, "finding-verification");
+  assert.equal(parsed.recorded_by.role, "finding-verifier");
+});
+
+test("coverage ignores malformed or falsely attributed records", () => {
+  const malformed = fixVerificationComment({
+    recipe: {
+      kind: "test",
+      command: "node --test test.cjs",
+      instrument: { path: "test.cjs" },
+      from: {
+        exit_code: 1,
+        assertion: "expected old behavior",
+        output: "AssertionError: expected old behavior",
+      },
+      to: { exit_code: 0, output: "pass" },
+    },
+  });
+  const falseAttribution = {
+    ...fixVerificationComment(),
+    id: 100,
+    user: { login: "someone-else" },
+  };
+  const ordinaryComment = { id: 101, user: { login: "davi" }, body: "Looks good." };
+
+  assert.deepEqual(
+    checkFixVerificationCoverage({
+      fromSha: SHA,
+      toSha: FIX_SHA,
+      comments: [ordinaryComment, malformed, falseAttribution],
+    }),
+    {
+      covered: false,
+      code: "uncovered",
+      fromSha: SHA,
+      toSha: FIX_SHA,
+      invalidRecords: 2,
+    },
   );
 });
 
