@@ -121,6 +121,8 @@ describe("link preview caching and admission", () => {
     expect(Math.abs(observed[0].delay - observed[1].delay)).toBeLessThanOrEqual(50);
     expect(warnings.join("\n")).toContain("SSRF_BLOCKED");
     expect(warnings.join("\n")).toContain("NETWORK_ERROR");
+    expect(warnings.join("\n")).not.toContain("0.example.test");
+    expect(warnings.join("\n")).not.toContain("private address");
   });
 
   it("really waits, rather than reporting a wait it never took", async () => {
@@ -144,7 +146,7 @@ describe("link preview caching and admission", () => {
     expect(elapsed).toBeGreaterThanOrEqual(1_500);
   }, 10_000);
 
-  it("coalesces concurrent requests for the same address", async () => {
+  it("coalesces concurrent requests for the same actor and address", async () => {
     const prisma = fakePreviewPrisma();
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
@@ -166,11 +168,38 @@ describe("link preview caching and admission", () => {
       fetchResource,
     });
     const first = getPreview("user-1", "https://example.com");
-    const second = getPreview("user-2", "https://example.com");
+    const second = getPreview("user-1", "https://example.com");
     await vi.waitFor(() => expect(fetchResource).toHaveBeenCalledTimes(1));
     release();
     await Promise.all([first, second]);
     expect(fetchResource).toHaveBeenCalledTimes(1);
+  });
+
+  it("isolates the persistent cache between actors", async () => {
+    const prisma = fakePreviewPrisma();
+    const fetchResource = vi.fn().mockResolvedValue({
+      body: Buffer.from(
+        '<head><title>Private timing</title><link rel="icon" href="data:,none"></head>',
+      ),
+      finalUrl: new URL("https://example.com"),
+      contentType: "text/html",
+      headers: {},
+    });
+    const getPreview = createLinkPreviewService({
+      prisma,
+      storageDir: "/unused",
+      config,
+      fetchResource,
+    });
+
+    await getPreview("user-1", "https://example.com");
+    await getPreview("user-2", "https://example.com");
+
+    expect(fetchResource).toHaveBeenCalledTimes(2);
+    expect([...prisma.rows.values()].map((row: any) => row.ownerUserId).sort()).toEqual([
+      "user-1",
+      "user-2",
+    ]);
   });
 
   it("limits simultaneous preview work per user", async () => {
