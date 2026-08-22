@@ -20,6 +20,7 @@ import {
 } from "./workshopTimer";
 import { useDocumentPageSharing } from "./useDocumentPageSharing";
 import { bindInviteHere, type InviteHereStatus, type ViewportInvitation } from "./inviteHere";
+import { bindSocketDrawingName } from "./drawingName";
 export type { Peer } from "./socketCollaborators";
 
 type UseEditorCollaborationInput = {
@@ -35,6 +36,7 @@ type UseEditorCollaborationInput = {
   computeElementOrderSig: (elements: readonly any[]) => string;
   recordElementVersion: (element: any) => void;
   onAccessDenied: () => void;
+  onDrawingNameChange: (name: string) => void;
 };
 
 const getSocketUrl = () =>
@@ -57,6 +59,7 @@ export const useEditorCollaboration = ({
   computeElementOrderSig,
   recordElementVersion,
   onAccessDenied,
+  onDrawingNameChange,
 }: UseEditorCollaborationInput) => {
   const [peers, setPeers] = useState<Peer[]>([]);
   // Ref because it outlives renders; the draft is state because React draws it.
@@ -130,6 +133,11 @@ export const useEditorCollaboration = ({
       socket,
       drawingId,
       onChange: setWorkshopTimerSnapshot,
+    });
+    const drawingName = bindSocketDrawingName({
+      socket,
+      drawingId,
+      onChange: onDrawingNameChange,
     });
     const sharedPages = documentPageSharing.bind(socket);
     const inviteHereController = bindInviteHere({
@@ -342,6 +350,7 @@ export const useEditorCollaboration = ({
       collaborators.dispose();
       remoteSelection.dispose();
       workshopTimer.dispose();
+      drawingName.dispose();
       sharedPages.dispose();
       inviteHereController.dispose();
       if (inviteHereRef.current === inviteHereController) inviteHereRef.current = null;
@@ -371,6 +380,7 @@ export const useEditorCollaboration = ({
     computeElementOrderSig,
     recordElementVersion,
     onAccessDenied,
+    onDrawingNameChange,
     shareToken,
   ]);
   const onPointerUpdate = useCallback(

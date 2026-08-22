@@ -73,6 +73,8 @@ model Drawing {
   files           String              @default("{}")
   preview         String?
   version         Int                 @default(1)
+  /// Monotonic ordering marker for persisted name snapshots and broadcasts.
+  nameRevision    Int                 @default(1)
   /// Who controls the board: shares it, moves it, deletes it, and carries its
   /// storage quota. For a board drawn inside someone else's collection this is
   /// the collection's owner, not the person who drew it.

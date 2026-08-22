@@ -57,6 +57,7 @@ import {
 } from "./socketSelection";
 import { registerCursorChatRoomEvent, CURSOR_CHAT_LIMITS } from "./socketCursorChat";
 import { createWorkshopTimerManager, registerWorkshopTimerRoomEvent } from "./socketWorkshopTimer";
+import { DRAWING_NAME_EVENT, loadDrawingNameSnapshot } from "./socketDrawingName";
 import {
   createDocumentPageManager,
   DOCUMENT_PAGE_EVENT,
@@ -468,6 +469,9 @@ export const registerSocketHandlers = ({
         emitPresence(drawingId);
         socket.emit(SELECTION_SNAPSHOT_EVENT, presences.selectionSnapshot(drawingId));
         socket.emit("workshop-timer-update", workshopTimers.snapshot(drawingId));
+        const drawingNameSnapshot = await loadDrawingNameSnapshot({ prisma, drawingId });
+        if (!isCurrentJoin()) return;
+        if (drawingNameSnapshot) socket.emit(DRAWING_NAME_EVENT, drawingNameSnapshot);
         // Somebody arriving mid-meeting should see the page the room is on,
         // not page one. Sent only to this socket; nobody else has to repaint.
         documentPages

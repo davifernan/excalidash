@@ -17,6 +17,7 @@ import {
 } from "../../assets/documentWidgetState";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
+import { publishDrawingName } from "../../server/socketDrawingName";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -40,6 +41,7 @@ export const registerDrawingCreateUpdateRoutes = (
     getShareToken,
     respondWithAuthErrorIfPresent,
     collaborationAccess,
+    io,
   } = context;
   app.post(
     "/drawings",
@@ -207,7 +209,10 @@ export const registerDrawingCreateUpdateRoutes = (
       }
       const data: Prisma.DrawingUpdateInput = isSceneUpdate ? { version: { increment: 1 } } : {};
 
-      if (payload.name !== undefined) data.name = payload.name;
+      if (payload.name !== undefined) {
+        data.name = payload.name;
+        data.nameRevision = { increment: 1 };
+      }
       if (payload.elements !== undefined) data.elements = JSON.stringify(payload.elements);
       if (payload.appState !== undefined) data.appState = JSON.stringify(payload.appState);
       let processedFilesForUpdate: Record<string, unknown> | undefined;
@@ -336,6 +341,14 @@ export const registerDrawingCreateUpdateRoutes = (
       // otherwise keep receiving the board until the periodic sweep caught up.
       if (payload.collectionId !== undefined) {
         await collaborationAccess.recheckDrawingAccess(id);
+      }
+      if (payload.name !== undefined) {
+        publishDrawingName({
+          io,
+          drawingId: id,
+          name: updatedDrawing.name,
+          revision: updatedDrawing.nameRevision,
+        });
       }
 
       return res.json({

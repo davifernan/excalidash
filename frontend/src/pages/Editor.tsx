@@ -119,6 +119,7 @@ export const Editor: React.FC = () => {
     computeElementOrderSig,
     recordElementVersion,
     onAccessDenied: handleSocketAccessDenied,
+    onDrawingNameChange: setDrawingName,
   });
   useLibraryImportFromUrl({ excalidrawAPIRef: excalidrawAPI, isReady, user });
   const persistenceRefs = React.useMemo(

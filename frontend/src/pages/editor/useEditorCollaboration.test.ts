@@ -100,6 +100,7 @@ describe("editor collaboration reconnect state", () => {
         computeElementOrderSig: () => "order",
         recordElementVersion: vi.fn(),
         onAccessDenied: vi.fn(),
+        onDrawingNameChange: vi.fn(),
       }),
     );
 
