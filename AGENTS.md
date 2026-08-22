@@ -25,65 +25,94 @@ Multica.
 - Small commits are still required for reviewability; "no transition layer" does not mean
   "one giant change".
 
-### Claiming a Multica issue
+### Delivery v2 execution units
+
+- An issue is dispatchable only when metadata has `pipeline_schema_version=2`,
+  `execution_unit=true`, and `delivery_model=ownership_package`.
+- An Acceptance Slice has `execution_unit=false` and `delivery_model=acceptance_slice`. It is
+  acceptance bookkeeping inside its parent package, never a separate agent assignment,
+  claim, branch, worktree, or run.
+- Route every proposed implementation dispatch through `node scripts/delivery-v2.cjs route`
+  before assigning or starting it. A stable event ID is mandatory; the returned idempotency
+  key prevents the same routing event from starting twice.
+- `package_dispatch` claims an unowned package once. Later `owner_resume`, `finding_fix`, and
+  `qa_followup` events must name the recorded `package_owner_session_id`. Ordinary comments
+  never create implementer runs.
+- The whole system retains a maximum capacity of twelve active sessions. This is a ceiling,
+  not a parallelism target.
+
+### Claiming an Ownership Package
 
 Before changing files, an implementation agent must:
 
-1. Read the parent epic, all earlier-stage dependencies, and linked architecture documents.
-2. Confirm that dependencies are done and no other active session owns the same issue or
-   overlapping files.
-3. Set the issue to `in_progress`.
-4. Add a Multica comment containing the real session ID, agent/runtime, branch, worktree,
-   intended scope, likely files, and dependencies. Never invent a session ID.
+1. Read the package body, every Acceptance Slice, properties, labels, comments, parent epic,
+   earlier-stage dependencies, and linked architecture documents.
+2. Confirm that dependencies are done and no other active package session owns the same
+   package or overlapping files/contracts.
+3. Create one long-lived package worktree. The worktree survives serial PRs; each PR gets a
+   fresh `feat/nil-NNN-slug` or `fix/nil-NNN-slug` branch from current `main` in that worktree.
+4. Set the package to `in_progress` and atomically record `package_owner_agent_id`,
+   `package_owner_session_id`, `package_worktree`, `current_slice`, and
+   `package_status=implementing`.
+5. Add the `PACKAGE CLAIM` comment below before the first file change. Session and run IDs
+   must be real.
 
 Use this comment shape:
 
 ```text
-CLAIM
+PACKAGE CLAIM
 Session: <real-session-id>
+Run: <real-run-id>
 Agent/runtime: <agent and runtime>
 Branch: <branch>
 Worktree: <absolute path>
-Scope: <what this session will change>
+Package scope: <the complete package outcome across all planned PRs>
+Current slice/PR: <current coherent delivery slice and PR number>
 Likely files: <paths or subsystems>
 Dependencies checked: <issue IDs>
 Coordination: contact this session before changing the same contract or files
 ```
 
-The session ID is the coordination address. If another agent depends on the work or finds an
-overlap, it comments on the issue and messages that session directly when the runtime supports
-peer messaging.
+The session ID and package worktree are the durable coordination address across multiple PRs.
+If another agent depends on the work or finds an overlap, it comments on the package and
+messages that owner session directly when the runtime supports peer messaging.
 
 ### While working
 
-- One implementation issue has one owning session. Split independent work into child issues
-  instead of letting several agents silently edit the same scope.
-- Work in an issue-specific Git worktree and branch (`feat/nil-NNN-slug` or
-  `fix/nil-NNN-slug`).
+- One Ownership Package has one canonical owner session and one long-lived worktree. Never
+  assign, claim, or dispatch its Acceptance Slices.
+- Keep serial PRs coherent: split at an independent product decision, risk model, or
+  review/QA boundary, not at a line count or forecast PR count.
+- Before starting the next PR, update the package's `current_slice` and create its new branch
+  from current `main` in the same package worktree.
 - Record scope changes, newly discovered dependencies, contract changes, and blockers as
-  issue comments immediately.
+  package comments immediately.
 - A blocked issue must state the exact missing decision or dependency. Use `blocked`; use a
   custom waiting status only when the named person/action is genuinely the sole next step.
 - Multica does not protect custom-status deletion: an issue keeps the deleted key as a ghost
   status. Before deleting any custom status, list and reassign every issue using it, verify the
   usage count is zero, and only then delete the status definition.
 - Agents must not expand a shared adapter or protocol contract without coordinating with the
-  parent epic/integration session.
-- If a finding is real but out of scope, create or link a child/follow-up issue; do not hide it
-  in a final summary.
+  package owner and integration session.
+- Findings stay PR findings. Create a follow-up issue only for genuinely independent roadmap
+  scope; never turn an Acceptance Slice into a separately dispatched fix task.
 
 ### Handoff and review
 
-Before moving an issue to `in_review`, add a handoff comment:
+Before marking each PR ready, add a handoff comment to the primary package:
 
 ```text
 HANDOFF
 Session: <real-session-id>
-Branch/commit: <branch and commit IDs>
+Run: <real-run-id>
+PR/final head: <URL and exact SHA>
+Delivery Slices: <identifiers or none>
+Branch/commits: <branch and commit IDs>
 Outcome: <observable result>
 Files/contracts changed: <paths and APIs>
 Verification: <exact commands and results>
 Deliberately triggered failures: <evidence>
+Visual evidence: <attachments with scenario/viewport/expectation, or exact skip reason>
 Remaining risks/non-goals: <explicit list>
 Review focus: <what an independent reviewer should attack>
 ```
@@ -93,16 +122,19 @@ Review focus: <what an independent reviewer should attack>
   adversarial review from a different session.
 - UI behavior receives real browser coverage and visual inspection at the relevant viewport;
   unit tests alone do not close it.
-- The issue reaches `done` only after acceptance criteria, independent review, and required
-  integration tests pass. Context epics reach `done` only when every required child and exit
-  criterion is complete.
+- A package reaches `done` only after its Acceptance Slices, package exit criteria,
+  independent review, required integration tests, and package-completion Release QA pass.
+  Context epics reach `done` only when every required package and exit criterion is complete.
 
 ### Pull request delivery protocol
 
-- GitHub `main` is the single integration base. Create issue branches from its current local
-  remote-tracking ref; do not create a parallel integration history.
+- GitHub `main` is the single integration base. Create each PR branch from its current local
+  remote-tracking ref in the package worktree; do not create a parallel integration history.
 - Open work-in-progress pull requests as drafts. Before marking a PR ready, post the Multica
-  `HANDOFF`, finish local verification, and complete the PR template's ready gate.
+  package `HANDOFF`, finish local verification, and complete the PR template's ready gate.
+- A PR body names exactly one `Multica-Package`, the completed `Delivery-Slices`, the canonical
+  `Package-Session`, and its diff-derived impact/visual-evidence decision. The three primary
+  ready-gate lines in the template are literal protocol text and may not be rewritten.
 - A ready PR freezes its intended scope. Hans-Friedrich performs exactly one general review of
   that ready head. Do not push while that review is running.
 - Hans-Friedrich is the only default code reviewer. The PR Overseer coordinates state and
@@ -122,6 +154,25 @@ Review focus: <what an independent reviewer should attack>
   `INTEGRATED` in Multica.
 - Detailed findings live on GitHub. Multica receives the exact PR/head, result, finding links,
   owner, next action, and final integration SHA.
+
+### Impact manifests, visual evidence, and Release QA
+
+- Generate the impact manifest from `git diff base...head` with
+  `node scripts/delivery-v2.cjs impact`. Labels are hints; the actual diff wins every conflict.
+- A visible frontend product delta requires final-head browser inspection and screenshot
+  attachments on the package. Record scenario, viewport, and expected result for each image.
+- A test-only frontend delta runs its relevant tests and records exactly
+  `skipped: test-only frontend delta`. A non-visible delta records exactly
+  `skipped: no visible frontend product delta`.
+- Backend/operations-only work receives risk-appropriate API, security, data, failure,
+  deployment, retry, or reconnect verification. It does not start a full browser, mobile, or
+  screenshot matrix; use a small browser smoke only for a UI-consumed contract.
+- Release QA always compares `last_qa_sha..current_main_sha`. It is required at package
+  completion, after three integrations since the anchor, immediately after High Risk, and
+  before a release/deployment tag. Use `node scripts/delivery-v2.cjs release-qa` to plan it.
+- Release QA writes one `RELEASE QA` package comment and updates `last_qa_sha`,
+  `last_qa_result`, and `last_qa_frontend`. Attach screenshots to that package comment when
+  the range contains a visible frontend product delta. Do not create a QA-ticket swarm.
 
 ### Integration ownership
 
@@ -288,6 +339,8 @@ Understand runtime first, then touch code with local tests if requested.
 - `docker-compose.yml`: local compose setup for source builds.
 - `docker-compose.prod.yml`: production-style compose using published images.
 - `Makefile`: repo-wide orchestration commands.
+- `scripts/delivery-v2.cjs`: package/slice routing, PR admission, impact, visual-evidence, and
+  Release-QA planning contracts.
 - `README.md`: user-facing installation and operational docs.
 - `VERSION`: version string used in builds.
   - Local OIDC helper: `docker-compose.oidc.yml` + `oidc/keycloak/realm-excalidash.json` (Keycloak container + realm seed; no users/passwords committed)
