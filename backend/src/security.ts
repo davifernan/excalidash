@@ -5,6 +5,7 @@ import { z } from "zod";
 import DOMPurify from "dompurify";
 import { JSDOM } from "jsdom";
 import crypto from "crypto";
+import { SOCKET_LIMITS } from "./limits";
 const window = new JSDOM("").window;
 const purify = DOMPurify(window);
 /**
@@ -34,7 +35,7 @@ export class DrawingDataValidationError extends Error {
   }
 }
 
-const defaultConfig: SecurityConfig = { maxDataUrlSize: 10 * 1024 * 1024 };
+const defaultConfig: SecurityConfig = { maxDataUrlSize: SOCKET_LIMITS.fileDataUrlLength };
 let activeConfig: SecurityConfig = { ...defaultConfig };
 /**
  * Configure security settings

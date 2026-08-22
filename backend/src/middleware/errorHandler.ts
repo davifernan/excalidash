@@ -8,6 +8,7 @@ import { config } from "../config";
 export interface AppError extends Error {
   statusCode?: number;
   isOperational?: boolean;
+  code?: string;
 }
 
 /**
@@ -20,6 +21,14 @@ export const errorHandler = (
   res: Response,
   next: NextFunction,
 ): void => {
+  if (err.code === "LIMIT_FILE_SIZE") {
+    res.status(413).json({
+      code: "upload-too-large",
+      error: "Payload too large",
+      message: "The upload exceeds the configured backend limit.",
+    });
+    return;
+  }
   const statusCode = err.statusCode || 500;
   const isDevelopment = config.nodeEnv === "development";
 

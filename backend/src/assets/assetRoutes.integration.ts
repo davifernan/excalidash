@@ -406,6 +406,7 @@ describe("document routes", () => {
     it("limits text uploads independently of the PDF limit", async () => {
       const tooLarge = Buffer.alloc(2 * 1024 * 1024 + 1, 0x61);
       const res = await upload(tooLarge, "text/plain", "large.txt").expect(413);
+      expect(res.body.code).toBe("asset-too-large");
       expect(res.body.message).toContain("2 MB");
     });
 

@@ -79,6 +79,43 @@ describe("element-update transport limits", () => {
     ).toBeNull();
   });
 
+  it("answers an over-event but under-transport payload with a size reason", async () => {
+    const io = new FakeIo();
+    registerSocketHandlers({
+      io: io as any,
+      prisma: {
+        drawing: { findUnique: vi.fn().mockResolvedValue({ userId: BOOTSTRAP_USER_ID }) },
+        drawingLinkShare: { findFirst: vi.fn().mockResolvedValue(null) },
+      } as any,
+      authModeService: { getAuthEnabled: async () => false } as any,
+      jwtSecret: "test-secret",
+    });
+    const sender = await io.connect("sender");
+    await sender.trigger("join-room", { drawingId, user: {} });
+
+    const answers: unknown[] = [];
+    await sender.trigger(
+      "element-update",
+      {
+        drawingId,
+        elements: [fullRectangle(0)],
+        ignored: "x".repeat(SOCKET_LIMITS.elementUpdateBytes),
+      },
+      (value: unknown) => answers.push(value),
+    );
+
+    expect(answers).toEqual([
+      {
+        ok: false,
+        error: {
+          code: "payload-too-large",
+          message: "element-update exceeds the per-event byte limit",
+        },
+      },
+    ]);
+    expect(sender.disconnected).toBe(false);
+  });
+
   it("rejects an oversized individual element", () => {
     expect(
       parseElementUpdatePayload({

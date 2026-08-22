@@ -41,11 +41,13 @@ http {
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
         add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:;" always;
 
-        # A supported export can reach the backend's 2300 MB archive ceiling.
-        # One extra MB admits the multipart envelope. Raise the body limit only
-        # for these routes; ordinary API requests keep the smaller global limit.
+        # Upload bodies stream to the backend, which is the size authority and
+        # returns structured JSON rejections. Disabling nginx's second ceiling
+        # also means ASSET_MAX_UPLOAD_MB and IMPORT_MAX_ARCHIVE_MB can change
+        # without rebuilding the frontend image. Ordinary JSON stays at 50 MB.
         location = /api/import/excalidash {
-            client_max_body_size 2301M;
+            client_max_body_size 0;
+            proxy_request_buffering off;
             proxy_pass http://__BACKEND_URL__/import/excalidash;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
@@ -59,8 +61,58 @@ http {
         }
 
         location = /api/import/excalidash/verify {
-            client_max_body_size 2301M;
+            client_max_body_size 0;
+            proxy_request_buffering off;
             proxy_pass http://__BACKEND_URL__/import/excalidash/verify;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
+            client_body_buffer_size 128k;
+            proxy_connect_timeout 300s;
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+        }
+
+        location = /api/import/sqlite/legacy {
+            client_max_body_size 0;
+            proxy_request_buffering off;
+            proxy_pass http://__BACKEND_URL__/import/sqlite/legacy;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
+            client_body_buffer_size 128k;
+            proxy_connect_timeout 300s;
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+        }
+
+        location = /api/import/sqlite/legacy/verify {
+            client_max_body_size 0;
+            proxy_request_buffering off;
+            proxy_pass http://__BACKEND_URL__/import/sqlite/legacy/verify;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
+            client_body_buffer_size 128k;
+            proxy_connect_timeout 300s;
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+        }
+
+        # The raw asset body is also counted while the backend writes staging.
+        # This regex is anchored so reads and unrelated drawing APIs retain the
+        # ordinary 50 MB nginx ceiling.
+        location ~ ^/api/drawings/[^/]+/assets$ {
+            client_max_body_size 0;
+            proxy_request_buffering off;
+            rewrite ^/api/(.*)$ /$1 break;
+            proxy_pass http://__BACKEND_URL__;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
