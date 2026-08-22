@@ -123,10 +123,21 @@ export const useEditorBroadcast = ({
           elementOrderOmittedBytes:
             elementOrder && orderBytes > ELEMENT_ORDER_BYTE_LIMIT ? orderBytes : undefined,
         };
+        const scheduleDeliveryRetry = () => {
+          deliveryRetryArgsRef.current = [normalizedElements, nextFiles];
+          if (deliveryRetryTimeoutRef.current !== null) return;
+          deliveryRetryTimeoutRef.current = window.setTimeout(() => {
+            deliveryRetryTimeoutRef.current = null;
+            const args = deliveryRetryArgsRef.current;
+            deliveryRetryArgsRef.current = null;
+            if (args) emitChangesRef.current(...args);
+          }, ELEMENT_UPDATE_RETRY_DELAY_MS);
+        };
         const acknowledge = (response: any) => {
           if (!response?.ok) {
             const message = response?.error?.message;
             if (typeof message === "string") toast.error(message);
+            if (response?.error?.code === "rate-limited") scheduleDeliveryRetry();
             return;
           }
           changes.forEach((element) => recordElementVersion(element));
@@ -149,14 +160,7 @@ export const useEditorBroadcast = ({
                 acknowledge(response);
                 return;
               }
-              deliveryRetryArgsRef.current = [normalizedElements, nextFiles];
-              if (deliveryRetryTimeoutRef.current !== null) return;
-              deliveryRetryTimeoutRef.current = window.setTimeout(() => {
-                deliveryRetryTimeoutRef.current = null;
-                const args = deliveryRetryArgsRef.current;
-                deliveryRetryArgsRef.current = null;
-                if (args) emitChangesRef.current(...args);
-              }, ELEMENT_UPDATE_RETRY_DELAY_MS);
+              scheduleDeliveryRetry();
             });
         } else {
           socket.emit("element-update", payload, acknowledge);

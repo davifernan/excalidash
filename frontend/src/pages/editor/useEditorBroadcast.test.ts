@@ -142,6 +142,59 @@ describe("editor broadcast delivery tracking", () => {
     vi.useRealTimers();
   });
 
+  it.each([
+    { code: "rate-limited", expectedEmits: 2 },
+    { code: "access-denied", expectedEmits: 1 },
+  ])("retries only retryable acknowledgement errors ($code)", ({ code, expectedEmits }) => {
+    vi.useFakeTimers();
+    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
+    const emit = vi.fn(
+      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
+        acknowledgements.push(ack);
+      },
+    );
+    const socket = {
+      timeout: vi.fn(() => ({ emit })),
+    };
+    const recordElementVersion = vi.fn();
+    const orderRef = ref("old-order");
+    const element = { id: "element-1", version: 2 };
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        excalidrawAPI: ref<any>({ getFiles: () => ({}) }),
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: orderRef,
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>(socket),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "new-order",
+        hasElementChanged: () => recordElementVersion.mock.calls.length === 0,
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion,
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => result.current([element], {}));
+    act(() =>
+      acknowledgements[0]?.(null, {
+        ok: false,
+        error: { code, message: `${code} response` },
+      }),
+    );
+    act(() => vi.advanceTimersByTime(1_000));
+
+    expect(emit).toHaveBeenCalledTimes(expectedEmits);
+    expect(recordElementVersion).not.toHaveBeenCalled();
+    expect(orderRef.current).toBe("old-order");
+    vi.useRealTimers();
+  });
+
   it("does not let deleted elements inflate ordering payloads", () => {
     let payload: any;
     const emit = vi.fn((_event: string, value: unknown) => {
