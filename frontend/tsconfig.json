@@ -1,4 +1,5 @@
 {
+  // Solution config: use `npm run typecheck` so TypeScript builds both referenced projects.
   "files": [],
   "references": [
     { "path": "./tsconfig.app.json" },
