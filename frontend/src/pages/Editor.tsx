@@ -156,7 +156,7 @@ export const Editor: React.FC = () => {
   const markSceneChangedSinceLoad = useCallback(() => {
     hasSceneChangesSinceLoadRef.current = true;
   }, []);
-  const broadcastChanges = useEditorBroadcast({
+  const { broadcastChanges, broadcastFiles } = useEditorBroadcast({
     drawingId: id,
     excalidrawAPI,
     lastLocalChangeAtRef,
@@ -185,8 +185,7 @@ export const Editor: React.FC = () => {
     latestElementsRef,
     latestFilesRef,
     setIsReady,
-    socketRef,
-    lastSyncedFilesRef,
+    broadcastFiles,
   });
   const sceneLoaderRefs = React.useMemo(
     () => ({

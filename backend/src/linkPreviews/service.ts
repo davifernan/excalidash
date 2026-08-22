@@ -72,7 +72,8 @@ function canonicalUrl(raw: string): URL {
   return url;
 }
 
-const cacheKeyFor = (url: URL): string => createHash("sha256").update(url.href).digest("hex");
+const cacheKeyFor = (userId: string, url: URL): string =>
+  createHash("sha256").update(userId).update("\0").update(url.href).digest("hex");
 
 function networkLimits(config: LinkPreviewConfig, kind: "page" | "image"): PreviewNetworkLimits {
   return {
@@ -244,12 +245,14 @@ async function buildPreview(deps: ServiceDeps, key: string, url: URL, userId: st
     );
   } catch (error) {
     const internalCode = error instanceof PreviewFetchError ? error.code : "FETCH_FAILED";
-    (deps.logger ?? console).warn(
-      `[link-preview] ${url.hostname} failed with ${internalCode}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    // The failure class is enough to operate the service. Target names,
+    // addresses, response bytes and exception text may contain user data or
+    // credentials and deliberately never enter logs.
+    (deps.logger ?? console).warn(`[link-preview] fetch failed with ${internalCode}`);
     // A private DNS answer, NXDOMAIN and a refused public connection must not
     // become a hostname/port oracle. They share one public code and one minimum
-    // response time; the detailed cause remains in the server log above.
+    // response time; only the non-sensitive failure class remains in the
+    // server log above.
     //
     // The floor is deliberately shorter than the total timeout. Every one of
     // those answers arrives within milliseconds, so a floor well above them
@@ -272,7 +275,7 @@ export function createLinkPreviewService(deps: ServiceDeps) {
 
   return async (userId: string, rawUrl: string): Promise<LinkPreviewResult> => {
     const url = canonicalUrl(rawUrl);
-    const key = cacheKeyFor(url);
+    const key = cacheKeyFor(userId, url);
     const cached = await freshCached(deps, key);
     if (cached) return publicResult(cached);
     const existing = inFlight.get(key);

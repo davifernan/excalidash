@@ -116,7 +116,7 @@ describe("bounded link preview cache", () => {
       config,
       fetchResource: vi.fn(async (url: URL, kind: string) => {
         if (kind === "html") {
-          const cacheKey = createHash("sha256").update(url.href).digest("hex");
+          const cacheKey = createHash("sha256").update("user-1\0").update(url.href).digest("hex");
           prisma.rows.set(cacheKey, {
             id: "racing-row",
             cacheKey,
@@ -124,7 +124,7 @@ describe("bounded link preview cache", () => {
             status: "READY",
             imageBlobId: "old-blob",
             faviconBlobId: null,
-            ownerUserId: "other-user",
+            ownerUserId: "user-1",
             lastAccessedAt: new Date(0),
             expiresAt: new Date(Date.now() + 60_000),
           });
