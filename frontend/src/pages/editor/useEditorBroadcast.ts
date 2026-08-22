@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { toast } from "sonner";
+import { splitFilesIntoUpdatePayloads, type ElementUpdatePayload } from "./elementUpdateDelivery";
 import { boardSettingsSignature, getFilesDelta, shouldSaveBoardSettings } from "./shared";
 
 const ELEMENT_ORDER_BYTE_LIMIT = 8 * 1024 * 1024;
@@ -42,6 +43,23 @@ type UseEditorBroadcastParams = {
   setHasSceneChangesSinceLoad: () => void;
 };
 
+type DeliveryPacket = {
+  payload: ElementUpdatePayload;
+  acknowledge: () => void;
+};
+
+type PendingUpdate = {
+  elements: readonly any[];
+  files?: Record<string, any>;
+  filesOnly: boolean;
+};
+
+type ElementUpdateAck = {
+  ok?: boolean;
+  error?: { code?: string; message?: string };
+  warning?: { code?: string; message?: string };
+};
+
 export const useEditorBroadcast = ({
   drawingId,
   excalidrawAPI,
@@ -60,136 +78,203 @@ export const useEditorBroadcast = ({
   recordElementVersion,
   setHasSceneChangesSinceLoad,
 }: UseEditorBroadcastParams) => {
-  const timeoutRef = useRef<number | null>(null);
-  const deliveryRetryTimeoutRef = useRef<number | null>(null);
-  const deliveryRetryArgsRef = useRef<[readonly any[], Record<string, any> | undefined] | null>(
-    null,
-  );
-  const emitChangesRef = useRef<
-    (elements: readonly any[], currentFiles?: Record<string, any>) => void
-  >(() => undefined);
+  const throttleTimeoutRef = useRef<number | null>(null);
+  const retryTimeoutRef = useRef<number | null>(null);
+  const deliveryGenerationRef = useRef(0);
+  const sendingRef = useRef(false);
+  const pendingUpdateRef = useRef<PendingUpdate | null>(null);
+  const queueUpdateRef = useRef<
+    (elements: readonly any[], files?: Record<string, any>, filesOnly?: boolean) => boolean
+  >(() => false);
   const lastRunAtRef = useRef(0);
   const trailingArgsRef = useRef<[readonly any[], Record<string, any> | undefined] | null>(null);
 
-  const emitChanges = useCallback(
-    (elements: readonly any[], currentFiles?: Record<string, any>) => {
-      if (!socketRef.current || !drawingId) return;
-      const changes: any[] = [];
-      const nextFiles = currentFiles || excalidrawAPI.current?.getFiles() || {};
-      const normalizedElements = normalizeImageElementStatus(elements, nextFiles);
-      const nextOrderSig = computeElementOrderSig(normalizedElements);
-      const shouldSyncOrder = nextOrderSig !== lastSyncedElementOrderSigRef.current;
-      normalizedElements.forEach((el) => {
-        if (hasElementChanged(el)) {
-          changes.push(el);
-        }
-      });
-      const filesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles);
-      const shouldSyncFiles = Object.keys(filesDelta).length > 0;
-      if (Object.keys(nextFiles || {}).length > 0) {
-        latestFilesRef.current = nextFiles;
-      }
-      // A board also remembers settings -- its background, its grid, whether it
-      // snaps. Those live in appState, not in any element, so a change to one of
-      // them produces no element, file or ordering difference and would reach
-      // the server nowhere.
-      //
-      // The baseline is set once the scene has hydrated, from the state
-      // Excalidraw itself reported. Treating "no baseline yet" as a change
-      // instead would make the first broadcast of every session write the board
-      // back unchanged -- bumping its version and its modified date for
-      // everybody, just because somebody opened it.
-      const settingsChanged = shouldSaveBoardSettings(
-        lastPersistedAppStateSigRef.current,
-        latestAppStateRef.current,
-      );
+  const deliverPackets = useCallback(
+    (packets: readonly DeliveryPacket[], onFinished: (delivered: boolean) => void) => {
+      const generation = deliveryGenerationRef.current;
+      let packetIndex = 0;
+      let finished = false;
 
-      if (changes.length > 0 || shouldSyncFiles || shouldSyncOrder) {
-        setHasSceneChangesSinceLoad();
-        lastLocalChangeAtRef.current = new Date().getTime();
-        const elementOrder = shouldSyncOrder
-          ? normalizedElements
-              .filter((el: any) => !el?.isDeleted)
-              .map((el: any) => el?.id)
-              .filter((id): id is string => Boolean(id))
-          : undefined;
-        const orderBytes = elementOrder ? elementOrderByteLength(elementOrder) : 0;
-        const payload = {
-          drawingId,
-          elements: changes.length > 0 ? changes : [],
-          files: shouldSyncFiles ? filesDelta : undefined,
-          elementOrder:
-            elementOrder && orderBytes <= ELEMENT_ORDER_BYTE_LIMIT ? elementOrder : undefined,
-          elementOrderOmittedBytes:
-            elementOrder && orderBytes > ELEMENT_ORDER_BYTE_LIMIT ? orderBytes : undefined,
-        };
-        const scheduleDeliveryRetry = () => {
-          deliveryRetryArgsRef.current = [normalizedElements, nextFiles];
-          if (deliveryRetryTimeoutRef.current !== null) return;
-          deliveryRetryTimeoutRef.current = window.setTimeout(() => {
-            deliveryRetryTimeoutRef.current = null;
-            const args = deliveryRetryArgsRef.current;
-            deliveryRetryArgsRef.current = null;
-            if (args) emitChangesRef.current(...args);
+      const finish = (delivered: boolean) => {
+        if (finished || deliveryGenerationRef.current !== generation) return;
+        finished = true;
+        onFinished(delivered);
+      };
+
+      const sendCurrent = () => {
+        if (deliveryGenerationRef.current !== generation) return;
+        const packet = packets[packetIndex];
+        if (!packet) {
+          finish(true);
+          return;
+        }
+        const socket = socketRef.current;
+        if (!socket) {
+          retryTimeoutRef.current = window.setTimeout(() => {
+            retryTimeoutRef.current = null;
+            sendCurrent();
           }, ELEMENT_UPDATE_RETRY_DELAY_MS);
-        };
-        const acknowledge = (response: any) => {
+          return;
+        }
+
+        let attemptSettled = false;
+        const acknowledge = (transportError: unknown, response?: ElementUpdateAck) => {
+          if (attemptSettled || deliveryGenerationRef.current !== generation) return;
+          attemptSettled = true;
+          if (transportError || response?.error?.code === "rate-limited") {
+            const message = response?.error?.message;
+            if (typeof message === "string") toast.error(message);
+            retryTimeoutRef.current = window.setTimeout(() => {
+              retryTimeoutRef.current = null;
+              sendCurrent();
+            }, ELEMENT_UPDATE_RETRY_DELAY_MS);
+            return;
+          }
           if (!response?.ok) {
             const message = response?.error?.message;
             if (typeof message === "string") toast.error(message);
-            if (response?.error?.code === "rate-limited") scheduleDeliveryRetry();
+            finish(false);
             return;
           }
-          changes.forEach((element) => recordElementVersion(element));
-          if (shouldSyncOrder) lastSyncedElementOrderSigRef.current = nextOrderSig;
-          if (shouldSyncFiles) {
-            lastSyncedFilesRef.current = {
-              ...lastSyncedFilesRef.current,
-              ...filesDelta,
-            };
-          }
-          const warning = response?.warning?.message;
+
+          packet.acknowledge();
+          const warning = response.warning?.message;
           if (typeof warning === "string") toast.error(warning);
+          packetIndex += 1;
+          sendCurrent();
         };
-        const socket = socketRef.current;
+
         if (typeof socket.timeout === "function") {
           socket
             .timeout(ELEMENT_UPDATE_ACK_TIMEOUT_MS)
-            .emit("element-update", payload, (error: unknown, response: unknown) => {
-              if (!error) {
-                acknowledge(response);
-                return;
-              }
-              scheduleDeliveryRetry();
-            });
+            .emit("element-update", packet.payload, acknowledge);
         } else {
-          socket.emit("element-update", payload, acknowledge);
+          socket.emit("element-update", packet.payload, (response: ElementUpdateAck) =>
+            acknowledge(null, response),
+          );
         }
+      };
+
+      sendCurrent();
+    },
+    [socketRef],
+  );
+
+  const queueUpdate = useCallback(
+    (elements: readonly any[], currentFiles?: Record<string, any>, filesOnly = false): boolean => {
+      if (!socketRef.current || !drawingId) return false;
+      const nextFiles = currentFiles || excalidrawAPI.current?.getFiles() || {};
+      const filesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles);
+      const shouldSyncFiles = Object.keys(filesDelta).length > 0;
+      if (Object.keys(nextFiles).length > 0) latestFilesRef.current = nextFiles;
+
+      if (sendingRef.current) {
+        const pending = pendingUpdateRef.current;
+        pendingUpdateRef.current =
+          pending && !pending.filesOnly && filesOnly
+            ? { ...pending, files: nextFiles }
+            : { elements, files: nextFiles, filesOnly };
+        return shouldSyncFiles;
       }
 
-      if (changes.length > 0 || shouldSyncFiles || shouldSyncOrder || settingsChanged) {
+      const normalizedElements = filesOnly
+        ? elements
+        : normalizeImageElementStatus(elements, nextFiles);
+      const changes = filesOnly
+        ? []
+        : normalizedElements.filter((element) => hasElementChanged(element));
+      const nextOrderSig = filesOnly ? undefined : computeElementOrderSig(normalizedElements);
+      const shouldSyncOrder =
+        nextOrderSig !== undefined && nextOrderSig !== lastSyncedElementOrderSigRef.current;
+      const settingsChanged =
+        !filesOnly &&
+        shouldSaveBoardSettings(lastPersistedAppStateSigRef.current, latestAppStateRef.current);
+
+      const filePayloads = splitFilesIntoUpdatePayloads({ drawingId, files: filesDelta });
+      if (!filePayloads.ok) {
+        toast.error(
+          `File ${filePayloads.fileId} is too large for live collaboration (${filePayloads.payloadBytes} bytes)`,
+        );
+        return false;
+      }
+
+      const packets: DeliveryPacket[] = filePayloads.payloads.map((payload) => ({
+        payload,
+        acknowledge: () => {
+          lastSyncedFilesRef.current = {
+            ...lastSyncedFilesRef.current,
+            ...payload.files,
+          };
+        },
+      }));
+
+      if (changes.length > 0 || shouldSyncOrder) {
+        const elementOrder = shouldSyncOrder
+          ? normalizedElements
+              .filter((element: any) => !element?.isDeleted)
+              .map((element: any) => element?.id)
+              .filter((id): id is string => Boolean(id))
+          : undefined;
+        const orderBytes = elementOrder ? elementOrderByteLength(elementOrder) : 0;
+        packets.push({
+          payload: {
+            drawingId,
+            elements: changes,
+            elementOrder:
+              elementOrder && orderBytes <= ELEMENT_ORDER_BYTE_LIMIT ? elementOrder : undefined,
+            elementOrderOmittedBytes:
+              elementOrder && orderBytes > ELEMENT_ORDER_BYTE_LIMIT ? orderBytes : undefined,
+          },
+          acknowledge: () => {
+            changes.forEach((element) => recordElementVersion(element));
+            if (shouldSyncOrder && nextOrderSig !== undefined) {
+              lastSyncedElementOrderSigRef.current = nextOrderSig;
+            }
+          },
+        });
+      }
+
+      if (packets.length > 0) {
+        setHasSceneChangesSinceLoad();
+        lastLocalChangeAtRef.current = Date.now();
+      }
+
+      if (!filesOnly && (packets.length > 0 || settingsChanged)) {
         const appState = latestAppStateRef.current;
         if (appState) {
           if (settingsChanged) {
-            lastPersistedAppStateSigRef.current = boardSettingsSignature(latestAppStateRef.current);
+            lastPersistedAppStateSigRef.current = boardSettingsSignature(appState);
           }
           debouncedSave(drawingId, normalizedElements, appState, nextFiles);
           debouncedSavePreview(drawingId);
         }
       }
+
+      if (packets.length === 0) return false;
+      sendingRef.current = true;
+      deliverPackets(packets, (delivered) => {
+        sendingRef.current = false;
+        const pending = pendingUpdateRef.current;
+        pendingUpdateRef.current = null;
+        if (delivered && pending) {
+          queueUpdateRef.current(pending.elements, pending.files, pending.filesOnly);
+        }
+      });
+      return true;
     },
     [
       computeElementOrderSig,
       debouncedSave,
       debouncedSavePreview,
+      deliverPackets,
       drawingId,
       excalidrawAPI,
       hasElementChanged,
       lastLocalChangeAtRef,
+      lastPersistedAppStateSigRef,
       lastSyncedElementOrderSigRef,
       lastSyncedFilesRef,
       latestAppStateRef,
-      lastPersistedAppStateSigRef,
       latestFilesRef,
       normalizeImageElementStatus,
       recordElementVersion,
@@ -197,50 +282,56 @@ export const useEditorBroadcast = ({
       socketRef,
     ],
   );
-  emitChangesRef.current = emitChanges;
+  queueUpdateRef.current = queueUpdate;
 
   const broadcastChanges = useCallback(
     (elements: readonly any[], currentFiles?: Record<string, any>) => {
-      const now = new Date().getTime();
+      const now = Date.now();
       const elapsed = now - lastRunAtRef.current;
-
       if (elapsed >= 100) {
-        if (timeoutRef.current) {
-          window.clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
+        if (throttleTimeoutRef.current) {
+          window.clearTimeout(throttleTimeoutRef.current);
+          throttleTimeoutRef.current = null;
           trailingArgsRef.current = null;
         }
         lastRunAtRef.current = now;
-        emitChanges(elements, currentFiles);
+        queueUpdate(elements, currentFiles);
         return;
       }
 
       trailingArgsRef.current = [elements, currentFiles];
-      if (timeoutRef.current) return;
-
-      timeoutRef.current = window.setTimeout(() => {
-        timeoutRef.current = null;
+      if (throttleTimeoutRef.current) return;
+      throttleTimeoutRef.current = window.setTimeout(() => {
+        throttleTimeoutRef.current = null;
         const args = trailingArgsRef.current;
         trailingArgsRef.current = null;
         if (!args) return;
-        lastRunAtRef.current = new Date().getTime();
-        emitChanges(...args);
+        lastRunAtRef.current = Date.now();
+        queueUpdate(...args);
       }, 100 - elapsed);
     },
-    [emitChanges],
+    [queueUpdate],
+  );
+
+  const broadcastFiles = useCallback(
+    (files: Record<string, any>) => queueUpdate([], files, true),
+    [queueUpdate],
   );
 
   useEffect(
     () => () => {
-      if (timeoutRef.current) {
-        window.clearTimeout(timeoutRef.current);
+      deliveryGenerationRef.current += 1;
+      sendingRef.current = false;
+      pendingUpdateRef.current = null;
+      if (throttleTimeoutRef.current !== null) {
+        window.clearTimeout(throttleTimeoutRef.current);
       }
-      if (deliveryRetryTimeoutRef.current !== null) {
-        window.clearTimeout(deliveryRetryTimeoutRef.current);
+      if (retryTimeoutRef.current !== null) {
+        window.clearTimeout(retryTimeoutRef.current);
       }
     },
     [],
   );
 
-  return broadcastChanges;
+  return { broadcastChanges, broadcastFiles };
 };

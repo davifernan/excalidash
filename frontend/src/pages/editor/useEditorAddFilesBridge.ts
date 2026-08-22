@@ -1,5 +1,4 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
-import { getFilesDelta } from "./shared";
 
 type UseEditorAddFilesBridgeInput = {
   drawingId?: string;
@@ -20,8 +19,7 @@ type UseEditorAddFilesBridgeInput = {
   latestElementsRef: MutableRefObject<readonly any[]>;
   latestFilesRef: MutableRefObject<any>;
   setIsReady: (ready: boolean) => void;
-  socketRef: { current: any };
-  lastSyncedFilesRef: { current: Record<string, any> };
+  broadcastFiles: (files: Record<string, any>) => boolean;
 };
 
 /**
@@ -41,29 +39,15 @@ export const useEditorAddFilesBridge = ({
   latestElementsRef,
   latestFilesRef,
   setIsReady,
-  socketRef,
-  lastSyncedFilesRef,
+  broadcastFiles,
 }: UseEditorAddFilesBridgeInput) => {
   const patchedApisRef = useRef<WeakSet<object>>(new WeakSet());
-  // Sends only what the other side has not got yet. Kept here rather than in
-  // the broadcast hook because it belongs to the addFiles path: Excalidraw adds
-  // an image's bytes before the element that shows it, and the bytes have to be
-  // on their way first or peers render a hole.
   const emitFilesDeltaIfNeeded = useCallback(
     (nextFiles: Record<string, any>) => {
       latestFilesRef.current = nextFiles;
-      if (!socketRef.current || !drawingId) return false;
-      const filesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles || {});
-      if (Object.keys(filesDelta).length === 0) return false;
-      lastSyncedFilesRef.current = nextFiles;
-      socketRef.current.emit("element-update", {
-        drawingId,
-        elements: [],
-        files: filesDelta,
-      });
-      return true;
+      return broadcastFiles(nextFiles);
     },
-    [drawingId, lastSyncedFilesRef, latestFilesRef, socketRef],
+    [broadcastFiles, latestFilesRef],
   );
   const setExcalidrawAPI = useCallback(
     (api: any) => {

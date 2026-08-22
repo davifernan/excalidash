@@ -37,7 +37,7 @@ describe("editor broadcast delivery tracking", () => {
       }),
     );
 
-    act(() => result.current([element], {}));
+    act(() => result.current.broadcastChanges([element], {}));
 
     expect(recordElementVersion).not.toHaveBeenCalled();
     expect(orderRef.current).toBe("old-order");
@@ -81,10 +81,10 @@ describe("editor broadcast delivery tracking", () => {
       }),
     );
 
-    act(() => result.current([element], {}));
+    act(() => result.current.broadcastChanges([element], {}));
     act(() => acknowledgements[0]?.({ ok: false, error: { code: "invalid-request" } }));
     vi.advanceTimersByTime(101);
-    act(() => result.current([element], {}));
+    act(() => result.current.broadcastChanges([element], {}));
 
     expect(emit).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
@@ -124,7 +124,7 @@ describe("editor broadcast delivery tracking", () => {
       }),
     );
 
-    act(() => result.current([element], {}));
+    act(() => result.current.broadcastChanges([element], {}));
     act(() => acknowledgements[0]?.(new Error("timeout")));
 
     expect(recordElementVersion).not.toHaveBeenCalled();
@@ -180,7 +180,7 @@ describe("editor broadcast delivery tracking", () => {
       }),
     );
 
-    act(() => result.current([element], {}));
+    act(() => result.current.broadcastChanges([element], {}));
     act(() =>
       acknowledgements[0]?.(null, {
         ok: false,
@@ -221,7 +221,9 @@ describe("editor broadcast delivery tracking", () => {
       }),
     );
 
-    act(() => result.current([{ id: "visible" }, { id: "deleted", isDeleted: true }], {}));
+    act(() =>
+      result.current.broadcastChanges([{ id: "visible" }, { id: "deleted", isDeleted: true }], {}),
+    );
 
     expect(payload.elementOrder).toEqual(["visible"]);
     expect(computeElementOrderSig([{ id: "visible" }, { id: "deleted", isDeleted: true }])).toBe(
@@ -269,7 +271,7 @@ describe("saving the settings a board keeps", () => {
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
-    return { broadcast: result.current, debouncedSave };
+    return { broadcast: result.current.broadcastChanges, debouncedSave };
   };
 
   it("writes a settings change that touches no element", () => {

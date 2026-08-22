@@ -16,7 +16,7 @@ const renderDeliveryBridge = ({
 }) => {
   const latestFilesRef = ref<Record<string, any>>({});
   return renderHook(() => {
-    const broadcast = useEditorBroadcast({
+    const { broadcastFiles } = useEditorBroadcast({
       drawingId: "drawing-1",
       excalidrawAPI: ref<any>({ getFiles: () => latestFilesRef.current }),
       lastLocalChangeAtRef: ref(0),
@@ -34,11 +34,6 @@ const renderDeliveryBridge = ({
       recordElementVersion: vi.fn(),
       setHasSceneChangesSinceLoad: vi.fn(),
     });
-    const broadcastFiles =
-      typeof (broadcast as any) === "function"
-        ? (files: Record<string, any>) => (broadcast as any)([], files)
-        : (broadcast as any).broadcastFiles;
-
     return useEditorAddFilesBridge({
       drawingId: "drawing-1",
       debouncedSaveRef: ref(null),
@@ -51,12 +46,7 @@ const renderDeliveryBridge = ({
       latestFilesRef,
       setIsReady: vi.fn(),
       broadcastFiles,
-      // These two fields describe the broken pre-fix bridge. Keeping them in
-      // the regression harness makes the same assertion fail against that
-      // implementation while the repaired bridge ignores the bypass entirely.
-      socketRef: ref(socket),
-      lastSyncedFilesRef,
-    } as any);
+    });
   });
 };
 
@@ -114,11 +104,17 @@ describe("add-files collaboration delivery", () => {
 
     expect(socket.emit).toHaveBeenCalledTimes(1);
     expect(Object.keys(socket.emit.mock.calls[0][1].files)).toEqual(["first"]);
+    expect(lastSyncedFilesRef.current).toEqual({});
 
     act(() => acknowledgements[0]({ ok: true }));
 
     expect(socket.emit).toHaveBeenCalledTimes(2);
     expect(Object.keys(socket.emit.mock.calls[1][1].files)).toEqual(["second"]);
+    expect(lastSyncedFilesRef.current).toEqual({ first: files.first });
+
+    act(() => acknowledgements[1]({ ok: true }));
+
+    expect(lastSyncedFilesRef.current).toEqual(files);
   });
 
   it("rejects one indivisible oversized file before it reaches the socket", () => {
@@ -128,6 +124,25 @@ describe("add-files collaboration delivery", () => {
       oversized: {
         id: "oversized",
         dataURL: `data:image/png;base64,${"x".repeat(12 * 1024 * 1024)}`,
+      },
+    };
+    const { result } = renderDeliveryBridge({ lastSyncedFilesRef, socket });
+
+    act(() => {
+      expect(result.current.emitFilesDeltaIfNeeded(files)).toBe(false);
+    });
+
+    expect(socket.emit).not.toHaveBeenCalled();
+    expect(lastSyncedFilesRef.current).toEqual({});
+  });
+
+  it("rejects a data URL over the per-file boundary even when its packet fits", () => {
+    const socket = { emit: vi.fn() };
+    const lastSyncedFilesRef = ref<Record<string, any>>({});
+    const files = {
+      oversized: {
+        id: "oversized",
+        dataURL: `data:image/png;base64,${"x".repeat(10 * 1024 * 1024)}`,
       },
     };
     const { result } = renderDeliveryBridge({ lastSyncedFilesRef, socket });
