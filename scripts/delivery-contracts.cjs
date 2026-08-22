@@ -105,6 +105,16 @@ function validateHansReview({ expectedHeadSha, review, comments = [] }) {
   if (!SHA_PATTERN.test(expectedHeadSha || "")) {
     throw new Error("Expected PR head SHA is missing or invalid.");
   }
+
+  const result = validateHansReviewRecord({ review, comments });
+  if (expectedHeadSha !== result.reviewedHeadSha) {
+    throw new Error("Hans reviewed a stale PR head SHA.");
+  }
+
+  return result;
+}
+
+function validateHansReviewRecord({ review, comments = [] }) {
   if (!review || review.state !== "COMMENTED") {
     throw new Error("Hans review must be a COMMENTED GitHub review.");
   }
@@ -115,9 +125,6 @@ function validateHansReview({ expectedHeadSha, review, comments = [] }) {
   const marker = parseReviewMarker(review.body);
   if (review.commit_id !== marker.reviewed_head_sha) {
     throw new Error("GitHub review commit and Hans marker SHA differ.");
-  }
-  if (expectedHeadSha !== marker.reviewed_head_sha) {
-    throw new Error("Hans reviewed a stale PR head SHA.");
   }
 
   const reviewComments = comments.filter(
@@ -140,6 +147,79 @@ function validateHansReview({ expectedHeadSha, review, comments = [] }) {
     reviewedHeadSha: marker.reviewed_head_sha,
     counts: marker.counts,
     inlineComments: marker.inline_comments,
+  };
+}
+
+function checkReviewedHead({ pullRequest, reviews = [], comments = [] }) {
+  const currentHeadSha = pullRequest?.head?.sha;
+  if (!SHA_PATTERN.test(currentHeadSha || "")) {
+    throw new Error("Current PR head SHA is missing or invalid.");
+  }
+  if (!Array.isArray(reviews) || !Array.isArray(comments)) {
+    throw new Error("Reviewed-head check requires review and comment arrays.");
+  }
+
+  if (pullRequest.draft) {
+    return {
+      ok: true,
+      code: "draft",
+      currentHeadSha,
+      reviewedHeadSha: null,
+      message: "Draft PRs do not require a Hans review yet.",
+    };
+  }
+
+  const validReviews = [];
+  for (const [index, review] of reviews.entries()) {
+    try {
+      validReviews.push({
+        index,
+        review,
+        result: validateHansReviewRecord({ review, comments }),
+      });
+    } catch {
+      // Invalid reviews are not candidates. The check deliberately selects the
+      // newest intrinsically valid Hans record, rather than trusting API order
+      // or accepting a marker copied into PR-controlled content.
+    }
+  }
+
+  validReviews.sort((left, right) => {
+    const leftTime = Date.parse(left.review.submitted_at || "") || 0;
+    const rightTime = Date.parse(right.review.submitted_at || "") || 0;
+    if (rightTime !== leftTime) return rightTime - leftTime;
+
+    try {
+      const leftId = BigInt(left.review.id);
+      const rightId = BigInt(right.review.id);
+      if (leftId !== rightId) return leftId > rightId ? -1 : 1;
+    } catch {
+      // A real GitHub review has a numeric id. Keep deterministic API-order
+      // fallback for malformed fixture data without making it a valid review.
+    }
+    return right.index - left.index;
+  });
+
+  const latest = validReviews[0];
+  if (!latest) {
+    throw new Error(
+      "No valid Hans review with an excalidash-review:v1 marker exists for this PR.",
+    );
+  }
+
+  if (currentHeadSha !== latest.result.reviewedHeadSha) {
+    throw new Error(
+      `Current PR head ${currentHeadSha} does not match latest valid Hans review ${latest.result.reviewedHeadSha}.`,
+    );
+  }
+
+  return {
+    ok: true,
+    code: "current",
+    currentHeadSha,
+    reviewedHeadSha: latest.result.reviewedHeadSha,
+    reviewId: latest.review.id,
+    reviewResult: latest.result.state,
   };
 }
 
@@ -342,6 +422,12 @@ async function main() {
     return;
   }
 
+  if (command === "reviewed-head") {
+    const input = JSON.parse(await readStdin());
+    process.stdout.write(`${JSON.stringify(checkReviewedHead(input))}\n`);
+    return;
+  }
+
   if (command === "commits") {
     const commits = readCommitRange(process.env.PR_BASE_SHA, process.env.PR_HEAD_SHA);
     const result = admitCommitContracts({
@@ -364,7 +450,9 @@ async function main() {
     return;
   }
 
-  throw new Error("Usage: delivery-contracts.cjs admission|commits|review|event");
+  throw new Error(
+    "Usage: delivery-contracts.cjs admission|commits|review|reviewed-head|event",
+  );
 }
 
 function readStdin() {
@@ -385,6 +473,7 @@ module.exports = {
   checkPrAdmission,
   checkCommitContracts,
   parseReviewMarker,
+  checkReviewedHead,
   validateHansReview,
 };
 

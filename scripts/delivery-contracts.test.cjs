@@ -8,6 +8,7 @@ const {
   admitCommitContracts,
   checkCommitContracts,
   checkPrAdmission,
+  checkReviewedHead,
   validateHansReview,
 } = require("./delivery-contracts.cjs");
 
@@ -44,6 +45,7 @@ function review(body = marker()) {
     commit_id: SHA,
     user: { login: "the-hans-friedrich[bot]" },
     body,
+    submitted_at: "2026-08-22T17:00:00Z",
   };
 }
 
@@ -178,6 +180,111 @@ test("rejects missing markers and mismatched inline counts", () => {
   assert.throws(
     () => validateHansReview({ expectedHeadSha: SHA, review: review(body), comments: [] }),
     /inline comment count differ/,
+  );
+});
+
+test("reviewed-head check explicitly passes drafts without requiring a review", () => {
+  assert.deepEqual(
+    checkReviewedHead({
+      pullRequest: { draft: true, head: { sha: FIX_SHA } },
+      reviews: [],
+      comments: [],
+    }),
+    {
+      ok: true,
+      code: "draft",
+      currentHeadSha: FIX_SHA,
+      reviewedHeadSha: null,
+      message: "Draft PRs do not require a Hans review yet.",
+    },
+  );
+});
+
+test("reviewed-head check is red when no valid Hans review exists", () => {
+  assert.throws(
+    () =>
+      checkReviewedHead({
+        pullRequest: { draft: false, head: { sha: SHA } },
+        reviews: [
+          {
+            ...review(marker()),
+            user: { login: "someone-else" },
+          },
+          review("Looks good, but has no machine marker."),
+        ],
+        comments: [],
+      }),
+    /No valid Hans review with an excalidash-review:v1 marker exists for this PR/,
+  );
+});
+
+test("reviewed-head check is red with a stale-SHA assertion", () => {
+  assert.throws(
+    () =>
+      checkReviewedHead({
+        pullRequest: { draft: false, head: { sha: FIX_SHA } },
+        reviews: [review()],
+        comments: [],
+      }),
+    new RegExp(`Current PR head ${FIX_SHA} does not match latest valid Hans review ${SHA}`),
+  );
+});
+
+test("reviewed-head check is green when current and reviewed SHAs match", () => {
+  assert.deepEqual(
+    checkReviewedHead({
+      pullRequest: { draft: false, head: { sha: SHA } },
+      reviews: [review()],
+      comments: [],
+    }),
+    {
+      ok: true,
+      code: "current",
+      currentHeadSha: SHA,
+      reviewedHeadSha: SHA,
+      reviewId: 42,
+      reviewResult: "clean",
+    },
+  );
+});
+
+test("reviewed-head check selects the newest valid Hans review", () => {
+  const newest = {
+    ...review(marker({ reviewed_head_sha: FIX_SHA })),
+    id: 84,
+    commit_id: FIX_SHA,
+    submitted_at: "2026-08-22T17:00:00Z",
+  };
+  const invalidNewest = {
+    ...review("<!-- excalidash-review:v1 not-json -->"),
+    id: 126,
+    submitted_at: "2026-08-22T19:00:00Z",
+  };
+
+  const result = checkReviewedHead({
+    pullRequest: { draft: false, head: { sha: FIX_SHA } },
+    reviews: [invalidNewest, review(), newest],
+    comments: [],
+  });
+
+  assert.equal(result.reviewId, 84);
+  assert.equal(result.reviewedHeadSha, FIX_SHA);
+});
+
+test("reviewed-head check rejects a marker that disagrees with its review record", () => {
+  assert.throws(
+    () =>
+      checkReviewedHead({
+        pullRequest: { draft: false, head: { sha: FIX_SHA } },
+        reviews: [
+          {
+            ...review(marker({ reviewed_head_sha: FIX_SHA })),
+            commit_id: SHA,
+          },
+        ],
+        comments: [],
+      }),
+    /No valid Hans review with an excalidash-review:v1 marker exists for this PR/,
   );
 });
 
