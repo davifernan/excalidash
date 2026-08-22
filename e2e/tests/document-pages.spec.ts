@@ -19,24 +19,27 @@ const openEditor = async (page: Page, drawingId: string) => {
   await page.waitForTimeout(2000);
 };
 
-const dropMarkdown = async (page: Page, source: string) => {
-  await page.evaluate(async (text) => {
-    const container = document.querySelector<HTMLElement>(".excalidraw")?.closest("div[style]");
-    const target = container ?? document.body;
-    const file = new File([text], "notes.md", { type: "text/markdown" });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    const rect = target.getBoundingClientRect();
-    target.dispatchEvent(
-      new DragEvent("drop", {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      }),
-    );
-  }, source);
+const dropMarkdown = async (page: Page, source: string, name = "notes.md") => {
+  await page.evaluate(
+    async ({ text, fileName }) => {
+      const container = document.querySelector<HTMLElement>(".excalidraw")?.closest("div[style]");
+      const target = container ?? document.body;
+      const file = new File([text], fileName, { type: "text/markdown" });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: transfer,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        }),
+      );
+    },
+    { text: source, fileName: name },
+  );
 };
 
 const pageLabel = (page: Page) => page.locator(".text-document-widget__page-number");
@@ -94,4 +97,71 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   await guest.close();
   await latecomer.close();
   await deleteDrawing(request, drawing.id);
+});
+
+const MAX_TEXT_UPLOAD_BYTES = 2 * 1024 * 1024;
+const sparseLineBlock = `${"\n".repeat(19_999)}x`;
+const PATHOLOGICAL_MARKDOWN = sparseLineBlock
+  .repeat(Math.ceil(MAX_TEXT_UPLOAD_BYTES / sparseLineBlock.length))
+  .slice(0, MAX_TEXT_UPLOAD_BYTES);
+
+const startResponsivenessProbe = (page: Page) =>
+  page.evaluate(() => {
+    const state = { gaps: [] as number[], last: performance.now(), interval: 0 };
+    state.interval = window.setInterval(() => {
+      const now = performance.now();
+      state.gaps.push(now - state.last);
+      state.last = now;
+    }, 10);
+    (window as typeof window & { __nil269Probe?: typeof state }).__nil269Probe = state;
+  });
+
+const finishResponsivenessProbe = (page: Page) =>
+  page.evaluate(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    const state = (
+      window as typeof window & {
+        __nil269Probe?: { gaps: number[]; last: number; interval: number };
+      }
+    ).__nil269Probe;
+    if (!state) throw new Error("Responsiveness probe was not started.");
+    window.clearInterval(state.interval);
+    const ordered = [...state.gaps].sort((left, right) => left - right);
+    return {
+      samples: ordered.length,
+      medianGapMs: ordered[Math.floor(ordered.length / 2)] ?? 0,
+      p95GapMs: ordered[Math.floor(ordered.length * 0.95)] ?? 0,
+      maxGapMs: ordered.at(-1) ?? 0,
+    };
+  });
+
+test("a collaborator stays responsive while a pathological 2 MiB document is paginated", async ({
+  browser,
+  request,
+}) => {
+  const drawing = await createDrawing(request, { name: "Responsive document pagination E2E" });
+  const host = await browser.newContext();
+  const guest = await browser.newContext();
+  const hostPage = await host.newPage();
+  const guestPage = await guest.newPage();
+
+  try {
+    await Promise.all([openEditor(hostPage, drawing.id), openEditor(guestPage, drawing.id)]);
+
+    await startResponsivenessProbe(guestPage);
+    await dropMarkdown(hostPage, PATHOLOGICAL_MARKDOWN, "pathological-newlines.md");
+    await expect(pageLabel(guestPage)).toHaveCount(1, { timeout: 30_000 });
+    await expect(pageLabel(guestPage)).toContainText("Page 1 of", { timeout: 30_000 });
+    const measurement = await finishResponsivenessProbe(guestPage);
+
+    console.log(`NIL-269 responsiveness: ${JSON.stringify(measurement)}`);
+    expect(PATHOLOGICAL_MARKDOWN).toHaveLength(MAX_TEXT_UPLOAD_BYTES);
+    expect(measurement.samples).toBeGreaterThan(0);
+    expect(measurement.p95GapMs).toBeLessThan(50);
+    expect(measurement.maxGapMs).toBeLessThan(500);
+  } finally {
+    await host.close();
+    await guest.close();
+    await deleteDrawing(request, drawing.id);
+  }
 });

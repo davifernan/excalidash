@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -9,7 +9,7 @@ import {
   type TextAsset,
 } from "../../api";
 import type { AssetWidgetKind } from "./pdfWidgetElements";
-import { paginateDocumentSource } from "./documentPagination";
+import { paginateDocumentOffThread } from "./documentPaginationWorker";
 import { useSharedDocumentPage, type DocumentPageSharing } from "./useSharedDocumentPage";
 import "./TextDocumentWidget.css";
 
@@ -49,12 +49,14 @@ export const TextDocumentWidget = ({
   sharing,
 }: TextDocumentWidgetProps) => {
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
+  const [pages, setPages] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
     setLoaded(null);
+    setPages(null);
     setError(null);
     Promise.all([getDocumentAsset(drawingId, assetId), getDocumentContent(drawingId, assetId)])
       .then(([asset, content]) => {
@@ -74,12 +76,21 @@ export const TextDocumentWidget = ({
     };
   }, [assetId, drawingId, widgetKind]);
 
-  const pages = useMemo(
-    () => (loaded ? paginateDocumentSource(loaded.content, loaded.asset.kind) : []),
-    [loaded],
-  );
+  useEffect(() => {
+    if (!loaded) return;
+    const controller = new AbortController();
+    setPages(null);
+    void paginateDocumentOffThread(loaded.content, loaded.asset.kind, controller.signal)
+      .then(setPages)
+      .catch((paginationError: unknown) => {
+        if (paginationError instanceof DOMException && paginationError.name === "AbortError")
+          return;
+        setError("Unable to prepare this document.");
+      });
+    return () => controller.abort();
+  }, [loaded]);
 
-  const pageCount = pages.length;
+  const pageCount = pages?.length ?? 0;
   const {
     page: pageNumber,
     pending,
@@ -91,7 +102,7 @@ export const TextDocumentWidget = ({
   const pageIndex = Math.min(Math.max(0, pageNumber - 1), Math.max(0, pageCount - 1));
 
   const downloadUrl = getDocumentOriginalUrl(drawingId, assetId);
-  const page = pages[pageIndex] ?? "";
+  const page = pages?.[pageIndex] ?? "";
 
   const changePage = (direction: 1 | -1) => {
     goToPage(pageNumber + direction);
@@ -111,14 +122,14 @@ export const TextDocumentWidget = ({
         {loaded?.asset.name ?? (widgetKind === "markdown" ? "Markdown document" : "Text document")}
       </div>
       <div className="text-document-widget__body" ref={bodyRef}>
-        {!loaded && !error ? (
+        {(!loaded || !pages) && !error ? (
           <Loader2 aria-label="Loading document" className="animate-spin" />
         ) : null}
         {error ? <p className="text-document-widget__status">{error}</p> : null}
-        {loaded?.asset.kind === "TEXT" ? (
+        {pages && loaded?.asset.kind === "TEXT" ? (
           <pre className="text-document-widget__plain">{page}</pre>
         ) : null}
-        {loaded?.asset.kind === "MARKDOWN" ? (
+        {pages && loaded?.asset.kind === "MARKDOWN" ? (
           <div className="text-document-widget__markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {page}
@@ -126,7 +137,7 @@ export const TextDocumentWidget = ({
           </div>
         ) : null}
       </div>
-      {loaded ? (
+      {loaded && pages ? (
         <div
           className={`text-document-widget__controls${pageCount === 1 ? " text-document-widget__controls--single" : ""}`}
         >
