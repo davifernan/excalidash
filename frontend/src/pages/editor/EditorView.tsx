@@ -161,8 +161,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                   theme={appState.theme}
                   sharing={{
                     elementId: element.id,
-                    assetId: data.assetId,
-                    sharedPage: documentPages.pages[element.id],
+                    sharedPage: documentPages.pages[element.id]?.page,
                     canControl: canEdit,
                     onRequestPage: documentPages.requestPage,
                   }}

@@ -3,12 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 export type DocumentPageSharing = {
   /** The board element this widget is drawn into; what the room keys a page by. */
   elementId: string;
-  assetId: string;
   /** The page the room is on, once the server has said so. */
   sharedPage?: number;
   /** Whether a page turn here is everybody's, or only this reader's. */
   canControl: boolean;
-  onRequestPage?: (elementId: string, assetId: string, page: number) => void;
+  onRequestPage?: (elementId: string, page: number) => Promise<unknown> | void;
 };
 
 const clamp = (page: number, pageCount: number) =>
@@ -23,9 +22,9 @@ const clamp = (page: number, pageCount: number) =>
  * page for the room; someone who may only look turns it for themselves, so a
  * read-only link is still a readable document rather than a fixed first page.
  *
- * The turn is applied here as well as sent, so paging feels immediate. The
- * server's answer overwrites it either way — this is a head start, not a
- * second opinion.
+ * Editors never apply their own request. The page changes only when the server
+ * broadcasts the accepted revision, so a refusal cannot leave this one reader
+ * on a page nobody else sees. Read-only navigation remains deliberately local.
  */
 export const useSharedDocumentPage = ({
   sharing,
@@ -35,7 +34,8 @@ export const useSharedDocumentPage = ({
   pageCount: number;
 }) => {
   const [page, setPage] = useState(1);
-  const { assetId, canControl, elementId, onRequestPage, sharedPage } = sharing;
+  const [pending, setPending] = useState(false);
+  const { canControl, elementId, onRequestPage, sharedPage } = sharing;
 
   useEffect(() => {
     if (sharedPage === undefined) return;
@@ -45,11 +45,20 @@ export const useSharedDocumentPage = ({
   const goToPage = useCallback(
     (next: number) => {
       const wanted = clamp(next, pageCount);
-      setPage(wanted);
-      if (canControl) onRequestPage?.(elementId, assetId, wanted);
+      if (!canControl) {
+        setPage(wanted);
+        return;
+      }
+      if (pending || !onRequestPage) return;
+      setPending(true);
+      try {
+        void Promise.resolve(onRequestPage(elementId, wanted)).finally(() => setPending(false));
+      } catch {
+        setPending(false);
+      }
     },
-    [assetId, canControl, elementId, onRequestPage, pageCount],
+    [canControl, elementId, onRequestPage, pageCount, pending],
   );
 
-  return { page, goToPage };
+  return { page, pending, goToPage };
 };

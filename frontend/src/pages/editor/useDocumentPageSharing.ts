@@ -4,6 +4,7 @@ import {
   bindSocketDocumentPages,
   DOCUMENT_PAGE_COMMAND_EVENT,
   type DocumentPageController,
+  type DocumentPageRequestResult,
   type SharedDocumentPages,
 } from "./documentPages";
 
@@ -27,13 +28,31 @@ export const useDocumentPageSharing = ({
   const [pages, setPages] = useState<SharedDocumentPages>({});
 
   const requestPage = useCallback(
-    (elementId: string, assetId: string, page: number) => {
-      if (!drawingId || !socketRef.current) return;
-      socketRef.current.emit(DOCUMENT_PAGE_COMMAND_EVENT, {
-        drawingId,
-        elementId,
-        assetId,
-        page,
+    (elementId: string, page: number): Promise<DocumentPageRequestResult> => {
+      const socket = socketRef.current;
+      if (!drawingId || !socket) {
+        return Promise.resolve({
+          ok: false,
+          error: { code: "not-connected", message: "Document page sharing is not connected" },
+        });
+      }
+      return new Promise((resolve) => {
+        socket
+          .timeout(5_000)
+          .emit(
+            DOCUMENT_PAGE_COMMAND_EVENT,
+            { drawingId, elementId, page },
+            (timeoutError: Error | null, response?: DocumentPageRequestResult) => {
+              if (timeoutError || !response) {
+                resolve({
+                  ok: false,
+                  error: { code: "timeout", message: "Document page request timed out" },
+                });
+                return;
+              }
+              resolve(response);
+            },
+          );
       });
     },
     [drawingId, socketRef],

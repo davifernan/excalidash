@@ -80,10 +80,14 @@ export const TextDocumentWidget = ({
   );
 
   const pageCount = pages.length;
-  // How many pages a text document has is decided here, not on the server: the
-  // split happens in the browser. So the room's page number is clamped to the
-  // pages this reader actually has.
-  const { page: pageNumber, goToPage } = useSharedDocumentPage({ sharing, pageCount });
+  const {
+    page: pageNumber,
+    pending,
+    goToPage,
+  } = useSharedDocumentPage({
+    sharing,
+    pageCount,
+  });
   const pageIndex = Math.min(Math.max(0, pageNumber - 1), Math.max(0, pageCount - 1));
 
   const downloadUrl = getDocumentOriginalUrl(drawingId, assetId);
@@ -132,7 +136,7 @@ export const TextDocumentWidget = ({
                 type="button"
                 className="text-document-widget__button"
                 aria-label="Previous page"
-                disabled={pageIndex === 0}
+                disabled={pending || pageIndex === 0}
                 onClick={() => changePage(-1)}
               >
                 <ChevronLeft size={18} />
@@ -144,7 +148,7 @@ export const TextDocumentWidget = ({
                 type="button"
                 className="text-document-widget__button"
                 aria-label="Next page"
-                disabled={pageIndex === pageCount - 1}
+                disabled={pending || pageIndex === pageCount - 1}
                 onClick={() => changePage(1)}
               >
                 <ChevronRight size={18} />
