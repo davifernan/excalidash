@@ -17,7 +17,11 @@ export const PdfWidget = ({ assetId, drawingId, theme, sharing }: PdfWidgetProps
   const [pageError, setPageError] = useState<string | null>(null);
   const [displayedPage, setDisplayedPage] = useState<number | null>(null);
   const directionRef = useRef<1 | -1>(1);
-  const { page: requestedPage, goToPage } = useSharedDocumentPage({
+  const {
+    page: requestedPage,
+    pending,
+    goToPage,
+  } = useSharedDocumentPage({
     sharing,
     pageCount: asset?.pageCount ?? 1,
   });
@@ -112,7 +116,7 @@ export const PdfWidget = ({ assetId, drawingId, theme, sharing }: PdfWidgetProps
             type="button"
             className="pdf-widget__button"
             aria-label="Previous page"
-            disabled={requestedPage <= 1}
+            disabled={pending || requestedPage <= 1}
             onClick={() => turnPage(-1)}
           >
             <ChevronLeft size={18} />
@@ -124,7 +128,7 @@ export const PdfWidget = ({ assetId, drawingId, theme, sharing }: PdfWidgetProps
             type="button"
             className="pdf-widget__button"
             aria-label="Next page"
-            disabled={requestedPage >= asset.pageCount}
+            disabled={pending || requestedPage >= asset.pageCount}
             onClick={() => turnPage(1)}
           >
             <ChevronRight size={18} />

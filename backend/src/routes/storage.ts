@@ -16,6 +16,7 @@ import {
   buildTrimS3CleanupPlan,
 } from "./storage/plans";
 import { deleteS3KeysInBatches } from "./storage/s3Delete";
+import { syncDrawingDocumentState } from "../assets/documentWidgetState";
 
 export type StorageRouteDeps = {
   prisma: PrismaClient;
@@ -113,13 +114,16 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
 
       // 7. Update drawing — bump version so concurrent editors get a VERSION_CONFLICT
       // and reload, instead of having their newer version silently overwritten.
-      await prisma.drawing.update({
-        where: { id },
-        data: {
-          elements: JSON.stringify(trimPlan.activeElements),
-          files: JSON.stringify(trimPlan.cleanedFiles),
-          version: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await tx.drawing.update({
+          where: { id },
+          data: {
+            elements: JSON.stringify(trimPlan.activeElements),
+            files: JSON.stringify(trimPlan.cleanedFiles),
+            version: { increment: 1 },
+          },
+        });
+        await syncDrawingDocumentState(tx, id, trimPlan.activeElements);
       });
       invalidateDrawingsCache();
       notifyServerStateChange(id);
@@ -261,13 +265,16 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
 
       // Update drawing with cleaned files and elements. Bump version so
       // concurrent editors reload instead of silently overwriting.
-      await prisma.drawing.update({
-        where: { id },
-        data: {
-          files: JSON.stringify(deletePlan.cleanedFiles),
-          elements: JSON.stringify(deletePlan.cleanedElements),
-          version: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await tx.drawing.update({
+          where: { id },
+          data: {
+            files: JSON.stringify(deletePlan.cleanedFiles),
+            elements: JSON.stringify(deletePlan.cleanedElements),
+            version: { increment: 1 },
+          },
+        });
+        await syncDrawingDocumentState(tx, id, deletePlan.cleanedElements);
       });
       invalidateDrawingsCache();
       notifyServerStateChange(id);

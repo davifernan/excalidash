@@ -6,7 +6,7 @@ export type RoomEventError = { code: string; message: string };
 export type RoomEventAck = (
   value: { ok: true; warning?: RoomEventError } | { ok: false; error: RoomEventError },
 ) => void;
-export type RoomEventResult = { warning: RoomEventError } | void;
+export type RoomEventResult = { warning: RoomEventError } | { error: RoomEventError } | void;
 
 const ROOM_EVENT_FEEDBACK_EVENT = "room-event-error";
 const HARD_FAILURE_LIMIT = 10;
@@ -46,14 +46,19 @@ export const createRoomEventFeedback = (socket: Socket, event: string, windowMs:
         ack,
       );
     },
-    rateLimited() {
+    rateLimited(ack?: RoomEventAck) {
       const now = Date.now();
+      const error: RoomEventError = {
+        code: "rate-limited",
+        message: `${event} rate limit exceeded`,
+      };
+      if (ack) {
+        ack({ ok: false, error });
+        return true;
+      }
       if (now < nextRateLimitNoticeAt) return false;
       nextRateLimitNoticeAt = now + windowMs;
-      socket.emit(ROOM_EVENT_FEEDBACK_EVENT, {
-        event,
-        error: { code: "rate-limited", message: `${event} rate limit exceeded` },
-      });
+      socket.emit(ROOM_EVENT_FEEDBACK_EVENT, { event, error });
       return true;
     },
     /**
@@ -76,6 +81,10 @@ export const createRoomEventFeedback = (socket: Socket, event: string, windowMs:
       if (now < nextRateLimitNoticeAt) return;
       nextRateLimitNoticeAt = now + windowMs;
       socket.emit(ROOM_EVENT_FEEDBACK_EVENT, { event, error });
+    },
+    rejected(error: RoomEventError, ack?: RoomEventAck) {
+      if (ack) ack({ ok: false, error });
+      else socket.emit(ROOM_EVENT_FEEDBACK_EVENT, { event, error });
     },
     succeeded(ack?: RoomEventAck, warning?: RoomEventError) {
       if (warning) {
@@ -165,7 +174,7 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
     // Rate limiting stays synchronous and outside the queue: refusing traffic
     // is the one thing that must not wait behind the traffic it is refusing.
     if (!rateLimitExempt?.(value) && !allow()) {
-      feedback.rateLimited();
+      feedback.rateLimited(ack);
       return;
     }
     onRateLimitAdmitted?.(value);
@@ -179,12 +188,28 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
         feedback.refused(ack);
         return;
       }
-      if (!(await requireAccess(socket, payload.drawingId, requireEdit))) return;
+      if (!(await requireAccess(socket, payload.drawingId, requireEdit))) {
+        // The access seam already reports legacy fire-and-forget commands. An
+        // acknowledged command needs the same refusal in-band so it does not
+        // wait until timeout, without emitting a second public error event.
+        if (ack) {
+          feedback.rejected({ code: "access-denied", message: `${event} access denied` }, ack);
+        }
+        return;
+      }
       const result = await handle(payload);
-      feedback.succeeded(ack, result ? result.warning : undefined);
+      if (result && "error" in result) feedback.rejected(result.error, ack);
+      else feedback.succeeded(ack, result && "warning" in result ? result.warning : undefined);
     });
-    // A thrown handler must not poison the tail for everything after it.
-    tail = tail.catch(() => {});
+    // A thrown handler must not poison the tail for everything after it, and
+    // an acknowledged command must never be left waiting until client timeout.
+    tail = tail.catch((error) => {
+      console.error(`Room event ${event} failed:`, error);
+      feedback.rejected(
+        { code: "internal-error", message: `${event} could not be completed` },
+        ack,
+      );
+    });
     // Socket.IO ignores what a listener returns; tests await it, which is the
     // only way they can observe work that is now deliberately deferred.
     return tail;

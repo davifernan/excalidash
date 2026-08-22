@@ -23,6 +23,7 @@ import { AssetTooLargeError, QuotaExceededError, createAsset, usedBytesFor } fro
 import { PdfRejectedError } from "./pdfRenderer";
 import { QueueAbortedError, QueueCapacityError } from "./pageCache";
 import { InvalidTextDocumentError, MAX_TEXT_UPLOAD_BYTES, validatedTextUpload } from "./textUpload";
+import { paginateDocumentSource } from "./documentPagination";
 
 const ID = /^[\w-]{1,64}$/;
 const UPLOAD_PRESENTATIONS = {
@@ -207,7 +208,17 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
       const name =
         typeof req.query.name === "string" ? req.query.name : uploadPresentation.fallbackName;
       const isText = uploadPresentation.kind !== "PDF";
-      const source = isText ? Readable.from(validatedTextUpload(req)) : req;
+      const textChunks: Buffer[] = [];
+      const source = isText
+        ? Readable.from(
+            (async function* () {
+              for await (const chunk of validatedTextUpload(req)) {
+                textChunks.push(chunk);
+                yield chunk;
+              }
+            })(),
+          )
+        : req;
 
       try {
         // Quota is charged to whoever owns the board, not whoever dropped the
@@ -243,19 +254,14 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
 
         let pageCount: number | null = null;
         try {
-          if (uploadPresentation.kind !== "PDF") {
-            return res.status(201).json({
-              id: created.asset.id,
-              kind: uploadPresentation.kind,
-              name: created.asset.originalName,
-              sizeBytes: created.sizeBytes,
-              pageCount: null,
-              note: null,
-            });
+          if (uploadPresentation.kind === "PDF") {
+            // The created row does not carry its blob, and describeUpload needs
+            // to find the bytes on disk.
+            ({ pageCount } = await deps.describeUpload({ ...created.asset, blob: created.blob }));
+          } else {
+            const sourceText = Buffer.concat(textChunks).toString("utf8");
+            pageCount = paginateDocumentSource(sourceText, uploadPresentation.kind).length;
           }
-          // The created row does not carry its blob, and describeUpload needs
-          // to find the bytes on disk.
-          ({ pageCount } = await deps.describeUpload({ ...created.asset, blob: created.blob }));
           if (pageCount !== null) {
             await deps.prisma.asset.update({
               where: { id: created.asset.id },

@@ -274,26 +274,6 @@ async function createAssetAdmitted(deps: Deps, input: CreateAssetInput) {
 }
 
 /**
- * The document ids a board's elements actually name.
- *
- * Only the id is read. Everything else a widget carries — filename, page
- * count, permission — is looked up server-side, because board contents are
- * written by clients.
- */
-export function referencedAssetIds(elements: unknown): string[] {
-  if (!Array.isArray(elements)) return [];
-  const ids: string[] = [];
-  for (const element of elements) {
-    if (!element || typeof element !== "object") continue;
-    const el = element as any;
-    if (el.isDeleted) continue;
-    const id = el.customData?.assetId;
-    if (typeof id === "string" && id.length > 0 && id.length <= 64) ids.push(id);
-  }
-  return [...new Set(ids)];
-}
-
-/**
  * Reconcile a board's documents with what its elements actually refer to.
  *
  * Called from the save, inside the same transaction, so a board and its

@@ -3,8 +3,12 @@ import type { Socket } from "socket.io-client";
 const DOCUMENT_PAGE_EVENT = "document-page-update";
 export const DOCUMENT_PAGE_COMMAND_EVENT = "document-page-command";
 
-/** Which page each document widget on the board is turned to, by element id. */
-export type SharedDocumentPages = Readonly<Record<string, number>>;
+export type SharedDocumentPage = Readonly<{ page: number; revision: number }>;
+/** Authoritative page and revision for each document widget, by element id. */
+export type SharedDocumentPages = Readonly<Record<string, SharedDocumentPage>>;
+
+export type DocumentPageRequestResult =
+  { ok: true } | { ok: false; error: { code: string; message: string } };
 
 export type DocumentPageController = {
   pages: SharedDocumentPages;
@@ -13,11 +17,13 @@ export type DocumentPageController = {
    * decides and sends the result back, so a refused turn simply never happens
    * rather than leaving this client showing a page nobody else is on.
    */
-  requestPage: (elementId: string, assetId: string, page: number) => void;
+  requestPage: (elementId: string, page: number) => Promise<DocumentPageRequestResult>;
 };
 
 const isPage = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 1;
+const isRevision = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0;
 
 /**
  * Read a page update from the server.
@@ -33,12 +39,19 @@ export const parseDocumentPageUpdate = (
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const data = value as Record<string, unknown>;
   if (data.drawingId !== drawingId || !Array.isArray(data.pages)) return null;
-  const pages: Record<string, number> = {};
+  const pages: Record<string, SharedDocumentPage> = {};
   for (const entry of data.pages) {
     if (!entry || typeof entry !== "object") continue;
-    const { elementId, page } = entry as Record<string, unknown>;
-    if (typeof elementId !== "string" || elementId.length === 0 || !isPage(page)) continue;
-    pages[elementId] = page;
+    const { elementId, page, revision } = entry as Record<string, unknown>;
+    if (
+      typeof elementId !== "string" ||
+      elementId.length === 0 ||
+      !isPage(page) ||
+      !isRevision(revision)
+    ) {
+      continue;
+    }
+    pages[elementId] = { page, revision };
   }
   return pages;
 };
@@ -55,7 +68,17 @@ export const bindSocketDocumentPages = ({
   const reset = () => onChange(() => ({}));
   const onUpdate = (value: unknown) => {
     const pages = parseDocumentPageUpdate(value, drawingId);
-    if (pages) onChange((current) => ({ ...current, ...pages }));
+    if (pages) {
+      onChange((current) => {
+        const next = { ...current };
+        for (const [elementId, page] of Object.entries(pages)) {
+          if (!next[elementId] || page.revision > next[elementId].revision) {
+            next[elementId] = page;
+          }
+        }
+        return next;
+      });
+    }
   };
 
   reset();

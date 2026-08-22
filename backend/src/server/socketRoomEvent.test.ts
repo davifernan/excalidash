@@ -3,7 +3,7 @@ import { registerAuthorizedRoomEvent } from "./socketRoomEvent";
 
 const validPayload = { drawingId: "drawing-1" };
 
-const setup = (limit = 1, windowMs = 1_000) => {
+const setup = (limit = 1, windowMs = 1_000, access = true) => {
   const handlers = new Map<string, (...args: any[]) => any>();
   const emit = vi.fn();
   const disconnect = vi.fn();
@@ -22,7 +22,7 @@ const setup = (limit = 1, windowMs = 1_000) => {
       value && typeof value === "object" && (value as any).drawingId === "drawing-1"
         ? validPayload
         : null,
-    requireAccess: vi.fn(async () => true),
+    requireAccess: vi.fn(async () => access),
     handle,
   });
   return { send: handlers.get("test-event")!, disconnect, emit, handle };
@@ -91,6 +91,48 @@ describe("authorized room event feedback", () => {
     await send(validPayload);
 
     expect(emit).toHaveBeenCalledTimes(2);
+  });
+
+  it("acknowledges a rate-limited command instead of making it time out", async () => {
+    const { send } = setup();
+    await send(validPayload, vi.fn());
+    const ack = vi.fn();
+
+    await send(validPayload, ack);
+
+    expect(ack).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: "rate-limited", message: "test-event rate limit exceeded" },
+    });
+  });
+
+  it("acknowledges a fresh access refusal", async () => {
+    const { send } = setup(10, 1_000, false);
+    const ack = vi.fn();
+
+    await send(validPayload, ack);
+
+    expect(ack).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: "access-denied", message: "test-event access denied" },
+    });
+  });
+
+  it("acknowledges and logs an unexpected handler failure", async () => {
+    const { send, handle } = setup(10);
+    const failure = new Error("database offline");
+    handle.mockRejectedValueOnce(failure);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ack = vi.fn();
+
+    await send(validPayload, ack);
+
+    expect(log).toHaveBeenCalledWith("Room event test-event failed:", failure);
+    expect(ack).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: "internal-error", message: "test-event could not be completed" },
+    });
+    log.mockRestore();
   });
 
   it("disconnects a malformed-packet flood after bounded feedback", async () => {
