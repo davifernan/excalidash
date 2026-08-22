@@ -1,0 +1,66 @@
+name: Hans Reviewed Head
+
+# This check is deliberately separate from Hans-Friedrich's one-shot review
+# request. A new push must turn the check red without requesting a second full
+# review, and a submitted/edited/dismissed review must refresh the result.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, ready_for_review, converted_to_draft, synchronize]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: hans-reviewed-head-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  reviewed-head:
+    name: Hans Reviewed Head
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # Never execute the validator from the pull request. The base commit owns
+      # the policy, so a push cannot make its own stale-head check permissive.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch current PR and review records
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" > reviewed-head-pr.json
+          gh api --paginate --slurp \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" \
+            > reviewed-head-review-pages.json
+          gh api --paginate --slurp \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" \
+            > reviewed-head-comment-pages.json
+
+          node -e '
+            const fs = require("node:fs");
+            const read = (path) => JSON.parse(fs.readFileSync(path, "utf8"));
+            const flattenPages = (path) => read(path).flat();
+            process.stdout.write(JSON.stringify({
+              pullRequest: read("reviewed-head-pr.json"),
+              reviews: flattenPages("reviewed-head-review-pages.json"),
+              comments: flattenPages("reviewed-head-comment-pages.json"),
+            }));
+          ' > reviewed-head-input.json
+
+      - name: Compare current head with latest valid Hans review
+        run: node scripts/delivery-contracts.cjs reviewed-head < reviewed-head-input.json

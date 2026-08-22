@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const test = require("node:test");
 
 const {
@@ -286,6 +287,42 @@ test("reviewed-head check rejects a marker that disagrees with its review record
       }),
     /No valid Hans review with an excalidash-review:v1 marker exists for this PR/,
   );
+});
+
+test("reviewed-head workflow refreshes drafts and incoming review changes", () => {
+  const workflow = fs.readFileSync(
+    `${__dirname}/../.github/workflows/hans-reviewed-head.yml`,
+    "utf8",
+  );
+
+  assert.match(
+    workflow,
+    /pull_request:\s+[\s\S]*opened[\s\S]*ready_for_review[\s\S]*converted_to_draft[\s\S]*synchronize/,
+  );
+  assert.match(
+    workflow,
+    /pull_request_review:\s+[\s\S]*submitted[\s\S]*edited[\s\S]*dismissed/,
+  );
+  assert.match(workflow, /pulls\/\$\{PR_NUMBER\}\/reviews\?per_page=100/);
+  assert.match(workflow, /pulls\/\$\{PR_NUMBER\}\/comments\?per_page=100/);
+});
+
+test("reviewed-head workflow executes only the validator from the PR base", () => {
+  const workflow = fs.readFileSync(
+    `${__dirname}/../.github/workflows/hans-reviewed-head.yml`,
+    "utf8",
+  );
+
+  assert.match(
+    workflow,
+    /uses: actions\/checkout@v4\s+[\s\S]*?ref:\s*\$\{\{ github\.event\.pull_request\.base\.sha \}\}/,
+  );
+  assert.match(
+    workflow,
+    /delivery-contracts\.cjs reviewed-head < reviewed-head-input\.json/,
+  );
+  assert.doesNotMatch(workflow, /github\.event\.pull_request\.head\.sha/);
+  assert.doesNotMatch(workflow, /bootstrap/i);
 });
 
 test("normalizes PR and review events for the external overseer", () => {
