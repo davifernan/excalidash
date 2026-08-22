@@ -3,6 +3,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDocumentAsset, getDocumentContent } from "../../api";
 import { TextDocumentWidget } from "./TextDocumentWidget";
 
+const { paginateDocumentSourceMock } = vi.hoisted(() => ({
+  paginateDocumentSourceMock: vi.fn(),
+}));
+
+const { paginateDocumentOffThreadMock } = vi.hoisted(() => ({
+  paginateDocumentOffThreadMock: vi.fn(),
+}));
+
+vi.mock("./documentPagination", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./documentPagination")>();
+  return {
+    ...actual,
+    paginateDocumentSource: (...args: Parameters<typeof actual.paginateDocumentSource>) => {
+      paginateDocumentSourceMock(...args);
+      return actual.paginateDocumentSource(...args);
+    },
+  };
+});
+
+vi.mock("./documentPaginationWorker", async () => {
+  const actual =
+    await vi.importActual<typeof import("./documentPagination")>("./documentPagination");
+  paginateDocumentOffThreadMock.mockImplementation(
+    async (source: string, kind: "MARKDOWN" | "TEXT") =>
+      actual.paginateDocumentSource(source, kind),
+  );
+  return { paginateDocumentOffThread: paginateDocumentOffThreadMock };
+});
+
 // A widget that is not sharing its page with anybody: the same object every
 // render, so the shared-page effect does not refire on its own.
 const soloSharing = {
@@ -93,6 +122,46 @@ describe("TextDocumentWidget", () => {
     expect(screen.queryByText(/Page 1 of/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
     expect(screen.getByRole("link", { name: "Download original document" })).toBeInTheDocument();
+  });
+
+  it("hands pagination to a worker instead of running the algorithm during UI render", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Responsive\n\nA document body.");
+
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        widgetKind="markdown"
+        sharing={soloSharing}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: "Responsive" });
+    expect(paginateDocumentOffThreadMock).toHaveBeenCalledWith(
+      "# Responsive\n\nA document body.",
+      "MARKDOWN",
+      expect.any(AbortSignal),
+    );
+    expect(paginateDocumentSourceMock).not.toHaveBeenCalled();
+  });
+
+  it("shows a stable error when the pagination worker fails", async () => {
+    paginateDocumentOffThreadMock.mockRejectedValueOnce(new Error("worker crashed"));
+    vi.mocked(getDocumentContent).mockResolvedValue("# Unavailable");
+
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        widgetKind="markdown"
+        sharing={soloSharing}
+      />,
+    );
+
+    expect(await screen.findByText("Unable to prepare this document.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Unavailable" })).toBeNull();
   });
 
   it("shows the correct page count and changes the rendered source when paging", async () => {
