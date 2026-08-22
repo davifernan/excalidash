@@ -66,4 +66,26 @@ describe("image data URL storage limit", () => {
     const logged = JSON.stringify(consoleError.mock.calls);
     expect(logged).not.toContain(secretSentinel);
   });
+
+  it("measures non-base64 multibyte data URLs in UTF-8 bytes", () => {
+    configureSecuritySettings({ maxDataUrlSize: 100 });
+    const oneByteBelow = "data:image/png," + "中".repeat(28);
+    const exactlyAt = oneByteBelow + "A";
+    const oneByteAbove = exactlyAt + "A";
+
+    expect(Buffer.byteLength(oneByteBelow, "utf8")).toBe(99);
+    expect(Buffer.byteLength(exactlyAt, "utf8")).toBe(100);
+    expect(Buffer.byteLength(oneByteAbove, "utf8")).toBe(101);
+
+    expect(sanitizeDrawingData(drawingWithDataUrl(oneByteBelow)).files.image.dataURL).toBe(
+      oneByteBelow,
+    );
+    expect(sanitizeDrawingData(drawingWithDataUrl(exactlyAt)).files.image.dataURL).toBe(exactlyAt);
+    expect(() => sanitizeDrawingData(drawingWithDataUrl(oneByteAbove))).toThrow(
+      expect.objectContaining({
+        code: IMAGE_DATA_URL_TOO_LARGE,
+        maxBytes: 100,
+      }),
+    );
+  });
 });

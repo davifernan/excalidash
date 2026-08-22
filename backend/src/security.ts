@@ -430,7 +430,7 @@ export const sanitizeDrawingData = (data: {
                   const hasSuspiciousContent = suspiciousPatterns.some((pattern) =>
                     pattern.test(value),
                   );
-                  const isTooLarge = value.length > MAX_DATAURL_SIZE;
+                  const isTooLarge = Buffer.byteLength(value, "utf8") > MAX_DATAURL_SIZE;
                   if (isTooLarge) {
                     throw new DrawingDataValidationError({
                       code: DRAWING_VALIDATION_CODES.imageDataUrlTooLarge,
