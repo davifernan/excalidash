@@ -345,7 +345,9 @@ export const useEditorBroadcast = ({
       socketRef,
     ],
   );
-  queueUpdateRef.current = queueUpdate;
+  useEffect(() => {
+    queueUpdateRef.current = queueUpdate;
+  }, [queueUpdate]);
 
   const broadcastChanges = useCallback(
     (elements: readonly any[], currentFiles?: Record<string, any>) => {
