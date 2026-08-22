@@ -118,6 +118,7 @@ export const useEditorPersistence = ({
         return;
       }
       let persistableFiles = files ?? refs.latestFiles.current ?? {};
+      const editorFilesBeforeCompression = persistableFiles;
       const compressedFilesResult = await compressExcalidrawFiles(persistableFiles);
       if (compressedFilesResult.changed) {
         persistableFiles = compressedFilesResult.files;
@@ -133,7 +134,9 @@ export const useEditorPersistence = ({
           }
         }
         refs.latestFiles.current = persistableFiles;
-        refs.lastSyncedFiles.current = persistableFiles;
+        // Excalidraw may retain the original blob when addFiles receives an
+        // existing content-derived ID, so keep sync comparisons on that map.
+        refs.lastSyncedFiles.current = editorFilesBeforeCompression;
       }
       const filesChangedSincePersist =
         Object.keys(getFilesDelta(refs.lastPersistedFiles.current || {}, persistableFiles || {}))
