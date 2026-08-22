@@ -152,6 +152,19 @@ describe("inactive collaborator lifecycle", () => {
     harness.binding.dispose();
   });
 
+  it("escapes a user-controlled initial in the dimmed avatar SVG", () => {
+    const harness = createHarness();
+    const unsafePeer = { ...peer(true), name: "<script" };
+    harness.socket.trigger("presence-update", [unsafePeer]);
+    harness.socket.trigger("presence-update", [{ ...unsafePeer, isActive: false }]);
+    vi.advanceTimersByTime(IDLE_HOLD_MS);
+
+    const avatarUrl = harness.collaborators().get("peer")?.avatarUrl;
+    expect(decodeURIComponent(avatarUrl)).toContain(">&lt;</text>");
+    expect(decodeURIComponent(avatarUrl)).not.toContain("<script");
+    harness.binding.dispose();
+  });
+
   it("removes a real departure immediately during the grace period", () => {
     const harness = createHarness();
     harness.socket.trigger("presence-update", [peer(true)]);
