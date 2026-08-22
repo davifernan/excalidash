@@ -134,9 +134,6 @@ export const useEditorPersistence = ({
           }
         }
         refs.latestFiles.current = persistableFiles;
-        // Excalidraw may retain the original blob when addFiles receives an
-        // existing content-derived ID, so keep sync comparisons on that map.
-        refs.lastSyncedFiles.current = editorFilesBeforeCompression;
       }
       const filesChangedSincePersist =
         Object.keys(getFilesDelta(refs.lastPersistedFiles.current || {}, persistableFiles || {}))
@@ -221,6 +218,12 @@ export const useEditorPersistence = ({
         filesChangedSincePersist ? persistableFiles : undefined,
         0,
       );
+      if (compressedFilesResult.changed) {
+        // Excalidraw may retain the original blob when addFiles receives an
+        // existing content-derived ID, so keep sync comparisons on that map.
+        // Book it only after persistence confirms the corresponding save.
+        refs.lastSyncedFiles.current = editorFilesBeforeCompression;
+      }
     } catch (err) {
       if (err instanceof DrawingSaveConflictError) {
         toast.error("Drawing changed in another tab. Refresh to load latest.");
