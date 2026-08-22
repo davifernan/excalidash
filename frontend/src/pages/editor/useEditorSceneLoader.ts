@@ -8,6 +8,9 @@ import { computeElementOrderSig } from "./useEditorElementTracking";
 
 type AccessLevel = "none" | "view" | "edit" | "owner";
 
+const SCENE_LOAD_RETRY_DELAYS_MS = [500, 1000, 2000] as const;
+export const SCENE_LOAD_MAX_ATTEMPTS = SCENE_LOAD_RETRY_DELAYS_MS.length + 1;
+
 type SceneLoaderParams = {
   id: string | undefined;
   user: unknown;
@@ -41,8 +44,15 @@ type SceneLoaderParams = {
   setInitialData: (data: any) => void;
   setIsReady: (ready: boolean) => void;
   setIsSceneLoading: (loading: boolean) => void;
+  setLoadAttempt: (attempt: number) => void;
   setLoadError: (error: string | null) => void;
   recordElementVersion: (element: any) => void;
+};
+
+const isRetryableLoadError = (error: unknown): boolean => {
+  if (!api.isAxiosError(error)) return false;
+  if (!error.response) return true;
+  return typeof error.response.status === "number" && error.response.status >= 500;
 };
 
 const buildEmptyScene = () => ({
@@ -68,6 +78,7 @@ export const useEditorSceneLoader = ({
   setInitialData,
   setIsReady,
   setIsSceneLoading,
+  setLoadAttempt,
   setLoadError,
   recordElementVersion,
 }: SceneLoaderParams) => {
@@ -91,9 +102,24 @@ export const useEditorSceneLoader = ({
   }, [refs]);
 
   useEffect(() => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let finishRetryWait: (() => void) | null = null;
+
+    const waitBeforeRetry = (delay: number) =>
+      new Promise<void>((resolve) => {
+        finishRetryWait = resolve;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          finishRetryWait = null;
+          resolve();
+        }, delay);
+      });
+
     resetRefs();
     setIsReady(false);
     setIsSceneLoading(true);
+    setLoadAttempt(1);
     setLoadError(null);
     setInitialData(null);
 
@@ -110,7 +136,23 @@ export const useEditorSceneLoader = ({
               return [];
             })
           : Promise.resolve([]);
-        const [data, libraryItems] = await Promise.all([api.getDrawing(id), libraryItemsPromise]);
+        let data: Awaited<ReturnType<typeof api.getDrawing>> | null = null;
+        for (let attempt = 1; attempt <= SCENE_LOAD_MAX_ATTEMPTS; attempt += 1) {
+          setLoadAttempt(attempt);
+          try {
+            data = await api.getDrawing(id);
+            break;
+          } catch (error) {
+            if (cancelled) return;
+            const retryDelay = SCENE_LOAD_RETRY_DELAYS_MS[attempt - 1];
+            if (!isRetryableLoadError(error) || retryDelay === undefined) throw error;
+            await waitBeforeRetry(retryDelay);
+            if (cancelled) return;
+          }
+        }
+        if (cancelled || !data) return;
+        const libraryItems = await libraryItemsPromise;
+        if (cancelled) return;
         setDrawingName(data.name);
         setAccessLevel(
           data.accessLevel === "view" || data.accessLevel === "edit" || data.accessLevel === "owner"
@@ -163,6 +205,7 @@ export const useEditorSceneLoader = ({
           libraryItems,
         });
       } catch (err) {
+        if (cancelled) return;
         console.error("Failed to load drawing", err);
         let message = "Failed to load drawing";
         if (api.isAxiosError(err)) {
@@ -199,11 +242,16 @@ export const useEditorSceneLoader = ({
         setLoadError(message);
         setInitialData(null);
       } finally {
-        setIsSceneLoading(false);
+        if (!cancelled) setIsSceneLoading(false);
       }
     };
 
     loadData();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      finishRetryWait?.();
+    };
   }, [
     id,
     location.hash,
@@ -218,6 +266,7 @@ export const useEditorSceneLoader = ({
     setInitialData,
     setIsReady,
     setIsSceneLoading,
+    setLoadAttempt,
     setLoadError,
     user,
   ]);

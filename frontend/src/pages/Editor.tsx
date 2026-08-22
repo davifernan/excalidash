@@ -33,6 +33,7 @@ export const Editor: React.FC = () => {
   const [newName, setNewName] = useState("");
   const [initialData, setInitialData] = useState<any>(null);
   const [isSceneLoading, setIsSceneLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(1);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSavingOnLeave, setIsSavingOnLeave] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
@@ -220,6 +221,7 @@ export const Editor: React.FC = () => {
     setInitialData,
     setIsReady,
     setIsSceneLoading,
+    setLoadAttempt,
     setLoadError,
     recordElementVersion,
   });
@@ -328,6 +330,7 @@ export const Editor: React.FC = () => {
         isSavingOnLeave={isSavingOnLeave}
         isSceneLoading={isSceneLoading}
         langCode={langCode}
+        loadAttempt={loadAttempt}
         loadError={loadError}
         newName={newName}
         peers={peers}

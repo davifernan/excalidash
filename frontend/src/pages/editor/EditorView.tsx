@@ -19,6 +19,7 @@ import { InviteHereOverlay, type InviteHereUiState } from "./InviteHereOverlay";
 import { CursorChatComposer } from "./CursorChatComposer";
 import { MobileTimerCorner } from "./MobileTimerCorner";
 import { installLaserPointerDomBridge } from "../../integrations/excalidraw/domBridge";
+import { SCENE_LOAD_MAX_ATTEMPTS } from "./useEditorSceneLoader";
 
 type EditorViewProps = {
   id?: string;
@@ -32,6 +33,7 @@ type EditorViewProps = {
   isSavingOnLeave: boolean;
   isSceneLoading: boolean;
   langCode: string;
+  loadAttempt: number;
   loadError: string | null;
   newName: string;
   peers: Peer[];
@@ -78,6 +80,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   isSavingOnLeave,
   isSceneLoading,
   langCode,
+  loadAttempt,
   loadError,
   newName,
   peers,
@@ -288,7 +291,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-500 dark:text-gray-400">
           <span className="text-sm font-medium">
-            {isSceneLoading ? "Loading drawing..." : "Preparing canvas..."}
+            {isSceneLoading
+              ? loadAttempt > 1
+                ? `Loading drawing... Attempt ${loadAttempt} of ${SCENE_LOAD_MAX_ATTEMPTS}`
+                : "Loading drawing..."
+              : "Preparing canvas..."}
           </span>
         </div>
       )}
