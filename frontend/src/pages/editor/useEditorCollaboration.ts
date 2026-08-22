@@ -176,6 +176,10 @@ export const useEditorCollaboration = ({
       sharedPages.reset();
       inviteHereController.reset();
       setFollowers([]);
+      // A disconnect makes delivery acknowledgements unknowable. Forget the
+      // confirmed file baseline so the next local comparison can resend bytes
+      // instead of trusting markers from the previous connection.
+      lastSyncedFilesRef.current = {};
       pendingRemoteElementsRef.current.clear();
       pendingRemoteFilesRef.current = {};
       pendingRemoteElementOrderRef.current = null;
