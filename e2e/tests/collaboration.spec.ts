@@ -98,6 +98,94 @@ test.describe("Real-time Collaboration", () => {
     }
   });
 
+  test("follow survives visual expiry and follower reconnect, but ends on departure", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const drawing = await createDrawing(request, { name: `Collab_Follow_${Date.now()}` });
+    createdDrawingIds.push(drawing.id);
+
+    const followerContext = await browser.newContext();
+    const targetContext = await browser.newContext();
+    const followerPage = await followerContext.newPage();
+    const targetPage = await targetContext.newPage();
+    let targetClosed = false;
+
+    const followTargetId = () =>
+      followerPage.evaluate(
+        () =>
+          (window as any).__EXCALIDASH_EXCALIDRAW_API__?.getAppState().userToFollow?.socketId ??
+          null,
+      );
+    const collaboratorIds = () =>
+      followerPage.evaluate(() =>
+        Array.from(
+          (window as any).__EXCALIDASH_EXCALIDRAW_API__?.getAppState().collaborators.keys() ?? [],
+        ),
+      );
+    const followFrame = followerPage.locator('[data-follow-viewport="frame"]');
+
+    try {
+      await followerPage.goto(`/editor/${drawing.id}`);
+      await targetPage.goto(`/editor/${drawing.id}`);
+      await Promise.all([
+        followerPage.waitForFunction(() => Boolean((window as any).__EXCALIDASH_EXCALIDRAW_API__)),
+        targetPage.waitForFunction(() => Boolean((window as any).__EXCALIDASH_EXCALIDRAW_API__)),
+      ]);
+      await expect(followerPage.locator(".UserList__collaborator")).toHaveCount(1);
+      await expect(targetPage.locator(".UserList__collaborator")).toHaveCount(1);
+
+      const targetPresenceId = await followerPage.evaluate(() => {
+        const collaborators = (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState()
+          .collaborators;
+        return Array.from(collaborators.keys())[0] as string;
+      });
+      await followerPage.locator(".UserList__collaborator").click();
+      await expect.poll(followTargetId).toBe(targetPresenceId);
+      await expect(followFrame).toBeVisible();
+      await expect(targetPage.getByText(/is following you/)).toBeVisible();
+
+      // This is the real failure Davi hit with two browser windows: focusing
+      // the follower blurs the target. Inactive still means connected.
+      await targetPage.evaluate(() => window.dispatchEvent(new Event("blur")));
+
+      // Preserve the earlier reconnect fix as part of the same real-browser
+      // path. The follower's socket changes, but the target has not left.
+      await followerContext.setOffline(true);
+      await followerPage.waitForFunction(
+        () => (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === false,
+      );
+      await followerContext.setOffline(false);
+      await followerPage.waitForFunction(
+        () => (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true,
+      );
+      await expect.poll(followTargetId).toBe(targetPresenceId);
+      await expect(followFrame).toBeVisible();
+
+      // Waiting until the avatar is hidden crosses the full 30-second visual
+      // grace period. The target must remain in Excalidraw's map so follow
+      // mode survives; the unbounded PR #27 variant fails the avatar assertion.
+      await expect(followerPage.locator(".UserList__collaborator .Avatar")).toHaveCount(0, {
+        timeout: 35_000,
+      });
+      await expect.poll(collaboratorIds).toContain(targetPresenceId);
+      await expect.poll(followTargetId).toBe(targetPresenceId);
+      await expect(followFrame).toBeVisible();
+
+      await targetContext.close();
+      targetClosed = true;
+      await expect.poll(collaboratorIds).not.toContain(targetPresenceId);
+      await expect.poll(followTargetId).toBeNull();
+      await expect(
+        followerPage.getByText("The person you were following disconnected. Follow mode ended."),
+      ).toBeVisible();
+    } finally {
+      await followerContext.close();
+      if (!targetClosed) await targetContext.close();
+    }
+  });
+
   test("should sync drawing changes between two users", async ({ browser, request }) => {
     const drawing = await createDrawing(request, {
       name: `Collab_Sync_${Date.now()}`,
