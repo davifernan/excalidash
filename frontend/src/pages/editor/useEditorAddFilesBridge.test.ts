@@ -120,4 +120,23 @@ describe("add-files collaboration delivery", () => {
     expect(socket.emit).toHaveBeenCalledTimes(2);
     expect(Object.keys(socket.emit.mock.calls[1][1].files)).toEqual(["second"]);
   });
+
+  it("rejects one indivisible oversized file before it reaches the socket", () => {
+    const socket = { emit: vi.fn() };
+    const lastSyncedFilesRef = ref<Record<string, any>>({});
+    const files = {
+      oversized: {
+        id: "oversized",
+        dataURL: `data:image/png;base64,${"x".repeat(12 * 1024 * 1024)}`,
+      },
+    };
+    const { result } = renderDeliveryBridge({ lastSyncedFilesRef, socket });
+
+    act(() => {
+      expect(result.current.emitFilesDeltaIfNeeded(files)).toBe(false);
+    });
+
+    expect(socket.emit).not.toHaveBeenCalled();
+    expect(lastSyncedFilesRef.current).toEqual({});
+  });
 });
