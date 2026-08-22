@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import type { Express, Request, Response } from "express";
 import { ipKeyGenerator } from "express-rate-limit";
-import { canViewDrawing, getDrawingAccess } from "../authz/sharing";
+import { canViewDrawing, getDrawingAccess, shareLinkTokenFromRequest } from "../authz/sharing";
 import { QueueCapacityError } from "../utils/boundedTaskQueue";
 import { resolveStoragePath } from "../assets/assetStorage";
 import { LinkPreviewBusyError, type LinkPreviewResult } from "./service";
@@ -87,6 +87,7 @@ export function registerLinkPreviewRoutes(deps: RouteDeps): void {
           prisma: deps.prisma,
           principal: requestPrincipal(req),
           drawingId,
+          shareToken: shareLinkTokenFromRequest(req),
         }),
       ));
 

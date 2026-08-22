@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { hashShareLinkToken } from "../authz/sharing";
 import { registerLinkPreviewRoutes } from "./routes";
 
 function routeHarness(
@@ -6,6 +7,7 @@ function routeHarness(
   getPreview: any,
   options: {
     authorizeDrawing?: (req: any, drawingId: string) => Promise<boolean>;
+    prisma?: any;
   } = {},
 ) {
   const routes = new Map<string, any[]>();
@@ -15,17 +17,17 @@ function routeHarness(
   };
   registerLinkPreviewRoutes({
     app: app as any,
-    prisma: {},
+    prisma: options.prisma ?? {},
     storageDir: "/unused",
     getPreview,
     asyncHandler: (fn: any) => fn,
     requireAuth,
-    authorizeDrawing: async () => true,
-    ...options,
+    authorizeDrawing: options.authorizeDrawing ?? (options.prisma ? undefined : async () => true),
   } as any);
   const req: any = {
     body: { drawingId: "drawing-1", url: "https://example.com" },
     headers: {},
+    query: {},
     ip: "203.0.113.10",
   };
   const res: any = {
@@ -58,6 +60,33 @@ function routeHarness(
   };
   return { req, invokePost };
 }
+
+const readyPreview = () => ({
+  id: "00000000-0000-0000-0000-000000000001",
+  status: "READY" as const,
+  failureCode: null,
+  requestedUrl: "https://example.com",
+  resolvedUrl: "https://example.com",
+  title: "Example",
+  description: null,
+  imageBlobId: null,
+  faviconBlobId: null,
+});
+
+const shareOnlyPrisma = (token: string, expiresAt: Date | null = null) => ({
+  user: { findUnique: vi.fn().mockResolvedValue({ isActive: true }) },
+  drawing: {
+    findUnique: vi.fn().mockResolvedValue({ userId: "owner", collectionId: null }),
+  },
+  drawingPermission: { findUnique: vi.fn().mockResolvedValue(null) },
+  drawingLinkShare: {
+    findFirst: vi.fn(async ({ where }: any) => {
+      const now = where.OR[1].expiresAt.gt as Date;
+      if (expiresAt && expiresAt <= now) return null;
+      return { permission: "view", tokenHash: hashShareLinkToken(token) };
+    }),
+  },
+});
 
 describe("link preview routes", () => {
   it("does not invoke the preview service for signed-out callers", async () => {
@@ -104,6 +133,44 @@ describe("link preview routes", () => {
 
     expect((await harness.invokePost()).statusCode).toBe(404);
     expect(getPreview).not.toHaveBeenCalled();
+  });
+
+  it("serves a preview when an account has access only through a valid share link", async () => {
+    const shareToken = "s".repeat(32);
+    const getPreview = vi.fn(readyPreview);
+    const harness = routeHarness(
+      (req: any, _res: any, next: any) => {
+        req.user = { id: "link-viewer", authCredentialType: "jwt" };
+        next();
+      },
+      getPreview,
+      { prisma: shareOnlyPrisma(shareToken) },
+    );
+    harness.req.query.shareToken = shareToken;
+
+    expect((await harness.invokePost()).statusCode).toBe(200);
+    expect(getPreview).toHaveBeenCalledWith("link-viewer", "https://example.com");
+  });
+
+  it.each([
+    ["invalid", "i".repeat(32), null],
+    ["expired", "s".repeat(32), new Date(0)],
+  ])("keeps share-only access closed for an %s token", async (_case, presentedToken, expiresAt) => {
+    const getPreview = vi.fn(readyPreview);
+    const prisma = shareOnlyPrisma("s".repeat(32), expiresAt);
+    const harness = routeHarness(
+      (req: any, _res: any, next: any) => {
+        req.user = { id: "outsider", authCredentialType: "jwt" };
+        next();
+      },
+      getPreview,
+      { prisma },
+    );
+    harness.req.query.shareToken = presentedToken;
+
+    expect((await harness.invokePost()).statusCode).toBe(404);
+    expect(getPreview).not.toHaveBeenCalled();
+    expect(prisma.drawingLinkShare.findFirst).toHaveBeenCalledOnce();
   });
 
   it("exhausts only the requesting account's time-window quota", async () => {
