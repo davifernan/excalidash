@@ -67,15 +67,18 @@ describe("https redirect policy", () => {
     expect(getHttpsRedirectUrl(req, policy)).toBe("https://secure.example.com/login");
   });
 
-  it("leaves the local HTTP health probe reachable for unknown hosts", () => {
-    const policy = createHttpsRedirectPolicy(["https://secure.example.com"]);
-    const req = createRequest({
-      host: "127.0.0.1:8000",
-      path: "/health",
-    });
+  it.each(["/health", "/ready"])(
+    "leaves the local HTTP operational probe %s reachable for unknown hosts",
+    (path) => {
+      const policy = createHttpsRedirectPolicy(["https://secure.example.com"]);
+      const req = createRequest({
+        host: "127.0.0.1:8000",
+        path,
+      });
 
-    expect(getHttpsRedirectUrl(req, policy)).toBeNull();
-  });
+      expect(getHttpsRedirectUrl(req, policy)).toBeNull();
+    },
+  );
 
   it("does not redirect when forwarded proto is already https", () => {
     const policy = createHttpsRedirectPolicy(["https://secure.example.com"]);

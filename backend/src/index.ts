@@ -47,6 +47,10 @@ import { issueBootstrapSetupCodeIfRequired } from "./auth/bootstrapSetupCode";
 import { processFilesForS3 as processFilesForS3WithPrisma } from "./fileProcessing";
 import { initS3 } from "./s3";
 import { startScheduledMaintenance } from "./backups/scheduler";
+import {
+  registerOperationalHealthRoutes,
+  resolveReadinessDiskPath,
+} from "./server/operationalHealth";
 import { registerLinkPreviewRoutes } from "./linkPreviews/routes";
 import { collectExpiredLinkPreviews } from "./linkPreviews/cache";
 import { createLinkPreviewService } from "./linkPreviews/service";
@@ -513,14 +517,14 @@ const collaborationAccess = registerSocketHandlers({
   trustProxy: trustProxyValue,
   assetStorageDir: config.assets.storageDir,
 });
-app.get("/health", async (_req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.status(200).json({ status: "ok", database: "ok" });
-  } catch (error) {
-    console.error("Health check failed", error);
-    res.status(503).json({ status: "error", database: "unavailable" });
-  }
+registerOperationalHealthRoutes(app, {
+  database: prisma,
+  diskPath: resolveReadinessDiskPath(config.databaseUrl, config.assets.storageDir),
+  minFreeDiskPercent: config.assets.minFreeDiskPercent,
+  backupSchedule: config.backups.schedule,
+  backupDir: config.backups.dir,
+  backupMaxAgeMs: config.backups.maxAgeMs,
+  cacheTtlMs: config.readiness.cacheTtlMs,
 });
 const enableOnboardingGate =
   config.authMode === "local" &&
@@ -531,6 +535,7 @@ if (enableOnboardingGate) {
   let onboardingGateCache: { required: boolean; fetchedAt: number } | null = null;
   const isOnboardingGateBypassPath = (reqPath: string): boolean => {
     if (reqPath === "/health") return true;
+    if (reqPath === "/ready") return true;
     if (reqPath === "/csrf-token") return true;
     if (reqPath === "/auth") return true;
     if (reqPath.startsWith("/auth/")) return true;
