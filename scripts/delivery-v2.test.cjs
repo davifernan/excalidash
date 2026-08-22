@@ -248,6 +248,30 @@ test("PR admission parses unique Delivery Slices and rejects a second package", 
   );
 });
 
+test("PR admission rejects drafts, bots, placeholders, and incomplete package bodies", () => {
+  const manifest = impact([]);
+
+  assert.equal(
+    checkPrAdmission({ body: prBody(), draft: true, impactManifest: manifest }).code,
+    "draft",
+  );
+  assert.equal(
+    checkPrAdmission({ body: prBody(), authorType: "Bot", impactManifest: manifest }).code,
+    "bot",
+  );
+  assert.equal(
+    checkPrAdmission({
+      body: prBody().replace("NIL-404", "NIL-000"),
+      impactManifest: manifest,
+    }).code,
+    "delivery-contract",
+  );
+  assert.equal(
+    checkPrAdmission({ body: "Multica-Package: NIL-404", impactManifest: manifest }).code,
+    "delivery-contract",
+  );
+});
+
 test("the three ready-gate lines are compared character-for-character", () => {
   const altered = prBody({
     gates: [
