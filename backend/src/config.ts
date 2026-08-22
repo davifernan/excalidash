@@ -67,6 +67,11 @@ interface BackupConfig {
   schedule: string | null;
   dir: string;
   retentionDays: number;
+  maxAgeMs: number;
+}
+
+interface ReadinessConfig {
+  cacheTtlMs: number;
 }
 
 interface ImportConfig {
@@ -107,6 +112,7 @@ interface Config {
   bootstrapSetupCodeMaxAttempts: number;
   passwordPolicy: PasswordPolicyConfig;
   backups: BackupConfig;
+  readiness: ReadinessConfig;
   imports: ImportConfig;
   maintenance: MaintenanceConfig;
   mail: MailConfig;
@@ -436,6 +442,7 @@ const resolveBackupConfig = (): BackupConfig => {
     schedule: getOptionalTrimmedEnv("BACKUP_SCHEDULE"),
     dir: backupDir,
     retentionDays: getRequiredEnvNumber("BACKUP_RETENTION_DAYS", 14),
+    maxAgeMs: getRequiredEnvNumber("BACKUP_MAX_AGE_HOURS", 48) * 60 * 60 * 1000,
   };
 };
 
@@ -486,6 +493,9 @@ export const config: Config = {
   bootstrapSetupCodeMaxAttempts: getRequiredEnvNumber("BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS", 10),
   passwordPolicy: resolvePasswordPolicyConfig(getRequiredEnvNumber, getOptionalBoolean),
   backups: resolveBackupConfig(),
+  readiness: {
+    cacheTtlMs: getRequiredEnvNumber("READINESS_CACHE_TTL_MS", 30_000),
+  },
   imports: {
     // Archives stay on disk. These limits bound disk usage and each inflated
     // stream independently, including highly-compressible ZIP bombs.
