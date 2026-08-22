@@ -40,6 +40,7 @@ export default defineConfig({
         outputFolder: process.env.PLAYWRIGHT_REPORT_DIR || "playwright-report",
       },
     ],
+    ["./playwright-retry-summary-reporter.cjs"],
   ],
 
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results",
