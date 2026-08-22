@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: node --test scripts/delivery-contracts.test.cjs
+      - run: node --test scripts/*.test.cjs
 
   frontend-typecheck:
     name: Frontend Typecheck

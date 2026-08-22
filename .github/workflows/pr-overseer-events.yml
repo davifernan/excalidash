@@ -42,14 +42,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${WEBHOOK}" ]; then
-            echo "::notice::MULTICA_PR_OVERSEER_WEBHOOK is not configured yet; event remains recoverable through GitHub and NIL-384."
+          skip=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).skip))' "${PAYLOAD}")
+          if [ "${skip}" = "true" ]; then
+            node scripts/pr-overseer-event-log.cjs
             exit 0
           fi
 
-          skip=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).skip))' "${PAYLOAD}")
-          if [ "${skip}" = "true" ]; then
-            echo "Event does not belong to a pull request."
+          if [ -z "${WEBHOOK}" ]; then
+            echo "::notice::MULTICA_PR_OVERSEER_WEBHOOK is not configured yet; event remains recoverable through GitHub and NIL-384."
             exit 0
           fi
 

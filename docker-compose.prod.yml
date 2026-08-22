@@ -5,11 +5,13 @@
 # the API-key agents or the editor's save-conflict merge, so pointing this file
 # at them would quietly downgrade the instance.
 #
-#   docker compose -f docker-compose.prod.yml pull
-#   docker compose -f docker-compose.prod.yml up -d
+#   cp .env.production.example .env
+#   docker compose --env-file .env -f docker-compose.prod.yml pull
+#   docker compose --env-file .env -f docker-compose.prod.yml up -d
 #
-# Set EXCALIDASH_IMAGE_TAG to a release or sha-<commit> tag. Compose refuses to
-# start without it so an upgrade cannot silently move both images to `latest`.
+# EXCALIDASH_IMAGE_TAG must be a verified release or sha-<commit> tag in .env.
+# Compose refuses to start without it so an upgrade cannot silently move both
+# images to `latest`. See FORK.md for the upgrade and rollback procedure.
 x-default-logging: &default-logging
   driver: json-file
   options:
