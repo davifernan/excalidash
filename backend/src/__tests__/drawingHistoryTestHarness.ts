@@ -13,6 +13,7 @@ export const mockDrawing = {
   appState: JSON.stringify({ viewBackgroundColor: "#ffffff" }),
   files: "{}",
   version: 5,
+  nameRevision: 1,
   userId: MOCK_USER_ID,
   collectionId: null,
   preview: null,

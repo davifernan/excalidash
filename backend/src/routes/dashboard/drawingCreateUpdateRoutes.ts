@@ -204,7 +204,10 @@ export const registerDrawingCreateUpdateRoutes = (
       }
       const data: Prisma.DrawingUpdateInput = isSceneUpdate ? { version: { increment: 1 } } : {};
 
-      if (payload.name !== undefined) data.name = payload.name;
+      if (payload.name !== undefined) {
+        data.name = payload.name;
+        data.nameRevision = { increment: 1 };
+      }
       if (payload.elements !== undefined) data.elements = JSON.stringify(payload.elements);
       if (payload.appState !== undefined) data.appState = JSON.stringify(payload.appState);
       let processedFilesForUpdate: Record<string, unknown> | undefined;
@@ -337,7 +340,12 @@ export const registerDrawingCreateUpdateRoutes = (
         await collaborationAccess.recheckDrawingAccess(id);
       }
       if (payload.name !== undefined) {
-        publishDrawingName({ io, drawingId: id, name: updatedDrawing.name });
+        publishDrawingName({
+          io,
+          drawingId: id,
+          name: updatedDrawing.name,
+          revision: updatedDrawing.nameRevision,
+        });
       }
 
       return res.json({

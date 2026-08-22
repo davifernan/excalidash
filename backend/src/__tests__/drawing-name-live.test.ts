@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { buildApp, MOCK_DRAWING_ID, mockDrawing } from "./drawingHistoryTestHarness";
 
-const renamedDrawing = { ...mockDrawing, name: "Live roadmap" };
+const renamedDrawing = { ...mockDrawing, name: "Live roadmap", nameRevision: 2 };
 
 describe("live drawing name updates", () => {
   it("broadcasts the persisted name after an authorized HTTP rename", async () => {
@@ -24,7 +24,13 @@ describe("live drawing name updates", () => {
     expect(emit).toHaveBeenCalledWith("drawing-name-update", {
       drawingId: MOCK_DRAWING_ID,
       name: renamedDrawing.name,
+      revision: renamedDrawing.nameRevision,
     });
+    expect(prisma.drawing.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ nameRevision: { increment: 1 } }),
+      }),
+    );
   });
 
   it("does not publish a name a read-only user was forbidden to save", async () => {

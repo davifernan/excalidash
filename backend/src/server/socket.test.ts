@@ -22,7 +22,9 @@ describe("socket collaboration security and follow state", () => {
       drawing: {
         findUnique: async () => {
           accessLookups += 1;
-          return allowed ? { userId: BOOTSTRAP_USER_ID, name: "Live board" } : null;
+          return allowed
+            ? { userId: BOOTSTRAP_USER_ID, name: "Live board", nameRevision: 1 }
+            : null;
         },
       },
       drawingLinkShare: { findFirst: async () => null },
@@ -97,6 +99,7 @@ describe("socket collaboration security and follow state", () => {
     expect(lastEmission("drawing-name-update", "socket-name-snapshot")?.payload).toEqual({
       drawingId: "drawing-1",
       name: "Live board",
+      revision: 1,
     });
   });
 
