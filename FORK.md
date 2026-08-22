@@ -21,13 +21,45 @@ running ExcaliDash needs no checkout, no toolchain and no build memory:
 
 ```bash
 curl -O https://raw.githubusercontent.com/davifernan/ExcaliDash/main/docker-compose.prod.yml
-cp backend/.env.example .env      # set JWT_SECRET and CSRF_SECRET
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+curl -O https://raw.githubusercontent.com/davifernan/ExcaliDash/main/.env.production.example
+cp .env.production.example .env   # replace FRONTEND_URL; also set JWT_SECRET and CSRF_SECRET
+docker compose --env-file .env -f docker-compose.prod.yml pull
+docker compose --env-file .env -f docker-compose.prod.yml up -d
 ```
 
-Updating later is the same two commands. The images are public, so no registry
-login is needed.
+The images are public, so no registry login is needed. Both services read the
+same required `EXCALIDASH_IMAGE_TAG` value from `.env`; production therefore
+cannot silently follow a later `latest` build.
+
+### Upgrade and rollback
+
+Choose an upgrade only after its commit has passed the required review and
+checks. Convert the first seven characters of that full commit SHA into a tag,
+for example commit `54cdcc9...` becomes `sha-54cdcc9`. Before changing
+production, verify that **both** images were published:
+
+```bash
+NEXT_TAG=sha-54cdcc9
+docker manifest inspect "ghcr.io/davifernan/excalidash-backend:${NEXT_TAG}" >/dev/null
+docker manifest inspect "ghcr.io/davifernan/excalidash-frontend:${NEXT_TAG}" >/dev/null
+```
+
+Record the current value from `.env` as the rollback tag. Replace
+`EXCALIDASH_IMAGE_TAG` with `NEXT_TAG`, validate the resolved references, then
+pull and recreate the containers:
+
+```bash
+grep '^EXCALIDASH_IMAGE_TAG=' .env
+docker compose --env-file .env -f docker-compose.prod.yml config --images
+docker compose --env-file .env -f docker-compose.prod.yml pull
+docker compose --env-file .env -f docker-compose.prod.yml up -d
+docker compose --env-file .env -f docker-compose.prod.yml ps
+```
+
+The `config --images` output must contain the same immutable tag twice and no
+`latest`. If the new build fails, put the recorded previous tag back into
+`.env`, rerun `pull` and `up -d`, and check `ps` again. No compose-file edit or
+registry retag is needed for rollback.
 
 Note that `docker-compose.prod.yml` points at **this fork's** images
 (`ghcr.io/davifernan/excalidash-*`). Upstream's images carry none of the
@@ -49,9 +81,8 @@ read from `.env`; the defaults keep the upstream behaviour.
 ### Which build am I running?
 
 Settings → Advanced shows the version and, underneath it, the build. A published
-image says `production · <commit>`; that commit is also a tag, so a specific
-build can be pinned by replacing `:latest` with `:sha-<commit>` in
-`docker-compose.prod.yml`.
+image says `production · <commit>`; that commit is also the immutable
+`sha-<commit>` value used by `EXCALIDASH_IMAGE_TAG` in `.env`.
 
 A build made from source shows `LOCAL DEVELOPMENT BUILD` in red. That is a
 label, not a different kind of build — the Docker build is a production build
