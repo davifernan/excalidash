@@ -386,6 +386,7 @@ model DocumentPageView {
   elementId String
   assetId   String
   page      Int
+  revision  Int      @default(0)
   updatedAt DateTime @updatedAt
 
   drawing Drawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)

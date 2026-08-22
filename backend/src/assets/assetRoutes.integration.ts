@@ -375,10 +375,10 @@ describe("document routes", () => {
       const markdown = "# Grüße\n\n- eins\n- zwei";
       const res = await upload(markdown, "text/markdown", "notes.md").expect(201);
 
-      expect(res.body).toMatchObject({ kind: "MARKDOWN", name: "notes.md", pageCount: null });
+      expect(res.body).toMatchObject({ kind: "MARKDOWN", name: "notes.md", pageCount: 1 });
       const stored = await prisma.asset.findUnique({ where: { id: res.body.id } });
       expect(stored?.mimeType).toBe("text/markdown; charset=utf-8");
-      expect(stored?.pageCount).toBeNull();
+      expect(stored?.pageCount).toBe(1);
     });
 
     it("uses the text media type as a presentation preference, not content detection", async () => {

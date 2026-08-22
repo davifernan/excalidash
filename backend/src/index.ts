@@ -473,6 +473,7 @@ const collaborationAccess = registerSocketHandlers({
   // The same setting Express uses. Sockets behind a proxy would otherwise all
   // report the proxy's address and share a single anonymous budget.
   trustProxy: trustProxyValue,
+  assetStorageDir: config.assets.storageDir,
 });
 app.get("/health", async (_req, res) => {
   try {

@@ -1,35 +1,34 @@
 import type { Server, Socket } from "socket.io";
+import { DOCUMENT_WIDGET_LIMIT, syncDrawingDocumentState } from "../assets/documentWidgetState";
 import { parseDrawingId } from "./socketProtocol";
-import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
+import {
+  registerAuthorizedRoomEvent,
+  type RoomEventError,
+  type RoomEventPayload,
+  type RoomEventResult,
+} from "./socketRoomEvent";
 
 export const DOCUMENT_PAGE_EVENT = "document-page-update";
 const DOCUMENT_PAGE_COMMAND_EVENT = "document-page-command";
 
 export const DOCUMENT_PAGE_LIMITS = {
   commandsPerMinute: 120,
-  /**
-   * How many widgets one board may track. A page turn creates a row keyed by an
-   * element id the client chooses, so without a ceiling a single account could
-   * write rows for endless invented ids. Far above any real board.
-   */
-  widgetsPerDrawing: 200,
-  /**
-   * Only PDFs report a page count to the server; Markdown and text are split
-   * into pages in the browser, where the reader's width decides. For those this
-   * is the only bound the server can apply, and the widget clamps whatever it
-   * receives to the pages it actually has.
-   */
-  maxPageWithoutCount: 10_000,
+  widgetsPerDrawing: DOCUMENT_WIDGET_LIMIT,
+  maxPage: 2_147_483_647,
 } as const;
 
 const ELEMENT_ID = /^[\w-]{1,64}$/;
 
-export type DocumentPage = { elementId: string; assetId: string; page: number };
+export type DocumentPage = {
+  elementId: string;
+  assetId: string;
+  page: number;
+  revision: number;
+};
 export type DocumentPageSnapshot = { drawingId: string; pages: DocumentPage[] };
 
 export type DocumentPageCommand = RoomEventPayload & {
   elementId: string;
-  assetId: string;
   page: number;
 };
 
@@ -40,13 +39,16 @@ export const parseDocumentPageCommand = (value: unknown): DocumentPageCommand | 
   const data = value as Record<string, unknown>;
   const drawingId = parseDrawingId(data.drawingId);
   if (!drawingId) return null;
-  const { elementId, assetId, page } = data;
+  const { elementId, page } = data;
   if (typeof elementId !== "string" || !ELEMENT_ID.test(elementId)) return null;
-  if (typeof assetId !== "string" || !ELEMENT_ID.test(assetId)) return null;
   if (typeof page !== "number" || !Number.isInteger(page) || page < 1) return null;
-  if (page > DOCUMENT_PAGE_LIMITS.maxPageWithoutCount) return null;
-  return { drawingId, elementId, assetId, page };
+  if (page > DOCUMENT_PAGE_LIMITS.maxPage) return null;
+  return { drawingId, elementId, page };
 };
+
+const refusal = (code: string, message: string): { error: RoomEventError } => ({
+  error: { code, message },
+});
 
 /**
  * The room's shared page for every document widget on a board.
@@ -59,65 +61,98 @@ export const parseDocumentPageCommand = (value: unknown): DocumentPageCommand | 
 export const createDocumentPageManager = ({
   io,
   prisma,
+  resolvePageCount,
 }: {
   io: Pick<Server, "to">;
   prisma: any;
+  resolvePageCount?: (assetId: string) => Promise<number | null>;
 }) => {
   const snapshot = async (drawingId: string): Promise<DocumentPageSnapshot> => {
-    const rows = await prisma.documentPageView.findMany({
-      where: { drawingId },
-      select: { elementId: true, assetId: true, page: true },
-      take: DOCUMENT_PAGE_LIMITS.widgetsPerDrawing,
-    });
+    const reconcile = async (tx: any) => {
+      const drawing = await tx.drawing.findUnique({
+        where: { id: drawingId },
+        select: { elements: true },
+      });
+      if (!drawing) return [];
+      // Production rows always carry serialized elements. Socket-only test
+      // doubles often model access fields alone; they can still exercise the
+      // snapshot read without pretending to implement scene reconciliation.
+      if (typeof drawing.elements === "string") {
+        const elements = JSON.parse(drawing.elements);
+        if (!Array.isArray(elements)) throw new Error("Drawing elements are not an array");
+        await syncDrawingDocumentState(tx, drawingId, elements);
+      }
+      if (!tx.documentPageView?.findMany) return [];
+      return tx.documentPageView.findMany({
+        where: { drawingId },
+        select: { elementId: true, assetId: true, page: true, revision: true },
+        take: DOCUMENT_PAGE_LIMITS.widgetsPerDrawing,
+      });
+    };
+    const rows =
+      typeof prisma.$transaction === "function"
+        ? await prisma.$transaction(reconcile)
+        : await reconcile(prisma);
     return { drawingId, pages: rows };
   };
 
-  const set = async (payload: DocumentPageCommand): Promise<void> => {
-    const attached = await prisma.drawingAsset.findUnique({
-      where: { drawingId_assetId: { drawingId: payload.drawingId, assetId: payload.assetId } },
-      select: { asset: { select: { pageCount: true, status: true } } },
-    });
-    // A document nobody put on this board has no page to turn, and saying so
-    // would tell the sender whether the id exists somewhere else.
-    if (!attached?.asset || attached.asset.status !== "READY") return;
-    const pageCount = attached.asset.pageCount;
-    if (typeof pageCount === "number" && payload.page > pageCount) return;
-
-    const existing = await prisma.documentPageView.findUnique({
+  const set = async (payload: DocumentPageCommand): Promise<RoomEventResult> => {
+    const widget = await prisma.documentPageView.findUnique({
       where: {
         drawingId_elementId: { drawingId: payload.drawingId, elementId: payload.elementId },
       },
-      select: { page: true },
+      select: {
+        assetId: true,
+        page: true,
+        asset: { select: { pageCount: true, status: true } },
+      },
     });
-    if (!existing) {
-      const tracked = await prisma.documentPageView.count({
-        where: { drawingId: payload.drawingId },
-      });
-      if (tracked >= DOCUMENT_PAGE_LIMITS.widgetsPerDrawing) return;
-    } else if (existing.page === payload.page) {
+    if (!widget) {
+      return refusal("document-widget-not-found", "Document widget is not part of this board");
+    }
+    if (widget.asset.status !== "READY") {
+      return refusal("document-unavailable", "Document is not ready");
+    }
+    let pageCount = widget.asset.pageCount;
+    if (typeof pageCount !== "number" && resolvePageCount) {
+      try {
+        pageCount = await resolvePageCount(widget.assetId);
+      } catch (error) {
+        console.error("Document page count derivation failed:", {
+          drawingId: payload.drawingId,
+          assetId: widget.assetId,
+          error,
+        });
+      }
+    }
+    if (typeof pageCount !== "number") {
+      return refusal("document-page-count-unavailable", "Document page count is unavailable");
+    }
+    if (payload.page > pageCount) {
+      return refusal("document-page-out-of-range", "Document page does not exist");
+    }
+    if (widget.page === payload.page) {
       // Nothing moved. Skip the write and the broadcast rather than making
       // every reader repaint because somebody clicked a disabled-looking arrow.
       return;
     }
 
-    await prisma.documentPageView.upsert({
-      where: {
-        drawingId_elementId: { drawingId: payload.drawingId, elementId: payload.elementId },
-      },
-      create: {
-        drawingId: payload.drawingId,
-        elementId: payload.elementId,
-        assetId: payload.assetId,
-        page: payload.page,
-      },
-      update: { assetId: payload.assetId, page: payload.page },
-    });
+    let page: DocumentPage;
+    try {
+      page = await prisma.documentPageView.update({
+        where: {
+          drawingId_elementId: { drawingId: payload.drawingId, elementId: payload.elementId },
+        },
+        data: { page: payload.page, revision: { increment: 1 } },
+        select: { elementId: true, assetId: true, page: true, revision: true },
+      });
+    } catch (error: any) {
+      if (error?.code === "P2025") {
+        return refusal("document-widget-not-found", "Document widget is not part of this board");
+      }
+      throw error;
+    }
 
-    const page: DocumentPage = {
-      elementId: payload.elementId,
-      assetId: payload.assetId,
-      page: payload.page,
-    };
     io.to(roomName(payload.drawingId)).emit(DOCUMENT_PAGE_EVENT, {
       drawingId: payload.drawingId,
       pages: [page],

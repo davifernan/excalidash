@@ -10,11 +10,11 @@ import {
   toPublicTrashCollectionId,
 } from "./trash";
 import { encodeSnapshotField } from "../../snapshots/snapshotCodec";
+import { captureSnapshotAssets } from "../../assets/assetService";
 import {
-  captureSnapshotAssets,
-  referencedAssetIds,
-  syncDrawingAssets,
-} from "../../assets/assetService";
+  InvalidDocumentWidgetStateError,
+  syncDrawingDocumentState,
+} from "../../assets/documentWidgetState";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
 
@@ -278,7 +278,7 @@ export const registerDrawingCreateUpdateRoutes = (
             // ignored, because a client naming someone else's document is not
             // a mistake to paper over.
             if (payload.elements !== undefined) {
-              await syncDrawingAssets(tx, id, referencedAssetIds(payload.elements));
+              await syncDrawingDocumentState(tx, id, payload.elements);
             }
 
             await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
@@ -298,6 +298,13 @@ export const registerDrawingCreateUpdateRoutes = (
           });
         }
       } catch (error) {
+        if (error instanceof InvalidDocumentWidgetStateError) {
+          return res.status(400).json({
+            error: "Invalid document widgets",
+            code: error.code,
+            message: error.message,
+          });
+        }
         if (
           error === versionConflictError ||
           (error instanceof Error && error.message === versionConflictError.message)

@@ -15,7 +15,6 @@ import { getTestPrisma, setupTestDb, cleanupTestDb, createTestUser } from "../__
 import { storedSize, originalKey, resolveStoragePath } from "./assetStorage";
 import {
   QuotaExceededError,
-  referencedAssetIds,
   captureSnapshotAssets,
   collectExpired,
   createAsset,
@@ -23,6 +22,7 @@ import {
   sweepUnclaimed,
   usedBytesFor,
 } from "./assetService";
+import { referencedAssetIds } from "./documentWidgetState";
 
 describe("document bookkeeping", () => {
   let prisma: PrismaClient;
@@ -51,6 +51,14 @@ describe("document bookkeeping", () => {
       source: Readable.from([Buffer.from(text)]),
       ...over,
     } as any);
+
+  const widget = (id: string, assetId: unknown, over: Record<string, unknown> = {}) => ({
+    id,
+    type: "embeddable",
+    link: "excalidash://asset-widget",
+    customData: { schemaVersion: 1, widgetKind: "pdf", assetId },
+    ...over,
+  });
 
   beforeAll(async () => {
     setupTestDb();
@@ -220,43 +228,28 @@ describe("document bookkeeping", () => {
 
   describe("reading document ids out of a board", () => {
     it("finds the ids the widgets name", () => {
-      expect(
-        referencedAssetIds([
-          { id: "a", customData: { widgetKind: "pdf", assetId: "doc-1" } },
-          { id: "b", customData: { widgetKind: "pdf", assetId: "doc-2" } },
-        ]),
-      ).toEqual(["doc-1", "doc-2"]);
+      expect(referencedAssetIds([widget("a", "doc-1"), widget("b", "doc-2")])).toEqual([
+        "doc-1",
+        "doc-2",
+      ]);
     });
 
     it("ignores elements that name nothing", () => {
       expect(
-        referencedAssetIds([
-          { id: "a" },
-          { id: "b", customData: {} },
-          { id: "c", customData: { assetId: 42 } },
-        ]),
+        referencedAssetIds([{ id: "a" }, { id: "b", customData: {} }, widget("c", 42)]),
       ).toEqual([]);
     });
 
     it("ignores a deleted widget, so removing one detaches its document", () => {
-      expect(
-        referencedAssetIds([{ id: "a", isDeleted: true, customData: { assetId: "doc-1" } }]),
-      ).toEqual([]);
+      expect(referencedAssetIds([widget("a", "doc-1", { isDeleted: true })])).toEqual([]);
     });
 
     it("names each document once even when several widgets show it", () => {
-      expect(
-        referencedAssetIds([
-          { id: "a", customData: { assetId: "doc-1" } },
-          { id: "b", customData: { assetId: "doc-1" } },
-        ]),
-      ).toEqual(["doc-1"]);
+      expect(referencedAssetIds([widget("a", "doc-1"), widget("b", "doc-1")])).toEqual(["doc-1"]);
     });
 
     it("refuses an id long enough to be an attack rather than a mistake", () => {
-      expect(referencedAssetIds([{ id: "a", customData: { assetId: "x".repeat(500) } }])).toEqual(
-        [],
-      );
+      expect(referencedAssetIds([widget("a", "x".repeat(500))])).toEqual([]);
     });
 
     it("survives anything that is not a list of elements", () => {

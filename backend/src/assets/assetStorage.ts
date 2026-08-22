@@ -223,6 +223,20 @@ export async function inspectStoredFile(root: string, stored: StoredFile): Promi
   };
 }
 
+/** Read the original bytes represented by a stored blob. */
+export async function readStoredBytes(
+  root: string,
+  stored: Pick<StoredFile, "storageKey" | "contentEncoding">,
+): Promise<Buffer> {
+  const source = createReadStream(resolveStoragePath(root, stored.storageKey));
+  const contents = stored.contentEncoding === "br" ? source.pipe(createBrotliDecompress()) : source;
+  const chunks: Buffer[] = [];
+  for await (const chunk of contents) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 /** Remove a stored file. Missing counts as success — the goal is that it is gone. */
 export async function removeStored(root: string, storageKey: string): Promise<void> {
   await rm(resolveStoragePath(root, storageKey), { force: true });

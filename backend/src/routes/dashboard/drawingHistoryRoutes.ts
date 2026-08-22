@@ -1,11 +1,8 @@
 import express from "express";
 import { canEditDrawing, getDrawingAccess } from "../../authz/sharing";
 import { decodeSnapshotField, encodeSnapshotField } from "../../snapshots/snapshotCodec";
-import {
-  captureSnapshotAssets,
-  referencedAssetIds,
-  syncDrawingAssets,
-} from "../../assets/assetService";
+import { captureSnapshotAssets } from "../../assets/assetService";
+import { referencedAssetIds, syncDrawingDocumentState } from "../../assets/documentWidgetState";
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
@@ -164,7 +161,7 @@ export const registerDrawingHistoryRoutes = (
             update: { state: "ACTIVE", expiresAt: null },
           });
         }
-        await syncDrawingAssets(tx, id, wantedAssetIds);
+        await syncDrawingDocumentState(tx, id, parseJsonField(restoredElements, []));
 
         const restored = await tx.drawing.update({
           where: { id },

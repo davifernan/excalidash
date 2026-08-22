@@ -57,6 +57,12 @@ export function buildApp(options: { userId?: string } = {}) {
       update: vi.fn(),
       delete: vi.fn(),
     },
+    documentPageView: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
     user: { findUnique: vi.fn().mockResolvedValue({ isActive: true }) },
     drawingPermission: {
       findMany: vi.fn().mockResolvedValue([]),

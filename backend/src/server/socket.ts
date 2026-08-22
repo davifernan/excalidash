@@ -64,6 +64,7 @@ import {
 } from "./socketDocumentPages";
 import { createSocketInviteHereManager } from "./socketInviteHere";
 import { createRoomEventFeedback, type RoomEventAck } from "./socketRoomEvent";
+import { deriveAssetPageCount } from "../assets/documentPageCount";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -79,6 +80,8 @@ type RegisterSocketHandlersDeps = {
    * reverse proxy reports the proxy's address -- and shares one budget.
    */
   trustProxy?: TrustProxySetting;
+  /** Required by production; optional in socket-only tests with no stored assets. */
+  assetStorageDir?: string;
 };
 
 const roomName = (drawingId: string) => `drawing_${drawingId}`;
@@ -92,6 +95,7 @@ export const registerSocketHandlers = ({
   presences = new PresenceRegistry(),
   elementUpdateTrafficLimits = ELEMENT_UPDATE_TRAFFIC_LIMITS,
   trustProxy = false,
+  assetStorageDir,
 }: RegisterSocketHandlersDeps): CollaborationAccessController => {
   const principals = new Map<string, DrawingPrincipal>();
   const connectedSockets = new Map<string, Socket>();
@@ -139,7 +143,13 @@ export const registerSocketHandlers = ({
   const allowCursorChat = createKeyedRateLimiter(CURSOR_CHAT_LIMITS.eventsPerSecond * 4, 1_000);
   const shareTokenBySocket = new Map<string, string>();
   const workshopTimers = createWorkshopTimerManager({ io });
-  const documentPages = createDocumentPageManager({ io, prisma });
+  const documentPages = createDocumentPageManager({
+    io,
+    prisma,
+    resolvePageCount: assetStorageDir
+      ? (assetId) => deriveAssetPageCount(prisma, assetStorageDir, assetId)
+      : undefined,
+  });
   let followManager: ReturnType<typeof createSocketFollowManager>;
   let inviteHereManager: ReturnType<typeof createSocketInviteHereManager>;
   const activeAccounts = new ActiveAccountCache(async (userId) => {
