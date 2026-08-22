@@ -11,6 +11,7 @@ import {
   validatePasswordAgainstPolicy,
 } from "./config/passwordPolicy";
 import { validateProductionConfig } from "./config/production";
+import { DEFAULT_SOCKET_MAX_HTTP_BUFFER_BYTES, assertSocketLimitContract } from "./limits";
 
 export { buildPasswordPolicyMessage, validatePasswordAgainstPolicy };
 
@@ -440,6 +441,16 @@ const resolveBackupConfig = (): BackupConfig => {
 
 const resolvedAuthMode = parseAuthMode(process.env.AUTH_MODE);
 
+const resolveSocketMaxHttpBufferBytes = (): number => {
+  const configuredMb = getRequiredEnvNumber(
+    "SOCKET_MAX_HTTP_BUFFER_MB",
+    DEFAULT_SOCKET_MAX_HTTP_BUFFER_BYTES / 1024 / 1024,
+  );
+  const configuredBytes = configuredMb * 1024 * 1024;
+  assertSocketLimitContract(configuredBytes);
+  return configuredBytes;
+};
+
 const resolveS3Config = (): S3Config => ({
   bucket: getOptionalTrimmedEnv("S3_BUCKET"),
   region: getOptionalEnv("S3_REGION", "us-east-1"),
@@ -463,7 +474,7 @@ export const config: Config = {
   rateLimitMaxRequests: getRequiredEnvNumber("RATE_LIMIT_MAX_REQUESTS", 1000),
   csrfMaxRequests: getRequiredEnvNumber("CSRF_MAX_REQUESTS", 60),
   csrfSecret: process.env.CSRF_SECRET || null,
-  socketMaxHttpBufferBytes: getRequiredEnvNumber("SOCKET_MAX_HTTP_BUFFER_MB", 16) * 1024 * 1024,
+  socketMaxHttpBufferBytes: resolveSocketMaxHttpBufferBytes(),
   oidc: resolveOidcConfig(resolvedAuthMode),
   enablePasswordReset: getOptionalBoolean("ENABLE_PASSWORD_RESET", false),
   enableRefreshTokenRotation: getOptionalBoolean("ENABLE_REFRESH_TOKEN_ROTATION", true),

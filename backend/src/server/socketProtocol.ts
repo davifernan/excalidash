@@ -1,43 +1,10 @@
-export const SOCKET_LIMITS = {
-  drawingIdLength: 200,
-  coordinateAbs: 1_000_000_000,
-  viewportSpan: 100_000_000,
-  elementsPerUpdate: 10_000,
-  filesPerUpdate: 1_000,
-  elementOrderBytes: 8 * 1024 * 1024,
-  elementBytes: 512 * 1024,
-  fileBytes: 10 * 1024 * 1024 + 4 * 1024,
-  fileDataUrlLength: 10 * 1024 * 1024,
-  elementUpdateBytes: 15 * 1024 * 1024,
-  // The largest legitimate event measured is a single maximum embedded image at
-  // 10.49 MB. A ceiling barely above that is not a margin: an ordinary board
-  // would start losing live updates as it grew, and somebody editing through a
-  // share link is a real collaborator rather than a suspect.
-  anonymousElementUpdateBytes: 13 * 1024 * 1024,
-} as const;
+import {
+  ELEMENT_UPDATE_TRAFFIC_LIMITS,
+  SOCKET_LIMITS,
+  type ElementUpdateTrafficLimits,
+} from "../limits";
 
-export type ElementUpdateTrafficLimits = {
-  accountBytesPerWindow: number;
-  anonymousBytesPerWindow: number;
-  accountActorBytesPerWindow: number;
-  anonymousActorBytesPerWindow: number;
-  windowMs: number;
-};
-
-export const ELEMENT_UPDATE_TRAFFIC_LIMITS: ElementUpdateTrafficLimits = {
-  // The frontend emits at most ten times per second. Two maximum signed-in
-  // updates still fit, while 120 large relays no longer do.
-  accountBytesPerWindow: 30 * 1024 * 1024,
-  // A link guest can still send one maximum 10 MiB embedded image, but does
-  // not receive an account's sustained relay allowance.
-  anonymousBytesPerWindow: 12 * 1024 * 1024,
-  // Separate board budgets keep ordinary tabs independent. Four such budgets
-  // fit under the actor ceiling, but opening more boards cannot multiply an
-  // account's or address's aggregate relay throughput without bound.
-  accountActorBytesPerWindow: 120 * 1024 * 1024,
-  anonymousActorBytesPerWindow: 48 * 1024 * 1024,
-  windowMs: 1_000,
-};
+export { ELEMENT_UPDATE_TRAFFIC_LIMITS, SOCKET_LIMITS, type ElementUpdateTrafficLimits };
 
 export const SOCKET_QUEUE_LIMITS = { joins: 8 } as const;
 
@@ -123,6 +90,58 @@ const serializedByteLength = (value: unknown): number | null => {
   } catch {
     return null;
   }
+};
+
+export type ElementUpdateLimitError = {
+  code:
+    | "payload-too-large"
+    | "element-too-large"
+    | "file-too-large"
+    | "too-many-elements"
+    | "too-many-files";
+  message: string;
+};
+
+export const elementUpdateLimitError = (value: unknown): ElementUpdateLimitError | null => {
+  if (!isPlainRecord(value)) return null;
+  const serializedBytes = serializedByteLength(value);
+  if (serializedBytes !== null && serializedBytes > SOCKET_LIMITS.elementUpdateBytes) {
+    return {
+      code: "payload-too-large",
+      message: "element-update exceeds the per-event byte limit",
+    };
+  }
+  if (Array.isArray(value.elements)) {
+    if (value.elements.length > SOCKET_LIMITS.elementsPerUpdate) {
+      return { code: "too-many-elements", message: "element-update contains too many elements" };
+    }
+    for (const element of value.elements) {
+      const elementBytes = serializedByteLength(element);
+      if (elementBytes !== null && elementBytes > SOCKET_LIMITS.elementBytes) {
+        return {
+          code: "element-too-large",
+          message: "element-update contains an oversized element",
+        };
+      }
+    }
+  }
+  if (isPlainRecord(value.files)) {
+    if (Object.keys(value.files).length > SOCKET_LIMITS.filesPerUpdate) {
+      return { code: "too-many-files", message: "element-update contains too many files" };
+    }
+    for (const file of Object.values(value.files)) {
+      if (!isPlainRecord(file)) continue;
+      const fileBytes = serializedByteLength(file);
+      if (
+        (typeof file.dataURL === "string" &&
+          file.dataURL.length > SOCKET_LIMITS.fileDataUrlLength) ||
+        (fileBytes !== null && fileBytes > SOCKET_LIMITS.fileBytes)
+      ) {
+        return { code: "file-too-large", message: "element-update contains an oversized file" };
+      }
+    }
+  }
+  return null;
 };
 
 const ELEMENT_NUMBER_FIELDS = [

@@ -4,6 +4,7 @@ import {
   parseCursorPayload,
   parseDrawingId,
   parseElementUpdatePayload,
+  elementUpdateLimitError,
   type ElementUpdatePayload,
 } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
@@ -72,6 +73,7 @@ export const registerCoreRoomEvents = ({
     limit: 120,
     windowMs: 1_000,
     parse: parseElementUpdatePayload,
+    parseLimitError: elementUpdateLimitError,
     requireAccess,
     allowPayload: (payload) => allowElementUpdate(payload.drawingId, payload.serializedBytes),
     requireEdit: true,

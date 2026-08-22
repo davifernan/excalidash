@@ -103,6 +103,8 @@ type RegisterAuthorizedRoomEventOptions<Payload extends RoomEventPayload> = {
   limit: number;
   windowMs: number;
   parse: (value: unknown) => Payload | null;
+  /** Classifies a parser refusal caused by a declared limit. */
+  parseLimitError?: (value: unknown) => RoomEventError | null;
   requireAccess: (socket: Socket, drawingId: string, requireEdit?: boolean) => Promise<unknown>;
   requireEdit?: boolean;
   /**
@@ -158,6 +160,7 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
   limit,
   windowMs,
   parse,
+  parseLimitError,
   requireAccess,
   requireEdit = false,
   allow: sharedAllow,
@@ -181,7 +184,9 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
     tail = tail.then(async () => {
       const payload = parse(value);
       if (!payload) {
-        feedback.invalid(ack);
+        const limitError = parseLimitError?.(value);
+        if (limitError) feedback.rejected(limitError, ack);
+        else feedback.invalid(ack);
         return;
       }
       if (allowPayload && !allowPayload(payload)) {

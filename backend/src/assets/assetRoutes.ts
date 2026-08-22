@@ -295,7 +295,11 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
           return res.status(422).json({ error: "Invalid text document", message: err.message });
         }
         if (err instanceof AssetTooLargeError) {
-          return res.status(413).json({ error: "File too large", message: err.message });
+          return res.status(413).json({
+            code: "asset-too-large",
+            error: "File too large",
+            message: err.message,
+          });
         }
         if (err instanceof QuotaExceededError) {
           return res.status(507).json({ error: "Storage limit reached", message: err.message });
