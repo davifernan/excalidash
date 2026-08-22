@@ -220,6 +220,8 @@ Base values are documented in `backend/.env.example`. Common ones to care about:
 | `BACKUP_MAX_COUNT` | `7` | Maximum number of completed full-backup archives. Oldest archives are removed first. |
 | `BACKUP_MAX_TOTAL_MB` | `30720` | Maximum combined archive budget. A single backup that cannot fit is refused before its working copy is written. |
 | `BACKUP_MIN_FREE_DISK_PERCENT` | `20` | Free-space floor that must remain throughout creation of the SQLite copy and archive. |
+| `BACKUP_MAX_AGE_HOURS` | `48` | Age after which `/ready` warns that the latest completed scheduled backup is stale. |
+| `READINESS_CACHE_TTL_MS` | `30000` | Cache lifetime for the database-write, disk-space, and backup-age readiness checks. |
 | `AUTH_CLEANUP_SCHEDULE` | `0 0 3 * * *` | Daily maintenance schedule for expired/revoked auth tokens and audit retention. |
 | `AUTH_TOKEN_RETENTION_DAYS` | `30` | Keep expired/used/revoked auth-token records this many days before deletion. Live tokens are never deleted. |
 | `AUDIT_LOG_RETENTION_DAYS` | `365` | Keep audit events for this many days. Increase this to meet company or legal retention requirements. |
@@ -321,6 +323,25 @@ and the persisted JWT/CSRF secret files. The page cache is deliberately omitted
 because it is regenerated. A host bind mount is still on the same failure domain
 as the VPS: replicate completed `.zip` files and their SHA-256 sums to another
 server or object store after every run.
+
+### Liveness and readiness monitoring
+
+Use `GET /health` only as the container liveness probe. It performs no database
+or filesystem I/O and returns `200 {"status":"ok"}` while the process can serve
+HTTP. Keeping Docker Compose on this endpoint prevents a full disk or a locked
+database from turning into a restart loop.
+
+Use `GET /ready` for external monitoring, at most once per minute. It acquires
+the database writer path with a no-op `UPDATE` (no row is changed), reads free
+space through the same filesystem helper used by the page cache, and finds the
+newest completed scheduled backup. Results are cached for 30 seconds by default;
+`checkedAt`, `cache.ageMs`, and `cache.ttlMs` show exactly how old the result is.
+
+An unwritable database or free space below `ASSET_MIN_FREE_DISK_PERCENT` returns
+HTTP 503 with overall status `error`. A stale, missing, or unreadable scheduled
+backup returns HTTP 200 with status `warning`: the service can still work, but
+the backup alert needs attention. When `BACKUP_SCHEDULE` is unset, backup status
+is `disabled` and does not degrade readiness.
 
 For a tested disaster restore and the safe upgrade/rollback sequence, follow
 [the restore runbook](RESTORE.md).

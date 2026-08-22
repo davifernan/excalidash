@@ -77,6 +77,8 @@ services:
       - BACKUP_MAX_COUNT=${BACKUP_MAX_COUNT:-7}
       - BACKUP_MAX_TOTAL_MB=${BACKUP_MAX_TOTAL_MB:-30720}
       - BACKUP_MIN_FREE_DISK_PERCENT=${BACKUP_MIN_FREE_DISK_PERCENT:-20}
+      - BACKUP_MAX_AGE_HOURS=${BACKUP_MAX_AGE_HOURS:-48}
+      - READINESS_CACHE_TTL_MS=${READINESS_CACHE_TTL_MS:-30000}
       # Optional OIDC settings (required for AUTH_MODE=hybrid or oidc_enforced)
       # - OIDC_PROVIDER_NAME=Authentik
       # - OIDC_ISSUER_URL=https://auth.example.com/application/o/excalidash/
@@ -92,6 +94,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
+      # Liveness only: readiness failures must not cause restart loops.
       # Use IPv4 loopback explicitly to avoid IPv6 localhost resolution issues.
       test:
         [

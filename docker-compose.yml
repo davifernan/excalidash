@@ -51,6 +51,7 @@ services:
       - ASSET_RENDER_QUEUE_LIMIT=${ASSET_RENDER_QUEUE_LIMIT:-32}
       - ASSET_PDF_SHRINK_CONCURRENCY=${ASSET_PDF_SHRINK_CONCURRENCY:-1}
       - ASSET_PDF_SHRINK_QUEUE_LIMIT=${ASSET_PDF_SHRINK_QUEUE_LIMIT:-2}
+      - READINESS_CACHE_TTL_MS=${READINESS_CACHE_TTL_MS:-30000}
       # --- Sitzungsdauer -----------------------------------------------
       - JWT_REFRESH_EXPIRES_IN_REMEMBERED=${JWT_REFRESH_EXPIRES_IN_REMEMBERED:-30d}
       # # Local OIDC settings for dev compose.
@@ -73,6 +74,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
+      # Liveness only: readiness failures must not cause restart loops.
       # Use IPv4 loopback explicitly to avoid IPv6 localhost resolution issues.
       test:
         [
