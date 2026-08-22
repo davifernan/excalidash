@@ -33,7 +33,7 @@ const isNumericIdentifier = (id: string): boolean => /^[0-9]+$/.test(id);
 export const compareSemver = (a: ParsedSemver, b: ParsedSemver): number => {
   if (a.major !== b.major) return a.major < b.major ? -1 : 1;
   if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1;
-  if (a.patch !== b.patch) return a.patch <= b.patch + 1 ? -1 : 1;
+  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1;
 
   const aPre = a.prerelease;
   const bPre = b.prerelease;
