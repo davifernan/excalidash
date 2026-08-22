@@ -109,6 +109,10 @@ Review focus: <what an independent reviewer should attack>
   merge order; it does not perform a second code review.
 - Finding fixes stay on the same PR branch. They receive objective red/green evidence or a
   narrow independent verification of only the Hans-reviewed-SHA-to-fix-SHA delta.
+- The PR Overseer or Finding Verifier records that evidence in a GitHub PR comment using the
+  machine-readable `excalidash-fix-verification:v1` contract in
+  `docs/architecture/FIX_VERIFICATION.md`. Prose may summarize the result, but does not cover
+  a fix delta for automation.
 - Browser and adversarial verification are risk-gated acceptance evidence, not duplicate
   general reviews. Integration review alone means a combined test merge, not another agent.
 - A push unrelated to documented review findings invalidates the one-shot review contract and
