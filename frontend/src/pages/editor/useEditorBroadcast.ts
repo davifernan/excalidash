@@ -54,11 +54,35 @@ type PendingUpdate = {
   filesOnly: boolean;
 };
 
+type RejectedFileAttempt = {
+  dataURL: unknown;
+  metadata: string;
+};
+
 type ElementUpdateAck = {
   ok?: boolean;
   error?: { code?: string; message?: string };
   warning?: { code?: string; message?: string };
 };
+
+const rejectedFileAttempt = (file: any): RejectedFileAttempt => {
+  if (!file || typeof file !== "object") {
+    return { dataURL: undefined, metadata: JSON.stringify(file) ?? String(file) };
+  }
+  const { dataURL, ...metadata } = file;
+  return { dataURL, metadata: JSON.stringify(metadata) };
+};
+
+const isSameRejectedFileAttempt = (previous: RejectedFileAttempt, file: any): boolean => {
+  const next = rejectedFileAttempt(file);
+  return previous.dataURL === next.dataURL && previous.metadata === next.metadata;
+};
+
+const referencesRejectedFile = (element: any, rejectedFileIds: ReadonlySet<string>): boolean =>
+  element?.type === "image" &&
+  !element?.isDeleted &&
+  typeof element?.fileId === "string" &&
+  rejectedFileIds.has(element.fileId);
 
 export const useEditorBroadcast = ({
   drawingId,
@@ -83,6 +107,8 @@ export const useEditorBroadcast = ({
   const deliveryGenerationRef = useRef(0);
   const sendingRef = useRef(false);
   const pendingUpdateRef = useRef<PendingUpdate | null>(null);
+  const rejectedFileAttemptsRef = useRef(new Map<string, RejectedFileAttempt>());
+  const rejectedFilesDrawingIdRef = useRef<string | undefined>(drawingId);
   const queueUpdateRef = useRef<
     (elements: readonly any[], files?: Record<string, any>, filesOnly?: boolean) => boolean
   >(() => false);
@@ -164,8 +190,8 @@ export const useEditorBroadcast = ({
     (elements: readonly any[], currentFiles?: Record<string, any>, filesOnly = false): boolean => {
       if (!socketRef.current || !drawingId) return false;
       const nextFiles = currentFiles || excalidrawAPI.current?.getFiles() || {};
-      const filesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles);
-      const shouldSyncFiles = Object.keys(filesDelta).length > 0;
+      const rawFilesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles);
+      const shouldSyncFiles = Object.keys(rawFilesDelta).length > 0;
       if (Object.keys(nextFiles).length > 0) latestFilesRef.current = nextFiles;
 
       if (sendingRef.current) {
@@ -180,7 +206,7 @@ export const useEditorBroadcast = ({
       const normalizedElements = filesOnly
         ? elements
         : normalizeImageElementStatus(elements, nextFiles);
-      const changes = filesOnly
+      const candidateChanges = filesOnly
         ? []
         : normalizedElements.filter((element) => hasElementChanged(element));
       const nextOrderSig = filesOnly ? undefined : computeElementOrderSig(normalizedElements);
@@ -190,13 +216,50 @@ export const useEditorBroadcast = ({
         !filesOnly &&
         shouldSaveBoardSettings(lastPersistedAppStateSigRef.current, latestAppStateRef.current);
 
-      const filePayloads = splitFilesIntoUpdatePayloads({ drawingId, files: filesDelta });
-      if (!filePayloads.ok) {
+      if (rejectedFilesDrawingIdRef.current !== drawingId) {
+        rejectedFileAttemptsRef.current.clear();
+        rejectedFilesDrawingIdRef.current = drawingId;
+      }
+      for (const fileId of rejectedFileAttemptsRef.current.keys()) {
+        if (!(fileId in nextFiles) || !(fileId in rawFilesDelta)) {
+          rejectedFileAttemptsRef.current.delete(fileId);
+        }
+      }
+      const rejectedFileIds = new Set<string>();
+      const deliverableFiles = Object.fromEntries(
+        Object.entries(rawFilesDelta).filter(([fileId, file]) => {
+          const previousAttempt = rejectedFileAttemptsRef.current.get(fileId);
+          if (!previousAttempt) return true;
+          if (isSameRejectedFileAttempt(previousAttempt, file)) {
+            rejectedFileIds.add(fileId);
+            return false;
+          }
+          rejectedFileAttemptsRef.current.delete(fileId);
+          return true;
+        }),
+      );
+
+      let filePayloads = splitFilesIntoUpdatePayloads({ drawingId, files: deliverableFiles });
+      while (!filePayloads.ok) {
+        const rejectedFile = deliverableFiles[filePayloads.fileId];
+        // This is a local refusal marker, not a delivery marker. Keeping the
+        // exact rejected content separate from lastSyncedFilesRef prevents it
+        // from blocking every later update without ever claiming server ACK.
+        rejectedFileAttemptsRef.current.set(filePayloads.fileId, rejectedFileAttempt(rejectedFile));
+        rejectedFileIds.add(filePayloads.fileId);
         toast.error(
           `File ${filePayloads.fileId} is too large for live collaboration (${filePayloads.payloadBytes} bytes)`,
         );
-        return false;
+        delete deliverableFiles[filePayloads.fileId];
+        filePayloads = splitFilesIntoUpdatePayloads({ drawingId, files: deliverableFiles });
       }
+
+      const changes = candidateChanges.filter(
+        (element) => !referencesRejectedFile(element, rejectedFileIds),
+      );
+      const shouldDeliverOrder =
+        shouldSyncOrder &&
+        !normalizedElements.some((element) => referencesRejectedFile(element, rejectedFileIds));
 
       const packets: DeliveryPacket[] = filePayloads.payloads.map((payload) => ({
         payload,
@@ -208,8 +271,8 @@ export const useEditorBroadcast = ({
         },
       }));
 
-      if (changes.length > 0 || shouldSyncOrder) {
-        const elementOrder = shouldSyncOrder
+      if (changes.length > 0 || shouldDeliverOrder) {
+        const elementOrder = shouldDeliverOrder
           ? normalizedElements
               .filter((element: any) => !element?.isDeleted)
               .map((element: any) => element?.id)
@@ -227,7 +290,7 @@ export const useEditorBroadcast = ({
           },
           acknowledge: () => {
             changes.forEach((element) => recordElementVersion(element));
-            if (shouldSyncOrder && nextOrderSig !== undefined) {
+            if (shouldDeliverOrder && nextOrderSig !== undefined) {
               lastSyncedElementOrderSigRef.current = nextOrderSig;
             }
           },

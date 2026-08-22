@@ -90,6 +90,80 @@ describe("editor broadcast delivery tracking", () => {
     vi.useRealTimers();
   });
 
+  it("keeps unrelated changes flowing after rejecting an oversized file without marking it sent", () => {
+    const acknowledgements: Array<(value: any) => void> = [];
+    const emit = vi.fn((_event: string, _payload: unknown, ack?: (value: any) => void) => {
+      if (ack) acknowledgements.push(ack);
+    });
+    const lastSyncedFilesRef = ref<Record<string, any>>({});
+    const recordElementVersion = vi.fn();
+    const oversizedFile = {
+      id: "oversized",
+      dataURL: `data:image/png;base64,${"x".repeat(10 * 1024 * 1024)}`,
+    };
+    const files = { oversized: oversizedFile };
+    const rejectedImage = {
+      id: "rejected-image",
+      type: "image",
+      fileId: "oversized",
+      version: 2,
+    };
+    const unrelatedElement = { id: "unrelated-shape", type: "rectangle", version: 2 };
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        excalidrawAPI: ref<any>({ getFiles: () => files }),
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef,
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>({ emit }),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => true,
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion,
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => expect(result.current.broadcastFiles(files)).toBe(false));
+    expect(lastSyncedFilesRef.current).toEqual({});
+    expect(emit).not.toHaveBeenCalled();
+
+    act(() => result.current.broadcastChanges([rejectedImage, unrelatedElement], files));
+
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0][1]).toMatchObject({
+      elements: [unrelatedElement],
+    });
+    expect(emit.mock.calls[0][1]).not.toHaveProperty("files");
+    expect(lastSyncedFilesRef.current).toEqual({});
+
+    act(() => acknowledgements[0]?.({ ok: true }));
+
+    expect(recordElementVersion).toHaveBeenCalledOnce();
+    expect(recordElementVersion).toHaveBeenCalledWith(unrelatedElement);
+    expect(recordElementVersion).not.toHaveBeenCalledWith(rejectedImage);
+    expect(lastSyncedFilesRef.current).toEqual({});
+
+    const resizedFile = { ...oversizedFile, dataURL: "data:image/png;base64,resized" };
+    act(() => expect(result.current.broadcastFiles({ oversized: resizedFile })).toBe(true));
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[1][1]).toMatchObject({
+      elements: [],
+      files: { oversized: resizedFile },
+    });
+    expect(lastSyncedFilesRef.current).toEqual({});
+
+    act(() => acknowledgements[1]?.({ ok: true }));
+    expect(lastSyncedFilesRef.current).toEqual({ oversized: resizedFile });
+  });
+
   it("automatically retries when the socket acknowledgement window expires", () => {
     vi.useFakeTimers();
     const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
