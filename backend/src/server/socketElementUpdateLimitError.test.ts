@@ -9,7 +9,9 @@ describe("element-update limit reasons", () => {
       name: "element count",
       payload: {
         drawingId,
-        elements: Array.from({ length: SOCKET_LIMITS.elementsPerUpdate + 1 }, () => ({})),
+        elements: Array.from({ length: SOCKET_LIMITS.elementsPerUpdate + 1 }, (_, index) => ({
+          id: `element-${index}`,
+        })),
       },
       code: "too-many-elements",
     },
@@ -54,5 +56,33 @@ describe("element-update limit reasons", () => {
 
   it("leaves malformed non-limit payloads classified as invalid requests", () => {
     expect(elementUpdateLimitError({ drawingId, elements: "not-an-array" })).toBeNull();
+  });
+
+  it.each([
+    {
+      name: "element fields",
+      payload: {
+        drawingId,
+        elements: [
+          {
+            id: "element-1",
+            type: "x".repeat(65),
+            padding: "y".repeat(SOCKET_LIMITS.elementBytes),
+          },
+        ],
+      },
+    },
+    {
+      name: "file ids",
+      payload: {
+        drawingId,
+        elements: [],
+        files: {
+          "not/a/file/id": { dataURL: "x".repeat(SOCKET_LIMITS.fileDataUrlLength + 1) },
+        },
+      },
+    },
+  ])("does not disguise malformed $name as limit refusals", ({ payload }) => {
+    expect(elementUpdateLimitError(payload)).toBeNull();
   });
 });
