@@ -1,16 +1,9 @@
 import React from "react";
-import {
-  EditorFooter as Footer,
-  EditorMenu as MainMenu,
-} from "../../integrations/excalidraw/slots";
-import { ArrowLeft, Download, History, LocateFixed, Share2 } from "lucide-react";
 import { Toaster } from "sonner";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
-import { LanguageSelector } from "../../components/LanguageSelector";
 import { UIOptions } from "./shared";
 import { AssetWidget } from "./AssetWidget";
 import { getAssetWidgetData, validateEmbeddableLink } from "./pdfWidgetElements";
-import { EditorTopLeft } from "./EditorTopLeft";
 import { EditorTopRight } from "./EditorTopRight";
 import { useExcalidrawRoot } from "./useExcalidrawRoot";
 import { useExcalidrawUiState } from "./useExcalidrawUiState";
@@ -18,10 +11,17 @@ import type { Peer } from "./useEditorCollaboration";
 import type { Follower } from "./followMode";
 import type { WorkshopTimerController } from "./workshopTimer";
 import type { DocumentPageController } from "./documentPages";
-import { WorkshopTimerWidget } from "./WorkshopTimerWidget";
+import { WorkshopTimerCorner } from "./WorkshopTimerCorner";
 import { InviteHereOverlay, type InviteHereUiState } from "./InviteHereOverlay";
 import { CursorChatComposer } from "./CursorChatComposer";
-import { MobileTimerCorner } from "./MobileTimerCorner";
+import {
+  followerNotice as describeFollowers,
+  renderFooterEntries,
+  renderMainMenuEntries,
+  type ChromeSlotContext,
+} from "./chromeSlots";
+import { EditorMenu as MainMenu } from "../../integrations/excalidraw/slots";
+import "./editorChrome.css";
 
 type EditorViewProps = {
   id?: string;
@@ -61,12 +61,6 @@ type EditorViewProps = {
   onSetLangCode: (langCode: string) => void;
   onShareOpen: () => void;
   onHistoryOpen: () => void;
-};
-
-const describeFollowers = (followers: Follower[]): string | null => {
-  if (followers.length === 0) return null;
-  if (followers.length === 1) return `${followers[0].name} is following you`;
-  return `${followers.length} people are following you`;
 };
 
 export const EditorView: React.FC<EditorViewProps> = ({
@@ -109,7 +103,35 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onHistoryOpen,
 }) => {
   const excalidrawRoot = useExcalidrawRoot(editorContainerRef);
-  const { zenMode, mobile } = useExcalidrawUiState(editorContainerRef);
+  // Zen mode is handled by Excalidraw itself for everything rendered through
+  // its own slots (MainMenu, renderTopRightUI both carry
+  // `zen-mode-transition` already); this component no longer has a floating
+  // island of its own that would need to hide independently.
+  const { mobile } = useExcalidrawUiState(editorContainerRef);
+
+  const chromeCtx: ChromeSlotContext = {
+    id,
+    accessLevel,
+    canEdit,
+    mobile,
+    drawingName,
+    isRenaming,
+    isSavingOnLeave,
+    newName,
+    peers,
+    followers,
+    inviteHere,
+    langCode,
+    onBackClick,
+    onNewNameChange,
+    onRenameBlur,
+    onRenameStart,
+    onRenameSubmit,
+    onExportClick,
+    onShareOpen,
+    onHistoryOpen,
+    onSetLangCode,
+  };
 
   return (
     // The canvas fills the window and never changes size again. The old header
@@ -150,11 +172,17 @@ export const EditorView: React.FC<EditorViewProps> = ({
             excalidrawAPI={onSetExcalidrawAPI}
             UIOptions={UIOptions}
             viewModeEnabled={!canEdit}
-            // Excalidraw hides its own laser pointer until it believes a session
-            // is live. The pointer payload already carries `tool: "laser"` end to
-            // end, so the only thing missing was this admission that someone else
-            // is here. Alone on a board a laser points at nobody, hence peers.
-            isCollaborating={peers.length > 0}
+            // Always on, not `peers.length > 0` (NIL-374): Excalidraw shows its
+            // standalone laser toggle only while this is true, and that toggle
+            // is now the *only* way to the laser tool -- the always-present
+            // duplicate in the extra-tools flyout is hidden in
+            // editorChrome.css. A laser control that vanished the moment you
+            // are alone on a board would be a regression, not a cleanup.
+            // Nothing else in this application reads `isCollaborating`: the
+            // presence pill and avatar list key off `collaborators.size`, and
+            // this application never renders Excalidraw's default welcome
+            // screen, the prop's only other consumer.
+            isCollaborating
             validateEmbeddable={validateEmbeddableLink}
             renderEmbeddable={(element, appState) => {
               const data = getAssetWidgetData(element);
@@ -176,96 +204,25 @@ export const EditorView: React.FC<EditorViewProps> = ({
               <EditorTopRight
                 isMobile={isMobile}
                 followerNotice={describeFollowers(followers)}
-                showInvite={canEdit && peers.length > 0}
-                inviteHere={inviteHere}
-                showShare={accessLevel === "owner" && !!id}
-                onShareOpen={onShareOpen}
+                ctx={chromeCtx}
               />
             )}
           >
-            {/*
-              The timer lives at the bottom, in the Footer slot Excalidraw
-              offers and we had never filled. It belongs there rather than in
-              the top-right cluster: that column is capped near 275px and every
-              button in it competes with the avatar list, which collapses the
-              moment it drops below 76px. A countdown is ambient anyway -- you
-              glance at it, you do not hunt for it.
-            */}
-            {mobile ? null : (
-              <Footer>
-                <WorkshopTimerWidget timer={workshopTimer} canEdit={canEdit} />
-              </Footer>
-            )}
-            <MainMenu>
-              {/*
-                The way back, in the one place that exists at every window size.
-                On the mobile layout the island stands down so it does not cover
-                Excalidraw's tool row, and this becomes the only route home.
-              */}
-              <MainMenu.Item onSelect={onBackClick} icon={<ArrowLeft size={16} />}>
-                Back to dashboard
-              </MainMenu.Item>
-              <MainMenu.Separator />
-              <MainMenu.DefaultItems.ToggleTheme />
-              <MainMenu.DefaultItems.SaveAsImage />
-              <MainMenu.Item onSelect={onExportClick} icon={<Download size={16} />}>
-                Export drawing
-              </MainMenu.Item>
-              {canEdit && id ? (
-                <MainMenu.Item onSelect={onHistoryOpen} icon={<History size={16} />}>
-                  Version history
-                </MainMenu.Item>
-              ) : null}
-              {/*
-                Also in the menu, because the island stands down on the mobile
-                layout: Excalidraw's tool row fills the width there and an island
-                beside it pushes tools off the screen.
-              */}
-              {accessLevel === "owner" && id ? (
-                <MainMenu.Item onSelect={onShareOpen} icon={<Share2 size={16} />}>
-                  Share
-                </MainMenu.Item>
-              ) : null}
-              {canEdit && peers.length > 0 ? (
-                <MainMenu.Item onSelect={inviteHere.invite} icon={<LocateFixed size={16} />}>
-                  Invite everyone here
-                </MainMenu.Item>
-              ) : null}
-              <MainMenu.DefaultItems.ClearCanvas />
-              <MainMenu.DefaultItems.ChangeCanvasBackground />
-              <MainMenu.DefaultItems.Help />
-              <MainMenu.Separator />
-              <MainMenu.ItemCustom>
-                <LanguageSelector langCode={langCode} onChange={onSetLangCode} />
-              </MainMenu.ItemCustom>
-            </MainMenu>
+            {renderFooterEntries(chromeCtx)}
+            <MainMenu>{renderMainMenuEntries(chromeCtx)}</MainMenu>
           </ExcalidrawHost>
           {/*
-            On the mobile layout Excalidraw renders no Footer at all, so the
-            timer would simply not exist there -- and the top row is far too
-            narrow to take it: putting it in the island pushed four tools off
-            the screen. It gets its own corner instead, above Excalidraw's own
-            bottom bar.
+            One free-floating widget for every layout, portalled into
+            Excalidraw's own root so it inherits colour tokens and
+            `--ui-pointerEvents`. See WorkshopTimerCorner.tsx for why this
+            replaced the Footer-slot desktop copy and the separate mobile
+            corner it used to need.
           */}
-          {mobile ? (
-            <MobileTimerCorner container={excalidrawRoot}>
-              <WorkshopTimerWidget timer={workshopTimer} canEdit={canEdit} />
-            </MobileTimerCorner>
-          ) : null}
-          <EditorTopLeft
+          <WorkshopTimerCorner
             container={excalidrawRoot}
-            zenMode={zenMode}
-            mobile={mobile}
-            drawingName={drawingName}
+            drawingId={id}
             canEdit={canEdit}
-            isRenaming={isRenaming}
-            isSavingOnLeave={isSavingOnLeave}
-            newName={newName}
-            onBackClick={onBackClick}
-            onNewNameChange={onNewNameChange}
-            onRenameBlur={onRenameBlur}
-            onRenameStart={onRenameStart}
-            onRenameSubmit={onRenameSubmit}
+            timer={workshopTimer}
           />
           {inviteHere.invitation ? (
             <InviteHereOverlay

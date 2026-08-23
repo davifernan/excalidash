@@ -1,0 +1,72 @@
+.workshop-timer-corner {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  /* Excalidraw turns this off mid-gesture; inheriting it means the widget
+     does not steal a draw that merely passes over its corner. */
+  pointer-events: var(--ui-pointerEvents);
+  touch-action: none;
+}
+
+.workshop-timer-corner--dragging {
+  opacity: 0.85;
+}
+
+.workshop-timer-corner__handle,
+.workshop-timer-corner__reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--button-hover-border, transparent);
+  border-radius: var(--border-radius-md, 0.375rem);
+  background: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  color: var(--text-primary-color);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.workshop-timer-corner__handle {
+  cursor: grab;
+}
+
+.workshop-timer-corner--dragging .workshop-timer-corner__handle {
+  cursor: grabbing;
+}
+
+.workshop-timer-corner__handle:hover,
+.workshop-timer-corner__reset:hover {
+  background: var(--button-hover-bg);
+}
+
+.workshop-timer-corner__handle:focus-visible,
+.workshop-timer-corner__reset:focus-visible {
+  outline: 2px solid var(--color-primary, #6965db);
+  outline-offset: 1px;
+}
+
+/* The panel normally opens upward (see WorkshopTimerWidget.css) -- correct
+   for the default bottom-right corner, but a widget dragged near the top of
+   the container would otherwise clip its own controls off-screen. */
+.workshop-timer-corner--panel-downward .workshop-timer__panel {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+/* WorkshopTimerWidget.css grows the panel rightward from the widget's left
+   edge by default -- correct for a widget sitting near the *left* edge of
+   the container. The corner's own default position is bottom-RIGHT, so the
+   usual case here is the opposite: grow leftward from the widget's right
+   edge instead, or the minutes field runs off the right side of a narrow
+   window (the mirror image of the bug small-windows.spec.ts originally
+   caught on the left edge, before this widget could be dragged at all). */
+.workshop-timer-corner:not(.workshop-timer-corner--panel-rightward) .workshop-timer__panel {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}

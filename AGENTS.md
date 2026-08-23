@@ -513,6 +513,35 @@ Frontend architecture notes:
 - `frontend/vite.config.ts` sets Vite proxy to backend in local dev and compile-time app metadata.
 - Production serving and backend proxy are handled by `frontend/Dockerfile`, `frontend/nginx.conf.template`, `frontend/docker-entrypoint.sh`.
 
+### Canvas chrome slot contract (NIL-376)
+
+`frontend/src/pages/editor/chromeSlots.tsx` is the seam for adding an entry point to
+the canvas chrome -- MainMenu (hamburger), the top-right header control group, the
+Excalidraw Footer, and `ui.overlayRoot()` overlays. A package with a UI entry point to
+add (board/team context, comments, presenting, ...) writes a small component in its
+own file under `frontend/src/pages/editor/slots/` (worked example:
+`boardNameMenuEntry.tsx`) and lists it in the relevant registry in `chromeSlots.tsx`.
+`frontend/src/pages/editor/EditorView.tsx` renders whatever that file hands it and is
+not edited for a new entry.
+
+The full contract -- the four slot kinds, how `order` is decided, what an empty slot
+does, and what is different on mobile -- is documented in `chromeSlots.tsx`'s own file
+comment; read that before adding an entry, not this summary.
+
+### Etwas im Browser prüfen (E2E)
+
+`window.__EXCALIDASH_TEST__` (defined in `frontend/src/pages/Editor.tsx`) is the one
+harness a spec may reach the running editor through, and it goes via the same adapter
+the product uses rather than around it. `e2e/tests/helpers/api.ts` covers the backend
+side (create/update/delete a drawing, CSRF); `e2e/tests/helpers/editor.ts` covers the
+browser side built on top of the harness (`openEditor`, `scene`, `notes`, `labels`,
+`armTool`, `toolbarButton`). Import from these rather than reaching for
+`__EXCALIDASH_TEST__` directly in a new spec, and rather than redefining `openEditor`
+locally again -- eight specs each had their own copy before this pair of helper files
+existed. Extend `e2e/tests/helpers/editor.ts` only with what a second spec actually
+needs, the same rule `chromeSlots.tsx` follows for `order` gaps: no speculative surface
+for a consumer that does not exist yet.
+
 ## Makefile command map
 
 - Install: `make install`, `make dev`, `make dev-backend`, `make dev-frontend`

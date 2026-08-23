@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
+import { armTool, labels, notes, openEditor, scene, toolbarButton } from "./helpers/editor";
 
 /**
  * Reaching for the note tool, and pulling arrows out of a note.
@@ -9,48 +10,6 @@ import { createDrawing, deleteDrawing } from "./helpers/api";
  * canvas a pointer event. Neither can be checked anywhere but in a browser, and
  * both fail visibly here the day a version changes underneath them.
  */
-
-const openEditor = async (page: Page, drawingId: string) => {
-  await page.goto(`/editor/${drawingId}`);
-  await page.waitForSelector("canvas");
-  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
-  return page;
-};
-
-const scene = (page: Page) =>
-  page.evaluate(() => {
-    const api = (window as any).__EXCALIDASH_TEST__;
-    return api.getSceneElements().map((element: any) => ({
-      id: element.id,
-      type: element.type,
-      x: element.x,
-      y: element.y,
-      width: element.width,
-      height: element.height,
-      backgroundColor: element.backgroundColor,
-      containerId: element.containerId,
-      fontSize: element.fontSize,
-      text: element.text,
-      sticky: element.customData?.excalidash?.sticky ?? null,
-    }));
-  });
-
-const notes = async (page: Page) => (await scene(page)).filter((e: any) => e.sticky);
-const labels = async (page: Page) => (await scene(page)).filter((e: any) => e.containerId);
-
-const stickyButton = (page: Page) => page.getByTestId("toolbar-sticky");
-
-/** Place a note by arming the tool and clicking the canvas, as a person would. */
-const armTool = async (page: Page) => {
-  await stickyButton(page).click();
-  // The tool is set through React state; a click landing before that commits
-  // would be read as a selection drag instead.
-  await page.waitForFunction(
-    () =>
-      (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.customType ===
-      "sticky",
-  );
-};
 
 const placeNote = async (page: Page, at: { x: number; y: number }) => {
   await armTool(page);
