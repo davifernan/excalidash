@@ -3,8 +3,7 @@ import type { PresenceEntry } from "./presenceRegistry";
 import {
   parseCursorPayload,
   parseDrawingId,
-  parseElementUpdatePayload,
-  elementUpdateLimitError,
+  parseElementUpdateEvent,
   type ElementUpdatePayload,
 } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
@@ -72,8 +71,7 @@ export const registerCoreRoomEvents = ({
     event: "element-update",
     limit: 120,
     windowMs: 1_000,
-    parse: parseElementUpdatePayload,
-    parseLimitError: elementUpdateLimitError,
+    parse: parseElementUpdateEvent,
     requireAccess,
     allowPayload: (payload) => allowElementUpdate(payload.drawingId, payload.serializedBytes),
     requireEdit: true,

@@ -5,10 +5,8 @@ import {
 } from "../limits";
 import {
   elementUpdateLimitError,
-  hasPlausibleElementFields,
-  hasPlausibleFileFields,
   isPlainRecord,
-  serializedByteLength,
+  parseElementUpdateShape,
   type ElementUpdateLimitError,
 } from "./socketElementUpdateLimits";
 
@@ -16,6 +14,17 @@ export { ELEMENT_UPDATE_TRAFFIC_LIMITS, SOCKET_LIMITS, type ElementUpdateTraffic
 export { elementUpdateLimitError, type ElementUpdateLimitError };
 
 export const SOCKET_QUEUE_LIMITS = { joins: 8 } as const;
+
+export type RoomEventError = { code: string; message: string };
+
+/**
+ * Returned by a `parse` function in place of `null` when the refusal reason
+ * is already known -- an oversized-but-otherwise-plausible payload, say --
+ * so the caller can report it without re-deriving it from the raw value.
+ */
+export class RoomEventParseFailure {
+  constructor(public readonly error: RoomEventError | null) {}
+}
 
 export type SceneBounds = [number, number, number, number];
 
@@ -89,72 +98,60 @@ export const parseCursorPayload = (value: unknown): CursorPayload | null => {
   };
 };
 
-export const parseElementUpdatePayload = (value: unknown): ElementUpdatePayload | null => {
-  if (!isPlainRecord(value)) return null;
-  // Measured before anything else: an oversized packet costs memory whatever it
-  // turns out to contain.
-  const serializedBytes = serializedByteLength(value);
-  if (serializedBytes === null || serializedBytes > SOCKET_LIMITS.elementUpdateBytes) return null;
-  const drawingId = parseDrawingId(value.drawingId);
-  if (!drawingId || !Array.isArray(value.elements)) return null;
-  if (value.elements.length > SOCKET_LIMITS.elementsPerUpdate) return null;
-  for (const element of value.elements) {
-    if (!hasPlausibleElementFields(element)) return null;
-    const elementBytes = serializedByteLength(element);
-    if (elementBytes === null || elementBytes > SOCKET_LIMITS.elementBytes) return null;
-  }
+/**
+ * Shape and size are both decided by the single pass in
+ * `parseElementUpdateShape`. A rejection already carries its precise reason
+ * (or `null` for a plain malformed packet), so the socket registration below
+ * can report it without a second pass over the raw value. This is the entry
+ * point wired into the live event; `parseElementUpdatePayload` below is the
+ * plain-boolean-shaped variant kept for callers that only care whether the
+ * payload was accepted.
+ */
+export const parseElementUpdateEvent = (
+  value: unknown,
+): ElementUpdatePayload | RoomEventParseFailure => {
+  const shapeResult = parseElementUpdateShape(value);
+  if (shapeResult.error !== undefined) return new RoomEventParseFailure(shapeResult.error);
+  const { value: shaped, serializedBytes } = shapeResult;
 
-  let files: Record<string, unknown> | undefined;
-  if (value.files !== undefined) {
-    if (!isPlainRecord(value.files)) return null;
-    if (Object.keys(value.files).length > SOCKET_LIMITS.filesPerUpdate) return null;
-    for (const [fileId, file] of Object.entries(value.files)) {
-      if (!hasPlausibleFileFields(fileId, file)) return null;
-    }
-    files = value.files;
-  }
+  // Already validated by parseElementUpdateShape; re-trimming is cheap and
+  // avoids threading a second, differently-shaped "narrowed value" type
+  // through the rest of the codebase.
+  const drawingId = parseDrawingId(shaped.drawingId) as string;
+
+  const files = isPlainRecord(shaped.files) ? shaped.files : undefined;
 
   let elementOrder: string[] | undefined;
   let elementOrderOmittedBytes: number | undefined;
-  if (value.elementOrder !== undefined) {
-    if (
-      !Array.isArray(value.elementOrder) ||
-      !value.elementOrder.every(
-        (id) => typeof id === "string" && id.length > 0 && id.length <= 200,
-      ) ||
-      // No element belongs in an ordering twice. Allowing it let a small
-      // payload expand into one scene entry per mention on every receiver.
-      new Set(value.elementOrder).size !== value.elementOrder.length
-    ) {
-      return null;
-    }
-    const byteLength = value.elementOrder.reduce(
+  if (shaped.elementOrder !== undefined) {
+    const order = shaped.elementOrder as string[];
+    const byteLength = order.reduce(
       (total, id, index) => total + Buffer.byteLength(JSON.stringify(id)) + (index > 0 ? 1 : 0),
       2,
     );
     if (byteLength > SOCKET_LIMITS.elementOrderBytes) {
       elementOrderOmittedBytes = byteLength;
     } else {
-      elementOrder = value.elementOrder;
+      elementOrder = order;
     }
-  } else if (value.elementOrderOmittedBytes !== undefined) {
-    if (
-      !Number.isSafeInteger(value.elementOrderOmittedBytes) ||
-      (value.elementOrderOmittedBytes as number) <= SOCKET_LIMITS.elementOrderBytes
-    ) {
-      return null;
-    }
-    elementOrderOmittedBytes = value.elementOrderOmittedBytes as number;
+  } else if (shaped.elementOrderOmittedBytes !== undefined) {
+    elementOrderOmittedBytes = shaped.elementOrderOmittedBytes as number;
   }
 
   return {
     drawingId,
     serializedBytes,
-    elements: value.elements,
+    elements: shaped.elements,
     files,
     elementOrder,
     elementOrderOmittedBytes,
   };
+};
+
+/** Legacy accept/reject contract for callers that don't need the refusal reason. */
+export const parseElementUpdatePayload = (value: unknown): ElementUpdatePayload | null => {
+  const result = parseElementUpdateEvent(value);
+  return result instanceof RoomEventParseFailure ? null : result;
 };
 
 export const createRateLimiter = (limit: number, windowMs: number) => {

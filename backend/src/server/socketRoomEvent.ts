@@ -1,8 +1,8 @@
 import type { Socket } from "socket.io";
-import { createRateLimiter } from "./socketProtocol";
+import { createRateLimiter, RoomEventParseFailure, type RoomEventError } from "./socketProtocol";
 
+export type { RoomEventError };
 export type RoomEventPayload = { drawingId: string };
-export type RoomEventError = { code: string; message: string };
 export type RoomEventAck = (
   value: { ok: true; warning?: RoomEventError } | { ok: false; error: RoomEventError },
 ) => void;
@@ -82,7 +82,19 @@ export const createRoomEventFeedback = (socket: Socket, event: string, windowMs:
       nextRateLimitNoticeAt = now + windowMs;
       socket.emit(ROOM_EVENT_FEEDBACK_EVENT, { event, error });
     },
-    rejected(error: RoomEventError, ack?: RoomEventAck) {
+    /**
+     * `hardFailure` marks a rejection class a well-behaved client cannot
+     * produce repeatedly -- a payload that is plausibly shaped but still
+     * breaches a declared limit. Ordinary business refusals (access denied,
+     * a handler error) stay off this counter: those can recur for a client
+     * doing nothing wrong, and counting them would turn an occasional
+     * legitimate refusal into a disconnect.
+     */
+    rejected(error: RoomEventError, ack?: RoomEventAck, options?: { hardFailure?: boolean }) {
+      if (options?.hardFailure) {
+        reportHardFailure(socket, event, error, ack);
+        return;
+      }
       if (ack) ack({ ok: false, error });
       else socket.emit(ROOM_EVENT_FEEDBACK_EVENT, { event, error });
     },
@@ -102,9 +114,13 @@ type RegisterAuthorizedRoomEventOptions<Payload extends RoomEventPayload> = {
   event: string;
   limit: number;
   windowMs: number;
-  parse: (value: unknown) => Payload | null;
-  /** Classifies a parser refusal caused by a declared limit. */
-  parseLimitError?: (value: unknown) => RoomEventError | null;
+  /**
+   * A rejection may return `RoomEventParseFailure` instead of `null` when
+   * the reason is already known -- a payload that is plausibly shaped but
+   * breaches a declared limit, say -- so it can be reported without a
+   * second pass over the raw value.
+   */
+  parse: (value: unknown) => Payload | RoomEventParseFailure | null;
   requireAccess: (socket: Socket, drawingId: string, requireEdit?: boolean) => Promise<unknown>;
   requireEdit?: boolean;
   /**
@@ -160,7 +176,6 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
   limit,
   windowMs,
   parse,
-  parseLimitError,
   requireAccess,
   requireEdit = false,
   allow: sharedAllow,
@@ -182,13 +197,14 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
     }
     onRateLimitAdmitted?.(value);
     tail = tail.then(async () => {
-      const payload = parse(value);
-      if (!payload) {
-        const limitError = parseLimitError?.(value);
-        if (limitError) feedback.rejected(limitError, ack);
+      const parsed = parse(value);
+      if (parsed === null || parsed instanceof RoomEventParseFailure) {
+        const limitError = parsed instanceof RoomEventParseFailure ? parsed.error : null;
+        if (limitError) feedback.rejected(limitError, ack, { hardFailure: true });
         else feedback.invalid(ack);
         return;
       }
+      const payload = parsed;
       if (allowPayload && !allowPayload(payload)) {
         feedback.refused(ack);
         return;
