@@ -30,6 +30,7 @@ jobs:
   publish:
     name: Build and push
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Skipped when the tests did not pass. workflow_dispatch has no test run
     # attached, so it is allowed through deliberately for a manual rebuild.
     if: >-
