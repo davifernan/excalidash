@@ -80,9 +80,42 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  * `FileCapability.onFilesAdded`, which is the one place allowed to know how
  * fragile it is.
  *
-
+ * NIL-324: the pattern used to catch a capability call by its bare method
+ * name, not only a raw one -- `interaction.onPointerDown(...)`, where
+ * `interaction` is a typed `InteractionCapability` parameter (capabilities.ts),
+ * matched exactly like `rawApi.onPointerDown(...)` would have. No consumer
+ * outside the layer had called this particular capability method before, so
+ * the gap sat unmeasured rather than unmigrated. Fixed at the pattern by
+ * excluding the adapter's own capability property names as a receiver --
+ * `ExcalidrawAdapter`'s own field list (capabilities.ts), not a guess -- the
+ * same reasoning `updateLibrary` was already excluded from the method-name
+ * list for: a rule that flags correct code trains people to ignore the rule,
+ * not fix the code.
  */
 const RAW_API_EXCEPTIONS = new Set([]);
+
+/**
+ * Receiver names the raw-API-call pattern must not fire on: `ExcalidrawAdapter`'s
+ * own property names (capabilities.ts). A capability call reads
+ * `interaction.onPointerDown(...)`; the raw handle this rule exists to catch is
+ * never bound to one of these names anywhere in the product (see `api` in the
+ * `updateLibrary` note above, and in every migrated file's own history).
+ */
+const CAPABILITY_RECEIVER_NAMES = [
+  "scene",
+  "text",
+  "boardSettings",
+  "selection",
+  "files",
+  "viewport",
+  "collaboration",
+  "interaction",
+  "widgets",
+  "export",
+  "history",
+  "ui",
+  "compatibility",
+];
 
 /**
  * The imperative handle's methods, as measured on the pinned version.
@@ -102,8 +135,16 @@ const RAW_API_PATTERNS = [
      * measured, not assumed: two files sat outside the layer calling
      * `getFiles?.()` and `getAppState?.()` while this rule reported them as
      * exceptions it no longer needed.
+     *
+     * The leading negative lookbehind is the NIL-324 fix: without it, this
+     * matched `interaction.onPointerDown(...)` -- a capability call, not a raw
+     * one -- exactly as readily as `rawHandle.onPointerDown(...)`. Excluding
+     * CAPABILITY_RECEIVER_NAMES as an immediate receiver keeps the rule
+     * catching the second while no longer catching the first.
      */
-    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)(\?\.)?\s*\(/,
+    re: new RegExp(
+      `(?<!\\b(?:${CAPABILITY_RECEIVER_NAMES.join("|")})\\??)\\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)(\\?\\.)?\\s*\\(`,
+    ),
   },
 ];
 

@@ -53,6 +53,29 @@ const assertRejects = (label, name, contents) => {
   });
 };
 
+/**
+ * The counterpart to assertRejects: a file that LOOKS like the pattern this
+ * rule matches on, but goes through the capability layer correctly, must not
+ * be named as a violation. Without this direction, a fix that makes the
+ * pattern stricter (NIL-324's receiver-name exclusion) has no probe proving
+ * it did not just start missing the real thing too -- assertRejects above
+ * already covers that half, on the same rule, in the same run.
+ */
+const assertAccepted = (label, name, contents) => {
+  withProbeFile(name, contents, (relative) => {
+    const result = run();
+    const output = outputOf(result);
+    if (result.status === 0 && !output.includes(relative)) {
+      console.log(`  green on ${label}: ${relative}`);
+      return;
+    }
+    throw new Error(
+      `${label} was rejected when it should not have been.\nexpected exit 0, ${relative} absent\n` +
+        `got exit ${result.status}\n${output}`,
+    );
+  });
+};
+
 const probes = [
   [
     "static package import",
@@ -177,6 +200,42 @@ const assertLegacyKeyCaught = () => {
  * coming back turns this test red, and the change has to be argued for instead
  * of slipped in. Deleting this probe is itself the decision to allow bypasses.
  */
+/**
+ * NIL-324: `interaction.onPointerDown(...)` used to match the raw-API-call
+ * pattern exactly as readily as a real raw call, because the pattern had no
+ * receiver awareness at all. Every CAPABILITY_RECEIVER_NAMES entry is proved
+ * here in one probe file -- one bare call per capability, the exact call
+ * shape a consumer writes -- so a future edit narrowing that list still has
+ * to keep every one of them accepted, not just the one this bug was found on.
+ */
+const assertCapabilityCallsAccepted = () => {
+  // Property access, not bare identifiers -- `export` is a reserved word and
+  // could never be a bare local name anyway, but `adapter.export.toSvg(...)`
+  // is exactly how a real consumer reaches it, and the lookbehind only looks
+  // at the text immediately before the matched `.method(`, so this exercises
+  // the same receiver check a bare `interaction.onPointerDown(...)` does.
+  const lines = [
+    "adapter.scene.getSceneElements();",
+    "adapter.text.getAppState();",
+    "adapter.boardSettings.getAppState();",
+    "adapter.selection.getAppState();",
+    "adapter.files.getFiles();",
+    "adapter.viewport.getAppState();",
+    "adapter.collaboration.onChange();",
+    "adapter.interaction.onPointerDown();",
+    "adapter.widgets.getAppState();",
+    "adapter.export.getAppState();",
+    "adapter.history.getAppState();",
+    "adapter.ui.getAppState();",
+    "adapter.compatibility.getAppState();",
+  ];
+  assertAccepted(
+    "capability calls with names the raw-API rule must not treat as the raw handle",
+    "capabilityReceiverNames.ts",
+    `export const probe = (adapter: any) => {\n  ${lines.join("\n  ")}\n};\n`,
+  );
+};
+
 const assertNoExceptionsRemain = () => {
   const { RULES } = require("./adapter-boundary.cjs");
   const listed = RULES.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
@@ -210,6 +269,7 @@ const main = () => {
   assertStaleExceptionCaught();
   assertLegacyKeyCaught();
   assertNoExceptionsRemain();
+  assertCapabilityCallsAccepted();
 
   const after = run();
   if (after.status !== 0) {
