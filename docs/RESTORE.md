@@ -172,10 +172,17 @@ step at a time and stop when its expected result is not true.
 1. Record the current immutable tag and create an immediate full backup while
    the existing backend is healthy.
 
+   The backend image stays root by design so its entrypoint can fix volume
+   permissions at boot (see `backend/Dockerfile`); `docker compose exec`
+   without `--user nodejs` therefore runs as root and writes a backup the
+   scheduled job's own readiness check cannot read back (`/ready` reports
+   `"backup":"unavailable"` even though the archive is valid). Always pass
+   `--user nodejs`.
+
    ```bash
    cd /opt/excalidash
    grep '^EXCALIDASH_IMAGE_TAG=' .env
-   docker compose -f docker-compose.prod.yml exec backend node dist/backups/runOnce.js
+   docker compose -f docker-compose.prod.yml exec --user nodejs backend node dist/backups/runOnce.js
    BACKUP_DIR="$(grep '^BACKUP_HOST_DIR=' .env | cut -d= -f2-)"
    LATEST_BACKUP="$(ls -1t "$BACKUP_DIR"/excalidash-backup-*.zip | head -1)"
    sha256sum "$LATEST_BACKUP" > "$LATEST_BACKUP.sha256"
