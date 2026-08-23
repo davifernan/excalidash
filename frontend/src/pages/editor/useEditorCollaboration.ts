@@ -19,6 +19,7 @@ import {
   type WorkshopTimerAction,
 } from "./workshopTimer";
 import { useDocumentPageSharing } from "./useDocumentPageSharing";
+import { createViewportCapability } from "../../integrations/excalidraw/viewport";
 import { bindInviteHere, type InviteHereStatus, type ViewportInvitation } from "./inviteHere";
 import { bindSocketDrawingName } from "./drawingName";
 export type { Peer } from "./socketCollaborators";
@@ -143,7 +144,7 @@ export const useEditorCollaboration = ({
     const inviteHereController = bindInviteHere({
       socket,
       drawingId,
-      api: excalidrawAPI.current,
+      viewport: createViewportCapability(() => excalidrawAPI.current),
       onInvitationChange: setViewportInvitation,
       onStatusChange: setInviteHereStatus,
     });

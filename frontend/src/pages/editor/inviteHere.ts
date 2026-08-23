@@ -1,6 +1,8 @@
-import { getVisibleSceneBounds } from "@excalidraw/excalidraw";
 import type { Socket } from "socket.io-client";
-import { fitFollowedBounds, parseFollowSceneBounds, type FollowSceneBounds } from "./followMode";
+
+import type { ViewportCapability } from "../../integrations/excalidraw/capabilities";
+import type { SceneBounds } from "../../integrations/excalidraw/types";
+import { parseFollowSceneBounds, type FollowSceneBounds } from "./followMode";
 
 export type ViewportInvitation = {
   invitationId: string;
@@ -15,10 +17,12 @@ export type InviteHereStatus = {
   expiresAt: number;
 };
 
-type ExcalidrawApi = {
-  getAppState: () => any;
-  updateScene: (scene: { appState: any }) => void;
-};
+/**
+ * Invite Here needs two things from the editor: where this person is looking,
+ * and the ability to put somebody else there. Both come from the viewport
+ * capability now, so this file no longer knows what an app state is.
+ */
+type ViewportAccess = Pick<ViewportCapability, "visibleBounds" | "showBounds">;
 
 const parseInvitation = (payload: any, drawingId: string): ViewportInvitation | null => {
   if (payload?.drawingId !== drawingId) return null;
@@ -43,13 +47,13 @@ const parseInvitation = (payload: any, drawingId: string): ViewportInvitation | 
 export const bindInviteHere = ({
   socket,
   drawingId,
-  api,
+  viewport,
   onInvitationChange,
   onStatusChange,
 }: {
   socket: Socket;
   drawingId: string;
-  api: ExcalidrawApi;
+  viewport: ViewportAccess;
   onInvitationChange: (invitation: ViewportInvitation | null) => void;
   onStatusChange: (status: InviteHereStatus | null) => void;
 }) => {
@@ -115,7 +119,7 @@ export const bindInviteHere = ({
     const invitation = activeInvitation;
     if (!invitation || Date.now() >= invitation.expiresAt) return;
     closeInvitation();
-    if (decision === "accepted") fitFollowedBounds(api, invitation.sceneBounds);
+    if (decision === "accepted") viewport.showBounds(invitation.sceneBounds as SceneBounds);
     socket.emit("invite-here-response", {
       drawingId,
       invitationId: invitation.invitationId,
@@ -135,8 +139,10 @@ export const bindInviteHere = ({
   socket.on("invite-here-status", onStatus);
   return {
     invite() {
-      const sceneBounds = parseFollowSceneBounds(getVisibleSceneBounds(api.getAppState()));
-      if (sceneBounds) socket.emit("invite-here", { drawingId, sceneBounds });
+      const bounds = viewport.visibleBounds();
+      // A failure here is already reported by the capability. Emitting an
+      // invitation to nowhere would send everyone to the origin.
+      if (bounds.ok) socket.emit("invite-here", { drawingId, sceneBounds: bounds.value });
     },
     accept: () => respond("accepted"),
     decline: () => respond("declined"),

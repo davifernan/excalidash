@@ -38,7 +38,6 @@ const PACKAGE_IMPORT_EXCEPTIONS = new Set([
   "frontend/src/pages/editor/EditorView.tsx",
   "frontend/src/pages/editor/documentDrop.ts",
   "frontend/src/pages/editor/followMode.ts",
-  "frontend/src/pages/editor/inviteHere.ts",
   "frontend/src/pages/editor/pdfWidgetElements.ts",
   "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
   "frontend/src/pages/editor/useEditorPersistence.ts",
