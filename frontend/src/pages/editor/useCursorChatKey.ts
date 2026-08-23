@@ -8,17 +8,18 @@
  */
 import { useEffect } from "react";
 import type React from "react";
+import type { SelectionCapability } from "../../integrations/excalidraw/capabilities";
 import { shouldOpenCursorChat, type CursorChatController } from "./cursorChat";
 
 export const useCursorChatKey = ({
   containerRef,
   enabled,
-  excalidrawAPI,
+  selection,
   chatRef,
 }: {
   containerRef: React.RefObject<HTMLElement>;
   enabled: boolean;
-  excalidrawAPI: { current: { getAppState?: () => any } | null };
+  selection: SelectionCapability;
   chatRef: { current: CursorChatController | null };
 }) => {
   useEffect(() => {
@@ -29,8 +30,14 @@ export const useCursorChatKey = ({
       // Asked at the moment of the keystroke rather than captured in a render:
       // with something selected Enter is Excalidraw's, and that is also how a
       // freshly placed sticky note gets its label editor.
-      const selected = excalidrawAPI.current?.getAppState?.()?.selectedElementIds ?? {};
-      if (!shouldOpenCursorChat(event, { hasSelection: Object.keys(selected).length > 0 })) return;
+      const currentSelection = selection.read();
+      // A missing selection seam has the same fallback as an unattached raw
+      // handle did: treat the canvas as idle. The capability has already sent
+      // the structured failure to compatibility diagnostics.
+      const hasSelection = currentSelection.ok
+        ? currentSelection.value.selectedIds.length > 0
+        : false;
+      if (!shouldOpenCursorChat(event, { hasSelection })) return;
       event.preventDefault();
       event.stopPropagation();
       chatRef.current?.open();
@@ -38,5 +45,5 @@ export const useCursorChatKey = ({
 
     container.addEventListener("keydown", onKeyDown, true);
     return () => container.removeEventListener("keydown", onKeyDown, true);
-  }, [containerRef, enabled, excalidrawAPI, chatRef]);
+  }, [chatRef, containerRef, enabled, selection]);
 };

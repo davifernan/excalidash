@@ -59,6 +59,9 @@ describe("history preview persistence guard", () => {
         debouncedSavePreview: vi.fn(),
         drawingId: "drawing-1",
         emitFilesDeltaIfNeeded: vi.fn(),
+        fileCapability: {
+          read: vi.fn(() => ({ ok: true, value: {} })),
+        } as any,
         isReady: true,
         refs: {
           excalidrawAPI: api,
@@ -81,6 +84,8 @@ describe("history preview persistence guard", () => {
           staleEmptySnapshot: false,
           staleNonRenderableSnapshot: false,
         }),
+        scene: {} as any,
+        viewport: {} as any,
         broadcastChanges,
       });
       useEffect(() => {

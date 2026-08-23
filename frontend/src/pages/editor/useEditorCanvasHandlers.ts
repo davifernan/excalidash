@@ -1,7 +1,12 @@
 import { useCallback, useEffect } from "react";
 import type { MutableRefObject } from "react";
 import { buildElements, HISTORY } from "../../integrations/excalidraw/elements";
-import { readViewport, unprojectPoint } from "../../integrations/excalidraw/viewport";
+import type {
+  FileCapability,
+  SceneCapability,
+  ViewportCapability,
+} from "../../integrations/excalidraw/capabilities";
+import type { FileId } from "../../integrations/excalidraw";
 import { toast } from "sonner";
 import { getDroppedImageFiles, loadDroppedImageData, MULTI_IMAGE_DROP_GAP } from "./droppedImages";
 import { addDroppedDocumentWidgets, getDocumentDropFiles } from "./documentDrop";
@@ -12,6 +17,9 @@ import {
   isStaleNonRenderableSnapshot,
   isSuspiciousEmptySnapshot,
 } from "./shared";
+
+const capabilityError = (failure: { seam: string; code: string }) =>
+  new Error(`${failure.seam} failed (${failure.code})`);
 
 type CanvasHandlerRefs = {
   excalidrawAPI: MutableRefObject<any>;
@@ -44,6 +52,7 @@ type UseEditorCanvasHandlersParams = {
   debouncedSavePreview: (drawingId: string) => void;
   drawingId: string | undefined;
   emitFilesDeltaIfNeeded: (nextFiles: Record<string, any>) => boolean;
+  fileCapability: FileCapability;
   isReady: boolean;
   refs: CanvasHandlerRefs;
   resolveSafeSnapshot: (candidateSnapshot?: readonly any[]) => {
@@ -51,6 +60,8 @@ type UseEditorCanvasHandlersParams = {
     staleEmptySnapshot: boolean;
     staleNonRenderableSnapshot: boolean;
   };
+  scene: SceneCapability;
+  viewport: ViewportCapability;
   broadcastChanges: (elements: readonly any[], currentFiles?: Record<string, any>) => void;
 };
 
@@ -59,9 +70,12 @@ export const useEditorCanvasHandlers = ({
   debouncedSavePreview,
   drawingId,
   emitFilesDeltaIfNeeded,
+  fileCapability,
   isReady,
   refs,
   resolveSafeSnapshot,
+  scene,
+  viewport,
   broadcastChanges,
 }: UseEditorCanvasHandlersParams) => {
   const {
@@ -81,6 +95,20 @@ export const useEditorCanvasHandlers = ({
     latestFiles: latestFilesRef,
     suspiciousBlankLoad: suspiciousBlankLoadRef,
   } = refs;
+  const readFiles = useCallback(() => {
+    const result = fileCapability.read();
+    if (!result.ok) throw capabilityError(result);
+    return result.value;
+  }, [fileCapability]);
+
+  const toScenePoint = useCallback(
+    (point: { x: number; y: number }) => {
+      const result = viewport.toScene(point);
+      if (!result.ok) throw capabilityError(result);
+      return result.value;
+    },
+    [viewport],
+  );
 
   const handleCanvasChange = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
@@ -92,7 +120,7 @@ export const useEditorCanvasHandlers = ({
       // explicit gate must stay active for the whole preview session.
       if (isHistoryPreviewingRef.current) return;
       latestAppStateRef.current = appState;
-      const currentFiles = files || excalidrawAPIRef.current?.getFiles() || {};
+      const currentFiles = files || readFiles();
       if (Object.keys(currentFiles).length > 0) {
         latestFilesRef.current = currentFiles;
       }
@@ -145,6 +173,7 @@ export const useEditorCanvasHandlers = ({
       latestAppStateRef,
       latestElementsRef,
       latestFilesRef,
+      readFiles,
       resolveSafeSnapshot,
       suspiciousBlankLoadRef,
     ],
@@ -162,17 +191,12 @@ export const useEditorCanvasHandlers = ({
           return;
         }
         if (!drawingId || !excalidrawAPIRef.current) return;
-        const appState = excalidrawAPIRef.current.getAppState?.();
-        if (!appState) return;
-        const dropPoint = unprojectPoint(
-          { x: event.clientX, y: event.clientY },
-          readViewport(appState),
-        );
+        const dropPoint = toScenePoint({ x: event.clientX, y: event.clientY });
         await addDroppedDocumentWidgets({
-          canvasApi: excalidrawAPIRef.current,
           drawingId,
           files: documentFiles,
           point: dropPoint,
+          scene,
         });
         return;
       }
@@ -183,23 +207,19 @@ export const useEditorCanvasHandlers = ({
       }
       event.preventDefault();
       event.stopPropagation();
-      const appState = excalidrawAPIRef.current.getAppState?.();
-      if (!appState) return;
       try {
-        const dropPoint = unprojectPoint(
-          { x: event.clientX, y: event.clientY },
-          readViewport(appState),
-        );
+        const dropPoint = toScenePoint({ x: event.clientX, y: event.clientY });
         const loadedImages = await Promise.all(droppedImages.map(loadDroppedImageData));
         if (loadedImages.length === 0) return;
-        excalidrawAPIRef.current.addFiles(
+        const added = fileCapability.add(
           loadedImages.map(({ fileId, mimeType, dataURL, created }) => ({
-            id: fileId,
+            id: fileId as FileId,
             mimeType,
             dataURL,
             created,
           })),
         );
+        if (!added.ok) throw capabilityError(added);
         let nextY = dropPoint.y;
         const imageElements = buildElements(
           loadedImages.map((image, index) => {
@@ -234,7 +254,7 @@ export const useEditorCanvasHandlers = ({
         toast.error("Failed to import dropped images");
       }
     },
-    [canEdit, drawingId, excalidrawAPIRef],
+    [canEdit, drawingId, excalidrawAPIRef, fileCapability, scene, toScenePoint],
   );
 
   useEffect(() => {
@@ -244,7 +264,7 @@ export const useEditorCanvasHandlers = ({
       if (isUnmountingRef.current) return;
       if (isSyncingRef.current) return;
       if (!excalidrawAPIRef.current) return;
-      const nextFiles = excalidrawAPIRef.current.getFiles?.() || {};
+      const nextFiles = readFiles();
       const didEmit = emitFilesDeltaIfNeeded(nextFiles);
       if (didEmit && latestAppStateRef.current && debouncedSaveRef.current) {
         hasSceneChangesSinceLoadRef.current = true;
@@ -272,6 +292,7 @@ export const useEditorCanvasHandlers = ({
     lastLocalChangeAtRef,
     latestAppStateRef,
     latestElementsRef,
+    readFiles,
   ]);
 
   return { handleCanvasChange, handleCanvasDropCapture };
