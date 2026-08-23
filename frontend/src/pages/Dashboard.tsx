@@ -122,7 +122,6 @@ export const Dashboard: React.FC = () => {
     drawings: sortedDrawings,
     selectedIds,
     setSelectedIds,
-    searchInputRef,
   });
   const handleSortFieldChange = (field: typeof sortConfig.field) => {
     setSortField(field);

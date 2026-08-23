@@ -96,6 +96,7 @@ import {
 import { LanguageSelector } from "../../components/LanguageSelector";
 import { BoardNameMenuEntry } from "./slots/boardNameMenuEntry";
 import { WorkspaceContextMenuEntry } from "./slots/workspaceContextMenuEntry";
+import { SearchBoardsMenuEntry } from "./slots/searchBoardsMenuEntry";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
@@ -152,9 +153,12 @@ const describeFollowers = (followers: readonly Follower[]): string | null => {
  * already lived in the menu, renumbered with gaps so a later package can
  * slot something between two existing entries without renumbering the rest
  * -- workspace-context (order 15, NIL-323/NIL-344) is exactly that: slotted
- * between board-name and back-to-dashboard without moving either. Help sits
- * last on purpose (NIL-374): Excalidraw's own floating "?" is hidden in
- * editorChrome.css, so this is the only way to it.
+ * between board-name and back-to-dashboard without moving either, and
+ * search-boards (order 22, NIL-323/NIL-345) the same again, right after
+ * back-to-dashboard: both are "leave this board" navigation, so they sit
+ * together ahead of the separator rather than down with the canvas actions.
+ * Help sits last on purpose (NIL-374): Excalidraw's own floating "?" is
+ * hidden in editorChrome.css, so this is the only way to it.
  */
 export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
   {
@@ -190,6 +194,11 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
         Back to dashboard
       </MainMenu.Item>
     ),
+  },
+  {
+    id: "search-boards",
+    order: 22,
+    render: () => <SearchBoardsMenuEntry />,
   },
   { id: "lead-in-separator", order: 25, render: () => <MainMenu.Separator /> },
   { id: "toggle-theme", order: 100, render: () => <MainMenu.DefaultItems.ToggleTheme /> },

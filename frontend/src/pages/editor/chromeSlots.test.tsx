@@ -111,6 +111,14 @@ describe("MAIN_MENU_ENTRIES", () => {
     expect(renderedIds(MAIN_MENU_ENTRIES, baseCtx)).toContain("board-name");
     expect(renderedIds(MAIN_MENU_ENTRIES, readOnly)).toContain("board-name");
   });
+
+  it("puts search-boards right after back-to-dashboard, for anyone (NIL-323/NIL-345)", () => {
+    const ids = renderedIds(MAIN_MENU_ENTRIES, baseCtx).filter(Boolean);
+    const backIdx = ids.indexOf("back-to-dashboard");
+    expect(ids[backIdx + 1]).toBe("search-boards");
+    const readOnly: ChromeSlotContext = { ...baseCtx, canEdit: false, accessLevel: "view" };
+    expect(renderedIds(MAIN_MENU_ENTRIES, readOnly)).toContain("search-boards");
+  });
 });
 
 describe("renderMainMenuEntries", () => {
