@@ -9,7 +9,7 @@
  * deadlock themselves.
  */
 import { useCallback, useEffect, useRef } from "react";
-import { sealSceneDocument } from "../integrations/excalidraw/adapter";
+import { openSceneDocument, sealSceneDocument } from "../integrations/excalidraw/adapter";
 import type {
   InteractionCapability,
   SceneCapability,
@@ -19,7 +19,7 @@ import { normaliseStickyNotes } from "./stickyNormalise";
 type Options = {
   canEdit: boolean;
   interaction: Pick<InteractionCapability, "read">;
-  scene: Pick<SceneCapability, "apply">;
+  scene: Pick<SceneCapability, "apply" | "readDocument">;
 };
 
 export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
@@ -63,7 +63,19 @@ export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
         resized: ReadonlySet<string> | null;
         editing: ReadonlySet<string> | null;
       }) => {
-        const next = normaliseStickyNotes(elements, options);
+        // Read the scene now, not the list this callback was handed.
+        //
+        // The pass that matters most runs *after* the text editor closes, and
+        // by then the captured list is one change old: it still holds the note
+        // as it was before anyone typed into it. Normalising that leaves the
+        // writing at full size, which is the one thing this upkeep exists to
+        // prevent. The raw version read the editor fresh at exactly this
+        // moment; so does this one.
+        const current = scene.readDocument({ includeDeleted: true });
+        const source = current.ok
+          ? ((openSceneDocument(current.value)?.elements ?? elements) as readonly any[])
+          : elements;
+        const next = normaliseStickyNotes(source, options);
         if (!next) return;
         const applied = scene.apply(
           [

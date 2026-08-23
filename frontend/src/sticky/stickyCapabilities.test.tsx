@@ -40,6 +40,9 @@ const makeAdapter = (note = createStickyNote(200, 200)) => {
       subscribe: vi.fn().mockReturnValue(vi.fn()),
       summaries: vi.fn().mockReturnValue({ ok: true, value: [note] }),
       summaryById: vi.fn().mockReturnValue({ ok: true, value: note }),
+      // The upkeep reads the scene fresh at the moment it writes, rather than
+      // normalising the list its callback was handed one change ago.
+      readDocument: vi.fn().mockReturnValue({ ok: false, code: "not-ready" }),
     },
     selection: {
       read: vi
