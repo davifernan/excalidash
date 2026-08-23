@@ -58,6 +58,52 @@ const SYNTHETIC_EVENT_EXCEPTIONS = new Set([]);
 const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
 
 /**
+ * Files that still call the editor's imperative API directly.
+ *
+ * The fifth rule, and the one the first four missed. They forbid *naming* the
+ * package -- an import, a class, an event, a customData write -- and every one
+ * of them is now closed. But a consumer does not have to name the package to
+ * depend on it: the host hands the imperative handle down as a prop, and the
+ * consumer calls getAppState, updateScene, getSceneElements and the rest on it.
+ *
+ * That is the largest part of the seam by count. The inventory in NIL-331
+ * measured 74 such call sites, and the check reported "0 named exceptions
+ * remaining" while every one of them sat outside the layer. A guard that
+ * reports clean over the biggest hole is worse than no guard, because people
+ * believe it.
+ *
+ * Named, like the others, and emptied by the consumer migration.
+ */
+const RAW_API_EXCEPTIONS = new Set([
+  "frontend/src/pages/editor/EditorDialogs.tsx",
+  "frontend/src/pages/editor/documentDrop.ts",
+  "frontend/src/pages/editor/followMode.ts",
+  "frontend/src/pages/editor/remoteSelection.ts",
+  "frontend/src/pages/editor/socketCollaborators.ts",
+  "frontend/src/pages/editor/useEditorBroadcast.ts",
+  "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
+  "frontend/src/pages/editor/useEditorCollaboration.ts",
+  "frontend/src/pages/editor/useEditorCommands.ts",
+  "frontend/src/pages/editor/useEditorPersistence.ts",
+  "frontend/src/pages/editor/useLibraryImportFromUrl.ts",
+  "frontend/src/sticky/StickyHandles.tsx",
+  "frontend/src/sticky/stickyConnect.ts",
+  "frontend/src/sticky/stickyPlacement.ts",
+  "frontend/src/sticky/useStickyHint.ts",
+  "frontend/src/sticky/useStickyKeys.ts",
+  "frontend/src/sticky/useStickyNotes.ts",
+  "frontend/src/sticky/useStickyUpkeep.ts",
+]);
+
+/** The imperative handle's methods, as measured on the pinned version. */
+const RAW_API_PATTERNS = [
+  {
+    name: "raw editor API call",
+    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool|updateLibrary)\s*\(/,
+  },
+];
+
+/**
  * Both import forms.
  *
  * The dynamic one is not decoration: useDrawingPreview.ts reaches the package
@@ -67,6 +113,9 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  */
 const PACKAGE_PATTERNS = [
   { name: "static import", re: /(?:^|\n)\s*import\s[^;]*?from\s*["']@excalidraw\//s },
+  // Re-exporting reaches the package just as surely as importing it, and the
+  // first version of this rule did not see it.
+  { name: "re-export", re: /(?:^|\n)\s*export\s[^;]*?from\s*["']@excalidraw\//s },
   { name: "dynamic import", re: /\bimport\s*\(\s*["']@excalidraw\//s },
   { name: "require", re: /\brequire\s*\(\s*["']@excalidraw\// },
   { name: "side-effect import", re: /(?:^|\n)\s*import\s*["']@excalidraw\// },
@@ -82,6 +131,10 @@ const DOM_INTERNAL_PATTERNS = [
   /\.excalidraw-hyperlinkContainer\b/,
   /\.disable-zen-mode--visible\b/,
   /querySelector[^\n]*["'`][^"'`]*\.excalidraw\b/,
+  // The interactive canvas, which domBridge.ts itself lists as an internal
+  // selector -- and which the word-boundary in the pattern above does not
+  // match, because the class name continues with an underscore.
+  /excalidraw__canvas/,
 ];
 
 const SYNTHETIC_EVENT_PATTERNS = [
@@ -99,7 +152,13 @@ const SYNTHETIC_EVENT_PATTERNS = [
  * `customData:` would flag the correct call as loudly as the wrong one, and a
  * rule that cannot tell them apart teaches people to ignore it.
  */
-const CUSTOM_DATA_WRITE_PATTERNS = [/customData\s*:\s*\{/];
+const CUSTOM_DATA_WRITE_PATTERNS = [
+  /customData\s*:\s*\{/,
+  // An assignment is a write too. Only the object-literal form was matched, so
+  // `element.customData = {...}` walked straight past the rule that exists to
+  // stop exactly that.
+  /\.customData\s*=\s*[^=]/,
+];
 
 /**
  * Keys the stored customData shape used to have.
@@ -174,6 +233,15 @@ const RULES = [
     exceptions: SYNTHETIC_EVENT_EXCEPTIONS,
     allow: (relative) => relative === DOM_BRIDGE.split(path.sep).join("/"),
     message: "synthesises an input event. Those belong in domBridge.ts.",
+  },
+  {
+    id: "raw-api-call",
+    patterns: RAW_API_PATTERNS,
+    exceptions: RAW_API_EXCEPTIONS,
+    allow: (relative) => relative.startsWith(`${LAYER.split(path.sep).join("/")}/`),
+    message:
+      "calls the editor's imperative API directly. Go through a capability from " +
+      "frontend/src/integrations/excalidraw.",
   },
   {
     id: "custom-data-write",

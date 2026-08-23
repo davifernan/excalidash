@@ -53,12 +53,19 @@ export const substituteWidgets = (
   elements: readonly Record<string, unknown>[],
 ): { elements: Record<string, unknown>[]; substituted: number } => {
   let substituted = 0;
-  const out = elements.map((element) => {
+  const out: Record<string, unknown>[] = [];
+  for (const element of elements) {
     const descriptor = describeWidget(element);
-    if (!descriptor) return element;
+    if (!descriptor) {
+      out.push(element);
+      continue;
+    }
     substituted += 1;
-    return exportSubstitute(asSummary(element), descriptor);
-  });
+    // A substitute is a container AND its bound text: the label only becomes
+    // visible text by going through the skeleton API, and that produces two
+    // elements. Splicing both in is what makes it readable rather than a box.
+    out.push(...exportSubstitute(asSummary(element), descriptor));
+  }
   return { elements: out, substituted };
 };
 

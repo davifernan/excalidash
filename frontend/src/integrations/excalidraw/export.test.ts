@@ -31,7 +31,14 @@ describe("substituting widgets for export (NIL-277)", () => {
     const { elements, substituted } = substituteWidgets([widget("w1")]);
     expect(substituted).toBe(1);
     expect(elements[0].type).toBe("rectangle");
-    expect(elements[0].link).toBeUndefined();
+    expect(elements[0].link).toBeFalsy();
+  });
+
+  it("splices in the bound text as well, or the substitute is a box with no words", () => {
+    const { elements } = substituteWidgets([widget("w1")]);
+    const text = elements.find((element) => element.type === "text");
+    expect(text).toBeDefined();
+    expect((text as unknown as { containerId: unknown }).containerId).toBe(elements[0].id);
   });
 
   it("keeps the widget's place and size, so the export still reads as the board", () => {
@@ -41,7 +48,8 @@ describe("substituting widgets for export (NIL-277)", () => {
 
   it("says which kind of document was there", () => {
     const { elements } = substituteWidgets([widget("w1", "markdown")]);
-    expect((elements[0].label as { text: string }).text).toBe("MARKDOWN document");
+    const text = elements.find((element) => element.type === "text");
+    expect((text as unknown as { text: string }).text).toBe("MARKDOWN document");
   });
 
   it("leaves everything that is not a widget exactly as it was", () => {
@@ -73,12 +81,12 @@ describe("substituting widgets for export (NIL-277)", () => {
       widget("w2", "markdown"),
     ]);
     expect(substituted).toBe(2);
-    expect(elements.map((element) => element.type)).toEqual([
-      "rectangle",
-      "rectangle",
-      "rectangle",
-      "rectangle",
-    ]);
-    expect(elements.map((element) => element.id)).toEqual(["r1", "w1-export", "r2", "w2-export"]);
+    // Each substitute contributes a container and its bound text, so the two
+    // widgets become four elements between the two untouched rectangles.
+    expect(elements.filter((element) => element.type === "text")).toHaveLength(2);
+    expect(elements.map((element) => element.id)).toContain("r1");
+    expect(elements.map((element) => element.id)).toContain("r2");
+    expect(elements.map((element) => element.id)).toContain("w1-export");
+    expect(elements.map((element) => element.id)).toContain("w2-export");
   });
 });

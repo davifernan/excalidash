@@ -59,6 +59,17 @@ export const parseFollowSceneBounds = (value: unknown): FollowSceneBounds | null
  * before the fit, because afterwards the applied zoom is always inside the
  * limits and the clamp is invisible.
  */
+/** What a given viewport can see, in scene coordinates. */
+const visibleBoundsOfState = (appState: any) => {
+  const viewport = createViewportCapability(() => ({
+    getAppState: () => appState,
+    updateScene: () => {},
+    getSceneElements: () => [],
+  }));
+  const bounds = viewport.visibleBounds();
+  return bounds.ok ? bounds.value : null;
+};
+
 /** What this person can currently see, in scene coordinates. */
 const visibleBoundsOf = (api: Pick<ExcalidrawApi, "getAppState" | "updateScene">) => {
   const viewport = createViewportCapability(() => ({
@@ -79,12 +90,30 @@ export const fitFollowedBounds = (
     updateScene: api.updateScene as (change: Record<string, unknown>) => void,
     getSceneElements: () => [],
   }));
+  const before = api.getAppState();
   const applied = viewport.showBounds(bounds as never);
   if (!applied.ok) {
-    return { appState: api.getAppState(), zoomClamped: false };
+    return { appState: before, zoomClamped: false };
   }
+  // The viewport the capability computed, merged over the state we read before
+  // the write -- NOT a fresh getAppState(). Excalidraw's updateScene goes
+  // through setState on a React 18 class component, so the state read straight
+  // afterwards is still the pre-fit one. Reading it back would show the
+  // follower's indicator at the old rectangle and, worse, store the old bounds
+  // as "last applied", which defeats the echo guard: the next real scroll event
+  // would not match, and the bounds just received would be sent back out.
+  const { viewport: fitted } = applied.value;
   return {
-    appState: api.getAppState(),
+    appState: {
+      ...before,
+      scrollX: fitted.scrollX,
+      scrollY: fitted.scrollY,
+      zoom: { value: fitted.zoom },
+      width: fitted.width,
+      height: fitted.height,
+      offsetLeft: fitted.offsetLeft,
+      offsetTop: fitted.offsetTop,
+    },
     zoomClamped: applied.value.zoomClamped,
   };
 };
@@ -231,7 +260,7 @@ export const bindFollowMode = ({
     applyingIncomingBounds = true;
     try {
       const fitted = fitFollowedBounds(api, lastReceivedBounds);
-      lastAppliedVisibleBounds = parseFollowSceneBounds(visibleBoundsOf(api));
+      lastAppliedVisibleBounds = parseFollowSceneBounds(visibleBoundsOfState(fitted.appState));
       viewportIndicator?.show(lastReceivedBounds, fitted.appState, fitted.zoomClamped);
     } finally {
       applyingIncomingBounds = false;

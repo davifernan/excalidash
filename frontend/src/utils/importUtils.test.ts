@@ -12,6 +12,12 @@ vi.mock("../api", () => ({
 
 const exportToSvg = vi.fn(async () => ({ outerHTML: "<svg />" }));
 vi.mock("@excalidraw/excalidraw", () => ({
+  // integrations/excalidraw/elements imports the whole utility surface, so a
+  // partial mock leaves that module unloadable rather than merely thin.
+  CaptureUpdateAction: { IMMEDIATELY: "IMMEDIATELY", NEVER: "NEVER", EVENTUALLY: "EVENTUALLY" },
+  convertToExcalidrawElements: (elements: any[]) => elements,
+  newElementWith: (element: any, changes: any) => ({ ...element, ...changes }),
+  restoreElements: (elements: any[]) => elements,
   exportToSvg: (...args: any[]) => exportToSvg(...args),
 }));
 

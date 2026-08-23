@@ -9,6 +9,7 @@
 import { reportFailure } from "./compatibility/diagnostics";
 import type { WidgetCapability, WidgetDescriptor } from "./capabilities";
 import { readWidget, withExcalidashData } from "./customData";
+import { buildElements } from "./elements";
 import { fail, ok, type CapabilityFailure, type CapabilityResult } from "./errors";
 import type { ElementId, ElementSummary, NewElement, SceneOp, ScenePoint } from "./types";
 import { packageVersion } from "./version";
@@ -36,29 +37,44 @@ export type WidgetApi = {
  * substitute is a plain rectangle carrying a readable label, which is the same
  * shape the reader would have seen, minus the interactivity that a static image
  * could not have had anyway.
+ *
+ * Built through the skeleton API rather than written as a literal, and that is
+ * the whole point of this function existing: `label` is not a property of an
+ * Excalidraw element. Only convertToExcalidrawElements understands it, and it
+ * turns it into a real bound text element. Handing a literal with a `label` key
+ * straight to exportToSvg produces a grey box with no text at all -- the very
+ * defect this is meant to fix, one layer further in.
+ *
+ * Returns the container and its bound text, so callers splice both in.
  */
 export const exportSubstitute = (
   element: ElementSummary,
   descriptor: WidgetDescriptor,
-): Record<string, unknown> => ({
-  id: `${element.id}-export`,
-  type: "rectangle",
-  x: element.x,
-  y: element.y,
-  width: element.width,
-  height: element.height,
-  angle: element.angle,
-  strokeColor: "#1e1e1e",
-  backgroundColor: "#f5f5f5",
-  fillStyle: "solid",
-  roughness: 0,
-  label: {
-    text: `${descriptor.kind.toUpperCase()} document`,
-    fontSize: 20,
-    textAlign: "center",
-    verticalAlign: "middle",
-  },
-});
+): Record<string, unknown>[] =>
+  buildElements(
+    [
+      {
+        id: `${element.id}-export`,
+        type: "rectangle",
+        x: element.x,
+        y: element.y,
+        width: element.width,
+        height: element.height,
+        angle: element.angle,
+        strokeColor: "#1e1e1e",
+        backgroundColor: "#f5f5f5",
+        fillStyle: "solid",
+        roughness: 0,
+        label: {
+          text: `${descriptor.kind.toUpperCase()} document`,
+          fontSize: 20,
+          textAlign: "center",
+          verticalAlign: "middle",
+        },
+      },
+    ],
+    { regenerateIds: false },
+  );
 
 export const createWidgetCapability = (getApi: () => WidgetApi | null): WidgetCapability => {
   const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {

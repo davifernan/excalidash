@@ -91,7 +91,7 @@ export const makeSvgPreview = async (
   elements: any[],
   appState: Record<string, any>,
   files: Record<string, any>,
-): Promise<SVGSVGElement | null> => {
+): Promise<SVGSVGElement> => {
   const rendered = await renderStoredSceneToSvg({
     elements,
     appState: {
@@ -101,7 +101,14 @@ export const makeSvgPreview = async (
     },
     files: files || {},
   });
-  return rendered.ok ? rendered.value : null;
+  if (!rendered.ok) {
+    // Throws, as this did before going through the layer. Every caller counts
+    // a drawing as imported inside a try/catch, so swallowing the failure here
+    // would import it with an empty preview and report success -- a worse
+    // outcome than the honest failure, because nobody goes looking.
+    throw new Error(`Preview render failed: ${rendered.code} ${rendered.detail ?? ""}`.trim());
+  }
+  return rendered.value;
 };
 
 export const createCollectionResolver = () => {
@@ -208,7 +215,7 @@ export const importLegacyZip = async (
             collectionId,
             createdAt: coerceTimestamp(d.createdAt),
             updatedAt: coerceTimestamp(d.updatedAt),
-            preview: svg?.outerHTML ?? "",
+            preview: svg.outerHTML,
           };
           await api.post("/drawings", payload, { headers: { "X-Imported-File": "true" } });
           success += 1;
@@ -235,7 +242,7 @@ export const importLegacyZip = async (
         collectionId,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        preview: svg?.outerHTML ?? "",
+        preview: svg.outerHTML,
       };
       await api.post("/drawings", payload, { headers: { "X-Imported-File": "true" } });
       success += 1;

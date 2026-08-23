@@ -67,42 +67,38 @@ describe("the read-only interaction contract (NIL-311)", () => {
 });
 
 describe("the export substitute (NIL-277)", () => {
+  const substitute = (kind: "pdf" | "markdown" = "pdf", over: Partial<ElementSummary> = {}) =>
+    exportSubstitute(summary(over), { kind, schemaVersion: 2, assetId: "a1" });
+
   it("keeps the widget's place on the board", () => {
-    const element = summary({ x: 100, y: 200, width: 480, height: 680 });
-    const substitute = exportSubstitute(element, {
-      kind: "pdf",
-      schemaVersion: 2,
-      assetId: "a1",
-    });
-    expect(substitute).toMatchObject({ x: 100, y: 200, width: 480, height: 680 });
+    const [container] = substitute("pdf", { x: 100, y: 200, width: 480, height: 680 });
+    expect(container).toMatchObject({ x: 100, y: 200, width: 480, height: 680 });
   });
 
   it("is a plain rectangle, because an embeddable exports as an empty box", () => {
-    const substitute = exportSubstitute(summary(), {
-      kind: "markdown",
-      schemaVersion: 2,
-      assetId: "a1",
-    });
-    expect(substitute.type).toBe("rectangle");
-    expect(substitute.link).toBeUndefined();
+    const [container] = substitute("markdown");
+    expect(container.type).toBe("rectangle");
+    expect(container.link).toBeFalsy();
   });
 
-  it("says what the reader is looking at", () => {
-    const substitute = exportSubstitute(summary(), {
-      kind: "markdown",
-      schemaVersion: 2,
-      assetId: "a1",
-    });
-    expect((substitute.label as { text: string }).text).toBe("MARKDOWN document");
+  it("produces a real bound text element, not a label property", () => {
+    // `label` is not a property of an Excalidraw element -- only the skeleton
+    // API understands it, and exportToSvg takes elements. A substitute built as
+    // a literal with a `label` key renders as a grey box with no text at all,
+    // which is the defect this exists to fix.
+    const elements = substitute("markdown");
+    expect(elements.length).toBeGreaterThan(1);
+    const text = elements.find((element) => element.type === "text");
+    expect(text).toBeDefined();
+    expect((text as unknown as { text: string }).text).toBe("MARKDOWN document");
+    expect((text as unknown as { containerId: string }).containerId).toBe(
+      (elements[0] as { id: unknown }).id,
+    );
   });
 
   it("does not reuse the original id, which would collide in the cloned scene", () => {
-    const substitute = exportSubstitute(summary(), {
-      kind: "pdf",
-      schemaVersion: 2,
-      assetId: "a1",
-    });
-    expect(substitute.id).not.toBe("e1");
+    const [container] = substitute("pdf");
+    expect(container.id).not.toBe("e1");
   });
 });
 

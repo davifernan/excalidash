@@ -77,6 +77,33 @@ const probes = [
     'export const probe = (el: HTMLElement) =>\n  el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));\n',
   ],
   [
+    // Re-export reaches the package as surely as import, and the first version
+    // of the rule saw only `import`.
+    "package re-export",
+    "reExport.ts",
+    'export { exportToSvg } from "@excalidraw/excalidraw";\n',
+  ],
+  [
+    // An assignment is a write. Only the object-literal form was matched.
+    "customData assignment",
+    "customDataAssign.ts",
+    "export const probe = (element: { customData?: unknown }) => {\n  element.customData = { excalidash: {} };\n};\n",
+  ],
+  [
+    // The interactive canvas, which domBridge.ts lists as an internal selector
+    // and which the word-boundary pattern did not match.
+    "interactive canvas selector",
+    "interactiveCanvas.ts",
+    'export const probe = (el: HTMLElement) =>\n  el.querySelector("canvas.excalidraw__canvas.interactive");\n',
+  ],
+  [
+    // The largest half of the seam: a consumer does not have to name the
+    // package to depend on it -- the handle is passed in.
+    "raw imperative API call",
+    "rawApiCall.ts",
+    "export const probe = (api: { getAppState: () => unknown }) => api.getAppState();\n",
+  ],
+  [
     "direct customData write",
     "customDataWrite.ts",
     "export const probe = (element: { customData?: unknown }) => ({\n  ...element,\n  customData: { excalidash: { schemaVersion: 2 } },\n});\n",

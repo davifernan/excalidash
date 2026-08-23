@@ -312,7 +312,14 @@ export const useEditorPersistence = ({
         },
         files: currentFiles,
       });
-      if (!rendered.ok) return;
+      if (!rendered.ok) {
+        // Reported rather than returned quietly. The capability catches the
+        // throw that used to reach the catch below, and nothing in this tree
+        // subscribes to the diagnostics sink yet -- so without this line a
+        // failed render leaves a stale preview and says nothing to anybody.
+        console.error("Failed to save preview", rendered.code, rendered.detail);
+        return;
+      }
       await api.updateDrawing(drawingId, { preview: rendered.value.outerHTML });
     } catch (err) {
       console.error("Failed to save preview", err);
