@@ -10,6 +10,7 @@ const {
   acquireLock,
   attemptPackageRecovery,
   classifyPackage,
+  createLiveAdapter,
   executablePackages,
   fingerprint,
   hansAnomaly,
@@ -17,6 +18,7 @@ const {
   observe,
   qaDue,
   recordAction,
+  scan,
 } = require("./pipeline-sentinel.cjs");
 const { buildImpactManifest } = require("./delivery-v2.cjs");
 
@@ -123,6 +125,103 @@ test("pre-mutation re-read suppresses a rerun created by another controller", as
   });
   assert.equal(result.result, "already-recovered");
   assert.equal(reruns, 0);
+});
+
+test("live adapter invalidates the open-PR cache before a mutation re-read", () => {
+  let reads = 0;
+  const adapter = createLiveAdapter({ repository: "davifernan/excalidash", repoPath: process.cwd() }, {
+    gh: (...args) => {
+      assert.equal(args[0], "pr");
+      reads += 1;
+      return [{ number: 37, headRefOid: reads === 1 ? "a".repeat(40) : "b".repeat(40) }];
+    },
+  });
+
+  assert.equal(adapter.listOpenPullRequests()[0].headRefOid, "a".repeat(40));
+  adapter.refreshPullRequests();
+  assert.equal(adapter.listOpenPullRequests()[0].headRefOid, "b".repeat(40));
+  assert.equal(reads, 2);
+});
+
+test("live adapter reads paginated PR files without mixing slurp and jq", () => {
+  let command = null;
+  const adapter = createLiveAdapter({ repository: "davifernan/excalidash", repoPath: process.cwd() }, {
+    gh: (...args) => {
+      command = args;
+      return [
+        [{ filename: "scripts/pipeline-sentinel.cjs" }],
+        [{ filename: "ops/install-pipeline-sentinel.sh" }],
+      ];
+    },
+  });
+  const manifest = adapter.getPrImpactManifest({
+    number: 37,
+    baseRefOid: "b".repeat(40),
+    headRefOid: "c".repeat(40),
+    labels: [],
+  });
+
+  assert.deepEqual(command, [
+    "api",
+    "repos/davifernan/excalidash/pulls/37/files",
+    "--paginate",
+    "--slurp",
+  ]);
+  assert.equal(manifest.effective.operations, true);
+  assert.deepEqual(manifest.diff.other, []);
+});
+
+test("a successful rerun stays counted when a later adapter call fails", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sentinel-state-"));
+  const stateFile = path.join(root, "state.json");
+  const stalled = snapshot({ runs: [{ id: "failed-run", status: "failed" }] });
+  const key = `package:${stalled.issue.identifier}`;
+  const stalledFingerprint = fingerprint(stalled);
+  fs.writeFileSync(stateFile, `${JSON.stringify({
+    schema: 1,
+    observations: {
+      [key]: {
+        fingerprint: stalledFingerprint,
+        first_seen_at: "2026-08-22T23:57:00.000Z",
+        last_seen_at: "2026-08-22T23:57:00.000Z",
+        observations: 1,
+      },
+    },
+    incidents: {},
+  })}\n`);
+  let reruns = 0;
+  const adapter = {
+    listPackages: () => [stalled.issue],
+    getIssue: () => stalled.issue,
+    getRuns: () => stalled.runs,
+    getPullRequests: () => stalled.pullRequests,
+    getMainSha: () => stalled.mainSha,
+    rerun: () => {
+      reruns += 1;
+      return { id: "recovery-run" };
+    },
+    setMetadata: (_identifier, metadataKey) => {
+      if (metadataKey === "watchdog_last_action_at") {
+        throw new Error("simulated later adapter failure");
+      }
+      return {};
+    },
+  };
+
+  await assert.rejects(scan({
+    adapter,
+    config: {
+      stateFile,
+      lockRoot: path.join(root, "locks"),
+      intervalMs: 180_000,
+      masterIssue: "NIL-383",
+    },
+    now: new Date("2026-08-23T00:00:00.000Z"),
+  }), /simulated later adapter failure/);
+
+  const persisted = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  assert.equal(reruns, 1);
+  assert.equal(persisted.incidents[key].recovery_attempts, 1);
 });
 
 test("only dependency-complete, unclaimed execution packages are eligible", () => {
