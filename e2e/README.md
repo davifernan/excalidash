@@ -78,6 +78,38 @@ Environment variables:
 | `NO_SERVER` | `false` | Skip starting servers |
 | `CI` | `false` | CI mode (headless, retries) |
 
+## Retries
+
+`CI=true` enables two retries. A green check therefore means "passed at least
+once out of up to three attempts", which is a different state from "passed on
+the first attempt" — and without help the two are indistinguishable.
+
+Retries are kept, but never silent. `playwright-retry-summary-reporter.cjs` runs
+as an extra reporter and, whenever a test needed a retry, writes:
+
+- a line per retried test on stdout,
+- a `::warning` annotation when running under GitHub Actions,
+- a table in the job summary when `GITHUB_STEP_SUMMARY` is set.
+
+A run in which nothing was retried produces none of the three.
+
+Why not the alternatives: dropping retries to `0` makes every infrastructure
+hiccup red, and this job starts two real servers and shares one SQLite database,
+so the queue would block on flake that is not a product defect. Exempting only
+"guardian" tests needs an explicit list of which tests those are — a second
+source of truth that drifts silently, and in this suite every test is a guardian.
+Reporting keeps the check honest without either cost.
+
+**Do not pass `--reporter` on the command line.** The CLI flag *replaces* the
+reporter list from the config rather than extending it, which drops this reporter
+without any visible sign. That is why `Dockerfile.playwright` runs a bare
+`npx playwright test`.
+
+`frontend/playwright.config.ts` also carries `retries: process.env.CI ? 2 : 0`,
+but its `testDir` (`frontend/e2e`) does not exist, no workflow invokes it, and it
+has never held a test in this fork's history. It produces no runs, so there is
+nothing there to report; it is deliberately left untouched rather than decorated.
+
 ## File Structure
 
 ```
@@ -87,6 +119,7 @@ e2e/
 ├── fixtures/                 # Test data files
 │   └── small-image.excalidraw
 ├── playwright.config.ts      # Playwright configuration
+├── playwright-retry-summary-reporter.cjs  # Surfaces retries (see "Retries")
 ├── docker-compose.e2e.yml    # Docker setup
 ├── Dockerfile.playwright     # Playwright container
 ├── run-e2e.sh               # Convenience script

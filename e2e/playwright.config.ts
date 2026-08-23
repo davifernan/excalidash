@@ -40,6 +40,9 @@ export default defineConfig({
         outputFolder: process.env.PLAYWRIGHT_REPORT_DIR || "playwright-report",
       },
     ],
+    // Retries stay enabled so infrastructure flake does not block the queue,
+    // but every retry is surfaced instead of being folded into a silent green.
+    ["./playwright-retry-summary-reporter.cjs"],
   ],
 
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results",
