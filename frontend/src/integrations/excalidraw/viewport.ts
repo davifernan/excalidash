@@ -106,6 +106,18 @@ export const projectPoint = (point: ScenePoint, viewport: ViewportState): Viewpo
   };
 };
 
+/**
+ * A point on screen to a point on the board, against a viewport already held.
+ *
+ * The counterpart of projectPoint, and the one a drop handler needs: it has the
+ * browser event's client coordinates and wants to know where on the board that
+ * landed.
+ */
+export const unprojectPoint = (point: ViewportPoint, viewport: ViewportState): ScenePoint => ({
+  x: (point.x - viewport.offsetLeft) / viewport.zoom - viewport.scrollX,
+  y: (point.y - viewport.offsetTop) / viewport.zoom - viewport.scrollY,
+});
+
 export const createViewportCapability = (getApi: () => ViewportApi | null): ViewportCapability => {
   const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
     if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());
