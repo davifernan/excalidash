@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { createExcalidrawAdapter } from "../integrations/excalidraw";
 import { useCursorChatKey } from "./editor/useCursorChatKey";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getInitialLangCode } from "../components/LanguageSelector";
@@ -77,6 +78,34 @@ export const Editor: React.FC = () => {
   const lastLocalChangeAtRef = useRef<number>(0);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const excalidrawAPI = useRef<any>(null);
+  // Read through a ref, not a closure: the adapter below is built once and would
+  // otherwise answer `canEdit` with whatever it was on first render -- which is
+  // exactly how a read-only visitor ends up holding an editing capability.
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+
+  /**
+   * The one adapter instance in the product.
+   *
+   * Until now `createExcalidrawAdapter` existed only in its own test: consumers
+   * held the raw handle and each reached into the editor their own way. A second
+   * construction site would bring that back under a nicer name, so this is the
+   * only place the adapter is built -- consumers receive the capability they
+   * need as a parameter, the way `inviteHere` already does.
+   *
+   * `useMemo` with no dependencies is deliberate: the adapter reads the refs
+   * lazily on every call, so it stays correct across editor remounts without
+   * being rebuilt and handing every consumer a new object each render.
+   */
+  const adapter = useMemo(
+    () =>
+      createExcalidrawAdapter({
+        api: () => excalidrawAPI.current,
+        container: () => editorContainerRef.current,
+        canEdit: () => canEditRef.current,
+      }),
+    [],
+  );
   const { resolveSafeSnapshot, normalizeImageElementStatus } = useEditorSnapshotGuards({
     lastPersistedElementsRef,
     initialSceneElementsRef,
@@ -121,7 +150,7 @@ export const Editor: React.FC = () => {
     onAccessDenied: handleSocketAccessDenied,
     onDrawingNameChange: setDrawingName,
   });
-  useLibraryImportFromUrl({ excalidrawAPIRef: excalidrawAPI, isReady, user });
+  useLibraryImportFromUrl({ ui: adapter.ui, isReady, user });
   const persistenceRefs = React.useMemo(
     () => ({
       currentDrawingVersion: currentDrawingVersionRef,
