@@ -24,6 +24,8 @@
  * renamed, the island stops hiding. Visible, small, and not a silent failure.
  */
 import { useEffect, useState } from "react";
+
+import { observeStructure, readChrome } from "../../integrations/excalidraw/domBridge";
 import type React from "react";
 
 export type ExcalidrawUiState = { zenMode: boolean; mobile: boolean };
@@ -38,27 +40,14 @@ export function useExcalidrawUiState(
     if (!container) return;
 
     const read = () => {
-      // Two signals, because the first one is missing in view mode: there is
-      // no tool row there, but Alt+Z still works and the exit-zen button is
-      // what appears instead.
-      const zenMode = !!container.querySelector(
-        ".App-toolbar.zen-mode, .disable-zen-mode--visible",
-      );
-      const mobile = !!container.querySelector(".excalidraw--mobile");
+      const { zenMode, mobile } = readChrome(container);
       setState((current) =>
         current.zenMode === zenMode && current.mobile === mobile ? current : { zenMode, mobile },
       );
     };
 
     read();
-    const observer = new MutationObserver(read);
-    observer.observe(container, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
+    return observeStructure(container, read);
   }, [containerRef]);
 
   return state;

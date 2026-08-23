@@ -169,6 +169,37 @@ export const pressEnterToEditLabel = async (
   );
 };
 
+/**
+ * Turn a plain wheel over the canvas into the zoom gesture the editor listens
+ * for.
+ *
+ * Excalidraw zooms on ctrl+wheel and pans on plain wheel, which is right for a
+ * drawing tool and wrong for a board people scroll through. There is no prop for
+ * it, so the plain wheel is cancelled and a ctrl+wheel synthesised in its place.
+ *
+ * The marker matters: the synthetic event goes to the same element and would
+ * otherwise come straight back through this handler forever.
+ */
+const SYNTHETIC_ZOOM = "__excalidashSyntheticZoom";
+
+export const isSyntheticZoom = (event: WheelEvent): boolean =>
+  (event as unknown as Record<string, unknown>)[SYNTHETIC_ZOOM] === true;
+
+export const dispatchZoomWheel = (target: HTMLElement, source: WheelEvent): void => {
+  const zoomEvent = new WheelEvent("wheel", {
+    bubbles: true,
+    cancelable: true,
+    clientX: source.clientX,
+    clientY: source.clientY,
+    deltaX: source.deltaX,
+    deltaY: source.deltaY,
+    deltaMode: source.deltaMode,
+    ctrlKey: true,
+  });
+  (zoomEvent as unknown as Record<string, unknown>)[SYNTHETIC_ZOOM] = true;
+  target.dispatchEvent(zoomEvent);
+};
+
 /** Which internal selectors still match anything in this container. */
 export const checkSelectors = (
   container: HTMLElement | null,

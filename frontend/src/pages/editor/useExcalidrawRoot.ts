@@ -15,6 +15,8 @@
 import { useEffect, useState } from "react";
 import type React from "react";
 
+import { findRoot, observeStructure } from "../../integrations/excalidraw/domBridge";
+
 export function useExcalidrawRoot(containerRef: React.RefObject<HTMLElement>): HTMLElement | null {
   const [root, setRoot] = useState<HTMLElement | null>(null);
 
@@ -23,16 +25,15 @@ export function useExcalidrawRoot(containerRef: React.RefObject<HTMLElement>): H
     if (!container) return;
 
     const find = () => {
-      const found = container.querySelector<HTMLElement>(".excalidraw");
+      const result = findRoot(container);
+      const found = result.ok ? result.value : null;
       setRoot((current) => (current === found ? current : found));
     };
 
     find();
     // The editor is remounted when the drawing changes, and the portal has to
     // follow it rather than point at a detached node.
-    const observer = new MutationObserver(find);
-    observer.observe(container, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return observeStructure(container, find);
   }, [containerRef]);
 
   return root;

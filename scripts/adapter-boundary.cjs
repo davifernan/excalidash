@@ -36,17 +36,12 @@ const PACKAGE_IMPORT_EXCEPTIONS = new Set([
 
 /** Files that still reach into the editor's own DOM. */
 const DOM_INTERNAL_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/useExcalidrawRoot.ts",
-  "frontend/src/pages/editor/useExcalidrawUiState.ts",
-  "frontend/src/pages/editor/wheelZoom.ts",
   "frontend/src/sticky/StickyPalette.tsx",
   "frontend/src/sticky/stickyPlacement.ts",
-  "frontend/src/sticky/useToolbarElement.ts",
 ]);
 
 /** Files that still synthesise input events. */
 const SYNTHETIC_EVENT_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/wheelZoom.ts",
   "frontend/src/sticky/stickyConnect.ts",
   "frontend/src/sticky/stickyPlacement.ts",
 ]);
