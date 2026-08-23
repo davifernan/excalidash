@@ -268,7 +268,7 @@ export const Settings: React.FC = () => {
     await api.deleteCollection(id);
   };
   const handleSelectCollection = (id: string | null | undefined) => {
-    if (id === undefined) navigate("/");
+    if (id === undefined) navigate("/collections");
     else if (id === null) navigate("/collections?id=unorganized");
     else navigate(`/collections?id=${id}`);
   };

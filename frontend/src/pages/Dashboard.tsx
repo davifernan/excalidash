@@ -27,7 +27,6 @@ export const Dashboard: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const selectedCollectionId = React.useMemo(() => {
-    if (location.pathname === "/") return undefined;
     if (location.pathname === "/collections") {
       const id = searchParams.get("id");
       if (id === "unorganized") return null;
@@ -37,7 +36,7 @@ export const Dashboard: React.FC = () => {
   }, [location.pathname, searchParams]);
   const setSelectedCollectionId = (id: string | null | undefined) => {
     if (id === undefined) {
-      navigate("/");
+      navigate("/collections");
     } else if (id === null) {
       navigate("/collections?id=unorganized");
     } else {

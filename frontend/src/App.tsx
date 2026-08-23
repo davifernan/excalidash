@@ -7,6 +7,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Loader2 } from "lucide-react";
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const TeamHome = lazy(() => import("./pages/TeamHome").then((m) => ({ default: m.TeamHome })));
 const Editor = lazy(() => import("./pages/Editor").then((m) => ({ default: m.Editor })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
@@ -42,11 +43,12 @@ function App() {
                 <Route path="/reset-password" element={<PasswordResetRequest />} />
                 <Route path="/reset-password-confirm" element={<PasswordResetConfirm />} />
                 <Route path="/auth-setup" element={<AuthSetupChoice />} />
+                <Route path="/" element={<Navigate to="/team" replace />} />
                 <Route
-                  path="/"
+                  path="/team"
                   element={
                     <ProtectedRoute>
-                      <Dashboard />
+                      <TeamHome />
                     </ProtectedRoute>
                   }
                 />
