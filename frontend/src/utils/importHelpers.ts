@@ -1,4 +1,4 @@
-import { exportToSvg } from "@excalidraw/excalidraw";
+import { renderStoredSceneToSvg } from "../integrations/excalidraw/export";
 import { api } from "../api";
 
 type ExcalidrawLikeData = {
@@ -80,12 +80,19 @@ export const extractDrawingData = (
   return { elements, appState, files };
 };
 
+/**
+ * A preview of a scene that came from a file rather than from the editor.
+ *
+ * Through the integration layer, so document widgets are swapped for something
+ * a picture can show instead of exporting as an empty box with a URL (NIL-277).
+ * Returns null when the render fails; the capability has already reported why.
+ */
 export const makeSvgPreview = async (
   elements: any[],
   appState: Record<string, any>,
   files: Record<string, any>,
-) => {
-  return exportToSvg({
+): Promise<SVGSVGElement | null> => {
+  const rendered = await renderStoredSceneToSvg({
     elements,
     appState: {
       ...appState,
@@ -93,8 +100,8 @@ export const makeSvgPreview = async (
       viewBackgroundColor: appState.viewBackgroundColor || "#ffffff",
     },
     files: files || {},
-    exportPadding: 10,
   });
+  return rendered.ok ? rendered.value : null;
 };
 
 export const createCollectionResolver = () => {
@@ -201,7 +208,7 @@ export const importLegacyZip = async (
             collectionId,
             createdAt: coerceTimestamp(d.createdAt),
             updatedAt: coerceTimestamp(d.updatedAt),
-            preview: svg.outerHTML,
+            preview: svg?.outerHTML ?? "",
           };
           await api.post("/drawings", payload, { headers: { "X-Imported-File": "true" } });
           success += 1;
@@ -228,7 +235,7 @@ export const importLegacyZip = async (
         collectionId,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        preview: svg.outerHTML,
+        preview: svg?.outerHTML ?? "",
       };
       await api.post("/drawings", payload, { headers: { "X-Imported-File": "true" } });
       success += 1;

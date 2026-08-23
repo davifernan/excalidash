@@ -55,7 +55,7 @@ export const importDrawings = async (
           collectionId: targetCollectionId,
           createdAt: (parsed as any)?.createdAt || Date.now(),
           updatedAt: (parsed as any)?.updatedAt || Date.now(),
-          preview: svg.outerHTML,
+          preview: svg?.outerHTML ?? "",
         };
 
         if (onProgress) onProgress(fileIndex, "uploading", 0);
@@ -201,7 +201,7 @@ export const importLegacyFiles = async (
               collectionId,
               createdAt: coerceTimestamp(d.createdAt),
               updatedAt: coerceTimestamp(d.updatedAt),
-              preview: svg.outerHTML,
+              preview: svg?.outerHTML ?? "",
             };
 
             await api.post("/drawings", payload, {

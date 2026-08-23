@@ -44,6 +44,11 @@ const asSummary = (element: Record<string, unknown>): ElementSummary =>
  * substitution that reached the board would replace the reader's real widget
  * with a picture of one.
  */
+const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
+  if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());
+  return result;
+};
+
 export const substituteWidgets = (
   elements: readonly Record<string, unknown>[],
 ): { elements: Record<string, unknown>[]; substituted: number } => {
@@ -55,6 +60,38 @@ export const substituteWidgets = (
     return exportSubstitute(asSummary(element), descriptor);
   });
   return { elements: out, substituted };
+};
+
+/**
+ * Render a scene that came from the server rather than from a live editor.
+ *
+ * The dashboard thumbnail and the file import both hold plain saved data, with
+ * no editor to ask. They still have to go through the widget substitution, or a
+ * board with a document on it renders as an empty box in its own preview -- the
+ * same NIL-277 defect, in the place people see first.
+ */
+export const renderStoredSceneToSvg = async (scene: {
+  elements: readonly Record<string, unknown>[];
+  appState: Record<string, unknown>;
+  files?: Record<string, unknown>;
+  padding?: number;
+}): Promise<CapabilityResult<SVGSVGElement>> => {
+  const { elements } = substituteWidgets(scene.elements);
+  try {
+    const svg = await exportToSvg({
+      elements: elements as never,
+      appState: scene.appState as never,
+      files: (scene.files ?? {}) as never,
+      exportPadding: scene.padding ?? 10,
+    });
+    return ok(svg as SVGSVGElement);
+  } catch (error) {
+    return report(
+      fail("editor-changed", "export.renderStoredSceneToSvg", {
+        detail: error instanceof Error ? error.name : "exportToSvg threw",
+      }),
+    );
+  }
 };
 
 export type ExportDocumentReader = (document: SceneDocument) => {
@@ -71,11 +108,6 @@ export const createExportCapability = (
     files: Record<string, unknown>;
   }) => SceneDocument,
 ): ExportCapability => {
-  const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
-    if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());
-    return result;
-  };
-
   return {
     exportableDocument(document) {
       const opened = readDocument(document);

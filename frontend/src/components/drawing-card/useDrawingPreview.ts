@@ -90,10 +90,14 @@ export const useDrawingPreview = (
         if (cancelled) return;
         if (!data?.elements || !data?.appState) return;
 
-        const { exportToSvg } = await import("@excalidraw/excalidraw");
+        // Through the integration layer rather than a direct dynamic import.
+        // That is not only tidiness: the layer swaps document widgets for
+        // something a picture can show, so a board with a PDF on it stops
+        // previewing as an empty box with a URL (NIL-277).
+        const { renderStoredSceneToSvg } = await import("../../integrations/excalidraw/export");
         if (cancelled) return;
 
-        const svg = await exportToSvg({
+        const rendered = await renderStoredSceneToSvg({
           elements: normalizeImageElementsForPreview(data.elements, data.files || {}),
           appState: {
             ...data.appState,
@@ -101,11 +105,11 @@ export const useDrawingPreview = (
             viewBackgroundColor: data.appState.viewBackgroundColor || "#ffffff",
           },
           files: data.files || {},
-          exportPadding: 10,
         });
 
         if (cancelled) return;
-        const previewHtml = svg.outerHTML;
+        if (!rendered.ok) return;
+        const previewHtml = rendered.value.outerHTML;
         setPreviewSvg(previewHtml);
         onPreviewGenerated?.(drawing.id, previewHtml);
       } catch (e) {
