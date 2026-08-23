@@ -236,7 +236,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium --with-deps
+          npx playwright install chromium firefox webkit --with-deps
       
       - name: Start servers and run E2E tests
         run: |

@@ -111,7 +111,14 @@ test.describe("sticky notes", () => {
     await expect(page.getByText(/press Enter/i)).toBeHidden();
   });
 
-  test("leaves the editor's hint alone for everything else", async ({ page }) => {
+  test("leaves the editor's hint alone for everything else", async ({ page, isMobile }) => {
+    // Fixed canvas coordinates chosen for a 1280x720 window. On a phone that
+    // point sits under Excalidraw's own tool row, so the click never reaches
+    // the canvas. Skipped rather than moved: a mobile-safe point would
+    // quietly turn this into a different test. The mobile contract is carried
+    // by the cases that place a note through the tool rather than at a pixel.
+    test.skip(isMobile === true, "fixed desktop canvas coordinates");
+
     await openEditor(page, drawingId);
     const canvas = page.locator("canvas.excalidraw__canvas.interactive");
     const box = (await canvas.boundingBox())!;
@@ -281,7 +288,15 @@ test.describe("where a new note lands in the stack", () => {
   test("goes on top without disturbing the order of what is already there", async ({
     page,
     request,
+    isMobile,
   }) => {
+    // Fixed canvas coordinates chosen for a 1280x720 window. On a phone that
+    // point sits under Excalidraw's own tool row, so the click never reaches
+    // the canvas. Skipped rather than moved: a mobile-safe point would
+    // quietly turn this into a different test. The mobile contract is carried
+    // by the cases that place a note through the tool rather than at a pixel.
+    test.skip(isMobile === true, "fixed desktop canvas coordinates");
+
     api = request;
     const drawing = await createDrawing(request, {
       name: `e2e-sticky-z-${Date.now()}`,
@@ -317,7 +332,14 @@ test.describe("where a new note lands in the stack", () => {
     expect(stack[3][1] > "a3").toBe(true);
   });
 
-  test("each note lands above the one before it", async ({ page, request }) => {
+  test("each note lands above the one before it", async ({ page, request, isMobile }) => {
+    // Fixed canvas coordinates chosen for a 1280x720 window. On a phone that
+    // point sits under Excalidraw's own tool row, so the click never reaches
+    // the canvas. Skipped rather than moved: a mobile-safe point would
+    // quietly turn this into a different test. The mobile contract is carried
+    // by the cases that place a note through the tool rather than at a pixel.
+    test.skip(isMobile === true, "fixed desktop canvas coordinates");
+
     api = request;
     const drawing = await createDrawing(request, {
       name: `e2e-sticky-stack-${Date.now()}`,

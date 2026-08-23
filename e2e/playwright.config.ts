@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { defineConfig, devices } from "@playwright/test";
 
 // Overridable so a run can stand beside a live instance instead of taking its
@@ -7,6 +9,24 @@ const FRONTEND_PORT = Number(process.env.FRONTEND_PORT) || 6767;
 const BACKEND_PORT = Number(process.env.PORT) || 8000;
 const FRONTEND_URL = process.env.BASE_URL || `http://localhost:${FRONTEND_PORT}`;
 const BACKEND_URL = process.env.API_URL || `http://localhost:${BACKEND_PORT}`;
+
+/**
+ * Specs that run on every engine.
+ *
+ * Each one turns on something an engine decides rather than this application:
+ * canvas geometry and pointer maths, viewport arithmetic, layout thresholds,
+ * and the embedded-widget path.
+ */
+const CROSS_ENGINE_SPECS = [
+  "**/sticky-notes.spec.ts",
+  "**/sticky-connect.spec.ts",
+  "**/invite-here.spec.ts",
+  "**/small-windows.spec.ts",
+  "**/document-pages.spec.ts",
+];
+
+/** Specs that carry the mobile contract. */
+const MOBILE_SPECS = ["**/sticky-notes.spec.ts", "**/small-windows.spec.ts"];
 
 /**
  * Playwright configuration for E2E browser testing
@@ -65,6 +85,13 @@ export default defineConfig({
     headless: process.env.HEADED !== "true",
   },
 
+  /**
+   * Chromium carries the whole suite; the others carry the contracts an engine
+   * or a form factor decides. Running all of it four times over would buy
+   * repetition rather than coverage, and make the slowest required check three
+   * times slower. The selection is by file, so what an engine covers is
+   * readable here rather than scattered through tags in the specs.
+   */
   projects: [
     {
       name: "chromium",
@@ -72,6 +99,31 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
       },
+    },
+    {
+      name: "firefox",
+      use: {
+        ...devices["Desktop Firefox"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: CROSS_ENGINE_SPECS,
+    },
+    {
+      name: "webkit",
+      use: {
+        ...devices["Desktop Safari"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: CROSS_ENGINE_SPECS,
+    },
+    {
+      // The open question in NIL-274: the synthetic Enter that opens a sticky
+      // note's label is sent a frame later, and a phone requires a user
+      // activation for its keyboard. Whether the activation survives that frame
+      // is measurable only on a touch device profile.
+      name: "mobile-chrome",
+      use: { ...devices["Pixel 7"] },
+      testMatch: MOBILE_SPECS,
     },
   ],
 
@@ -90,6 +142,13 @@ export default defineConfig({
         CSRF_MAX_REQUESTS: "100000",
         RATE_LIMIT_MAX_REQUESTS: "100000",
         CSRF_SECRET: "e2e-csrf-secret",
+        // Uploaded documents otherwise default to the path they live at inside
+        // the container, which nothing outside it may create. The CI workflow
+        // has always set this; the local server did not, so every document test
+        // failed locally with a missing widget.
+        ASSET_STORAGE_DIR:
+          process.env.ASSET_STORAGE_DIR ||
+          path.resolve(__dirname, "../backend/prisma/e2e-assets"),
       },
     },
     {

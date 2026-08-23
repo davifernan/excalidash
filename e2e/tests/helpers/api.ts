@@ -2,10 +2,8 @@ import { APIRequestContext, expect } from "@playwright/test";
 
 // Derived the way playwright.config.ts derives it. Hard-coding the port here
 // while the config honoured PORT meant a run moved off 8000 still created,
-// modified and deleted its drawings on whatever was on 8000 -- possibly
-// another run's server -- and then opened them on its own, where they do not
-// exist. The suite failed with "Drawing does not exist", which reads like a
-// product defect and is not one.
+// modified and deleted its drawings on whatever was on 8000 -- possibly another
+// run's server -- and then opened them on its own, where they do not exist.
 const DEFAULT_BACKEND_PORT = 8000;
 const BACKEND_PORT = Number(process.env.PORT) || DEFAULT_BACKEND_PORT;
 
