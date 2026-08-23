@@ -79,7 +79,9 @@ test.describe("Drawing Creation", () => {
     await page.goto(`/editor/${drawing.id}`);
     await page.waitForSelector("[class*='excalidraw'], canvas", { timeout: 15000 });
 
-    await expect(page.getByText(drawingName)).toBeVisible();
+    // The board name lives in the hamburger, not a floating header (NIL-376).
+    await page.getByTestId("main-menu-trigger").click();
+    await expect(page.getByTestId("menu-board-name")).toContainText(drawingName);
   });
 
   test("should rename drawing via editor header", async ({ page, request }) => {
@@ -92,15 +94,14 @@ test.describe("Drawing Creation", () => {
     await page.goto(`/editor/${drawing.id}`);
     await page.waitForSelector("[class*='excalidraw'], canvas", { timeout: 15000 });
 
-    const nameElement = page.getByText(originalName);
+    // The board name lives in the hamburger, not a floating header (NIL-376).
+    await page.getByTestId("main-menu-trigger").click();
+    const nameElement = page.getByTestId("menu-board-name");
     await expect(nameElement).toBeInViewport();
     await nameElement.dblclick();
 
     await page.waitForTimeout(300);
 
-    // Named rather than "the first input on the page": the board name now sits
-    // in an island rendered inside Excalidraw's own root, so document order puts
-    // Excalidraw's toolbar controls ahead of it.
     const nameInput = page.getByLabel("Drawing name");
     await nameInput.clear();
     await nameInput.fill(newName);
@@ -119,7 +120,9 @@ test.describe("Drawing Creation", () => {
     await page.goto(`/editor/${drawing.id}`);
     await page.waitForSelector("[class*='excalidraw'], canvas", { timeout: 15000 });
 
-    const backButton = page.getByTestId("editor-back");
+    // "Back to dashboard" lives in the hamburger now (NIL-376).
+    await page.getByTestId("main-menu-trigger").click();
+    const backButton = page.getByText("Back to dashboard");
     await expect(backButton).toBeInViewport();
     await backButton.click();
 

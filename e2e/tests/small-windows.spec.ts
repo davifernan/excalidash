@@ -1,18 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
+import { openEditor as openEditorReady } from "./helpers/editor";
 
 /**
  * Chrome in windows that are not the comfortable ones.
  *
- * Both of these were found by an adversarial review and then reproduced by
- * measuring, which is the only reason they are believed: the editor looks fine
- * at 1280x720, and both faults are invisible until the window gets short.
+ * This used to guard two faults. The second -- our own island sitting on top
+ * of Excalidraw's hamburger below 600px tall -- cannot happen any more: the
+ * island is gone (NIL-376), its content lives in the hamburger itself now.
  */
-const open = async (page: Page, id: string) => {
-  await page.goto(`/editor/${id}`);
-  await page.waitForSelector(".excalidraw", { timeout: 30000 });
-  await page.waitForTimeout(2200);
-};
+const open = (page: Page, id: string) => openEditorReady(page, id, { settleMs: 2200 });
 
 test("the timer's controls stay on screen in a short window", async ({ browser, request }) => {
   // The widget is anchored to the bottom. Opening its panel downwards put Start,
@@ -36,39 +33,6 @@ test("the timer's controls stay on screen in a short window", async ({ browser, 
       .map(({ label }) => label),
   );
   expect(offscreen).toEqual([]);
-
-  await context.close();
-  await deleteDrawing(request, drawing.id);
-});
-
-test("our island does not sit on top of Excalidraw's menu when the window is short", async ({
-  browser,
-  request,
-}) => {
-  // The offset that moves Excalidraw's left column down used to be dropped below
-  // 600px tall. At 800x550 that put our island and the hamburger in exactly the
-  // same place, one hidden under the other.
-  const drawing = await createDrawing(request, { name: "Short Window Island" });
-  const context = await browser.newContext({ viewport: { width: 800, height: 550 } });
-  const page = await context.newPage();
-  await open(page, drawing.id);
-
-  const overlap = await page.evaluate(() => {
-    const box = (selector: string) => {
-      const element = document.querySelector(selector);
-      return element ? element.getBoundingClientRect() : null;
-    };
-    const island = box('[data-testid="editor-top-left"]');
-    const menu = box(".App-menu_top__left");
-    if (!island || !menu) return null;
-    return !(
-      island.bottom <= menu.top ||
-      menu.bottom <= island.top ||
-      island.right <= menu.left ||
-      menu.right <= island.left
-    );
-  });
-  expect(overlap).toBe(false);
 
   await context.close();
   await deleteDrawing(request, drawing.id);

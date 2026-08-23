@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
+import { armTool, openEditor as openEditorReady } from "./helpers/editor";
 
 /**
  * The note that is not there yet.
@@ -11,21 +12,8 @@ import { createDrawing, deleteDrawing } from "./helpers/api";
  * zoom, which is where a preview drawn in screen pixels would quietly lie.
  */
 
-const openEditor = async (page: Page, drawingId: string) => {
-  await page.goto(`/editor/${drawingId}`);
-  await page.waitForSelector("canvas");
-  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
-  await page.waitForTimeout(600);
-};
-
-const armTool = async (page: Page) => {
-  await page.getByTestId("toolbar-sticky").click();
-  await page.waitForFunction(
-    () =>
-      (window as any).__EXCALIDASH_TEST__.getAppState().activeTool
-        ?.customType === "sticky",
-  );
-};
+const openEditor = (page: Page, drawingId: string) =>
+  openEditorReady(page, drawingId, { settleMs: 600 });
 
 const ghost = (page: Page) =>
   page.evaluate(() => {

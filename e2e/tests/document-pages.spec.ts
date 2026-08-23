@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
+import { openEditor as openEditorReady } from "./helpers/editor";
 
 /**
  * Paging through a document in a meeting is only useful if it happens for the
@@ -13,11 +14,8 @@ const MARKDOWN = Array.from(
   (_, i) => `## Section ${i + 1}\n\n${`Body text for section ${i + 1}. `.repeat(30)}\n`,
 ).join("\n");
 
-const openEditor = async (page: Page, drawingId: string) => {
-  await page.goto(`/editor/${drawingId}`);
-  await page.waitForSelector(".excalidraw", { timeout: 30000 });
-  await page.waitForTimeout(2000);
-};
+const openEditor = (page: Page, drawingId: string) =>
+  openEditorReady(page, drawingId, { settleMs: 2000 });
 
 const dropMarkdown = async (page: Page, source: string, name = "notes.md") => {
   await page.evaluate(

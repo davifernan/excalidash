@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
+import { armTool, labels, notes, openEditor, scene, toolbarButton } from "./helpers/editor";
 
 /**
  * Sticky notes, in a real browser.
@@ -11,50 +12,7 @@ import { createDrawing, deleteDrawing } from "./helpers/api";
  * note shrinks its writing against real font metrics rather than growing.
  */
 
-const openEditor = async (page: Page, drawingId: string) => {
-  await page.goto(`/editor/${drawingId}`);
-  await page.waitForSelector("canvas");
-  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
-  return page;
-};
-
-const scene = (page: Page) =>
-  page.evaluate(() => {
-    const api = (window as any).__EXCALIDASH_TEST__;
-    return api.getSceneElements().map((element: any) => ({
-      id: element.id,
-      type: element.type,
-      x: element.x,
-      y: element.y,
-      width: element.width,
-      height: element.height,
-      backgroundColor: element.backgroundColor,
-      containerId: element.containerId,
-      fontSize: element.fontSize,
-      text: element.text,
-      sticky: element.customData?.excalidash?.sticky ?? null,
-      // The version lives on the namespace, not inside the record: one number
-      // for everything this application stores on an element.
-      schemaVersion: element.customData?.excalidash?.schemaVersion ?? null,
-    }));
-  });
-
-const notes = async (page: Page) => (await scene(page)).filter((e: any) => e.sticky);
-const labels = async (page: Page) => (await scene(page)).filter((e: any) => e.containerId);
-
-const stickyButton = (page: Page) => page.getByTestId("toolbar-sticky");
-
-/** Place a note by arming the tool and clicking the canvas, as a person would. */
-const armTool = async (page: Page) => {
-  await stickyButton(page).click();
-  // The tool is set through React state; a click landing before that commits
-  // would be read as a selection drag instead.
-  await page.waitForFunction(
-    () =>
-      (window as any).__EXCALIDASH_TEST__.getAppState().activeTool
-        ?.customType === "sticky",
-  );
-};
+const stickyButton = (page: Page) => toolbarButton(page, "sticky");
 
 const placeNote = async (page: Page, at: { x: number; y: number }) => {
   await armTool(page);
