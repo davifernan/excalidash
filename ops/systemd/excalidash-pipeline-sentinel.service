@@ -15,6 +15,8 @@ Environment=SENTINEL_MAIN_REF=own/main
 Environment=SENTINEL_MASTER_ISSUE=NIL-383
 Environment=SENTINEL_HANS_AUTOPILOT_ID=0957dd3a-f30c-4a5b-b7b4-24733122bf2b
 Environment=SENTINEL_STATE_FILE=/var/lib/excalidash-pipeline-sentinel/state.json
+Environment=SENTINEL_PAUSE_FILE=/var/lib/excalidash-pipeline-sentinel/mutations-paused
+Environment=SENTINEL_PR_OVERSEER_WEBHOOK_FILE=/home/claude/pr-overseer-wake/.webhook-url
 ExecStart=/usr/bin/node /home/claude/excalidash-control-pr/scripts/pipeline-sentinel.cjs
 TimeoutStartSec=120
 StateDirectory=excalidash-pipeline-sentinel

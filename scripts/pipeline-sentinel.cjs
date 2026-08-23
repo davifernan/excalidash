@@ -15,6 +15,7 @@ const OPEN_PR_STATES = new Set(["open", "opened", "draft"]);
 const RECOVERY_BUDGET = 2;
 const LOCK_STALE_MS = 10 * 60 * 1000;
 const READY_GRACE_MS = 5 * 60 * 1000;
+const PR_STALL_MS = 12 * 60 * 1000;
 const STATE_SCHEMA = 1;
 
 function stableJson(value) {
@@ -115,8 +116,16 @@ function hasCurrentHansReview(reviews, headSha) {
   });
 }
 
+function hasAnyHansReview(reviews) {
+  return (reviews || []).some((review) => {
+    const login = review.user?.login || review.author?.login;
+    return login === "the-hans-friedrich[bot]" &&
+      String(review.body || "").includes("excalidash-review:v1");
+  });
+}
+
 function hansAnomaly(pr, reviews, impactManifest, now = Date.now()) {
-  if (!isReviewReady(pr, impactManifest) || hasCurrentHansReview(reviews, pr.headRefOid)) return null;
+  if (!isReviewReady(pr, impactManifest) || hasAnyHansReview(reviews)) return null;
   const updatedAt = Date.parse(pr.updatedAt || pr.updated_at || pr.createdAt || "");
   if (Number.isFinite(updatedAt) && now - updatedAt < READY_GRACE_MS) return null;
   return {
@@ -124,6 +133,23 @@ function hansAnomaly(pr, reviews, impactManifest, now = Date.now()) {
     action: "trigger-hans",
     pr: pr.number,
     headSha: pr.headRefOid,
+  };
+}
+
+function prOverseerAnomaly(pr, reviews, now = Date.now(), stallMs = PR_STALL_MS) {
+  if (pr.isDraft || pr.draft || !hasAnyHansReview(reviews)) return null;
+  const updatedAt = Date.parse(pr.updatedAt || pr.updated_at || pr.createdAt || "");
+  if (!Number.isFinite(updatedAt) || now - updatedAt < stallMs) return null;
+  const reviewedCurrentHead = hasCurrentHansReview(reviews, pr.headRefOid);
+  const reason = reviewedCurrentHead
+    ? "reviewed-head-awaiting-integration"
+    : "finding-fix-head-awaiting-delta-verification";
+  return {
+    key: `overseer:${pr.number}:${pr.headRefOid}:${reason}`,
+    action: "wake-pr-overseer",
+    pr: pr.number,
+    headSha: pr.headRefOid,
+    reason,
   };
 }
 
@@ -304,6 +330,11 @@ function createLiveAdapter(config, commands = {}) {
       if (!trigger?.webhook_url) throw new Error("Hans webhook is unavailable");
       return trigger.webhook_url;
     },
+    getPrOverseerWebhook() {
+      const webhook = fs.readFileSync(config.prOverseerWebhookFile, "utf8").trim();
+      if (!webhook) throw new Error("PR Overseer webhook is unavailable");
+      return webhook;
+    },
     triggerQa() {
       if (!config.qaAutopilotId) throw new Error("Package-QA autopilot is not configured");
       return multica("autopilot", "trigger", config.qaAutopilotId);
@@ -330,6 +361,32 @@ async function triggerHans(adapter, config, anomaly) {
   if (!response.ok) throw new Error(`Hans webhook returned HTTP ${response.status}`);
   const body = await response.json();
   if (!["accepted", "duplicate"].includes(body.status)) throw new Error(`Hans webhook returned ${body.status || "unknown"}`);
+  return body.status;
+}
+
+async function triggerPrOverseer(adapter, config, anomaly) {
+  const response = await fetch(adapter.getPrOverseerWebhook(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": `sentinel:${config.repository}#${anomaly.pr}@${anomaly.headSha}:${anomaly.reason}`,
+    },
+    body: JSON.stringify({
+      trusted_source: true,
+      event: "sentinel_recovery",
+      action: anomaly.reason,
+      repo: config.repository,
+      pr: anomaly.pr,
+      head_sha: anomaly.headSha,
+      delivery_event_id: `sentinel:${anomaly.pr}:${anomaly.headSha}:${anomaly.reason}`,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(`PR Overseer webhook returned HTTP ${response.status}`);
+  const body = await response.json();
+  if (!["accepted", "duplicate"].includes(body.status)) {
+    throw new Error(`PR Overseer webhook returned ${body.status || "unknown"}`);
+  }
   return body.status;
 }
 
@@ -363,8 +420,10 @@ function metadataWrites(adapter, identifier, values, dryRun) {
   for (const [key, value] of Object.entries(values)) adapter.setMetadata(identifier, key, value);
 }
 
-async function scan({ adapter, config, now = new Date(), dryRun = false }) {
+async function scan({ adapter, config, now = new Date(), dryRun = false, mutationsPaused = false }) {
   const nowIso = now.toISOString();
+  const mutationMode = dryRun ? "dry-run" : mutationsPaused ? "observe-only" : "live";
+  const suppressMutations = dryRun || mutationsPaused;
   const state = loadState(config.stateFile);
   const mainSha = adapter.getMainSha();
   const packages = adapter.listPackages();
@@ -394,17 +453,17 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
       watchdog_last_seen_at: nowIso,
       watchdog_recovery_attempts: state.incidents[key]?.recovery_attempts || 0,
       last_reconciled_at: nowIso,
-    }, dryRun);
+    }, suppressMutations);
     if (!observation.shouldAct) {
       events.push({ type: "observed", issue: snapshot.issue.identifier, fingerprint: currentFingerprint, exhausted: observation.exhausted || false });
       const incident = state.incidents[key];
       if (observation.exhausted && !incident?.escalated_at) {
-        if (!dryRun) {
+        if (!suppressMutations) {
           adapter.comment(config.masterIssue, `SENTINEL ALERT — Recovery-Budget erschöpft\n\nPackage: ${snapshot.issue.identifier}\nStatus: ${snapshot.issue.status}\nLatest Run: ${classification.latestRun?.id || "keiner"} (${classification.latestRun?.status || "kein Status"})\nMain: ${mainSha}\nFingerprint: ${currentFingerprint}\nVersuche: ${incident.recovery_attempts}\nAktion: automatische Recovery für diesen Zustand gestoppt; Controller-Diagnose erforderlich.\n\nGenerated by Pipeline Sentinel`);
           incident.escalated_at = nowIso;
           saveState(config.stateFile, state);
         }
-        events.push({ type: "controller-alert", issue: snapshot.issue.identifier, result: dryRun ? "dry-run" : "commented" });
+        events.push({ type: "controller-alert", issue: snapshot.issue.identifier, result: suppressMutations ? mutationMode : "commented" });
       }
       continue;
     }
@@ -414,7 +473,7 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
       issue: snapshot.issue,
       expectedFingerprint: currentFingerprint,
       lockRoot: config.lockRoot,
-      dryRun,
+      dryRun: suppressMutations,
     });
     if (result.result === "recovered") {
       const attempts = recordAction(state, key, nowIso);
@@ -423,7 +482,7 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
         watchdog_last_action_at: nowIso,
         watchdog_recovery_attempts: attempts,
         watchdog_suppressed_until: new Date(now.getTime() + config.intervalMs).toISOString(),
-      }, dryRun);
+      }, suppressMutations);
     }
     events.push({ type: "recovery", issue: snapshot.issue.identifier, ...result });
   }
@@ -436,12 +495,12 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
     const observation = observe(state, idleKey, idleFingerprint, nowIso);
     saveState(config.stateFile, state);
     if (observation.shouldAct) {
-      if (!dryRun) {
+      if (!suppressMutations) {
         adapter.comment(config.masterIssue, `SENTINEL RECOVERY — keine aktive Implementierung\n\nAusführbare Packages: ${eligible.map((issue) => issue.identifier).join(", ")}\nMain: ${mainSha}\nFingerprint: ${idleFingerprint}\nAktion: Master-Orchestrator aufwecken; keine Produktentscheidung getroffen.\n\nGenerated by Pipeline Sentinel`);
         recordAction(state, idleKey, nowIso);
         saveState(config.stateFile, state);
       }
-      events.push({ type: "master-wake", packages: eligible.map((issue) => issue.identifier), result: dryRun ? "dry-run" : "commented" });
+      events.push({ type: "master-wake", packages: eligible.map((issue) => issue.identifier), result: suppressMutations ? mutationMode : "commented" });
     }
   } else {
     clearObservation(state, idleKey);
@@ -451,37 +510,91 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
   for (const pr of adapter.listOpenPullRequests()) {
     const impactManifest = adapter.getPrImpactManifest(pr);
     if (!isReviewReady(pr, impactManifest)) continue;
-    const anomaly = hansAnomaly(pr, adapter.getPrReviews(pr.number), impactManifest, now.getTime());
-    if (!anomaly) {
-      clearObservation(state, `pr:${pr.number}`);
+    const reviews = adapter.getPrReviews(pr.number);
+    const hans = hansAnomaly(pr, reviews, impactManifest, now.getTime());
+    const hansKey = `hans:${pr.number}`;
+    const overseerKey = `overseer:${pr.number}`;
+    clearObservation(state, `pr:${pr.number}`);
+
+    if (hans) {
+      clearObservation(state, overseerKey);
+      const observation = observe(state, hansKey, hans.key, nowIso);
+      saveState(config.stateFile, state);
+      if (!observation.shouldAct) {
+        const incident = state.incidents[hansKey];
+        if (observation.exhausted && !incident?.escalated_at) {
+          if (!suppressMutations) {
+            adapter.comment(config.masterIssue, `SENTINEL ALERT — Hans-Recovery erschoepft\n\nPR: #${pr.number}\nHead: ${pr.headRefOid}\nVersuche: ${incident.recovery_attempts}\nAktion: Controller-Diagnose erforderlich; kein weiterer Vollreview wird automatisch gestartet.\n\nGenerated by Pipeline Sentinel`);
+            incident.escalated_at = nowIso;
+            saveState(config.stateFile, state);
+          }
+          events.push({ type: "controller-alert", pr: pr.number, subsystem: "hans", result: suppressMutations ? mutationMode : "commented" });
+        }
+        continue;
+      }
+      if (suppressMutations) {
+        events.push({ type: "hans-recovery", pr: pr.number, result: mutationMode });
+        continue;
+      }
+      adapter.refreshPullRequests?.();
+      const currentPr = adapter.listOpenPullRequests().find((candidate) => candidate.number === pr.number);
+      const currentReviews = currentPr ? adapter.getPrReviews(pr.number) : [];
+      const currentImpactManifest = currentPr ? adapter.getPrImpactManifest(currentPr) : null;
+      if (
+        !currentPr ||
+        currentPr.headRefOid !== pr.headRefOid ||
+        !isReviewReady(currentPr, currentImpactManifest) ||
+        hasAnyHansReview(currentReviews)
+      ) {
+        events.push({ type: "hans-recovery", pr: pr.number, result: "already-recovered" });
+        continue;
+      }
+      const result = await triggerHans(adapter, config, hans);
+      recordAction(state, hansKey, nowIso);
+      saveState(config.stateFile, state);
+      events.push({ type: "hans-recovery", pr: pr.number, result });
+      continue;
+    }
+
+    clearObservation(state, hansKey);
+    const overseer = prOverseerAnomaly(pr, reviews, now.getTime(), config.prStallMs);
+    if (!overseer) {
+      clearObservation(state, overseerKey);
       saveState(config.stateFile, state);
       continue;
     }
-    const key = `pr:${pr.number}`;
-    const observation = observe(state, key, anomaly.key, nowIso);
+    const observation = observe(state, overseerKey, overseer.key, nowIso);
     saveState(config.stateFile, state);
-    if (!observation.shouldAct) continue;
-    if (dryRun) {
-      events.push({ type: "hans-recovery", pr: pr.number, result: "dry-run" });
+    if (!observation.shouldAct) {
+      const incident = state.incidents[overseerKey];
+      if (observation.exhausted && !incident?.escalated_at) {
+        if (!suppressMutations) {
+          adapter.comment(config.masterIssue, `SENTINEL ALERT — PR-Overseer-Recovery erschoepft\n\nPR: #${pr.number}\nHead: ${pr.headRefOid}\nGrund: ${overseer.reason}\nVersuche: ${incident.recovery_attempts}\nAktion: Controller-Diagnose erforderlich; PR bleibt unintegriert.\n\nGenerated by Pipeline Sentinel`);
+          incident.escalated_at = nowIso;
+          saveState(config.stateFile, state);
+        }
+        events.push({ type: "controller-alert", pr: pr.number, subsystem: "pr-overseer", result: suppressMutations ? mutationMode : "commented" });
+      }
+      continue;
+    }
+    if (suppressMutations) {
+      events.push({ type: "pr-overseer-recovery", pr: pr.number, reason: overseer.reason, result: mutationMode });
       continue;
     }
     adapter.refreshPullRequests?.();
     const currentPr = adapter.listOpenPullRequests().find((candidate) => candidate.number === pr.number);
     const currentReviews = currentPr ? adapter.getPrReviews(pr.number) : [];
-    const currentImpactManifest = currentPr ? adapter.getPrImpactManifest(currentPr) : null;
-    if (
-      !currentPr ||
-      currentPr.headRefOid !== pr.headRefOid ||
-      !isReviewReady(currentPr, currentImpactManifest) ||
-      hasCurrentHansReview(currentReviews, pr.headRefOid)
-    ) {
-      events.push({ type: "hans-recovery", pr: pr.number, result: "already-recovered" });
+    const currentAnomaly = currentPr
+      ? prOverseerAnomaly(currentPr, currentReviews, now.getTime(), config.prStallMs)
+      : null;
+    if (!currentAnomaly || currentAnomaly.key !== overseer.key) {
+      events.push({ type: "pr-overseer-recovery", pr: pr.number, result: "already-recovered" });
       continue;
     }
-    const result = await triggerHans(adapter, config, anomaly);
-    recordAction(state, key, nowIso);
+    const result = await triggerPrOverseer(adapter, config, currentAnomaly);
+    recordAction(state, overseerKey, nowIso);
     saveState(config.stateFile, state);
-    events.push({ type: "hans-recovery", pr: pr.number, result });
+    events.push({ type: "pr-overseer-recovery", pr: pr.number, reason: overseer.reason, result });
   }
 
   const qaKey = "global:package-qa";
@@ -497,8 +610,8 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
     const observation = observe(state, qaKey, qaFingerprint, nowIso);
     saveState(config.stateFile, state);
     if (observation.shouldAct) {
-      let result = "dry-run";
-      if (!dryRun) {
+      let result = mutationMode;
+      if (!suppressMutations) {
         if (config.qaAutopilotId) {
           adapter.triggerQa();
           result = "qa-triggered";
@@ -516,9 +629,9 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
     saveState(config.stateFile, state);
   }
 
-  metadataWrites(adapter, config.masterIssue, { last_reconciled_at: nowIso }, dryRun);
+  metadataWrites(adapter, config.masterIssue, { last_reconciled_at: nowIso }, suppressMutations);
   saveState(config.stateFile, state);
-  return { ok: true, checkedAt: nowIso, mainSha, packages: packages.length, events };
+  return { ok: true, mode: mutationMode, checkedAt: nowIso, mainSha, packages: packages.length, events };
 }
 
 function readConfig() {
@@ -535,6 +648,9 @@ function readConfig() {
     hansAutopilotId: process.env.SENTINEL_HANS_AUTOPILOT_ID || "0957dd3a-f30c-4a5b-b7b4-24733122bf2b",
     qaAutopilotId: process.env.SENTINEL_QA_AUTOPILOT_ID || null,
     intervalMs: Number(process.env.SENTINEL_INTERVAL_MS || 180_000),
+    prStallMs: Number(process.env.SENTINEL_PR_STALL_MS || PR_STALL_MS),
+    prOverseerWebhookFile: process.env.SENTINEL_PR_OVERSEER_WEBHOOK_FILE || "/home/claude/pr-overseer-wake/.webhook-url",
+    pauseFile: process.env.SENTINEL_PAUSE_FILE || path.join(path.dirname(stateFile), "mutations-paused"),
   };
   if (!config.projectId) throw new Error("MULTICA_PROJECT_ID is required");
   return config;
@@ -548,9 +664,11 @@ module.exports = {
   executablePackages,
   fingerprint,
   hansAnomaly,
+  hasAnyHansReview,
   hasCurrentHansReview,
   isReviewReady,
   observe,
+  prOverseerAnomaly,
   qaDue,
   recordAction,
   scan,
@@ -566,7 +684,12 @@ if (require.main === module) {
     if (!releaseProcessLock) {
       process.stdout.write(`${JSON.stringify({ ok: true, result: "already-running" })}\n`);
     } else {
-      scan({ adapter: createLiveAdapter(config), config, dryRun })
+      scan({
+        adapter: createLiveAdapter(config),
+        config,
+        dryRun,
+        mutationsPaused: fs.existsSync(config.pauseFile),
+      })
         .then((result) => process.stdout.write(`${JSON.stringify(result)}\n`))
         .catch((error) => {
           process.stderr.write(`${error.message}\n`);

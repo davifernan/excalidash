@@ -1,5 +1,6 @@
 [Unit]
 Description=Reconcile the ExcaliDash delivery pipeline every three minutes
+RefuseManualStop=yes
 
 [Timer]
 OnBootSec=1min

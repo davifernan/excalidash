@@ -14,8 +14,10 @@ const {
   executablePackages,
   fingerprint,
   hansAnomaly,
+  hasAnyHansReview,
   hasCurrentHansReview,
   observe,
+  prOverseerAnomaly,
   qaDue,
   recordAction,
   scan,
@@ -272,6 +274,77 @@ test("Hans recovery waits for Delivery v2 admission, a stable head and a matchin
     body: pr.body.replace("Ready for Hans-Friedrich", "Hans-Friedrich completed the one general review"),
   };
   assert.equal(hansAnomaly(reviewedAlias, [], impactManifest, Date.parse("2026-08-22T23:00:00Z")), null);
+});
+
+test("Hans full review is one-shot even after a finding fix changes the PR head", () => {
+  const reviewedHead = "b".repeat(40);
+  const fixedHead = "c".repeat(40);
+  const pr = {
+    number: 40,
+    isDraft: false,
+    body: [
+      "Multica-Package: NIL-321",
+      "Delivery-Slices: none",
+      "Package-Session: 01a02bc5-fe01-7ce3-b520-387137968d9a",
+      "Impact-Manifest: generated from git diff",
+      "Visual-Evidence: skipped: no visible frontend product delta",
+      "",
+      "- [x] Multica HANDOFF posted",
+      "- [x] Local verification complete",
+      "- [x] Ready for Hans-Friedrich",
+    ].join("\n"),
+    headRefOid: fixedHead,
+    updatedAt: "2026-08-22T22:00:00Z",
+  };
+  const reviews = [{
+    user: { login: "the-hans-friedrich[bot]" },
+    commit_id: reviewedHead,
+    body: `<!-- excalidash-review:v1 {"reviewed_head_sha":"${reviewedHead}"} -->`,
+  }];
+  const manifest = buildImpactManifest({
+    baseSha: "a".repeat(40),
+    headSha: fixedHead,
+    files: ["backend/src/server/socketElementUpdateLimits.ts"],
+  });
+
+  assert.equal(hasAnyHansReview(reviews), true);
+  assert.equal(hasCurrentHansReview(reviews, fixedHead), false);
+  assert.equal(hansAnomaly(pr, reviews, manifest, Date.parse("2026-08-22T23:00:00Z")), null);
+});
+
+test("a stale reviewed PR wakes the Overseer instead of triggering another Hans review", () => {
+  const reviewedHead = "b".repeat(40);
+  const fixedHead = "c".repeat(40);
+  const reviews = [{
+    user: { login: "the-hans-friedrich[bot]" },
+    commit_id: reviewedHead,
+    body: `<!-- excalidash-review:v1 {"reviewed_head_sha":"${reviewedHead}"} -->`,
+  }];
+  const anomaly = prOverseerAnomaly({
+    number: 40,
+    isDraft: false,
+    headRefOid: fixedHead,
+    updatedAt: "2026-08-22T22:00:00Z",
+  }, reviews, Date.parse("2026-08-22T23:00:00Z"));
+
+  assert.equal(anomaly.action, "wake-pr-overseer");
+  assert.equal(anomaly.reason, "finding-fix-head-awaiting-delta-verification");
+});
+
+test("a current-head reviewed PR wakes the Overseer for integration after the stall window", () => {
+  const reviews = [{
+    user: { login: "the-hans-friedrich[bot]" },
+    commit_id: SHA,
+    body: `<!-- excalidash-review:v1 {"reviewed_head_sha":"${SHA}"} -->`,
+  }];
+  const anomaly = prOverseerAnomaly({
+    number: 41,
+    isDraft: false,
+    headRefOid: SHA,
+    updatedAt: "2026-08-22T22:00:00Z",
+  }, reviews, Date.parse("2026-08-22T23:00:00Z"));
+
+  assert.equal(anomaly.reason, "reviewed-head-awaiting-integration");
 });
 
 test("QA becomes due from package-owned counters or explicit package state", () => {

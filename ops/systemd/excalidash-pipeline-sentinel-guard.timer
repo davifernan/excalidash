@@ -1,0 +1,13 @@
+[Unit]
+Description=Verify ExcaliDash pipeline sentinel liveness every minute
+RefuseManualStop=yes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+Unit=excalidash-pipeline-sentinel-guard.service
+
+[Install]
+WantedBy=timers.target

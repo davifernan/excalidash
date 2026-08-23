@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep the ExcaliDash pipeline sentinel enabled and scanning
+After=excalidash-pipeline-sentinel.timer
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/excalidash-pipeline-sentinel-guard
+TimeoutStartSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/systemd/system /var/lib/systemd /var/lib/excalidash-pipeline-sentinel
