@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
-import { exportToSvg } from "@excalidraw/excalidraw";
+import { renderStoredSceneToSvg } from "../../integrations/excalidraw/export";
 import debounce from "lodash/debounce";
 import { toast } from "sonner";
 import * as api from "../../api";
@@ -301,7 +301,9 @@ export const useEditorPersistence = ({
           fallbackElementCount: currentSnapshot.length,
         });
       }
-      const svg = await exportToSvg({
+      // Through the layer, so the board's own thumbnail shows its documents
+      // rather than empty boxes -- the same substitution the export uses.
+      const rendered = await renderStoredSceneToSvg({
         elements: normalizedSnapshot,
         appState: {
           ...appState,
@@ -310,7 +312,8 @@ export const useEditorPersistence = ({
         },
         files: currentFiles,
       });
-      await api.updateDrawing(drawingId, { preview: svg.outerHTML });
+      if (!rendered.ok) return;
+      await api.updateDrawing(drawingId, { preview: rendered.value.outerHTML });
     } catch (err) {
       console.error("Failed to save preview", err);
     }
