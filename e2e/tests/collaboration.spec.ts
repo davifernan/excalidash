@@ -47,14 +47,14 @@ test.describe("Real-time Collaboration", () => {
   /** What this browser itself has in its scene, not what the server stores. */
   const sceneElementCount = (page: Page) =>
     page.evaluate(() => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       if (!api) return -1;
       return api.getSceneElements().filter((e: any) => !e.isDeleted).length;
     });
 
   const sceneElementIds = (page: Page) =>
     page.evaluate(() => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       if (!api) return [];
       return api.getSceneElements().filter((e: any) => !e.isDeleted).map((e: any) => e.id);
     });

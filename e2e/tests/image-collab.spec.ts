@@ -32,7 +32,7 @@ const openEditorTab = async (context: BrowserContext, drawingId: string) => {
   await page.goto(`/editor/${drawingId}`);
   await page.waitForSelector("[class*='excalidraw'], canvas", { timeout: 15000 });
   await page.waitForFunction(() => {
-    return !!(window as any).__EXCALIDASH_EXCALIDRAW_API__;
+    return !!(window as any).__EXCALIDASH_TEST__;
   });
   await page.waitForFunction(() => {
     return (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true;
@@ -45,7 +45,7 @@ const waitForFileInEditor = async (page: Page, fileId: string) => {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const ok = await page.evaluate((id) => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const files = api?.getFiles?.() || {};
       const entry = files?.[id];
       return !!entry && typeof entry.mimeType === "string";
@@ -58,8 +58,8 @@ const waitForFileInEditor = async (page: Page, fileId: string) => {
 
 const injectImageElementThenFile = async (page: Page) => {
   return await page.evaluate(async () => {
-    const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
-    if (!api) throw new Error("Missing __EXCALIDASH_EXCALIDRAW_API__");
+    const api = (window as any).__EXCALIDASH_TEST__;
+    if (!api) throw new Error("Missing __EXCALIDASH_TEST__");
 
     const bytes = crypto.getRandomValues(new Uint8Array(20));
     const fileId = Array.from(bytes)
@@ -125,7 +125,7 @@ const injectImageElementThenFile = async (page: Page) => {
 const waitForElementPresent = async (page: Page, elementId: string) => {
   await page.waitForFunction(
     (id) => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const els = api?.getSceneElementsIncludingDeleted?.() || [];
       const el = els.find((e: any) => e?.id === id);
       return !!el && el.isDeleted !== true;
@@ -138,7 +138,7 @@ const waitForElementPresent = async (page: Page, elementId: string) => {
 const waitForElementDeletedEverywhere = async (page: Page, elementId: string) => {
   await page.waitForFunction(
     (id) => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const els = api?.getSceneElementsIncludingDeleted?.() || [];
       const el = els.find((e: any) => e?.id === id);
       return !!el && el.isDeleted === true;
@@ -151,7 +151,7 @@ const waitForElementDeletedEverywhere = async (page: Page, elementId: string) =>
 const getFileRenderState = async (page: Page, fileId: string, elementId: string) =>
   page.evaluate(
     async ({ fileId, elementId }) => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const file = api.getFiles()[fileId];
       const element = api
         .getSceneElementsIncludingDeleted()
@@ -175,8 +175,8 @@ const getFileRenderState = async (page: Page, fileId: string, elementId: string)
 
 const injectCompressibleImage = async (page: Page) =>
   page.evaluate(async () => {
-    const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
-    if (!api) throw new Error("Missing __EXCALIDASH_EXCALIDRAW_API__");
+    const api = (window as any).__EXCALIDASH_TEST__;
+    if (!api) throw new Error("Missing __EXCALIDASH_TEST__");
 
     const width = 3_001;
     const height = 160;
@@ -336,7 +336,7 @@ test.describe("Issue #25 - image sync + deletion across tabs", () => {
     await waitForFileInEditor(page3, fileId);
 
     await page2.evaluate((id) => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const appState = api.getAppState();
       api.updateScene({
         appState: {
@@ -347,7 +347,7 @@ test.describe("Issue #25 - image sync + deletion across tabs", () => {
     }, elementId);
 
     await page1.evaluate((id) => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const els = api.getSceneElementsIncludingDeleted();
       const target = els.find((e: any) => e?.id === id);
       if (!target) throw new Error("Target element not found");
@@ -418,7 +418,7 @@ test.describe("Issue #25 - image sync + deletion across tabs", () => {
       await page1.waitForSelector("[class*='excalidraw'], canvas", { timeout: 15_000 });
       await page1.waitForFunction(() => {
         return (
-          !!(window as any).__EXCALIDASH_EXCALIDRAW_API__ &&
+          !!(window as any).__EXCALIDASH_TEST__ &&
           (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true
         );
       });
@@ -463,7 +463,7 @@ test.describe("Issue #25 - image sync + deletion across tabs", () => {
       const recalculatedDeltaKeys = await page1.evaluate(
         async ({ baselineFile, fileId }) => {
           const { getFilesDelta } = await import("/src/pages/editor/shared.ts");
-          const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+          const api = (window as any).__EXCALIDASH_TEST__;
           return Object.keys(getFilesDelta({ [fileId]: baselineFile }, api.getFiles?.() || {}));
         },
         { baselineFile: firstOutbound.file, fileId: injected.fileId },
@@ -477,7 +477,7 @@ test.describe("Issue #25 - image sync + deletion across tabs", () => {
 
       await page2.close();
       await page1.reload();
-      await page1.waitForFunction(() => Boolean((window as any).__EXCALIDASH_EXCALIDRAW_API__));
+      await page1.waitForFunction(() => Boolean((window as any).__EXCALIDASH_TEST__));
       await waitForElementPresent(page1, injected.elementId);
       await waitForFileInEditor(page1, injected.fileId);
       const reloaded = await getFileRenderState(page1, injected.fileId, injected.elementId);

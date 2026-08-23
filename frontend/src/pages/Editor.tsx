@@ -103,6 +103,80 @@ export const Editor: React.FC = () => {
       }),
     [],
   );
+
+  /**
+   * A narrow window for the browser suite, only in development.
+   *
+   * The suite used to read the raw editor handle off
+   * `window.__EXCALIDASH_EXCALIDRAW_API__`. That global was a debug
+   * convenience that had quietly become a second way into the editor, and
+   * removing it with the keystone turned four E2E jobs red without a single
+   * product path being broken -- the tests had lost their vantage point, not
+   * their subject.
+   *
+   * They get one back, but through the same boundary the product uses. A test
+   * that observes through the adapter exercises it as well, which is more than
+   * the raw handle ever did.
+   */
+  useEffect(() => {
+    // Only once the editor has actually handed its handle over. The suite uses
+    // this global as its readiness signal -- the old one was set at exactly that
+    // moment -- and publishing it on first render lets a spec reach for
+    // `.excalidraw` before Excalidraw has mounted any DOM.
+    if (!import.meta.env.DEV || !isReady) return;
+    const unwrap = <T,>(result: { ok: true; value: T } | { ok: false }, fallback: T): T =>
+      result.ok ? result.value : fallback;
+    (window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__ = {
+      getSceneElements: () =>
+        unwrap(adapter.scene.summaries(), [] as readonly unknown[]).filter(
+          (element) => !(element as { isDeleted?: boolean }).isDeleted,
+        ),
+      getSceneElementsIncludingDeleted: () =>
+        unwrap(adapter.scene.summaries({ includeDeleted: true }), [] as readonly unknown[]),
+      getFiles: () => unwrap(adapter.files.read(), {} as Record<string, unknown>),
+      /**
+       * Writing, too. Some specs plant an element or a file to drive a live
+       * path; going through `scene.apply` and `files.add` means they take the
+       * route the product takes, including its version bookkeeping.
+       */
+      updateScene: (change: { elements?: readonly unknown[]; appState?: unknown }) => {
+        if (change.elements) {
+          adapter.scene.apply([
+            { kind: "replaceElements", elements: change.elements as never },
+          ] as never);
+        }
+        if (change.appState) {
+          const state = change.appState as { collaborators?: unknown };
+          if (state.collaborators instanceof Map) {
+            adapter.collaboration.patchCollaborators(
+              [...state.collaborators.entries()].map(([socketId, peer]) => ({
+                ...(peer as object),
+                socketId,
+              })) as never,
+            );
+          }
+        }
+      },
+      addFiles: (files: Record<string, unknown> | readonly unknown[]) =>
+        adapter.files.add((Array.isArray(files) ? files : Object.values(files)) as never),
+      getAppState: () => ({
+        collaborators: new Map(
+          unwrap(adapter.collaboration.readCollaborators(), []).map((peer) => [
+            String(peer.socketId),
+            peer,
+          ]),
+        ),
+        selectedElementIds: Object.fromEntries(
+          unwrap(adapter.selection.read(), { selectedIds: [], allSelected: false }).selectedIds.map(
+            (id) => [String(id), true],
+          ),
+        ),
+      }),
+    };
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__;
+    };
+  }, [adapter, isReady]);
   const { resolveSafeSnapshot, normalizeImageElementStatus } = useEditorSnapshotGuards({
     lastPersistedElementsRef,
     initialSceneElementsRef,

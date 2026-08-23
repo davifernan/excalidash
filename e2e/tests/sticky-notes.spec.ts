@@ -14,13 +14,13 @@ import { createDrawing, deleteDrawing } from "./helpers/api";
 const openEditor = async (page: Page, drawingId: string) => {
   await page.goto(`/editor/${drawingId}`);
   await page.waitForSelector("canvas");
-  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_EXCALIDRAW_API__);
+  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
   return page;
 };
 
 const scene = (page: Page) =>
   page.evaluate(() => {
-    const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+    const api = (window as any).__EXCALIDASH_TEST__;
     return api.getSceneElements().map((element: any) => ({
       id: element.id,
       type: element.type,
@@ -51,7 +51,7 @@ const armTool = async (page: Page) => {
   // would be read as a selection drag instead.
   await page.waitForFunction(
     () =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool
+      (window as any).__EXCALIDASH_TEST__.getAppState().activeTool
         ?.customType === "sticky",
   );
 };
@@ -60,7 +60,7 @@ const placeNote = async (page: Page, at: { x: number; y: number }) => {
   await armTool(page);
   await page.locator("canvas").last().click({ position: at });
   await page.waitForFunction(() =>
-    (window as any).__EXCALIDASH_EXCALIDRAW_API__
+    (window as any).__EXCALIDASH_TEST__
       .getSceneElements()
       .some((element: any) => element.customData?.excalidash?.sticky),
   );
@@ -198,7 +198,7 @@ test.describe("sticky notes", () => {
     await page.keyboard.press("Tab");
     await page.waitForFunction(
       () =>
-        (window as any).__EXCALIDASH_EXCALIDRAW_API__
+        (window as any).__EXCALIDASH_TEST__
           .getSceneElements()
           .filter((element: any) => element.customData?.excalidash?.sticky).length === 2,
       undefined,
@@ -217,7 +217,7 @@ test.describe("sticky notes", () => {
     await page.getByRole("button", { name: "Blue" }).click();
     await page.locator("canvas").last().click({ position: { x: 400, y: 300 } });
     await page.waitForFunction(() =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .some((element: any) => element.customData?.excalidash?.sticky),
     );
@@ -261,7 +261,7 @@ test.describe("sticky notes", () => {
     const versionOf = () =>
       page.evaluate(
         () =>
-          (window as any).__EXCALIDASH_EXCALIDRAW_API__
+          (window as any).__EXCALIDASH_TEST__
             .getSceneElements()
             .find((element: any) => element.containerId)?.version ?? 0,
       );
@@ -316,7 +316,7 @@ test.describe("where a new note lands in the stack", () => {
     await settle(page);
 
     const stack = await page.evaluate(() =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .filter((e: any) => !e.isDeleted)
         .map((e: any) => [
@@ -364,7 +364,7 @@ test.describe("where a new note lands in the stack", () => {
     }
 
     const notes = await page.evaluate(() =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .filter((e: any) => e.customData?.excalidash?.sticky)
         .map((e: any) => e.index),

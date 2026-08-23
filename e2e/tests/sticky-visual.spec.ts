@@ -14,7 +14,7 @@ test("a board full of notes", async ({ page, request }: { page: Page; request: A
   try {
     await page.goto(`/editor/${drawing.id}`);
     await page.waitForSelector("canvas");
-    await page.waitForFunction(() => !!(window as any).__EXCALIDASH_EXCALIDRAW_API__);
+    await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
 
     const notes: Array<[string, string, { x: number; y: number }]> = [
       ["Yellow", "Ship the sticky notes", { x: 260, y: 220 }],
@@ -29,7 +29,7 @@ test("a board full of notes", async ({ page, request }: { page: Page; request: A
       await page.getByTestId("toolbar-sticky").click();
       await page.waitForFunction(
         () =>
-          (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool
+          (window as any).__EXCALIDASH_TEST__.getAppState().activeTool
             ?.customType === "sticky",
       );
       await page.getByRole("button", { name: colour, exact: true }).click();
@@ -57,7 +57,7 @@ test("a board full of notes", async ({ page, request }: { page: Page; request: A
     await page.screenshot({ path: "test-results/sticky-handles.png", clip: { x: 120, y: 60, width: 420, height: 380 } });
 
     const placed = await page.evaluate(() =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .filter((element: any) => element.customData?.excalidash?.sticky)
         .map((element: any) => ({ w: element.width, h: element.height })),

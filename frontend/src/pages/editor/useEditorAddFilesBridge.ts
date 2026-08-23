@@ -96,6 +96,7 @@ export const useEditorAddFilesBridge = ({
       // gone is the patch on the editor's own method and the debug global that
       // handed the raw handle to anything on the page.
       excalidrawAPIRef.current = api;
+
       setIsReady(true);
     },
     [
