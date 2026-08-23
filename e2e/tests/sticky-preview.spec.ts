@@ -95,7 +95,7 @@ test.describe("the ghost note under the pointer", () => {
     await page.waitForFunction(() =>
       (window as any).__EXCALIDASH_EXCALIDRAW_API__
         .getSceneElements()
-        .some((e: any) => e.customData?.excalidashSticky),
+        .some((e: any) => e.customData?.excalidash?.sticky),
     );
   });
 

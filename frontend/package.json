@@ -22,7 +22,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "^0.18.1",
+    "@excalidraw/excalidraw": "0.18.1",
     "@types/lodash": "^4.17.20",
     "axios": "^1.16.1",
     "clsx": "^2.1.1",

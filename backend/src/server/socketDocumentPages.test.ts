@@ -100,7 +100,9 @@ const fakePrisma = ({
               id: item.elementId,
               type: "embeddable",
               link: "excalidash://asset-widget",
-              customData: { schemaVersion: 1, widgetKind: "pdf", assetId: item.assetId },
+              customData: {
+                excalidash: { schemaVersion: 2, widget: { kind: "pdf", assetId: item.assetId } },
+              },
             })),
         ),
       })),

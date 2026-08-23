@@ -1,7 +1,13 @@
 import type { FullConfig } from "@playwright/test";
 
+// Derived the way playwright.config.ts derives it. They used to disagree: the
+// config honoured PORT, this file only honoured API_URL and otherwise
+// hard-coded 8000. Moving the backend with PORT alone therefore left setup
+// talking to whatever else was on 8000 -- nothing, or another run's instance --
+// while the suite itself used the moved one.
 const DEFAULT_BACKEND_PORT = 8000;
-const API_URL = process.env.API_URL || `http://localhost:${DEFAULT_BACKEND_PORT}`;
+const BACKEND_PORT = Number(process.env.PORT) || DEFAULT_BACKEND_PORT;
+const API_URL = process.env.API_URL || `http://localhost:${BACKEND_PORT}`;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

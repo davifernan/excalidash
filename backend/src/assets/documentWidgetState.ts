@@ -1,4 +1,5 @@
 import { syncDrawingAssets } from "./assetService";
+import { readWidgetRecord } from "./customDataSchema";
 
 export const DOCUMENT_WIDGET_LIMIT = 200;
 const DOCUMENT_WIDGET_ID = /^[\w-]{1,64}$/;
@@ -25,31 +26,29 @@ export function documentWidgetBindings(elements: unknown): DocumentWidgetBinding
     if (!element || typeof element !== "object") continue;
     const el = element as any;
     if (el.isDeleted) continue;
-    const customData = el.customData;
+    const widget = readWidgetRecord(el);
     if (
       el.type !== "embeddable" ||
       typeof el.link !== "string" ||
       !DOCUMENT_WIDGET_LINKS.has(el.link) ||
-      !customData ||
-      customData.schemaVersion !== 1 ||
-      !DOCUMENT_WIDGET_KINDS.has(customData.widgetKind) ||
+      !widget ||
+      !DOCUMENT_WIDGET_KINDS.has(widget.kind) ||
       typeof el.id !== "string" ||
       !DOCUMENT_WIDGET_ID.test(el.id) ||
-      typeof customData.assetId !== "string" ||
-      !DOCUMENT_WIDGET_ID.test(customData.assetId) ||
-      (el.link === "excalidash://pdf-widget" && customData.widgetKind !== "pdf")
+      !DOCUMENT_WIDGET_ID.test(widget.assetId) ||
+      (el.link === "excalidash://pdf-widget" && widget.kind !== "pdf")
     ) {
       continue;
     }
     const previous = byElement.get(el.id);
-    if (previous && previous !== customData.assetId) {
+    if (previous && previous !== widget.assetId) {
       throw new InvalidDocumentWidgetStateError(
         `Document widget "${el.id}" names more than one document.`,
       );
     }
     if (!previous) {
-      byElement.set(el.id, customData.assetId);
-      bindings.push({ elementId: el.id, assetId: customData.assetId });
+      byElement.set(el.id, widget.assetId);
+      bindings.push({ elementId: el.id, assetId: widget.assetId });
     }
   }
   if (bindings.length > DOCUMENT_WIDGET_LIMIT) {

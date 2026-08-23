@@ -2,8 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+import { readExcalidrawVersion } from "./scripts/excalidraw-version";
+
 export default defineConfig({
   plugins: [react()],
+  define: {
+    "import.meta.env.VITE_EXCALIDRAW_VERSION": JSON.stringify(readExcalidrawVersion()),
+  },
   test: {
     globals: true,
     environment: "jsdom",

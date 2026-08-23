@@ -1,0 +1,139 @@
+/**
+ * The one shape ExcaliDash writes onto an Excalidraw element, and the one
+ * place that writes it.
+ *
+ * Before this there were two incompatible conventions. Sticky notes nested
+ * their record under `customData.excalidashSticky` and versioned it with `v`.
+ * Document widgets wrote three fields flat at the top level and versioned them
+ * with `schemaVersion` -- and the reader required customData to have exactly
+ * three keys, so an element could not carry both. That was not a design; it
+ * was a key count standing in for a schema.
+ *
+ * One namespace, one version, one parser, one writer:
+ *
+ *   customData.excalidash = { schemaVersion, sticky?, widget? }
+ *
+ * Authority stays on the server. Comments, permissions and authorship are
+ * never stored here; at most a stable reference to them.
+ */
+
+export const NAMESPACE = "excalidash";
+export const SCHEMA_VERSION = 2;
+
+export type StickyRecord = {
+  readonly color: string;
+  readonly ink: string;
+  /**
+   * The size the note is meant to be, kept apart from the element's own
+   * width/height: Excalidraw grows a container to fit its label before this
+   * code sees the change, and without a remembered size each growth would
+   * become the new target and the note would creep downwards forever.
+   */
+  readonly width: number;
+  readonly height: number;
+  readonly fontSize: number;
+};
+
+export type WidgetKind = "pdf" | "markdown" | "text";
+
+export type WidgetRecord = {
+  readonly kind: WidgetKind;
+  readonly assetId: string;
+};
+
+export type ExcalidashData = {
+  readonly schemaVersion: typeof SCHEMA_VERSION;
+  readonly sticky?: StickyRecord;
+  readonly widget?: WidgetRecord;
+};
+
+type Bag = Record<string, unknown>;
+
+const isBag = (value: unknown): value is Bag =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const str = (value: unknown): string | null =>
+  typeof value === "string" && value.length > 0 ? value : null;
+
+const num = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const WIDGET_KINDS: readonly WidgetKind[] = ["pdf", "markdown", "text"];
+
+const parseSticky = (value: unknown): StickyRecord | undefined => {
+  if (!isBag(value)) return undefined;
+  const color = str(value.color);
+  const ink = str(value.ink);
+  const width = num(value.width);
+  const height = num(value.height);
+  const fontSize = num(value.fontSize);
+  if (color === null || ink === null || width === null || height === null || fontSize === null) {
+    return undefined;
+  }
+  return { color, ink, width, height, fontSize };
+};
+
+const parseWidget = (value: unknown): WidgetRecord | undefined => {
+  if (!isBag(value)) return undefined;
+  const kind = WIDGET_KINDS.find((candidate) => candidate === value.kind);
+  const assetId = str(value.assetId);
+  if (!kind || assetId === null) return undefined;
+  return { kind, assetId };
+};
+
+/**
+ * Read this application's data off an element.
+ *
+ * Every field is named and nothing is said about the ones that are not: an
+ * element may legitimately carry data belonging to somebody else, and the
+ * reader has no business rejecting it for that.
+ */
+export const readExcalidashData = (element: unknown): ExcalidashData | null => {
+  if (!isBag(element)) return null;
+  const bag = element.customData;
+  if (!isBag(bag)) return null;
+  const own = bag[NAMESPACE];
+  if (!isBag(own) || own.schemaVersion !== SCHEMA_VERSION) return null;
+
+  const sticky = parseSticky(own.sticky);
+  const widget = parseWidget(own.widget);
+  if (!sticky && !widget) return null;
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    ...(sticky ? { sticky } : {}),
+    ...(widget ? { widget } : {}),
+  };
+};
+
+export const readSticky = (element: unknown): StickyRecord | null =>
+  readExcalidashData(element)?.sticky ?? null;
+
+export const readWidget = (element: unknown): WidgetRecord | null =>
+  readExcalidashData(element)?.widget ?? null;
+
+/**
+ * Produce the customData bag for an element carrying this data.
+ *
+ * Foreign keys on the element are preserved; only this namespace is replaced.
+ * The caller applies the result -- this function does not mutate anything,
+ * because an element handed in from the editor is not ours to change.
+ */
+export const withExcalidashData = (
+  element: unknown,
+  data: { sticky?: StickyRecord; widget?: WidgetRecord },
+): Record<string, unknown> => {
+  const existing = isBag(element) && isBag(element.customData) ? element.customData : {};
+  const previous = isBag(existing[NAMESPACE]) ? (existing[NAMESPACE] as Bag) : {};
+  const sticky = data.sticky ?? (parseSticky(previous.sticky) || undefined);
+  const widget = data.widget ?? (parseWidget(previous.widget) || undefined);
+
+  return {
+    ...existing,
+    [NAMESPACE]: {
+      schemaVersion: SCHEMA_VERSION,
+      ...(sticky ? { sticky } : {}),
+      ...(widget ? { widget } : {}),
+    },
+  };
+};

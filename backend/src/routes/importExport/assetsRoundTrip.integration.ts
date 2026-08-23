@@ -173,7 +173,15 @@ describe("document backup and export round trip", () => {
     const elements = [
       {
         id: "pdf-widget",
-        customData: { widgetKind: "pdf", assetId: created.asset.id, note: "x".repeat(2000) },
+        customData: {
+          excalidash: {
+            schemaVersion: 2,
+            widget: { kind: "pdf", assetId: created.asset.id },
+          },
+          // A foreign key on the same element, to prove the remap reaches past
+          // it rather than being confused by it.
+          note: "x".repeat(2000),
+        },
       },
     ];
     await prisma.drawing.update({
@@ -238,7 +246,9 @@ describe("document backup and export round trip", () => {
     expect(restoredAsset?.originalName).toBe("proof.pdf");
     expect(restoredAsset?.drawings).toHaveLength(1);
     expect(restoredAsset?.snapshots).toHaveLength(1);
-    expect(JSON.parse(restoredDrawing!.elements)[0].customData.assetId).toBe(restoredAsset!.id);
+    expect(JSON.parse(restoredDrawing!.elements)[0].customData.excalidash.widget.assetId).toBe(
+      restoredAsset!.id,
+    );
     const restoredBytes = await fs.readFile(
       resolveStoragePath(assetStorageDir, restoredAsset!.blob.storageKey),
     );

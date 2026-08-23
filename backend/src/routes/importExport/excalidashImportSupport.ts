@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { NAMESPACE, readWidgetRecord } from "../../assets/customDataSchema";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
@@ -196,13 +197,22 @@ export const verifyEntrySha256 = async (
   }
 };
 
+/**
+ * Point an imported board's widgets at the assets this instance just created.
+ *
+ * Reads the record through the shared schema rather than reaching for
+ * `customData.assetId` directly: the ids live under this application's
+ * namespace, and a remap that misses them leaves every imported widget naming a
+ * document that belongs to the board it came from.
+ */
 export const remapAssetIds = (elements: unknown[], assetIdMap: Map<string, string>) => {
   for (const element of elements) {
-    if (!element || typeof element !== "object") continue;
-    const customData = (element as any).customData;
-    if (!customData || typeof customData.assetId !== "string") continue;
-    const replacement = assetIdMap.get(customData.assetId);
-    if (replacement) customData.assetId = replacement;
+    const widget = readWidgetRecord(element);
+    if (!widget) continue;
+    const replacement = assetIdMap.get(widget.assetId);
+    if (!replacement) continue;
+    const own = (element as any).customData[NAMESPACE];
+    own.widget = { ...own.widget, assetId: replacement };
   }
 };
 

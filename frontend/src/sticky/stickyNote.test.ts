@@ -38,7 +38,7 @@ describe("making a note", () => {
 
   it("remembers the size it is meant to be", () => {
     const data = stickyDataOf(createStickyNote(0, 0));
-    expect(data).toMatchObject({ v: 1, width: STICKY_SIZE, height: STICKY_SIZE });
+    expect(data).toMatchObject({ width: STICKY_SIZE, height: STICKY_SIZE });
   });
 
   it("gets a fresh id each time", () => {

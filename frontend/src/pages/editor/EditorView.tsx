@@ -1,7 +1,8 @@
 import React from "react";
-import { Excalidraw, Footer, MainMenu } from "@excalidraw/excalidraw";
+import { Footer, MainMenu } from "@excalidraw/excalidraw";
 import { ArrowLeft, Download, History, LocateFixed, Share2 } from "lucide-react";
 import { Toaster } from "sonner";
+import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { LanguageSelector } from "../../components/LanguageSelector";
 import { UIOptions } from "./shared";
 import { AssetWidget } from "./AssetWidget";
@@ -135,7 +136,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </div>
       ) : initialData ? (
         <>
-          <Excalidraw
+          <ExcalidrawHost
             key={id}
             theme={theme === "dark" ? "dark" : "light"}
             langCode={langCode}
@@ -235,7 +236,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 <LanguageSelector langCode={langCode} onChange={onSetLangCode} />
               </MainMenu.ItemCustom>
             </MainMenu>
-          </Excalidraw>
+          </ExcalidrawHost>
           {/*
             On the mobile layout Excalidraw renders no Footer at all, so the
             timer would simply not exist there -- and the top row is far too

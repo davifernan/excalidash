@@ -74,7 +74,17 @@ test("our island does not sit on top of Excalidraw's menu when the window is sho
   await deleteDrawing(request, drawing.id);
 });
 
-test("the timer's panel stays on screen in the mobile corner", async ({ browser, request }) => {
+test("the timer's panel stays on screen in the mobile corner", async ({
+  browser,
+  browserName,
+  request,
+}) => {
+  // Playwright rejects isMobile in Firefox outright, and this test builds its
+  // own device context. Skipped rather than quietly weakened: dropping isMobile
+  // to make it run would leave a test that says "mobile" and measures a narrow
+  // desktop. The mobile-chrome project carries this contract.
+  test.skip(browserName === "firefox", "Playwright cannot emulate a mobile device in Firefox");
+
   // On the mobile layout the widget sits in the bottom-left corner. A panel
   // aligned to its trailing edge grew leftwards from x=16 and put the minutes
   // field at x=-83, on a root that clips -- visible, unusable, and only on a
