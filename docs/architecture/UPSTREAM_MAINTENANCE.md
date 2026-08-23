@@ -126,29 +126,48 @@ Gesetzt ueber `ops/repository-rules.sh apply` (Stand 2026-08-23):
 | `allow_squash_merge: false` | Squash ueber die Oberflaeche schreibt den Commit dem zusammenfuehrenden Konto zu und zerstoert die Nilo-Autorschaft. Den lokalen Mergeweg beruehrt die Einstellung nicht. |
 | `non_fast_forward` auf `main` | Kein Force-Push. Ein umgeschriebener `main` wuerde jeden Worktree und jede offene PR-Basis entwurzeln. |
 | `deletion` auf `main` | `main` laesst sich nicht loeschen. |
+| `required_status_checks` auf `main` | Alle acht `Tests`-Jobs muessen gruen sein. |
 
-**Bewusst nicht gesetzt, und warum.** Beides wurde am 23.08.2026 an einem Wegwerf-Branch
-ausgeloest, nicht abgeleitet:
+### Warum Pflichtchecks den lokalen Merge NICHT blockieren
 
-- **`required_status_checks`** ist mit dem Liefermodell unvereinbar. Ein Ruleset mit
-  Pflichtcheck lehnt einen Direct-Push ab
-  (`GH013 ... Required status check "Backend Tests" is expected`), weil ein frisch gepushter
-  Commit noch keine Check-Runs traegt. Der lokale Merge pusht immer einen **neuen**
-  Merge-Commit, also traefe die Regel jede einzelne Lieferung. Ohne die Regel ging derselbe
-  Push unveraendert durch — die Ablehnung kam nachweislich von ihr und von nichts anderem.
+Das ist nicht offensichtlich, und eine fruehere Fassung dieses Abschnitts hat genau hier das
+Gegenteil behauptet. Beide Haelften sind am 23.08.2026 ausgeloest worden, nicht abgeleitet:
+
+- Ein Push eines **neuen Commits ohne zugehoerigen PR** wird abgelehnt. Gemessen an einem
+  Wegwerf-Branch: `GH013 ... Required status check "Backend Tests" is expected`. Ohne die Regel
+  ging derselbe Push durch — die Ablehnung kam nachweislich von ihr.
+- Der **Merge-Commit eines offenen PR, dessen Pflichtchecks gruen sind**, wird dagegen
+  angenommen, obwohl dieser Merge-Commit selbst keine Check-Runs traegt. Gemessen beim Push von
+  `85c3919` (Merge von PR #46) auf `main` mit aktiver Regel. Die Rule-Suite weist
+  `required_status_checks` als **ausgewertet mit `result: pass`** aus, nicht als umgangen:
+
+  ```bash
+  gh api repos/davifernan/excalidash/rulesets/rule-suites/3786720518 \
+    --jq '[.rule_evaluations[] | {rule_type, result}]'
+  ```
+
+Der urspruengliche Fehlschluss war, aus der ersten Messung die zweite abzuleiten: ein neuer SHA
+ohne Checks wird abgelehnt, **also** muesse ein Merge-Commit abgelehnt werden. GitHub bewertet
+aber nicht nur den gepushten SHA isoliert, sondern erkennt den zugehoerigen PR. Die Lehre ist
+allgemeiner als dieser Fall: eine Messung an einem Ersatzobjekt belegt das Ersatzobjekt.
+
+**Fallstrick bei Checknamen:** `required_status_checks` matcht **Job**-Namen (`Backend Tests`,
+`Dead Code`, ...), nicht Workflow-Namen. Einen Check namens `Tests` gibt es nicht — das ist der
+Workflow. Ein Pflichtcheck, den kein Workflow erzeugt, blockiert dauerhaft jeden Push; aus
+demselben Grund darf der abgeschaltete `PR Overseer Events` dort nie auftauchen. `Build and push`
+fehlt bewusst: er laeuft per `workflow_run` erst **nach** `Tests` auf `main`, ihn zu verlangen
+waere ein Deadlock.
+
+### Bewusst nicht gesetzt
+
 - **`pull_request` („Require a pull request before merging")** blockiert genau den lokalen
   Nilo-Merge, der das Liefermodell ist. Siehe NIL-391 (geparkt).
 
-Damit bleibt Konvention: dass ein PR geoeffnet wird, dass Hans ihn reviewt, dass Checks gruen
-sind, bevor gemergt wird, und dass die Merge-Reihenfolge eingehalten wird. Das haelt genau so
-lange, wie jeder Beteiligte die Regel kennt und befolgt. Es ist eine offene Luecke, aber eine
-benannte.
+Konvention bleibt damit: dass ein PR geoeffnet wird, dass Hans ihn reviewt, und die
+Merge-Reihenfolge. **Nicht** mehr Konvention ist, dass die Checks gruen sind — das erzwingt
+GitHub jetzt.
 
-**Fallstrick bei Pflichtchecks**, falls die Frage wieder aufkommt: `required_status_checks`
-matcht **Job**-Namen (`Backend Tests`, `Dead Code`, ...), nicht Workflow-Namen. Einen Check
-namens `Tests` gibt es nicht — der ist der Workflow. Ein Pflichtcheck, den kein Workflow
-erzeugt, blockiert dauerhaft jeden Push; aus demselben Grund darf der abgeschaltete
-`PR Overseer Events` in keiner solchen Liste auftauchen.
+Drift gegen diese Datei findet `ops/repository-rules.sh verify` (Exitcode 1 bei Abweichung).
 
 Rueckgaengig machen: `ops/repository-rules.sh revert`.
 

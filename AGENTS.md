@@ -198,10 +198,11 @@ Review focus: <what an independent reviewer should attack>
   identity is authoritative.
 - Do not use a GitHub squash merge that attributes the resulting commit to another account.
   This is now enforced on the repository (`allow_squash_merge: false`), together with
-  force-push and deletion protection on `main`. What GitHub enforces, what stays convention,
-  and why required status checks are incompatible with the local merge path is documented in
-  `docs/architecture/UPSTREAM_MAINTENANCE.md`; apply or revert it with
-  `ops/repository-rules.sh`.
+  force-push protection, deletion protection, and required status checks on `main`. Required
+  checks do not block the local merge path: the merge commit of a pull request whose checks are
+  green is accepted, while a commit with no associated PR is rejected. What GitHub enforces and
+  what stays convention is documented in `docs/architecture/UPSTREAM_MAINTENANCE.md`; apply,
+  inspect, verify, or revert it with `ops/repository-rules.sh`.
 
 ## Helpers (Operations)
 
