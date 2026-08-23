@@ -123,6 +123,36 @@ describe("building one editor update out of a list of operations", () => {
     expect(update.elements.map((e) => e.id)).toEqual(["a", "note"]);
   });
 
+  it("keeps every field the caller set, not only the ones the contract names", () => {
+    // A sticky note arrives here fully built: angle, seed, roundness, font
+    // size, the bound-text bookkeeping. An earlier version of this whitelisted
+    // eleven fields and dropped the rest, so the note went in as a bare
+    // rectangle and the label editor had nothing to open -- green in every unit
+    // test, because they only asserted the fields the whitelist kept.
+    const rich = {
+      ...newElement("note"),
+      angle: 0.5,
+      seed: 12345,
+      roundness: { type: 3 },
+      fontSize: 20,
+      boundElements: [{ id: "t1", type: "text" }],
+      strokeWidth: 2,
+    } as unknown as NewElement;
+
+    const update = buildSceneUpdate([], [{ kind: "insert", elements: [rich] }]) as {
+      elements: Record<string, unknown>[];
+    };
+
+    expect(update.elements[0]).toMatchObject({
+      angle: 0.5,
+      seed: 12345,
+      roundness: { type: 3 },
+      fontSize: 20,
+      boundElements: [{ id: "t1", type: "text" }],
+      strokeWidth: 2,
+    });
+  });
+
   it("refuses an anchor that is not in the scene rather than appending quietly", () => {
     const update = buildSceneUpdate(
       [element({ id: "a" })],

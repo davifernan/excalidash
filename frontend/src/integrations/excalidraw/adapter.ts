@@ -259,6 +259,16 @@ export const buildSceneUpdate = (
  * guessing at defaults the editor already has.
  */
 const fromNewElement = (element: NewElement): Record<string, unknown> => ({
+  // Everything the caller set, then the fields this contract names.
+  //
+  // The first version was a whitelist of eleven fields, and it dropped
+  // everything else on the floor. A sticky note arrives here fully built --
+  // angle, seed, roundness, font size, the bound-text bookkeeping -- and the
+  // whitelist kept none of it, so the note went in as a bare rectangle and the
+  // label editor had nothing to open. That is the same mistake the review found
+  // in SceneElement, repeated one function further in: a projection used where
+  // a complete object was needed.
+  ...(element as unknown as Record<string, unknown>),
   id: element.id,
   type: element.type,
   x: element.x,
@@ -266,10 +276,6 @@ const fromNewElement = (element: NewElement): Record<string, unknown> => ({
   width: element.width,
   height: element.height,
   ...(element.frameId !== undefined ? { frameId: element.frameId } : {}),
-  ...(element.link !== undefined ? { link: element.link } : {}),
-  ...(element.backgroundColor !== undefined ? { backgroundColor: element.backgroundColor } : {}),
-  ...(element.strokeColor !== undefined ? { strokeColor: element.strokeColor } : {}),
-  ...(element.customData !== undefined ? { customData: element.customData } : {}),
 });
 
 export const createSceneCapability = (getApi: () => RawApi | null): SceneCapability => {
