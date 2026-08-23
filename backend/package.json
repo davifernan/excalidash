@@ -3,6 +3,9 @@
   "version": "0.5.1",
   "description": "",
   "main": "index.js",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "prisma generate && tsc",
     "predev": "node scripts/predev-migrate.cjs",

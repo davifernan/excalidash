@@ -355,7 +355,7 @@ Understand runtime first, then touch code with local tests if requested.
 
 Dependencies:
 
-- Node.js 20+
+- Node.js 24+
 - npm
 - SQLite-supported environment (default)
 - Docker + Docker Compose if using compose path
