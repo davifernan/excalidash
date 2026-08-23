@@ -136,6 +136,47 @@ export type NotificationDTO = {
   event: ActivityEventDTO;
 };
 
+const NOTIFICATION_ROW_SELECT = {
+  id: true,
+  kind: true,
+  readAt: true,
+  createdAt: true,
+  activityEvent: { select: EVENT_SELECT },
+} satisfies Prisma.NotificationSelect;
+
+type NotificationRow = Prisma.NotificationGetPayload<{ select: typeof NOTIFICATION_ROW_SELECT }>;
+
+const toNotificationDTO = (row: NotificationRow): NotificationDTO => ({
+  id: row.id,
+  kind: row.kind,
+  readAt: row.readAt ? row.readAt.toISOString() : null,
+  createdAt: row.createdAt.toISOString(),
+  event: toEventDTO(row.activityEvent),
+});
+
+/**
+ * Notifications are permanent once created; board membership is not. A
+ * mention delivered while you were on the board must not keep showing the
+ * drawing's name and comment text in your inbox forever after you are
+ * removed from it -- that is exactly the "permission change removes
+ * content without leaking that it ever existed" acceptance bar for M3.
+ * Same batched-then-filtered shape as listTeamActivity, for the same
+ * reason: no second, drifting copy of "can this account see this board".
+ */
+const filterToCurrentMembership = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+  rows: readonly NotificationRow[];
+}): Promise<NotificationRow[]> => {
+  const drawingIds = Array.from(new Set(params.rows.map((row) => row.activityEvent.drawingId)));
+  const memberships = await getDrawingMemberships({
+    prisma: params.prisma,
+    userId: params.userId,
+    drawingIds,
+  });
+  return params.rows.filter((row) => memberships.has(row.activityEvent.drawingId));
+};
+
 export const listInbox = async (params: {
   prisma: PrismaClient;
   userId: string;
@@ -143,36 +184,64 @@ export const listInbox = async (params: {
   limit: number;
   before?: string | null;
 }): Promise<NotificationDTO[]> => {
-  const cursor = parseCursor(params.before);
-  const rows = await params.prisma.notification.findMany({
-    where: {
-      recipientUserId: params.userId,
-      ...(params.unreadOnly ? { readAt: null } : {}),
-      ...(cursor ? { createdAt: { lt: cursor } } : {}),
-    },
-    select: {
-      id: true,
-      kind: true,
-      readAt: true,
-      createdAt: true,
-      activityEvent: { select: EVENT_SELECT },
-    },
-    orderBy: { createdAt: "desc" },
-    take: Math.min(Math.max(params.limit, 1), 100),
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    kind: row.kind,
-    readAt: row.readAt ? row.readAt.toISOString() : null,
-    createdAt: row.createdAt.toISOString(),
-    event: toEventDTO(row.activityEvent),
-  }));
+  const limit = Math.min(Math.max(params.limit, 1), 100);
+  const results: NotificationDTO[] = [];
+  let cursor = parseCursor(params.before);
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS && results.length < limit; round += 1) {
+    const batch = await params.prisma.notification.findMany({
+      where: {
+        recipientUserId: params.userId,
+        ...(params.unreadOnly ? { readAt: null } : {}),
+        ...(cursor ? { createdAt: { lt: cursor } } : {}),
+      },
+      select: NOTIFICATION_ROW_SELECT,
+      orderBy: { createdAt: "desc" },
+      take: limit * 2,
+    });
+    if (batch.length === 0) break;
+    cursor = batch[batch.length - 1].createdAt;
+
+    const visible = await filterToCurrentMembership({
+      prisma: params.prisma,
+      userId: params.userId,
+      rows: batch,
+    });
+    for (const row of visible) {
+      results.push(toNotificationDTO(row));
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
 };
 
-export const unreadNotificationCount = (params: { prisma: PrismaClient; userId: string }) =>
-  params.prisma.notification.count({
+export const unreadNotificationCount = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+}): Promise<number> => {
+  // Same access-loss reasoning as listInbox: the badge must not count
+  // notifications for boards the recipient can no longer see.
+  const CAP = 200;
+  const rows = await params.prisma.notification.findMany({
     where: { recipientUserId: params.userId, readAt: null },
+    select: { id: true, activityEvent: { select: { drawingId: true } } },
+    orderBy: { createdAt: "desc" },
+    take: CAP,
   });
+  if (rows.length === 0) return 0;
+  const drawingIds = Array.from(new Set(rows.map((row) => row.activityEvent.drawingId)));
+  const memberships = await getDrawingMemberships({
+    prisma: params.prisma,
+    userId: params.userId,
+    drawingIds,
+  });
+  const visible = rows.filter((row) => memberships.has(row.activityEvent.drawingId)).length;
+  // A capped count under-reports rather than over-reports once someone has
+  // more than CAP unread notifications -- "99+" territory either way, and
+  // under is the safer direction for a number that gates "you have mail".
+  return visible;
+};
 
 /** Only the recipient's own row; a notification id from someone else's inbox is a 404, not a 403. */
 export const markNotificationRead = async (params: {

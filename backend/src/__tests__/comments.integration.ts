@@ -195,6 +195,32 @@ describe("Comments, mentions, activity and inbox", () => {
     expect(outsiderInbox.body.unreadCount).toBe(0);
   });
 
+  it("stops showing a delivered notification's content once the recipient's board access is revoked", async () => {
+    const owner = await makeUser("owner-2b@test.local", "Owner Two B");
+    const member = await makeUser("member-2b@test.local", "Member Two B");
+    const drawing = await makeDrawing(owner.id, "Board 2b");
+    const grantRow = await grant(drawing.id, member.id, "comment", owner.id);
+
+    const ownerClient = await clientFor(owner);
+    const memberClient = await clientFor(member);
+
+    const body = `cc @[Member Two B](${member.id})`;
+    await ownerClient.post(`/drawings/${drawing.id}/comments`, { body });
+
+    const before = await memberClient.get("/inbox");
+    expect(before.body.unreadCount).toBe(1);
+    expect(before.body.notifications).toHaveLength(1);
+
+    // A permission change removes content, not just access to the board
+    // itself -- a mention delivered while still a member must not keep
+    // showing the drawing's name and comment text forever after removal.
+    await prisma.drawingPermission.delete({ where: { id: grantRow.id } });
+
+    const after = await memberClient.get("/inbox");
+    expect(after.body.unreadCount).toBe(0);
+    expect(after.body.notifications).toHaveLength(0);
+  });
+
   it("marks a notification read, and a second person cannot mark someone else's notification read", async () => {
     const owner = await makeUser("owner-3@test.local", "Owner Three");
     const member = await makeUser("member-3@test.local", "Member Three");
