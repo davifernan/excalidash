@@ -6,7 +6,14 @@ import { withExcalidashData } from "./customData";
 import type { SceneDocument } from "./types";
 import { WIDGET_LINK } from "./widgets";
 
-vi.mock("@excalidraw/excalidraw", () => ({ exportToSvg: vi.fn() }));
+// Only the renderer is faked. `convertToExcalidrawElements` is what turns the
+// substitute's `label` shorthand into a real bound text element -- the very
+// thing NIL-277 is about -- so mocking it away would leave these tests
+// asserting against a stand-in instead of the behaviour.
+vi.mock("@excalidraw/excalidraw", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  exportToSvg: vi.fn(),
+}));
 
 const widget = (id: string, kind: "pdf" | "markdown" = "pdf") => ({
   id,
@@ -144,7 +151,13 @@ describe("the export capability", () => {
 
     expect(result).toEqual({ ok: true, value: svg });
     expect(exportToSvg).toHaveBeenCalledWith({
-      elements: [expect.objectContaining({ id: "w1-export", type: "rectangle" })],
+      // Rectangle AND bound text. A substitute that is only a rectangle is the
+      // empty box NIL-277 exists to remove, and the `label` shorthand only turns
+      // into a real text element once `convertToExcalidrawElements` has run.
+      elements: expect.arrayContaining([
+        expect.objectContaining({ id: "w1-export", type: "rectangle" }),
+        expect.objectContaining({ type: "text", containerId: "w1-export" }),
+      ]),
       appState: {
         viewBackgroundColor: "#fff",
         exportBackground: false,
