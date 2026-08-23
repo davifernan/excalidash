@@ -75,14 +75,16 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  * Named, like the others, and emptied by the consumer migration. Three left,
  * each for a stated reason rather than because nobody got to it:
  *
- *   useEditorAddFilesBridge.ts  the keystone: it is where the raw handle is
- *                             published to everyone else. It can only fall once
- *                             nothing reads it.
- *   useEditorPersistence.ts   one read of the held-element ids during a rebase.
+
+ *   useEditorAddFilesBridge.ts  the keystone. Excalidraw calls `addFiles`
+ *                             itself when somebody pastes an image, and the API
+ *                             has no files-changed event -- so this file wraps
+ *                             the method to notice. That interception belongs
+ *                             inside the layer as a capability; until it moves,
+ *                             this is the one place that still holds the handle.
  */
 const RAW_API_EXCEPTIONS = new Set([
   "frontend/src/pages/editor/useEditorAddFilesBridge.ts",
-  "frontend/src/pages/editor/useEditorPersistence.ts",
 ]);
 
 /**

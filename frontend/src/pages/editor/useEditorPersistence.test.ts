@@ -49,10 +49,60 @@ const createRefs = (files: Record<string, any>, lastSyncedFiles: Record<string, 
   suspiciousBlankLoad: ref(false),
 });
 
-const renderPersistence = (refs: ReturnType<typeof createRefs>) =>
+const okv = <T>(value: T) => ({ ok: true as const, value });
+
+const fakeScene = () =>
+  ({
+    apply: vi.fn(() => okv(undefined)),
+    applySettled: vi.fn(async () => okv(undefined)),
+    readDocument: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
+    summaries: vi.fn(() => okv([])),
+    summaryById: vi.fn(() => okv(null)),
+    subscribe: vi.fn(() => () => {}),
+    toPersisted: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
+    fromPersisted: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
+    reconcile: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
+    relayout: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
+  }) as any;
+
+const fakeFiles = () => ({ add: vi.fn(() => okv(undefined)), read: vi.fn(() => okv({})) }) as any;
+
+/** Nothing is being held: the rebase then protects nothing, which is the safe side. */
+const fakeInteraction = () =>
+  ({
+    read: vi.fn(() =>
+      okv({
+        editingTextElementId: null,
+        editingTextContainerId: null,
+        creatingElementId: null,
+        resizingElementId: null,
+        activeTool: { type: "selection" },
+      }),
+    ),
+    subscribe: vi.fn(() => () => {}),
+    setActiveTool: vi.fn(() => okv(undefined)),
+    setActiveToolSettled: vi.fn(async () => okv(undefined)),
+    onPointerDown: vi.fn(() => () => {}),
+  }) as any;
+
+const capabilitySet = () => ({
+  scene: fakeScene(),
+  fileCapability: fakeFiles(),
+  interaction: fakeInteraction(),
+});
+
+const renderPersistence = (
+  refs: ReturnType<typeof createRefs>,
+  capabilities = capabilitySet(),
+) =>
   renderHook(() =>
     useEditorPersistence({
       refs,
+      // Capabilities, not the handle. The hook no longer probes the editor
+      // itself; a `not-ready` answer is the capability's job to give.
+      scene: capabilities.scene,
+      fileCapability: capabilities.fileCapability,
+      interaction: capabilities.interaction,
       user: null,
       normalizeImageElementStatus: (elements) => elements || [],
       resolveSafeSnapshot: (elements) => ({
@@ -201,7 +251,8 @@ describe("useEditorPersistence", () => {
     } as any);
 
     const refs = createRefs(editorFiles);
-    const { result } = renderPersistence(refs);
+    const capabilities = capabilitySet();
+    const { result } = renderPersistence(refs, capabilities);
 
     await act(async () => {
       await result.current.saveDataRef.current?.(
@@ -216,7 +267,9 @@ describe("useEditorPersistence", () => {
       "drawing",
       expect.objectContaining({ files: compressedFiles }),
     );
-    expect(refs.excalidrawAPI.current.addFiles).toHaveBeenCalledWith(
+    // Through the capability now, not the handle: the hook hands the compressed
+    // files to the boundary and lets it answer.
+    expect(capabilities.fileCapability.add).toHaveBeenCalledWith(
       Object.values(compressedFiles),
     );
     expect(refs.latestFiles.current).toBe(compressedFiles);

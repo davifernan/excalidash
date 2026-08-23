@@ -182,6 +182,9 @@ export const Editor: React.FC = () => {
     savePreviewRef,
   } = useEditorPersistence({
     refs: persistenceRefs,
+    scene: adapter.scene,
+    fileCapability: adapter.files,
+    interaction: adapter.interaction,
     user,
     normalizeImageElementStatus,
     resolveSafeSnapshot,

@@ -47,12 +47,27 @@ type BuildRemoteSceneUpdateInput = {
  * editor is open. An incoming copy of one of these is always older than what is
  * happening on this screen, whoever sent it.
  */
+/**
+ * What a gesture is holding right now.
+ *
+ * It used to dig three keys out of the editor's own app state --
+ * `editingTextElement`, `resizingElement`, `newElement` -- none of which is
+ * public API. The interaction capability names exactly those three, so the dig
+ * was the last raw read left on the persistence path.
+ */
 export const heldElementIds = (
-  appState: Record<string, any> | null | undefined,
+  state: {
+    editingTextElementId?: string | null;
+    creatingElementId?: string | null;
+    resizingElementId?: string | null;
+  } | null,
 ): ReadonlySet<string> => {
   const held = new Set<string>();
-  for (const key of ["editingTextElement", "resizingElement", "newElement"]) {
-    const id = appState?.[key]?.id;
+  for (const id of [
+    state?.editingTextElementId,
+    state?.creatingElementId,
+    state?.resizingElementId,
+  ]) {
     if (typeof id === "string") held.add(id);
   }
   return held;
