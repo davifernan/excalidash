@@ -1,11 +1,12 @@
 import {
-  getVisibleSceneBounds,
-  sceneCoordsToViewportCoords,
-  zoomToFitBounds,
-} from "@excalidraw/excalidraw";
+  createViewportCapability,
+  projectPoint,
+  readViewport,
+} from "../../integrations/excalidraw/viewport";
 import type { Socket } from "socket.io-client";
 
-export type FollowSceneBounds = Parameters<typeof zoomToFitBounds>[0]["bounds"];
+/** Four scene coordinates: minX, minY, maxX, maxY. */
+export type FollowSceneBounds = readonly [number, number, number, number];
 
 export type Follower = {
   presenceId: string;
@@ -50,27 +51,41 @@ export const parseFollowSceneBounds = (value: unknown): FollowSceneBounds | null
   return [x1, y1, x2, y2] as FollowSceneBounds;
 };
 
+/**
+ * Show these bounds, and report what actually happened.
+ *
+ * Through the viewport capability: it applies the fit, hands back the viewport
+ * that resulted, and says whether the zoom was clamped -- which it measures
+ * before the fit, because afterwards the applied zoom is always inside the
+ * limits and the clamp is invisible.
+ */
+/** What this person can currently see, in scene coordinates. */
+const visibleBoundsOf = (api: Pick<ExcalidrawApi, "getAppState" | "updateScene">) => {
+  const viewport = createViewportCapability(() => ({
+    getAppState: api.getAppState,
+    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
+    getSceneElements: () => [],
+  }));
+  const bounds = viewport.visibleBounds();
+  return bounds.ok ? bounds.value : null;
+};
+
 export const fitFollowedBounds = (
   api: Pick<ExcalidrawApi, "getAppState" | "updateScene">,
   bounds: FollowSceneBounds,
 ) => {
-  const appState = api.getAppState();
-  const fittedAppState = zoomToFitBounds({
-    appState,
-    bounds,
-    fitToViewport: true,
-    viewportZoomFactor: 1,
-  }).appState;
-  api.updateScene({
-    appState: fittedAppState,
-  });
-  const desiredZoom = Math.min(
-    appState.width / (bounds[2] - bounds[0]),
-    appState.height / (bounds[3] - bounds[1]),
-  );
+  const viewport = createViewportCapability(() => ({
+    getAppState: api.getAppState,
+    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
+    getSceneElements: () => [],
+  }));
+  const applied = viewport.showBounds(bounds as never);
+  if (!applied.ok) {
+    return { appState: api.getAppState(), zoomClamped: false };
+  }
   return {
-    appState: { ...appState, ...fittedAppState },
-    zoomClamped: desiredZoom < 0.1 || desiredZoom > 30,
+    appState: api.getAppState(),
+    zoomClamped: applied.value.zoomClamped,
   };
 };
 
@@ -108,21 +123,11 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
 
   return {
     show(bounds: FollowSceneBounds, appState: any, zoomClamped: boolean) {
-      const coordinateState = {
-        zoom: appState.zoom,
-        scrollX: appState.scrollX,
-        scrollY: appState.scrollY,
-        offsetLeft: Number.isFinite(appState.offsetLeft) ? appState.offsetLeft : 0,
-        offsetTop: Number.isFinite(appState.offsetTop) ? appState.offsetTop : 0,
-      };
-      const topLeft = sceneCoordsToViewportCoords(
-        { sceneX: bounds[0], sceneY: bounds[1] },
-        coordinateState,
-      );
-      const bottomRight = sceneCoordsToViewportCoords(
-        { sceneX: bounds[2], sceneY: bounds[3] },
-        coordinateState,
-      );
+      // The viewport that was just computed, not necessarily the one on
+      // screen: the indicator draws where the followed person is looking.
+      const viewport = readViewport(appState);
+      const topLeft = projectPoint({ x: bounds[0], y: bounds[1] }, viewport);
+      const bottomRight = projectPoint({ x: bounds[2], y: bounds[3] }, viewport);
       const containerRect = container.getBoundingClientRect();
       Object.assign(frame.style, {
         display: "block",
@@ -199,14 +204,14 @@ export const bindFollowMode = ({
     if (followers.size === 0) return;
     socket.emit("viewport-bounds", {
       drawingId,
-      sceneBounds: getVisibleSceneBounds(api.getAppState()),
+      sceneBounds: visibleBoundsOf(api),
     });
   };
   const scheduleBounds = () => {
     if (applyingIncomingBounds || sendTimer !== null || followers.size === 0) {
       return;
     }
-    const visibleBounds = parseFollowSceneBounds(getVisibleSceneBounds(api.getAppState()));
+    const visibleBounds = parseFollowSceneBounds(visibleBoundsOf(api));
     if (
       visibleBounds &&
       lastAppliedVisibleBounds &&
@@ -226,7 +231,7 @@ export const bindFollowMode = ({
     applyingIncomingBounds = true;
     try {
       const fitted = fitFollowedBounds(api, lastReceivedBounds);
-      lastAppliedVisibleBounds = parseFollowSceneBounds(getVisibleSceneBounds(fitted.appState));
+      lastAppliedVisibleBounds = parseFollowSceneBounds(visibleBoundsOf(api));
       viewportIndicator?.show(lastReceivedBounds, fitted.appState, fitted.zoomClamped);
     } finally {
       applyingIncomingBounds = false;

@@ -82,6 +82,30 @@ export const wouldClampZoom = (appState: Record<string, unknown>, bounds: SceneB
   return desired < MIN_ZOOM || desired > MAX_ZOOM;
 };
 
+/**
+ * Scene point to viewport point, against a viewport this caller already holds.
+ *
+ * Separate from the capability's `toViewport`, which reads the live editor: the
+ * follow indicator draws a rectangle for a viewport that was just computed and
+ * not necessarily the one on screen, so it has to be able to say which.
+ */
+export const projectPoint = (point: ScenePoint, viewport: ViewportState): ViewportPoint => {
+  const converted = sceneCoordsToViewportCoords(
+    { sceneX: point.x, sceneY: point.y } as never,
+    {
+      zoom: { value: viewport.zoom },
+      scrollX: viewport.scrollX,
+      scrollY: viewport.scrollY,
+      offsetLeft: viewport.offsetLeft,
+      offsetTop: viewport.offsetTop,
+    } as never,
+  ) as { x?: unknown; y?: unknown } | undefined;
+  return {
+    x: typeof converted?.x === "number" ? converted.x : 0,
+    y: typeof converted?.y === "number" ? converted.y : 0,
+  };
+};
+
 export const createViewportCapability = (getApi: () => ViewportApi | null): ViewportCapability => {
   const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
     if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());

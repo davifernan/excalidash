@@ -32,7 +32,6 @@ const CUSTOM_DATA_HELPER = path.join(LAYER, "customData.ts");
  */
 const PACKAGE_IMPORT_EXCEPTIONS = new Set([
   "frontend/src/pages/editor/EditorView.tsx",
-  "frontend/src/pages/editor/followMode.ts",
   "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
   "frontend/src/pages/editor/useEditorPersistence.ts",
   "frontend/src/sticky/StickyHandles.tsx",
