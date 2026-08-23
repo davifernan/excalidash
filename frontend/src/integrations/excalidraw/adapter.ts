@@ -11,6 +11,7 @@
  *     `not-ready`, and both reach the diagnostics sink on the way out.
  */
 
+import { withChanges } from "./elements";
 import { reportFailure } from "./compatibility/diagnostics";
 import type { BoardSettingsCapability, FileCapability, SceneCapability } from "./capabilities";
 import { fail, ok, type CapabilityFailure, type CapabilityResult } from "./errors";
@@ -41,7 +42,7 @@ export type RawApi = {
 };
 
 /** What a SceneDocument actually is, on this side of the boundary only. */
-type DocumentInner = {
+export type SceneDocumentContents = {
   elements: readonly Record<string, unknown>[];
   appState: Record<string, unknown>;
   files: Record<string, unknown>;
@@ -54,16 +55,21 @@ type DocumentInner = {
  * nothing can be read off it, serialised out of it, or reached by walking it.
  * Only this module holds the key, so "opaque" is enforced rather than asked for.
  */
-const inner = new WeakMap<object, DocumentInner>();
+const inner = new WeakMap<object, SceneDocumentContents>();
 
-const seal = (value: DocumentInner): SceneDocument => {
+const seal = (value: SceneDocumentContents): SceneDocument => {
   const handle = Object.freeze({}) as unknown as SceneDocument;
   inner.set(handle as unknown as object, value);
   return handle;
 };
 
-const open = (document: SceneDocument): DocumentInner | null =>
+const open = (document: SceneDocument): SceneDocumentContents | null =>
   document ? (inner.get(document as unknown as object) ?? null) : null;
+
+/** Shared only by capabilities that must operate on the complete opaque document. */
+export const sealSceneDocument = (value: SceneDocumentContents): SceneDocument => seal(value);
+export const openSceneDocument = (document: SceneDocument): SceneDocumentContents | null =>
+  open(document);
 
 const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
   if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());
@@ -183,7 +189,12 @@ export const buildSceneUpdate = (
             detail: "patch names an element that is not in the scene",
           });
         }
-        list[at] = { ...list[at], ...op.changes };
+        // Not a spread. `withChanges` goes through the package's own
+        // `newElementWith`, which bumps version, versionNonce and updated --
+        // the bookkeeping `reconcileElements` decides a merge on. A raw spread
+        // looks identical and tells the merge nothing changed, so a remote copy
+        // carrying the same numbers can win against an edit that just happened.
+        list[at] = withChanges(list[at], op.changes as Record<string, unknown>);
         break;
       }
       case "replaceElements": {
@@ -402,35 +413,67 @@ export const createBoardSettingsCapability = (
   },
 });
 
-export const createFileCapability = (getApi: () => RawApi | null): FileCapability => ({
-  read() {
-    const api = getApi();
-    if (!api) return report(fail("not-ready", "files.read"));
-    const raw = api.getFiles() || {};
-    const out: Record<string, SceneFile> = {};
-    for (const [id, file] of Object.entries(raw)) {
-      out[id] = toSceneFile(id, file as Record<string, unknown>);
-    }
-    return ok(out as Readonly<Record<FileId, SceneFile>>);
-  },
+export const createFileCapability = (getApi: () => RawApi | null): FileCapability => {
+  /**
+   * One wrapper per handle, however many consumers subscribe.
+   *
+   * A `WeakSet` rather than a flag: the editor hands out a new API object on
+   * remount, and a flag would leave the second one unwrapped. Weak so a handle
+   * that goes away takes its entry with it.
+   */
+  const wrapped = new WeakSet<object>();
+  const listeners = new Set<() => void>();
 
-  add(files) {
-    const api = getApi();
-    if (!api) return report(fail("not-ready", "files.add"));
-    api.addFiles(files.map((file) => ({ ...file })));
-    return ok(undefined);
-  },
+  const ensureWrapped = (api: RawApi | null) => {
+    if (!api || typeof api.addFiles !== "function" || wrapped.has(api as object)) return;
+    wrapped.add(api as object);
+    const original = api.addFiles.bind(api);
+    (api as { addFiles: (files: unknown) => void }).addFiles = (files: unknown) => {
+      // The editor takes the files first. A listener that ran before this would
+      // read the map as it was and miss exactly the change it was told about.
+      original(Array.isArray(files) ? files : Object.values((files as object) ?? {}));
+      for (const listener of listeners) listener();
+    };
+  };
 
-  deltaAgainst(confirmed) {
-    const api = getApi();
-    if (!api) return report(fail("not-ready", "files.deltaAgainst"));
-    const raw = api.getFiles() || {};
-    const missing: SceneFile[] = [];
-    for (const [id, file] of Object.entries(raw)) {
-      if (!confirmed.has(id as FileId)) {
-        missing.push(toSceneFile(id, file as Record<string, unknown>));
+  return {
+    read() {
+      const api = getApi();
+      if (!api) return report(fail("not-ready", "files.read"));
+      const raw = api.getFiles() || {};
+      const out: Record<string, SceneFile> = {};
+      for (const [id, file] of Object.entries(raw)) {
+        out[id] = toSceneFile(id, file as Record<string, unknown>);
       }
-    }
-    return ok(missing);
-  },
-});
+      return ok(out as Readonly<Record<FileId, SceneFile>>);
+    },
+
+    add(files) {
+      const api = getApi();
+      if (!api) return report(fail("not-ready", "files.add"));
+      api.addFiles(files.map((file) => ({ ...file })));
+      return ok(undefined);
+    },
+
+    deltaAgainst(confirmed) {
+      const api = getApi();
+      if (!api) return report(fail("not-ready", "files.deltaAgainst"));
+      const raw = api.getFiles() || {};
+      const missing: SceneFile[] = [];
+      for (const [id, file] of Object.entries(raw)) {
+        if (!confirmed.has(id as FileId)) {
+          missing.push(toSceneFile(id, file as Record<string, unknown>));
+        }
+      }
+      return ok(missing);
+    },
+
+    onFilesAdded(listener) {
+      ensureWrapped(getApi());
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+};

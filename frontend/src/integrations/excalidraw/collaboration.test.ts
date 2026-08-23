@@ -85,6 +85,12 @@ describe("reading a collaborator", () => {
       pointer: { x: 1, y: 2 },
       selectedIds: ["e1"],
       selectionAllSelected: true,
+      // Named by the contract since the presence path needed to set them; a
+      // projection that drops them is how socketCollaborators stayed on the
+      // raw handle.
+      color: "#f00",
+      pointerButton: null,
+      isSelf: false,
     });
   });
 
@@ -177,5 +183,40 @@ describe("the collaboration capability", () => {
     const result = createCollaborationCapability(() => null).readCollaborators();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("not-ready");
+  });
+});
+
+describe("two patches in the same tick, with somebody already in the room", () => {
+  /**
+   * The case the old `live.size === 0` switch could not see.
+   *
+   * An empty room was the only situation in which it read `pending`; with one
+   * collaborator already there -- the normal case -- the second patch of a tick
+   * threw the pending map away, read the stale one and erased the first patch.
+   */
+  it("does not let the second patch erase the first", () => {
+    let stored: unknown = new Map([["existing", { id: "existing", username: "Ada" }]]);
+    const api = {
+      getAppState: () => ({ collaborators: stored }),
+      // Deliberately NOT synchronous about it: updateScene goes through setState,
+      // so the read straight afterwards still sees the old map. Storing it only
+      // on the next call is what makes this test the real situation.
+      updateScene: (scene: any) => {
+        pendingWrite = scene.collaborators;
+      },
+    };
+    let pendingWrite: unknown = null;
+    const collaboration = createCollaborationCapability(() => api as never);
+
+    collaboration.patchCollaborators([{ socketId: "peer" as never, color: "#f00" }]);
+    collaboration.patchCollaborators([{ socketId: "peer" as never, name: "Grace" }]);
+
+    // The editor finally applies the last write it was handed.
+    stored = pendingWrite;
+    const read = collaboration.readCollaborators();
+    expect(read.ok).toBe(true);
+    const peer = read.ok ? read.value.find((c) => c.socketId === ("peer" as never)) : null;
+    expect(peer?.color).toBe("#f00");
+    expect(peer?.name).toBe("Grace");
   });
 });

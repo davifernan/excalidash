@@ -1,21 +1,18 @@
 import { useEffect } from "react";
-import type { RefObject } from "react";
 import { toast } from "sonner";
 import * as api from "../../api";
+import type { UiCapability } from "../../integrations/excalidraw/capabilities";
 
 type UseLibraryImportFromUrlParams = {
-  excalidrawAPIRef: RefObject<any>;
+  /** The capability, not the handle: this hook has no business knowing the editor. */
+  ui: UiCapability;
   isReady: boolean;
   user: unknown;
 };
 
-export const useLibraryImportFromUrl = ({
-  excalidrawAPIRef,
-  isReady,
-  user,
-}: UseLibraryImportFromUrlParams) => {
+export const useLibraryImportFromUrl = ({ ui, isReady, user }: UseLibraryImportFromUrlParams) => {
   useEffect(() => {
-    if (!isReady || !excalidrawAPIRef.current) return;
+    if (!isReady) return;
     const hash = window.location.hash;
     if (!hash.includes("addLibrary=")) return;
     const params = new URLSearchParams(hash.slice(1));
@@ -65,15 +62,16 @@ export const useLibraryImportFromUrl = ({
         if (blob.size > 10 * 1024 * 1024) {
           throw new Error("Library file is too large");
         }
-        await excalidrawAPIRef.current.updateLibrary({
-          libraryItems: blob,
-          merge: true,
-          defaultStatus: "published",
-          openLibraryMenu: true,
-        });
-        const updatedItems = excalidrawAPIRef.current.getAppState().libraryItems || [];
+        const imported = await ui.importLibrary(blob as never, { merge: true });
+        // A refused import used to be impossible -- the raw call threw and the
+        // catch below reported it. The capability answers instead of throwing,
+        // so the failure has to be re-raised or the user is told "imported"
+        // about a library that never arrived.
+        if (!imported.ok) {
+          throw new Error(`Library import was refused (${imported.code})`);
+        }
         if (user) {
-          await api.updateLibrary([...updatedItems]);
+          await api.updateLibrary([...imported.value] as never);
         }
         toast.success("Library imported successfully", {
           id: "library-import",
@@ -85,5 +83,5 @@ export const useLibraryImportFromUrl = ({
       }
     };
     importLibraryFromUrl();
-  }, [excalidrawAPIRef, isReady, user]);
+  }, [ui, isReady, user]);
 };

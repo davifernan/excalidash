@@ -146,6 +146,21 @@ export interface FileCapability {
    * state of its own.
    */
   deltaAgainst(confirmed: ReadonlySet<FileId>): CapabilityResult<readonly SceneFile[]>;
+
+  /**
+   * Files arrived in the editor.
+   *
+   * Excalidraw calls `addFiles` itself when somebody pastes or drops an image,
+   * and the API has no files-changed event. The product used to notice by
+   * overwriting `api.addFiles` with its own function -- a patch on the editor,
+   * written from outside it.
+   *
+   * The interception is unavoidable; doing it from outside is not. It lives in
+   * the layer now, which is the one place allowed to know how fragile it is, and
+   * consumers subscribe. The listener runs after the editor has taken the files,
+   * so `read()` inside it already sees them.
+   */
+  onFilesAdded(listener: () => void): Unsubscribe;
 }
 
 export interface ViewportCapability {

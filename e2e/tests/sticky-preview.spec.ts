@@ -14,7 +14,7 @@ import { createDrawing, deleteDrawing } from "./helpers/api";
 const openEditor = async (page: Page, drawingId: string) => {
   await page.goto(`/editor/${drawingId}`);
   await page.waitForSelector("canvas");
-  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_EXCALIDRAW_API__);
+  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
   await page.waitForTimeout(600);
 };
 
@@ -22,7 +22,7 @@ const armTool = async (page: Page) => {
   await page.getByTestId("toolbar-sticky").click();
   await page.waitForFunction(
     () =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool
+      (window as any).__EXCALIDASH_TEST__.getAppState().activeTool
         ?.customType === "sticky",
   );
 };
@@ -93,7 +93,7 @@ test.describe("the ghost note under the pointer", () => {
 
     await page.locator("canvas").last().click({ position: { x: 560, y: 270 } });
     await page.waitForFunction(() =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .some((e: any) => e.customData?.excalidash?.sticky),
     );
@@ -110,7 +110,7 @@ test.describe("the ghost note under the pointer", () => {
     const atFullSize = (await ghost(page))!;
 
     await page.evaluate(() => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       api.updateScene({ appState: { ...api.getAppState(), zoom: { value: 0.5 } } });
     });
     await page.mouse.move(box.x + 561, box.y + 271);

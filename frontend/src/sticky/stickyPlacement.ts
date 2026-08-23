@@ -13,7 +13,10 @@
  */
 import { STICKY_BASE_FONT_SIZE, type StickyColor } from "./stickyNote";
 
-import { createSceneCapability } from "../integrations/excalidraw/adapter";
+import type {
+  InteractionCapability,
+  SceneCapability,
+} from "../integrations/excalidraw/capabilities";
 import { pressEnterToEditLabel } from "../integrations/excalidraw/domBridge";
 
 /** Space between a note and the one spawned next to it. */
@@ -71,14 +74,15 @@ export function withNoteInserted(elements: readonly any[], note: any): any[] {
 }
 
 export function insertStickyNote(
-  api: any,
+  scene: Pick<SceneCapability, "summaries" | "apply">,
   containerEl: HTMLElement | null,
   note: any,
   color: StickyColor,
+  interaction: Pick<InteractionCapability, "read">,
 ): void {
-  if (!api) return;
-
-  const scene = createSceneCapability(() => api);
+  // The capability arrives from the caller. Building one here would be a second
+  // construction site for something the product is meant to have exactly once,
+  // and it is how a consumer ends up choosing its own `canEdit`.
   const summaries = scene.summaries({ includeDeleted: true });
   if (!summaries.ok) return;
 
@@ -90,7 +94,7 @@ export function insertStickyNote(
   // the adapter now rather than here -- and the selection and the item defaults
   // the label will inherit travel with it. Splitting these would make three
   // renders out of one and let a remote change land in the middle.
-  scene.apply([
+  const inserted = scene.apply([
     {
       kind: "insert",
       elements: [placed],
@@ -103,6 +107,13 @@ export function insertStickyNote(
       strokeColor: color.ink,
     },
   ]);
+  // A refused write used to be impossible: the raw call either worked or threw.
+  // The capability answers instead, and an unread answer means the note silently
+  // never lands while the label editor is still asked to open on it.
+  if (!inserted.ok) {
+    console.error("[Sticky] Failed to insert note", inserted);
+    return;
+  }
 
   // The scene update is React state. The key has to arrive after it has been
   // committed, or Excalidraw finds nothing selected to type into -- and the
@@ -110,8 +121,10 @@ export function insertStickyNote(
   // it, which is what NIL-308 asked for: a detection that survives the frame.
   requestAnimationFrame(() => {
     pressEnter(containerEl, () => {
-      const editing = api.getAppState?.()?.editingTextElement;
-      return !!editing && editing.containerId === placed.id;
+      // Ask the capability, not the handle: the raw read was the last place in
+      // this file that knew the editor exists.
+      const state = interaction.read();
+      return state.ok && state.value.editingTextContainerId === placed.id;
     });
   });
 }

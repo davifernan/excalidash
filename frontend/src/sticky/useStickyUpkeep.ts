@@ -9,17 +9,20 @@
  * deadlock themselves.
  */
 import { useCallback, useEffect, useRef } from "react";
+import { openSceneDocument, sealSceneDocument } from "../integrations/excalidraw/adapter";
+import type {
+  InteractionCapability,
+  SceneCapability,
+} from "../integrations/excalidraw/capabilities";
 import { normaliseStickyNotes } from "./stickyNormalise";
 
-/** Matches CaptureUpdateAction.NEVER — an automatic tidy is not an undo step. */
-const CAPTURE_UPDATE_NEVER = "NEVER";
-
 type Options = {
-  excalidrawAPI: { current: any };
   canEdit: boolean;
+  interaction: Pick<InteractionCapability, "read">;
+  scene: Pick<SceneCapability, "apply" | "readDocument">;
 };
 
-export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
+export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
   /** The note under a resize handle on the previous change, if any. */
   const wasResizing = useRef<string | null>(null);
   const queued = useRef(false);
@@ -60,11 +63,30 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
         resized: ReadonlySet<string> | null;
         editing: ReadonlySet<string> | null;
       }) => {
-        const api = excalidrawAPI.current;
-        if (!api) return;
-        const next = normaliseStickyNotes(api.getSceneElementsIncludingDeleted(), options);
+        // Read the scene now, not the list this callback was handed.
+        //
+        // The pass that matters most runs *after* the text editor closes, and
+        // by then the captured list is one change old: it still holds the note
+        // as it was before anyone typed into it. Normalising that leaves the
+        // writing at full size, which is the one thing this upkeep exists to
+        // prevent. The raw version read the editor fresh at exactly this
+        // moment; so does this one.
+        const current = scene.readDocument({ includeDeleted: true });
+        const source = current.ok
+          ? ((openSceneDocument(current.value)?.elements ?? elements) as readonly any[])
+          : elements;
+        const next = normaliseStickyNotes(source, options);
         if (!next) return;
-        api.updateScene({ elements: next, captureUpdate: CAPTURE_UPDATE_NEVER });
+        const applied = scene.apply(
+          [
+            {
+              kind: "replaceDocument",
+              document: sealSceneDocument({ elements: next, appState: {}, files: {} }),
+            },
+          ],
+          { capture: "never" },
+        );
+        if (!applied.ok) console.error("[Sticky] Failed to normalise notes", applied);
       };
 
       // Closing the text editor is the one moment this cannot hear about.
@@ -83,12 +105,12 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
         if (watchingEditor.current) return;
         watchingEditor.current = true;
         const step = () => {
-          const state = alive.current ? excalidrawAPI.current?.getAppState?.() : null;
-          if (!state) {
+          const state = alive.current ? interaction.read() : null;
+          if (!state?.ok) {
             watchingEditor.current = false;
             return;
           }
-          if (state.editingTextElement) {
+          if (state.value.editingTextElementId) {
             requestAnimationFrame(step);
             return;
           }
@@ -96,7 +118,7 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
           // A drag that started the instant the editor closed gets the same
           // courtesy as anywhere else: measuring mid-gesture settles on a size
           // that is wrong a frame later.
-          if (state.resizingElement || state.newElement) return;
+          if (state.value.resizingElementId || state.value.creatingElementId) return;
           apply({ resized: null, editing: null });
         };
         requestAnimationFrame(step);
@@ -113,7 +135,7 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
         if (editingId) watchForEditorClosing();
       });
     },
-    [canEdit, excalidrawAPI],
+    [canEdit, interaction, scene],
   );
 
   return { onSceneChange };

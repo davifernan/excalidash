@@ -222,6 +222,18 @@ export type CollaboratorInfo = {
   readonly pointer: ScenePoint | null;
   readonly selectedIds: readonly ElementId[];
   readonly selectionAllSelected: boolean;
+  /**
+   * The three the contract used to leave to the editor.
+   *
+   * The comment above explains why a write must not *clobber* them -- and that
+   * was read as "never name them", which left the presence path unable to
+   * migrate: the colour and the pointer button arrive from the server, and a
+   * consumer that receives them has to be able to set them. Naming them does not
+   * take them away from the editor; a patch still only writes what it mentions.
+   */
+  readonly color: string | null;
+  readonly pointerButton: "up" | "down" | null;
+  readonly isSelf: boolean;
 };
 
 export type CollaboratorPatch = {

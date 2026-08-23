@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
-import { createFileCapability, createSceneCapability } from "../../integrations/excalidraw/adapter";
+import type {
+  FileCapability,
+  InteractionCapability,
+  SceneCapability,
+} from "../../integrations/excalidraw/capabilities";
 import { renderStoredSceneToSvg } from "../../integrations/excalidraw/export";
 import debounce from "lodash/debounce";
 import { toast } from "sonner";
@@ -48,6 +52,14 @@ type PersistenceRefs = {
 
 type UseEditorPersistenceParams = {
   refs: PersistenceRefs;
+  /**
+   * The capabilities this path needs, from the one instance in Editor.tsx.
+   * `fileCapability` rather than `files` on purpose: an inner function here
+   * already takes a `files` argument, and the shadow is easy to miss.
+   */
+  scene: SceneCapability;
+  fileCapability: FileCapability;
+  interaction: InteractionCapability;
   user: unknown;
   normalizeImageElementStatus: (
     elements?: readonly any[],
@@ -63,10 +75,19 @@ type UseEditorPersistenceParams = {
 
 export const useEditorPersistence = ({
   refs,
+  scene,
+  fileCapability,
+  interaction,
   user,
   normalizeImageElementStatus,
   resolveSafeSnapshot,
 }: UseEditorPersistenceParams) => {
+  // A failed read means "nothing is held", which is the safe direction: the
+  // rebase then protects nothing rather than protecting the wrong element.
+  const heldNow = () => {
+    const state = interaction.read();
+    return state.ok ? state.value : null;
+  };
   const saveDataRef = useRef<
     | ((
         drawingId: string,
@@ -122,14 +143,13 @@ export const useEditorPersistence = ({
       const compressedFilesResult = await compressExcalidrawFiles(persistableFiles);
       if (compressedFilesResult.changed) {
         persistableFiles = compressedFilesResult.files;
-        if (
-          refs.excalidrawAPI.current &&
-          typeof refs.excalidrawAPI.current.addFiles === "function"
-        ) {
+        {
+          // No probe on the raw handle first: the capability answers
+          // `not-ready` itself, and asking twice was the last place this path
+          // needed to know the editor exists.
           refs.isSyncing.current = true;
           try {
-            const files = createFileCapability(() => refs.excalidrawAPI.current);
-            const added = files.add(Object.values(persistableFiles) as never);
+            const added = fileCapability.add(Object.values(persistableFiles) as never);
             if (!added.ok) {
               console.error("Failed to hand files to the editor", added.code, added.detail);
             }
@@ -163,7 +183,7 @@ export const useEditorPersistence = ({
             // whatever is being typed, dragged or drawn right now must
             // survive it. Without this a rebase mid-gesture pulls the element
             // out of the person's hand.
-            protect: heldElementIds(refs.excalidrawAPI.current?.getAppState?.() ?? null),
+            protect: heldElementIds(heldNow()),
           },
         );
         const mergedFiles = filesToSave ? { ...(latest?.files || {}), ...filesToSave } : undefined;
@@ -172,7 +192,6 @@ export const useEditorPersistence = ({
         // Through the scene capability, with the history flag it speaks rather
         // than the editor's constant: a rebase is not an undo step somebody
         // should have to press past to reach their own last action.
-        const scene = createSceneCapability(() => refs.excalidrawAPI.current);
         const replaced = scene.apply(
           [{ kind: "replaceElements", elements: mergedElements as never }],
           { capture: "never" },

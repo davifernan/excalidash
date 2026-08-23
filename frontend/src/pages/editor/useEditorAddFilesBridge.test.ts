@@ -18,7 +18,7 @@ const renderDeliveryBridge = ({
   return renderHook(() => {
     const { broadcastFiles } = useEditorBroadcast({
       drawingId: "drawing-1",
-      excalidrawAPI: ref<any>({ getFiles: () => latestFilesRef.current }),
+      files: { read: () => ({ ok: true, value: latestFilesRef.current }) } as any,
       lastLocalChangeAtRef: ref(0),
       lastSyncedElementOrderSigRef: ref("same-order"),
       lastSyncedFilesRef,
@@ -35,6 +35,14 @@ const renderDeliveryBridge = ({
       setHasSceneChangesSinceLoad: vi.fn(),
     });
     return useEditorAddFilesBridge({
+      // The capability, not the handle: this hook subscribes to "files arrived"
+      // now instead of overwriting the editor's own method.
+      fileCapability: {
+        read: () => ({ ok: true as const, value: {} }),
+        add: vi.fn(() => ({ ok: true as const, value: undefined })),
+        deltaAgainst: vi.fn(() => ({ ok: true as const, value: [] })),
+        onFilesAdded: () => () => {},
+      } as any,
       drawingId: "drawing-1",
       debouncedSaveRef: ref(null),
       excalidrawAPIRef: ref(null),

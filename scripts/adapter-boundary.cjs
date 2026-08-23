@@ -72,25 +72,17 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  * reports clean over the biggest hole is worse than no guard, because people
  * believe it.
  *
- * Named, like the others, and emptied by the consumer migration.
+ * Named, like the others, and emptied by the consumer migration. Empty now: no
+ * product file calls the editor's imperative API. The last one to go was the
+ * files bridge, which had to overwrite `api.addFiles` to notice a paste --
+ * Excalidraw calls it itself and offers no files-changed event. That
+ * interception did not disappear; it moved inside the layer as
+ * `FileCapability.onFilesAdded`, which is the one place allowed to know how
+ * fragile it is.
+ *
+
  */
-const RAW_API_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/EditorDialogs.tsx",
-  "frontend/src/pages/editor/documentDrop.ts",
-  "frontend/src/pages/editor/remoteSelection.ts",
-  "frontend/src/pages/editor/socketCollaborators.ts",
-  "frontend/src/pages/editor/useEditorBroadcast.ts",
-  "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
-  "frontend/src/pages/editor/useEditorCollaboration.ts",
-  "frontend/src/pages/editor/useEditorCommands.ts",
-  "frontend/src/pages/editor/useLibraryImportFromUrl.ts",
-  "frontend/src/sticky/StickyHandles.tsx",
-  "frontend/src/sticky/stickyConnect.ts",
-  "frontend/src/sticky/useStickyHint.ts",
-  "frontend/src/sticky/useStickyKeys.ts",
-  "frontend/src/sticky/useStickyNotes.ts",
-  "frontend/src/sticky/useStickyUpkeep.ts",
-]);
+const RAW_API_EXCEPTIONS = new Set([]);
 
 /**
  * The imperative handle's methods, as measured on the pinned version.
@@ -104,7 +96,14 @@ const RAW_API_EXCEPTIONS = new Set([
 const RAW_API_PATTERNS = [
   {
     name: "raw editor API call",
-    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)\s*\(/,
+    /**
+     * `?.` counts. `api.getFiles?.()` is the same call through a handle that
+     * might be absent, and a pattern that demands a bare `(` walks past it --
+     * measured, not assumed: two files sat outside the layer calling
+     * `getFiles?.()` and `getAppState?.()` while this rule reported them as
+     * exceptions it no longer needed.
+     */
+    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)(\?\.)?\s*\(/,
   },
 ];
 
@@ -317,4 +316,33 @@ const main = () => {
   process.exit(1);
 };
 
-main();
+/**
+ * The lists are empty, and adapter-boundary.test.cjs asserts that they stay so.
+ *
+ * An exception is a legitimate tool while a migration is running -- that is how
+ * these five rules were closed, one named file at a time. But once a list is
+ * empty, a new entry is no longer a step in a migration; it is a bypass, and it
+ * arrives in a diff that otherwise looks like ordinary work.
+ *
+ * So the state is asserted, not just reported. Adding a name back turns CI red
+ * and the change has to be argued for rather than slipped in. Removing this
+ * guard is itself the decision to allow bypasses again.
+ */
+const assertNoExceptions = () => {
+  const listed = RULES.flatMap((rule) => [...rule.exceptions].map((file) => `${rule.id}: ${file}`));
+  if (listed.length === 0) return;
+  console.error(
+    "REGRESSION  The adapter boundary has exceptions again. Extend the contract in\n" +
+      "            frontend/src/integrations/excalidraw/capabilities.ts instead of\n" +
+      "            reaching past it, or argue the exception on NIL-322 and change\n" +
+      "            this guard deliberately.",
+  );
+  for (const line of listed) console.error(`REGRESSION  ${line}`);
+  process.exit(1);
+};
+
+module.exports = { RULES, assertNoExceptions };
+
+if (require.main === module) {
+  main();
+}

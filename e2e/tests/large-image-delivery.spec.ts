@@ -13,7 +13,7 @@ const openEditor = async (context: BrowserContext, drawingId: string) => {
   await page.goto(`/editor/${drawingId}`);
   await page.waitForFunction(
     () =>
-      !!(window as any).__EXCALIDASH_EXCALIDRAW_API__ &&
+      !!(window as any).__EXCALIDASH_TEST__ &&
       (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true,
     undefined,
     { timeout: 30_000 },
@@ -23,8 +23,8 @@ const openEditor = async (context: BrowserContext, drawingId: string) => {
 
 const injectLargeImageBatch = async (page: Page): Promise<InjectedImage[]> =>
   page.evaluate(async () => {
-    const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
-    if (!api) throw new Error("Missing __EXCALIDASH_EXCALIDRAW_API__");
+    const api = (window as any).__EXCALIDASH_TEST__;
+    if (!api) throw new Error("Missing __EXCALIDASH_TEST__");
 
     const files: Record<string, any> = {};
     const elements: any[] = [];
@@ -116,7 +116,7 @@ const injectLargeImageBatch = async (page: Page): Promise<InjectedImage[]> =>
 const waitForPeerImage = async (page: Page, image: InjectedImage) => {
   await page.waitForFunction(
     ({ elementId, fileId }) => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const file = api?.getFiles?.()?.[fileId];
       const element = api
         ?.getSceneElementsIncludingDeleted?.()
@@ -127,7 +127,7 @@ const waitForPeerImage = async (page: Page, image: InjectedImage) => {
     { timeout: 30_000 },
   );
   return page.evaluate(async (fileId) => {
-    const dataURL = (window as any).__EXCALIDASH_EXCALIDRAW_API__.getFiles()[fileId].dataURL;
+    const dataURL = (window as any).__EXCALIDASH_TEST__.getFiles()[fileId].dataURL;
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(dataURL));
     return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
       "",
@@ -171,7 +171,7 @@ test("three large images arrive in acknowledged packets without disconnecting", 
     await page1.goto(`/editor/${drawing.id}`);
     await page1.waitForFunction(
       () =>
-        !!(window as any).__EXCALIDASH_EXCALIDRAW_API__ &&
+        !!(window as any).__EXCALIDASH_TEST__ &&
         (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true,
       undefined,
       { timeout: 30_000 },

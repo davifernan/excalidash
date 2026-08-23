@@ -236,7 +236,7 @@ test.describe("Drag and Drop - Editor Image Import", () => {
     createdDrawingIds.push(drawing.id);
 
     await page.goto(`/editor/${drawing.id}`);
-    await page.waitForFunction(() => Boolean((window as any).__EXCALIDASH_EXCALIDRAW_API__));
+    await page.waitForFunction(() => Boolean((window as any).__EXCALIDASH_TEST__));
 
     const firstImageBase64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
@@ -290,7 +290,7 @@ test.describe("Drag and Drop - Editor Image Import", () => {
       .poll(
         async () =>
           page.evaluate(() => {
-            const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+            const api = (window as any).__EXCALIDASH_TEST__;
             const imageElements = api
               .getSceneElementsIncludingDeleted()
               .filter((element: any) => !element.isDeleted && element.type === "image");

@@ -1,21 +1,19 @@
 import React from "react";
-import { HISTORY } from "../../integrations/excalidraw/elements";
 import { ShareModal } from "../../components/ShareModal";
 import { HistoryPanel } from "../../components/HistoryPanel";
-
-type PreviewBackup = {
-  elements: readonly any[];
-  appState: any;
-  files: any;
-};
+import { sealSceneDocument } from "../../integrations/excalidraw/adapter";
+import type {
+  HistoryCapability,
+  PreviewTransaction,
+} from "../../integrations/excalidraw/capabilities";
 
 type EditorDialogsProps = {
   drawingId?: string;
   drawingName: string;
-  excalidrawAPIRef: React.MutableRefObject<any>;
+  history: HistoryCapability;
   isHistoryOpen: boolean;
   isShareOpen: boolean;
-  previewBackupRef: React.MutableRefObject<PreviewBackup | null>;
+  previewTransactionRef: React.MutableRefObject<PreviewTransaction | null>;
   isHistoryPreviewingRef: React.MutableRefObject<boolean>;
   onCloseHistory: () => void;
   onCloseShare: () => void;
@@ -24,10 +22,10 @@ type EditorDialogsProps = {
 export const EditorDialogs: React.FC<EditorDialogsProps> = ({
   drawingId,
   drawingName,
-  excalidrawAPIRef,
+  history,
   isHistoryOpen,
   isShareOpen,
-  previewBackupRef,
+  previewTransactionRef,
   isHistoryPreviewingRef,
   onCloseHistory,
   onCloseShare,
@@ -46,43 +44,42 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
         drawingId={drawingId}
         isOpen={isHistoryOpen}
         onClose={onCloseHistory}
-        onPreview={(snapshot) => {
-          const excalidrawAPI = excalidrawAPIRef.current;
-          if (!excalidrawAPI) return;
+        onPreview={async (snapshot) => {
           if (snapshot) {
             isHistoryPreviewingRef.current = true;
-            if (!previewBackupRef.current) {
-              previewBackupRef.current = {
-                elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
-                appState: excalidrawAPI.getAppState(),
-                files: excalidrawAPI.getFiles(),
-              };
+            if (previewTransactionRef.current) {
+              const restored = await previewTransactionRef.current.restore();
+              if (!restored.ok) {
+                console.error("[Editor] Failed to restore history preview", restored);
+                isHistoryPreviewingRef.current = false;
+                return;
+              }
+              previewTransactionRef.current = null;
             }
-            const elements = Array.isArray(snapshot.elements) ? snapshot.elements : [];
-            const files = snapshot.files || {};
-            if (Object.keys(files).length > 0) {
-              excalidrawAPI.addFiles(Object.values(files));
+            const preview = await history.beginPreview(
+              sealSceneDocument({
+                elements: (Array.isArray(snapshot.elements) ? snapshot.elements : []) as Record<
+                  string,
+                  unknown
+                >[],
+                appState: snapshot.appState || {},
+                files: snapshot.files || {},
+              }),
+            );
+            if (!preview.ok) {
+              console.error("[Editor] Failed to begin history preview", preview);
+              isHistoryPreviewingRef.current = false;
+              return;
             }
-            excalidrawAPI.updateScene({
-              elements,
-              appState: {
-                ...snapshot.appState,
-                collaborators: undefined,
-              },
-              captureUpdate: HISTORY.never,
-            });
+            previewTransactionRef.current = preview.value;
             return;
           }
-          if (previewBackupRef.current) {
-            excalidrawAPI.updateScene({
-              elements: previewBackupRef.current.elements as any[],
-              appState: previewBackupRef.current.appState,
-              captureUpdate: HISTORY.never,
-            });
-            if (previewBackupRef.current.files) {
-              excalidrawAPI.addFiles(Object.values(previewBackupRef.current.files));
+          if (previewTransactionRef.current) {
+            const restored = await previewTransactionRef.current.restore();
+            if (!restored.ok) {
+              console.error("[Editor] Failed to restore history preview", restored);
             }
-            previewBackupRef.current = null;
+            previewTransactionRef.current = null;
           }
           // updateScene notifies onChange as part of the scene update. Release
           // the guard on the next task so the restoration callback cannot be
@@ -93,7 +90,7 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
         }}
         onRestore={() => {
           isHistoryPreviewingRef.current = false;
-          previewBackupRef.current = null;
+          previewTransactionRef.current = null;
           window.location.reload();
         }}
       />

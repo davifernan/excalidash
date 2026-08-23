@@ -4,11 +4,19 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as api from "../../api";
 import { exportFromEditor } from "../../utils/exportUtils";
+import type {
+  BoardSettingsCapability,
+  FileCapability,
+} from "../../integrations/excalidraw/capabilities";
 import { hasRenderableElements } from "./shared";
+
+const capabilityError = (failure: { seam: string; code: string }) =>
+  new Error(`${failure.seam} failed (${failure.code})`);
 
 type EditorCommandRefs = {
   excalidrawAPI: MutableRefObject<any>;
   hasSceneChangesSinceLoad: MutableRefObject<boolean>;
+  latestElements: MutableRefObject<readonly any[]>;
   latestFiles: MutableRefObject<any>;
   saveData: MutableRefObject<
     | ((
@@ -27,10 +35,12 @@ type EditorCommandRefs = {
 };
 
 type UseEditorCommandsParams = {
+  boardSettings: BoardSettingsCapability;
   canEdit: boolean;
   debouncedSaveLibrary: (items: any[]) => void;
   drawingId: string | undefined;
   drawingName: string;
+  files: FileCapability;
   isSavingOnLeave: boolean;
   newName: string;
   refs: EditorCommandRefs;
@@ -55,11 +65,13 @@ type UseEditorCommandsParams = {
 };
 
 export const useEditorCommands = ({
+  boardSettings,
   canEdit,
   debouncedSaveLibrary,
   drawingId,
   drawingName,
   enqueueSceneSave,
+  files,
   isSavingOnLeave,
   newName,
   refs,
@@ -72,6 +84,18 @@ export const useEditorCommands = ({
 }: UseEditorCommandsParams) => {
   const navigate = useNavigate();
 
+  const readFiles = useCallback(() => {
+    const result = files.read();
+    if (!result.ok) throw capabilityError(result);
+    return result.value;
+  }, [files]);
+
+  const readBoardSettings = useCallback(() => {
+    const result = boardSettings.read();
+    if (!result.ok) throw capabilityError(result);
+    return result.value;
+  }, [boardSettings]);
+
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
@@ -81,10 +105,10 @@ export const useEditorCommands = ({
           return;
         }
         if (!drawingId) return;
-        const elements = refs.excalidrawAPI.current.getSceneElementsIncludingDeleted();
+        const elements = refs.latestElements.current;
         const { snapshot: safeElements } = resolveSafeSnapshot(elements);
-        const appState = refs.excalidrawAPI.current.getAppState();
-        const files = refs.excalidrawAPI.current.getFiles() || {};
+        const appState = readBoardSettings();
+        const files = readFiles();
         refs.latestFiles.current = files;
         await enqueueSceneSave(drawingId, safeElements, appState, files);
         refs.savePreview.current(drawingId, safeElements, appState, files);
@@ -93,7 +117,15 @@ export const useEditorCommands = ({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canEdit, drawingId, enqueueSceneSave, refs, resolveSafeSnapshot]);
+  }, [
+    canEdit,
+    drawingId,
+    enqueueSceneSave,
+    readBoardSettings,
+    readFiles,
+    refs,
+    resolveSafeSnapshot,
+  ]);
 
   const handleRenameSubmit = useCallback(
     async (e: FormEvent) => {
@@ -132,10 +164,10 @@ export const useEditorCommands = ({
       } else if (!drawingId) {
         shouldNavigate = true;
       } else {
-        const elements = refs.excalidrawAPI.current.getSceneElementsIncludingDeleted();
+        const elements = refs.latestElements.current;
         const { snapshot: safeElements } = resolveSafeSnapshot(elements);
-        const appState = refs.excalidrawAPI.current.getAppState();
-        const files = refs.excalidrawAPI.current.getFiles() || {};
+        const appState = readBoardSettings();
+        const files = readFiles();
         refs.latestFiles.current = files;
         if (refs.suspiciousBlankLoad.current && !hasRenderableElements(safeElements)) {
           toast.warning("Blank scene detected on load. Skipping save to protect existing data.");
@@ -163,6 +195,8 @@ export const useEditorCommands = ({
     enqueueSceneSave,
     isSavingOnLeave,
     navigate,
+    readBoardSettings,
+    readFiles,
     refs,
     resolveSafeSnapshot,
     setIsSavingOnLeave,
@@ -170,12 +204,12 @@ export const useEditorCommands = ({
 
   const handleExportClick = useCallback(() => {
     if (!refs.excalidrawAPI.current) return;
-    const elements = refs.excalidrawAPI.current.getSceneElementsIncludingDeleted();
-    const appState = refs.excalidrawAPI.current.getAppState();
-    const files = refs.excalidrawAPI.current.getFiles() || {};
+    const elements = refs.latestElements.current;
+    const appState = readBoardSettings();
+    const files = readFiles();
     exportFromEditor(drawingName, elements, appState, files);
     toast.success("Drawing exported");
-  }, [drawingName, refs]);
+  }, [drawingName, readBoardSettings, readFiles, refs]);
 
   const handleRenameStart = useCallback(() => {
     if (!canEdit) return;

@@ -137,3 +137,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Any node_modules, not only the two package directories: a vitest cache
+# artefact from the repo root was committed once because only
+# frontend/ and backend/ were listed.
+node_modules/

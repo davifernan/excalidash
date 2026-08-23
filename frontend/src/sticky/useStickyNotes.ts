@@ -9,7 +9,13 @@
  * Getting the cursor into the new note lives in stickyPlacement, because the
  * shortcut for the next note needs exactly the same steps.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import type {
+  InteractionCapability,
+  SceneCapability,
+} from "../integrations/excalidraw/capabilities";
+import type { ActiveTool } from "../integrations/excalidraw/types";
 import { insertStickyNote } from "./stickyPlacement";
 import {
   DEFAULT_STICKY_COLOR,
@@ -37,18 +43,35 @@ const isTyping = (target: EventTarget | null): boolean => {
 const STICKY_TOOL = "sticky";
 
 type Options = {
-  excalidrawAPI: { current: any };
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
+  elements: () => readonly any[];
+  interaction: Pick<
+    InteractionCapability,
+    "onPointerDown" | "read" | "setActiveTool" | "subscribe"
+  >;
+  scene: Pick<SceneCapability, "summaries" | "apply">;
 };
 
-export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options) {
+export function useStickyNotes({ containerRef, canEdit, elements, interaction, scene }: Options) {
   const [armed, setArmed] = useState(false);
   const [color, setColor] = useState<StickyColor>(DEFAULT_STICKY_COLOR);
 
-  const setTool = (tool: any) => excalidrawAPI.current?.setActiveTool?.(tool);
-  const armTool = () => setTool({ type: "custom", customType: STICKY_TOOL });
-  const dropTool = () => setTool({ type: "selection" });
+  const setTool = useCallback(
+    (tool: ActiveTool): boolean => {
+      const { setActiveTool } = interaction;
+      const changed = setActiveTool(tool);
+      if (changed.ok) return true;
+      toast.error("Couldn't change the sticky-note tool. Please try again.");
+      return false;
+    },
+    [interaction],
+  );
+  const armTool = useCallback(
+    () => setTool({ type: "custom", customType: STICKY_TOOL }),
+    [setTool],
+  );
+  const dropTool = useCallback(() => setTool({ type: "selection" }), [setTool]);
 
   /**
    * Watching for the tool being taken out of our hand.
@@ -63,14 +86,11 @@ export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options
    * that ran once then would find nothing to subscribe to and never try again.
    */
   useEffect(() => {
-    const api = excalidrawAPI.current;
-    if (!armed || !api?.onChange) return;
-
-    return api.onChange(() => {
-      const tool = excalidrawAPI.current?.getAppState?.()?.activeTool;
+    if (!armed) return;
+    return interaction.subscribe(({ activeTool: tool }) => {
       if (tool?.type !== "custom" || tool.customType !== STICKY_TOOL) setArmed(false);
     });
-  }, [armed, excalidrawAPI]);
+  }, [armed, interaction]);
 
   const disarm = () => {
     setArmed(false);
@@ -83,8 +103,7 @@ export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options
       setArmed(false);
       dropTool();
     } else {
-      setArmed(true);
-      armTool();
+      if (armTool()) setArmed(true);
     }
   };
 
@@ -99,45 +118,49 @@ export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options
   // It also means the handler always holds the colour the button currently
   // shows, with no stale closure to reason about.
   useEffect(() => {
-    const api = excalidrawAPI.current;
-    if (!armed || !canEdit || !api?.onPointerDown) return;
-
-    return api.onPointerDown((activeTool: any, pointerDownState: any) => {
+    if (!armed || !canEdit) return;
+    const { onPointerDown } = interaction;
+    return onPointerDown((point, activeTool) => {
       if (activeTool?.type !== "custom" || activeTool.customType !== STICKY_TOOL) return;
 
       // Back to selection straight away: one click, one note. Staying armed
       // would drop another note on every later click on the board.
-      api.setActiveTool?.({ type: "selection" });
+      setArmed(false);
+      if (!dropTool()) return;
 
-      const { x, y } = pointerDownState.origin;
-      insertStickyNote(api, containerRef.current, createStickyNote(x, y, color), color);
+      insertStickyNote(
+        scene,
+        containerRef.current,
+        createStickyNote(point.x, point.y, color),
+        color,
+        interaction,
+      );
     });
-  }, [armed, canEdit, color, containerRef, excalidrawAPI]);
+  }, [armed, canEdit, color, containerRef, dropTool, elements, interaction, scene]);
 
   // The tool answers to a key like every other tool does.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !canEdit) return;
-
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== STICKY_SHORTCUT) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (isTyping(event.target)) return;
-      if (excalidrawAPI.current?.getAppState?.()?.editingTextElement) return;
+      const state = interaction.read();
+      if (!state.ok || state.value.editingTextElementId) return;
 
       event.preventDefault();
       if (armed) {
         setArmed(false);
         dropTool();
       } else {
-        setArmed(true);
-        armTool();
+        if (armTool()) setArmed(true);
       }
     };
 
     container.addEventListener("keydown", onKeyDown);
     return () => container.removeEventListener("keydown", onKeyDown);
-  }, [armed, canEdit, containerRef, excalidrawAPI]);
+  }, [armed, armTool, canEdit, containerRef, dropTool, interaction]);
 
   return { armed, color, arm, disarm, setColor };
 }

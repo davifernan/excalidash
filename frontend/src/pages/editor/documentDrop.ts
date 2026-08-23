@@ -1,14 +1,41 @@
-import { HISTORY } from "../../integrations/excalidraw/elements";
 import { toast } from "sonner";
 import { isAxiosError, uploadDocumentAsset, type UploadDocumentKind } from "../../api";
+import type { SceneCapability } from "../../integrations/excalidraw/capabilities";
+import type { ElementId, NewElement } from "../../integrations/excalidraw/types";
 import { createAssetWidgetElement, PDF_WIDGET_HEIGHT } from "./pdfWidgetElements";
 
-type CanvasApi = {
-  getSceneElementsIncludingDeleted: () => readonly unknown[];
-  updateScene: (scene: Record<string, unknown>) => void;
-};
-
 type DropPoint = { x: number; y: number };
+
+const capabilityError = (failure: { seam: string; code: string }) =>
+  new Error(`${failure.seam} failed (${failure.code})`);
+
+/**
+ * The element as it was built, plus the fields the contract names.
+ *
+ * The first version listed seven fields and dropped the rest. But the input
+ * arrives from `createAssetWidgetElement` -> `buildElements` -> Excalidraw's own
+ * `convertToExcalidrawElements`, already complete: angle, seed, roundness,
+ * version, versionNonce, groupIds, opacity, strokeWidth, fillStyle, roughness.
+ * None of it survived, and `reconcileElements` decides a collaborative merge on
+ * exactly that bookkeeping -- so a dropped PDF risked being overwritten by an
+ * older copy of itself.
+ *
+ * `fromNewElement` in the adapter fixed this same mistake one function further
+ * in and its comment says so. It cannot help here: the whitelist ran first, and
+ * there was nothing left to restore. `stickyPlacement.ts` never had the bug --
+ * it passes its note through unprojected.
+ */
+export const asWidgetElement = (element: Record<string, unknown>): NewElement =>
+  ({
+    ...element,
+    id: String(element.id) as ElementId,
+    type: "embeddable",
+    x: Number(element.x),
+    y: Number(element.y),
+    width: Number(element.width),
+    height: Number(element.height),
+    link: String(element.link),
+  }) as unknown as NewElement;
 
 const responseMessage = (error: unknown): string | null => {
   if (!isAxiosError(error)) return null;
@@ -52,17 +79,17 @@ export const getDocumentDropFiles = (files: File[]): File[] | null =>
   files.length > 0 && files.every((file) => documentKindForFile(file) !== null) ? files : null;
 
 export const addDroppedDocumentWidgets = async ({
-  canvasApi,
   drawingId,
   files,
   point,
+  scene,
 }: {
-  canvasApi: CanvasApi;
   drawingId: string;
   files: File[];
   point: DropPoint;
+  scene: SceneCapability;
 }) => {
-  const elements = [];
+  const elements: NewElement[] = [];
   for (const [index, file] of files.entries()) {
     const kind = documentKindForFile(file);
     if (!kind) continue;
@@ -76,12 +103,14 @@ export const addDroppedDocumentWidgets = async ({
         });
       });
       elements.push(
-        createAssetWidgetElement({
-          assetId: asset.id,
-          widgetKind: kind,
-          x: point.x,
-          y: point.y + index * (PDF_WIDGET_HEIGHT + 24),
-        }),
+        asWidgetElement(
+          createAssetWidgetElement({
+            assetId: asset.id,
+            widgetKind: kind,
+            x: point.x,
+            y: point.y + index * (PDF_WIDGET_HEIGHT + 24),
+          }),
+        ),
       );
       toast.success(`${file.name} added`, { id: toastId });
     } catch (error) {
@@ -90,13 +119,14 @@ export const addDroppedDocumentWidgets = async ({
   }
 
   if (elements.length === 0) return;
-  canvasApi.updateScene({
-    elements: [...canvasApi.getSceneElementsIncludingDeleted(), ...elements],
-    appState: {
-      selectedElementIds: Object.fromEntries(elements.map((element) => [element.id, true])),
-    },
-    captureUpdate: HISTORY.immediate,
-  });
+  const applied = scene.apply(
+    [
+      { kind: "insert", elements },
+      { kind: "select", ids: elements.map((element) => element.id) },
+    ],
+    { capture: "immediate" },
+  );
+  if (!applied.ok) throw capabilityError(applied);
 };
 
 export const addDroppedPdfWidgets = addDroppedDocumentWidgets;

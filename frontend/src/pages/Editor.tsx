@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { createExcalidrawAdapter } from "../integrations/excalidraw";
+import { openSceneDocument } from "../integrations/excalidraw/adapter";
 import { useCursorChatKey } from "./editor/useCursorChatKey";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getInitialLangCode } from "../components/LanguageSelector";
@@ -20,6 +22,7 @@ import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
 import { useEditorBroadcast } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
+import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 export const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -38,11 +41,7 @@ export const Editor: React.FC = () => {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [langCode, setLangCode] = useState(getInitialLangCode);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const previewBackup = useRef<{
-    elements: readonly any[];
-    appState: any;
-    files: any;
-  } | null>(null);
+  const previewTransaction = useRef<PreviewTransaction | null>(null);
   const isHistoryPreviewing = useRef(false);
   useEditorChrome({ drawingName });
   const me: UserIdentity = useEditorIdentity(user);
@@ -77,6 +76,158 @@ export const Editor: React.FC = () => {
   const lastLocalChangeAtRef = useRef<number>(0);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const excalidrawAPI = useRef<any>(null);
+  // Read through a ref, not a closure: the adapter below is built once and would
+  // otherwise answer `canEdit` with whatever it was on first render -- which is
+  // exactly how a read-only visitor ends up holding an editing capability.
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+
+  /**
+   * The one adapter instance in the product.
+   *
+   * Until now `createExcalidrawAdapter` existed only in its own test: consumers
+   * held the raw handle and each reached into the editor their own way. A second
+   * construction site would bring that back under a nicer name, so this is the
+   * only place the adapter is built -- consumers receive the capability they
+   * need as a parameter, the way `inviteHere` already does.
+   *
+   * `useMemo` with no dependencies is deliberate: the adapter reads the refs
+   * lazily on every call, so it stays correct across editor remounts without
+   * being rebuilt and handing every consumer a new object each render.
+   */
+  const adapter = useMemo(
+    () =>
+      createExcalidrawAdapter({
+        api: () => excalidrawAPI.current,
+        container: () => editorContainerRef.current,
+        canEdit: () => canEditRef.current,
+      }),
+    [],
+  );
+
+  /**
+   * A narrow window for the browser suite, only in development.
+   *
+   * The suite used to read the raw editor handle off
+   * `window.__EXCALIDASH_EXCALIDRAW_API__`. That global was a debug
+   * convenience that had quietly become a second way into the editor, and
+   * removing it with the keystone turned four E2E jobs red without a single
+   * product path being broken -- the tests had lost their vantage point, not
+   * their subject.
+   *
+   * They get one back, but through the same boundary the product uses. A test
+   * that observes through the adapter exercises it as well, which is more than
+   * the raw handle ever did.
+   */
+  useEffect(() => {
+    // Only once the editor has actually handed its handle over. The suite uses
+    // this global as its readiness signal -- the old one was set at exactly that
+    // moment -- and publishing it on first render lets a spec reach for
+    // `.excalidraw` before Excalidraw has mounted any DOM.
+    if (!import.meta.env.DEV || !isReady) return;
+    const unwrap = <T,>(result: { ok: true; value: T } | { ok: false }, fallback: T): T =>
+      result.ok ? result.value : fallback;
+    const openDocument = (result: ReturnType<typeof adapter.scene.readDocument>) =>
+      (result.ok ? (openSceneDocument(result.value)?.elements ?? []) : []) as readonly unknown[];
+    (window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__ = {
+      // The document, not the projection. `summaries()` is a read model -- it
+      // names geometry, frames, links and customData, and deliberately not
+      // `fileId` or `status`. A spec asserting on an image's file id got
+      // `undefined` from it, which looked like a broken sync and was a missing
+      // field. `readDocument` is the lossless one, which is what a harness
+      // observing the real scene needs.
+      getSceneElements: () =>
+        openDocument(adapter.scene.readDocument({ includeDeleted: false })).filter(
+          (element) => !(element as { isDeleted?: boolean }).isDeleted,
+        ),
+      getSceneElementsIncludingDeleted: () =>
+        openDocument(adapter.scene.readDocument({ includeDeleted: true })),
+      getFiles: () => unwrap(adapter.files.read(), {} as Record<string, unknown>),
+      /**
+       * Writing, too. Some specs plant an element or a file to drive a live
+       * path; going through `scene.apply` and `files.add` means they take the
+       * route the product takes, including its version bookkeeping.
+       */
+      updateScene: (change: { elements?: readonly unknown[]; appState?: unknown }) => {
+        if (change.elements) {
+          adapter.scene.apply([
+            { kind: "replaceElements", elements: change.elements as never },
+          ] as never);
+        }
+        if (change.appState) {
+          const state = change.appState as {
+            collaborators?: unknown;
+            selectedElementIds?: Record<string, boolean>;
+          };
+          // Selection is a scene op, not an app-state write: `scene.apply` has a
+          // `select` kind and the capability has no setter. A spec that picks a
+          // frame this way and then nudges it with the arrow keys was moving
+          // nothing at all while the shim quietly ignored the field.
+          if (state.selectedElementIds) {
+            adapter.scene.apply([
+              {
+                kind: "select",
+                ids: Object.keys(state.selectedElementIds).filter(
+                  (id) => state.selectedElementIds?.[id],
+                ),
+              },
+            ] as never);
+          }
+          // Zoom, expressed the way the boundary offers it. There is no zoom
+          // setter and there should not be one: the product never sets zoom
+          // directly, it shows bounds and lets the zoom follow. So the harness
+          // asks for the bounds that produce the zoom it wants.
+          const zoom = (change.appState as { zoom?: { value?: number } }).zoom?.value;
+          if (typeof zoom === "number" && zoom > 0) {
+            const current = adapter.viewport.read();
+            if (current.ok) {
+              const { scrollX, scrollY, width, height, zoom: was } = current.value;
+              const centreX = -scrollX + width / 2 / was;
+              const centreY = -scrollY + height / 2 / was;
+              const halfW = width / 2 / zoom;
+              const halfH = height / 2 / zoom;
+              adapter.viewport.showBounds([
+                centreX - halfW,
+                centreY - halfH,
+                centreX + halfW,
+                centreY + halfH,
+              ] as never);
+            }
+          }
+          if (state.collaborators instanceof Map) {
+            adapter.collaboration.patchCollaborators(
+              [...state.collaborators.entries()].map(([socketId, peer]) => ({
+                ...(peer as object),
+                socketId,
+              })) as never,
+            );
+          }
+        }
+      },
+      addFiles: (files: Record<string, unknown> | readonly unknown[]) =>
+        adapter.files.add((Array.isArray(files) ? files : Object.values(files)) as never),
+      getAppState: () => ({
+        // `activeTool` too: the sticky specs wait for the tool to arm, and a
+        // surface that answers `undefined` there makes a working tool look
+        // like a broken one.
+        activeTool: unwrap(adapter.interaction.read(), null)?.activeTool ?? null,
+        collaborators: new Map(
+          unwrap(adapter.collaboration.readCollaborators(), []).map((peer) => [
+            String(peer.socketId),
+            peer,
+          ]),
+        ),
+        selectedElementIds: Object.fromEntries(
+          unwrap(adapter.selection.read(), { selectedIds: [], allSelected: false }).selectedIds.map(
+            (id) => [String(id), true],
+          ),
+        ),
+      }),
+    };
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__;
+    };
+  }, [adapter, isReady]);
   const { resolveSafeSnapshot, normalizeImageElementStatus } = useEditorSnapshotGuards({
     lastPersistedElementsRef,
     initialSceneElementsRef,
@@ -108,6 +259,9 @@ export const Editor: React.FC = () => {
     inviteHere,
   } = useEditorCollaboration({
     drawingId: id,
+    collaboration: adapter.collaboration,
+    files: adapter.files,
+    interaction: adapter.interaction,
     me,
     isReady,
     excalidrawAPI,
@@ -118,10 +272,13 @@ export const Editor: React.FC = () => {
     latestFilesRef,
     computeElementOrderSig,
     recordElementVersion,
+    scene: adapter.scene,
+    selection: adapter.selection,
+    viewport: adapter.viewport,
     onAccessDenied: handleSocketAccessDenied,
     onDrawingNameChange: setDrawingName,
   });
-  useLibraryImportFromUrl({ excalidrawAPIRef: excalidrawAPI, isReady, user });
+  useLibraryImportFromUrl({ ui: adapter.ui, isReady, user });
   const persistenceRefs = React.useMemo(
     () => ({
       currentDrawingVersion: currentDrawingVersionRef,
@@ -150,6 +307,9 @@ export const Editor: React.FC = () => {
     savePreviewRef,
   } = useEditorPersistence({
     refs: persistenceRefs,
+    scene: adapter.scene,
+    fileCapability: adapter.files,
+    interaction: adapter.interaction,
     user,
     normalizeImageElementStatus,
     resolveSafeSnapshot,
@@ -159,7 +319,7 @@ export const Editor: React.FC = () => {
   }, []);
   const { broadcastChanges, broadcastFiles } = useEditorBroadcast({
     drawingId: id,
-    excalidrawAPI,
+    files: adapter.files,
     lastLocalChangeAtRef,
     lastSyncedElementOrderSigRef,
     lastSyncedFilesRef,
@@ -176,6 +336,7 @@ export const Editor: React.FC = () => {
     setHasSceneChangesSinceLoad: markSceneChangedSinceLoad,
   });
   const { emitFilesDeltaIfNeeded, setExcalidrawAPI } = useEditorAddFilesBridge({
+    fileCapability: adapter.files,
     drawingId: id,
     debouncedSaveRef,
     excalidrawAPIRef: excalidrawAPI,
@@ -253,12 +414,20 @@ export const Editor: React.FC = () => {
     refs: canvasHandlerRefs,
     resolveSafeSnapshot,
     broadcastChanges,
+    fileCapability: adapter.files,
+    scene: adapter.scene,
+    viewport: adapter.viewport,
   });
   const { stickyOverlay, onCanvasChange: handleChangeWithNotes } = useStickyNotesFeature({
-    excalidrawAPI,
     containerRef: editorContainerRef,
     canEdit,
+    elements: () => latestElementsRef.current,
+    interaction: adapter.interaction,
+    isDragging: () => !!latestAppStateRef.current?.draggingElement,
     onCanvasChange: handleCanvasChange,
+    scene: adapter.scene,
+    selection: adapter.selection,
+    viewport: adapter.viewport,
   });
   useCursorChatKey({
     containerRef: editorContainerRef,
@@ -266,7 +435,7 @@ export const Editor: React.FC = () => {
     // View access is enough to speak: the server says so explicitly, and a
     // visitor on a read-only link is still in the meeting.
     enabled: accessLevel !== "none",
-    excalidrawAPI,
+    selection: adapter.selection,
     chatRef: cursorChatRef,
   });
 
@@ -281,6 +450,7 @@ export const Editor: React.FC = () => {
     () => ({
       excalidrawAPI,
       hasSceneChangesSinceLoad: hasSceneChangesSinceLoadRef,
+      latestElements: latestElementsRef,
       latestFiles: latestFilesRef,
       saveData: saveDataRef,
       savePreview: savePreviewRef,
@@ -295,6 +465,8 @@ export const Editor: React.FC = () => {
     handleRenameStart,
     handleRenameSubmit,
   } = useEditorCommands({
+    boardSettings: adapter.boardSettings,
+    files: adapter.files,
     canEdit,
     debouncedSaveLibrary,
     drawingId: id,
@@ -355,10 +527,10 @@ export const Editor: React.FC = () => {
       <EditorDialogs
         drawingId={id}
         drawingName={drawingName}
-        excalidrawAPIRef={excalidrawAPI}
+        history={adapter.history}
         isHistoryOpen={isHistoryOpen}
         isShareOpen={isShareOpen}
-        previewBackupRef={previewBackup}
+        previewTransactionRef={previewTransaction}
         isHistoryPreviewingRef={isHistoryPreviewing}
         onCloseHistory={() => setIsHistoryOpen(false)}
         onCloseShare={() => setIsShareOpen(false)}

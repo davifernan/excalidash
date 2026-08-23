@@ -57,6 +57,14 @@ export const readCollaborator = (id: string, raw: RawCollaborator): Collaborator
   pointer: point(raw.pointer),
   selectedIds: idsOf(raw.selectedElementIds),
   selectionAllSelected: raw.selectionAllSelected === true,
+  // The editor stores the colour as `{background, stroke}`; both halves always
+  // carry the same value here, so the contract names one colour.
+  color:
+    raw.color && typeof raw.color === "object" && typeof (raw.color as any).background === "string"
+      ? ((raw.color as any).background as string)
+      : null,
+  pointerButton: raw.button === "down" ? "down" : raw.button === "up" ? "up" : null,
+  isSelf: raw.isCurrentUser === true,
 });
 
 /**
@@ -83,6 +91,14 @@ export const applyPatch = (
     if (patch.selectionAllSelected) next.selectionAllSelected = true;
     else delete next.selectionAllSelected;
   }
+  if (patch.color !== undefined) {
+    next.color =
+      patch.color === null ? undefined : { background: patch.color, stroke: patch.color };
+  }
+  if (patch.pointerButton !== undefined) {
+    next.button = patch.pointerButton ?? undefined;
+  }
+  if (patch.isSelf !== undefined) next.isCurrentUser = patch.isSelf;
   return next;
 };
 
@@ -123,16 +139,38 @@ export const createCollaborationCapability = (
    */
   let pending: Map<string, RawCollaborator> | null = null;
 
+  /**
+   * Whether the editor has reported the pending write back.
+   *
+   * The first version asked `live.size === 0`, which is only true for the very
+   * first collaborator in an empty room -- exactly the one case the test covered.
+   * With anybody already in the room the second patch of a tick took the other
+   * branch, threw `pending` away, read the stale map and erased the first patch.
+   *
+   * Identity is the honest test: `updateScene` is handed the very map that was
+   * written, so once the editor reports that same object back, the write has
+   * landed. Anything else is still the old map, however many entries it has.
+   */
+  let written: Map<string, RawCollaborator> | null = null;
+
   const currentMap = (api: CollaborationApi): Map<string, RawCollaborator> => {
-    const live = asMap(api.getAppState().collaborators);
-    if (pending && live.size === 0) return new Map(pending);
-    // The editor has the write; its map is the truth again.
-    if (pending && live.size > 0) pending = null;
+    const liveRaw = api.getAppState().collaborators;
+    const live = asMap(liveRaw);
+    if (pending) {
+      const landed = written !== null && liveRaw === written;
+      if (!landed) return new Map(pending);
+      // The editor has the write; its map is the truth again.
+      pending = null;
+      written = null;
+    }
     return live;
   };
 
   const writeMap = (api: CollaborationApi, map: Map<string, RawCollaborator>) => {
     pending = new Map(map);
+    // Kept by identity, not by value: this exact object is what comes back out
+    // of the editor once the write has landed.
+    written = map;
     api.updateScene({ collaborators: map });
   };
 

@@ -13,13 +13,13 @@ import { createDrawing, deleteDrawing } from "./helpers/api";
 const openEditor = async (page: Page, drawingId: string) => {
   await page.goto(`/editor/${drawingId}`);
   await page.waitForSelector("canvas");
-  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_EXCALIDRAW_API__);
+  await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
   return page;
 };
 
 const scene = (page: Page) =>
   page.evaluate(() => {
-    const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+    const api = (window as any).__EXCALIDASH_TEST__;
     return api.getSceneElements().map((element: any) => ({
       id: element.id,
       type: element.type,
@@ -47,7 +47,7 @@ const armTool = async (page: Page) => {
   // would be read as a selection drag instead.
   await page.waitForFunction(
     () =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool?.customType ===
+      (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.customType ===
       "sticky",
   );
 };
@@ -56,7 +56,7 @@ const placeNote = async (page: Page, at: { x: number; y: number }) => {
   await armTool(page);
   await page.locator("canvas").last().click({ position: at });
   await page.waitForFunction(() =>
-    (window as any).__EXCALIDASH_EXCALIDRAW_API__
+    (window as any).__EXCALIDASH_TEST__
       .getSceneElements()
       .some((element: any) => element.customData?.excalidash?.sticky),
   );
@@ -97,14 +97,14 @@ test.describe("the note tool in the toolbar", () => {
     await page.keyboard.press("n");
     await page.waitForFunction(
       () =>
-        (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool?.customType ===
+        (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.customType ===
         "sticky",
     );
 
     await page.keyboard.press("n");
     await page.waitForFunction(
       () =>
-        (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool?.type ===
+        (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.type ===
         "selection",
     );
   });
@@ -216,7 +216,7 @@ test.describe("dragging an arrow out of a note", () => {
     expect(arrows).toHaveLength(1);
 
     const bindings = await page.evaluate(() => {
-      const arrow = (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      const arrow = (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .find((element: any) => element.type === "arrow");
       return {
@@ -249,7 +249,7 @@ test.describe("dragging an arrow out of a note", () => {
     await settle(page);
 
     const before = await page.evaluate(() => {
-      const arrow = (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      const arrow = (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .find((element: any) => element.type === "arrow");
       return { x: arrow.x, y: arrow.y };
@@ -263,7 +263,7 @@ test.describe("dragging an arrow out of a note", () => {
     await settle(page);
 
     const after = await page.evaluate(() => {
-      const arrow = (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      const arrow = (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .find((element: any) => element.type === "arrow");
       return { x: arrow.x, y: arrow.y, points: arrow.points };
@@ -310,7 +310,7 @@ test.describe("a note dropped into a frame", () => {
     // lands outside the frame there and the test then measures the drag rather
     // than the thing it is named after.
     const frameBox = await page.evaluate(() => {
-      const frame = (window as any).__EXCALIDASH_EXCALIDRAW_API__
+      const frame = (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .find((e: any) => e.type === "frame");
       return { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
@@ -325,7 +325,7 @@ test.describe("a note dropped into a frame", () => {
     await settle(page);
 
     const joined = await page.evaluate(() => {
-      const els = (window as any).__EXCALIDASH_EXCALIDRAW_API__.getSceneElements();
+      const els = (window as any).__EXCALIDASH_TEST__.getSceneElements();
       const frame = els.find((e: any) => e.type === "frame");
       const note = els.find((e: any) => e.customData?.excalidash?.sticky);
       return { belongs: note?.frameId === frame?.id, y: note?.y };
@@ -336,7 +336,7 @@ test.describe("a note dropped into a frame", () => {
     // name bar and pulling depends on pixel geometry that shifts with the
     // window, and this asks the same question without any of that.
     await page.evaluate(() => {
-      const api = (window as any).__EXCALIDASH_EXCALIDRAW_API__;
+      const api = (window as any).__EXCALIDASH_TEST__;
       const frame = api.getSceneElements().find((e: any) => e.type === "frame");
       api.updateScene({ appState: { selectedElementIds: { [frame.id]: true } } });
     });
@@ -346,7 +346,7 @@ test.describe("a note dropped into a frame", () => {
 
     const movedTo = await page.evaluate(
       () =>
-        (window as any).__EXCALIDASH_EXCALIDRAW_API__
+        (window as any).__EXCALIDASH_TEST__
           .getSceneElements()
           .find((e: any) => e.customData?.excalidash?.sticky)?.y,
     );
