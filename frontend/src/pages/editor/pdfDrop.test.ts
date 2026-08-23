@@ -119,3 +119,50 @@ describe("PDF drop errors", () => {
     expect(getDocumentDropFiles([unrelated])).toBeNull();
   });
 });
+
+describe("the element that reaches the scene", () => {
+  /**
+   * The bookkeeping is the point. `reconcileElements` decides a collaborative
+   * merge on version, versionNonce, seed and friends -- a widget inserted
+   * without them risks being overwritten by an older copy of itself. The first
+   * version of `asWidgetElement` listed seven fields and dropped the rest.
+   */
+  it("carries the fields the merge reconciles on, not just the seven it names", async () => {
+    const { asWidgetElement } = await import("./documentDrop");
+    const built = {
+      id: "w1",
+      type: "embeddable",
+      x: 1,
+      y: 2,
+      width: 3,
+      height: 4,
+      link: "excalidash://pdf/a1",
+      angle: 0.5,
+      seed: 12345,
+      version: 7,
+      versionNonce: 99,
+      groupIds: ["g1"],
+      roundness: { type: 3 },
+      fillStyle: "solid",
+      roughness: 0,
+    };
+
+    const element = asWidgetElement(built) as unknown as Record<string, unknown>;
+
+    for (const key of [
+      "angle",
+      "seed",
+      "version",
+      "versionNonce",
+      "groupIds",
+      "roundness",
+      "fillStyle",
+      "roughness",
+    ]) {
+      expect(element).toHaveProperty(key);
+    }
+    // Still the fields the contract names, unchanged.
+    expect(element.type).toBe("embeddable");
+    expect(element.link).toBe("excalidash://pdf/a1");
+  });
+});

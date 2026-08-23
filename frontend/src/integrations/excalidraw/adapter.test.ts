@@ -266,3 +266,33 @@ describe("the file capability", () => {
     expect(all.ok && all.value).toEqual([]);
   });
 });
+
+describe("a patch op and the bookkeeping the merge reads", () => {
+  /**
+   * The existing test for `setLabelFontSize` checked the shape of the op it
+   * returns, never the element after `scene.apply`. A raw spread produces an
+   * element that looks changed to a human and unchanged to `reconcileElements`,
+   * which decides a merge on version, versionNonce and updated.
+   */
+  it("bumps the version bookkeeping rather than spreading over it", () => {
+    const element = { id: "e1", type: "text", fontSize: 16, version: 3, versionNonce: 111 };
+    let written: any = null;
+    const api = {
+      getSceneElements: () => [element],
+      getSceneElementsIncludingDeleted: () => [element],
+      getAppState: () => ({}),
+      updateScene: (scene: any) => {
+        written = scene;
+      },
+    };
+    const scene = createSceneCapability(() => api as never);
+
+    const result = scene.apply([{ kind: "patch", id: "e1" as never, changes: { fontSize: 28 } }]);
+
+    expect(result.ok).toBe(true);
+    const patched = written.elements.find((e: any) => e.id === "e1");
+    expect(patched.fontSize).toBe(28);
+    expect(patched.version).toBeGreaterThan(3);
+    expect(patched.versionNonce).not.toBe(111);
+  });
+});

@@ -139,16 +139,38 @@ export const createCollaborationCapability = (
    */
   let pending: Map<string, RawCollaborator> | null = null;
 
+  /**
+   * Whether the editor has reported the pending write back.
+   *
+   * The first version asked `live.size === 0`, which is only true for the very
+   * first collaborator in an empty room -- exactly the one case the test covered.
+   * With anybody already in the room the second patch of a tick took the other
+   * branch, threw `pending` away, read the stale map and erased the first patch.
+   *
+   * Identity is the honest test: `updateScene` is handed the very map that was
+   * written, so once the editor reports that same object back, the write has
+   * landed. Anything else is still the old map, however many entries it has.
+   */
+  let written: Map<string, RawCollaborator> | null = null;
+
   const currentMap = (api: CollaborationApi): Map<string, RawCollaborator> => {
-    const live = asMap(api.getAppState().collaborators);
-    if (pending && live.size === 0) return new Map(pending);
-    // The editor has the write; its map is the truth again.
-    if (pending && live.size > 0) pending = null;
+    const liveRaw = api.getAppState().collaborators;
+    const live = asMap(liveRaw);
+    if (pending) {
+      const landed = written !== null && liveRaw === written;
+      if (!landed) return new Map(pending);
+      // The editor has the write; its map is the truth again.
+      pending = null;
+      written = null;
+    }
     return live;
   };
 
   const writeMap = (api: CollaborationApi, map: Map<string, RawCollaborator>) => {
     pending = new Map(map);
+    // Kept by identity, not by value: this exact object is what comes back out
+    // of the editor once the write has landed.
+    written = map;
     api.updateScene({ collaborators: map });
   };
 

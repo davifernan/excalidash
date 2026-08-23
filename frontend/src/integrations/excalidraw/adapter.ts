@@ -11,6 +11,7 @@
  *     `not-ready`, and both reach the diagnostics sink on the way out.
  */
 
+import { withChanges } from "./elements";
 import { reportFailure } from "./compatibility/diagnostics";
 import type { BoardSettingsCapability, FileCapability, SceneCapability } from "./capabilities";
 import { fail, ok, type CapabilityFailure, type CapabilityResult } from "./errors";
@@ -188,7 +189,12 @@ export const buildSceneUpdate = (
             detail: "patch names an element that is not in the scene",
           });
         }
-        list[at] = { ...list[at], ...op.changes };
+        // Not a spread. `withChanges` goes through the package's own
+        // `newElementWith`, which bumps version, versionNonce and updated --
+        // the bookkeeping `reconcileElements` decides a merge on. A raw spread
+        // looks identical and tells the merge nothing changed, so a remote copy
+        // carrying the same numbers can win against an edit that just happened.
+        list[at] = withChanges(list[at], op.changes as Record<string, unknown>);
         break;
       }
       case "replaceElements": {

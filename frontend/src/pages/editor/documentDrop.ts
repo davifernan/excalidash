@@ -9,22 +9,33 @@ type DropPoint = { x: number; y: number };
 const capabilityError = (failure: { seam: string; code: string }) =>
   new Error(`${failure.seam} failed (${failure.code})`);
 
-const asWidgetElement = (element: Record<string, unknown>): NewElement => ({
-  id: String(element.id) as ElementId,
-  type: "embeddable",
-  x: Number(element.x),
-  y: Number(element.y),
-  width: Number(element.width),
-  height: Number(element.height),
-  link: String(element.link),
-  ...(typeof element.backgroundColor === "string"
-    ? { backgroundColor: element.backgroundColor }
-    : {}),
-  ...(typeof element.strokeColor === "string" ? { strokeColor: element.strokeColor } : {}),
-  ...(element.customData && typeof element.customData === "object"
-    ? { customData: element.customData as Record<string, unknown> }
-    : {}),
-});
+/**
+ * The element as it was built, plus the fields the contract names.
+ *
+ * The first version listed seven fields and dropped the rest. But the input
+ * arrives from `createAssetWidgetElement` -> `buildElements` -> Excalidraw's own
+ * `convertToExcalidrawElements`, already complete: angle, seed, roundness,
+ * version, versionNonce, groupIds, opacity, strokeWidth, fillStyle, roughness.
+ * None of it survived, and `reconcileElements` decides a collaborative merge on
+ * exactly that bookkeeping -- so a dropped PDF risked being overwritten by an
+ * older copy of itself.
+ *
+ * `fromNewElement` in the adapter fixed this same mistake one function further
+ * in and its comment says so. It cannot help here: the whitelist ran first, and
+ * there was nothing left to restore. `stickyPlacement.ts` never had the bug --
+ * it passes its note through unprojected.
+ */
+export const asWidgetElement = (element: Record<string, unknown>): NewElement =>
+  ({
+    ...element,
+    id: String(element.id) as ElementId,
+    type: "embeddable",
+    x: Number(element.x),
+    y: Number(element.y),
+    width: Number(element.width),
+    height: Number(element.height),
+    link: String(element.link),
+  }) as unknown as NewElement;
 
 const responseMessage = (error: unknown): string | null => {
   if (!isAxiosError(error)) return null;
