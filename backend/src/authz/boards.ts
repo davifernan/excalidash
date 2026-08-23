@@ -149,26 +149,61 @@ export const isCollectionCreator = (
 ): boolean => !!userId && collection.userId === userId;
 
 /**
- * Hand every board this account owns to a successor, detached from collections.
+ * Hand every board this account owns to a successor.
  *
- * Offboarding, and the one place ownership changes in bulk. It is here rather
- * than in the offboarding routine because it is the same claim NIL-323
- * redefines: after that rework, "the boards this account owns" is no longer a
- * column match, and a transfer written as one would silently move the wrong
- * set -- or none.
+ * Offboarding, and one of two places ownership changes in bulk (the other is
+ * `transferOwnedCollections`, just below). It is here rather than in the
+ * offboarding routine because it is the same claim NIL-323 redefines: after
+ * that rework, "the boards this account owns" is no longer a column match,
+ * and a transfer written as one would silently move the wrong set -- or none.
  *
- * Collections are personal organization and do not survive the handover.
+ * `detachFromCollection` defaults to `true`: full account deletion
+ * (`userOffboarding.ts`) cascades away the departing account's collections in
+ * the same transaction, so a board left pointing at a collection about to
+ * disappear would dangle. Plain deactivation does not delete the account or
+ * its collections -- `transferOwnedCollections` moves those instead -- so
+ * that caller passes `false` and boards keep their place in the (now
+ * reassigned) collection.
+ *
  * Returns how many boards moved.
  */
 export const transferOwnedBoards = async (params: {
   db: AuthzDb;
   fromUserId: string;
   toUserId: string;
+  detachFromCollection?: boolean;
 }): Promise<number> =>
   (
     await params.db.drawing.updateMany({
       where: ownedBoardsWhere(params.fromUserId),
-      data: { userId: params.toUserId, collectionId: null },
+      data: {
+        userId: params.toUserId,
+        ...(params.detachFromCollection === false ? {} : { collectionId: null }),
+      },
+    })
+  ).count;
+
+/**
+ * Hand every collection this account owns to a successor, boards and all.
+ *
+ * A collection is organization, not a grant: moving who administers it does
+ * not change who owns the boards inside, so unlike `transferOwnedBoards` this
+ * never touches `Drawing.userId`. Used when a member leaves (deactivation)
+ * so their folders keep an administrator instead of becoming permanently
+ * unmanageable -- nobody could rename, delete, or reshare them, since only
+ * the (now inactive) owner and `authz/collections.ts` decide that.
+ *
+ * Returns how many collections moved.
+ */
+export const transferOwnedCollections = async (params: {
+  db: AuthzDb;
+  fromUserId: string;
+  toUserId: string;
+}): Promise<number> =>
+  (
+    await params.db.collection.updateMany({
+      where: ownedCollectionsWhere(params.fromUserId),
+      data: { userId: params.toUserId },
     })
   ).count;
 
