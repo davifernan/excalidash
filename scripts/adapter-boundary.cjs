@@ -72,24 +72,22 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  * reports clean over the biggest hole is worse than no guard, because people
  * believe it.
  *
- * Named, like the others, and emptied by the consumer migration.
+ * Named, like the others, and emptied by the consumer migration. Three left,
+ * each for a stated reason rather than because nobody got to it:
+ *
+ *   socketCollaborators.ts    CollaborationCapability carries no cursor colour,
+ *                             pointer button or isCurrentUser. Migrating would
+ *                             lose visible presence behaviour, so the contract
+ *                             has to grow first (reported on NIL-322).
+ *   useEditorAddFilesBridge.ts  the keystone: it is where the raw handle is
+ *                             published to everyone else. It can only fall once
+ *                             nothing reads it.
+ *   useEditorPersistence.ts   one read of the held-element ids during a rebase.
  */
 const RAW_API_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/EditorDialogs.tsx",
-  "frontend/src/pages/editor/documentDrop.ts",
-  "frontend/src/pages/editor/remoteSelection.ts",
   "frontend/src/pages/editor/socketCollaborators.ts",
-  "frontend/src/pages/editor/useEditorBroadcast.ts",
-  "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
-  "frontend/src/pages/editor/useEditorCollaboration.ts",
-  "frontend/src/pages/editor/useEditorCommands.ts",
-  "frontend/src/pages/editor/useLibraryImportFromUrl.ts",
-  "frontend/src/sticky/StickyHandles.tsx",
-  "frontend/src/sticky/stickyConnect.ts",
-  "frontend/src/sticky/useStickyHint.ts",
-  "frontend/src/sticky/useStickyKeys.ts",
-  "frontend/src/sticky/useStickyNotes.ts",
-  "frontend/src/sticky/useStickyUpkeep.ts",
+  "frontend/src/pages/editor/useEditorAddFilesBridge.ts",
+  "frontend/src/pages/editor/useEditorPersistence.ts",
 ]);
 
 /**
@@ -104,7 +102,14 @@ const RAW_API_EXCEPTIONS = new Set([
 const RAW_API_PATTERNS = [
   {
     name: "raw editor API call",
-    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)\s*\(/,
+    /**
+     * `?.` counts. `api.getFiles?.()` is the same call through a handle that
+     * might be absent, and a pattern that demands a bare `(` walks past it --
+     * measured, not assumed: two files sat outside the layer calling
+     * `getFiles?.()` and `getAppState?.()` while this rule reported them as
+     * exceptions it no longer needed.
+     */
+    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)(\?\.)?\s*\(/,
   },
 ];
 
