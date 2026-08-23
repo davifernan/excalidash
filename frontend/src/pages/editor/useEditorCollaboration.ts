@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject, RefObject } from "react";
 import { io, type Socket } from "socket.io-client";
 import { toast } from "sonner";
@@ -19,16 +19,26 @@ import {
   type WorkshopTimerAction,
 } from "./workshopTimer";
 import { useDocumentPageSharing } from "./useDocumentPageSharing";
-import { createViewportCapability } from "../../integrations/excalidraw/viewport";
 import { bindInviteHere, type InviteHereStatus, type ViewportInvitation } from "./inviteHere";
 import { bindSocketDrawingName } from "./drawingName";
-import { createExcalidrawAdapter } from "../../integrations/excalidraw";
 import type { CapabilityFailure } from "../../integrations/excalidraw/errors";
+import { sealSceneDocument } from "../../integrations/excalidraw/adapter";
 import type { ElementId, SceneFile } from "../../integrations/excalidraw/types";
+import type {
+  CollaborationCapability,
+  FileCapability,
+  InteractionCapability,
+  SceneCapability,
+  SelectionCapability,
+  ViewportCapability,
+} from "../../integrations/excalidraw/capabilities";
 export type { Peer } from "./socketCollaborators";
 
 type UseEditorCollaborationInput = {
   drawingId?: string;
+  collaboration: CollaborationCapability;
+  files: FileCapability;
+  interaction: InteractionCapability;
   me: UserIdentity;
   isReady: boolean;
   excalidrawAPI: MutableRefObject<any>;
@@ -39,6 +49,9 @@ type UseEditorCollaborationInput = {
   latestFilesRef: MutableRefObject<any>;
   computeElementOrderSig: (elements: readonly any[]) => string;
   recordElementVersion: (element: any) => void;
+  scene: SceneCapability;
+  selection: SelectionCapability;
+  viewport: ViewportCapability;
   onAccessDenied: () => void;
   onDrawingNameChange: (name: string) => void;
 };
@@ -52,6 +65,9 @@ const getSocketUrl = () =>
 
 export const useEditorCollaboration = ({
   drawingId,
+  collaboration,
+  files,
+  interaction,
   me,
   isReady,
   excalidrawAPI,
@@ -62,6 +78,9 @@ export const useEditorCollaboration = ({
   latestFilesRef,
   computeElementOrderSig,
   recordElementVersion,
+  scene,
+  selection,
+  viewport,
   onAccessDenied,
   onDrawingNameChange,
 }: UseEditorCollaborationInput) => {
@@ -91,15 +110,6 @@ export const useEditorCollaboration = ({
   const remoteFlushScheduledRef = useRef(false);
   const remoteFlushRafIdRef = useRef<number | null>(null);
   const shareToken = getShareLinkToken();
-  const adapter = useMemo(
-    () =>
-      createExcalidrawAdapter({
-        api: () => excalidrawAPI.current,
-        container: () => editorContainerRef.current,
-        canEdit: () => true,
-      }),
-    [editorContainerRef, excalidrawAPI],
-  );
   const reportCapabilityFailure = useCallback((failure: CapabilityFailure) => {
     console.warn("[Editor] Excalidraw capability failed:", failure);
     toast.error("Live collaboration could not update the editor.");
@@ -148,7 +158,7 @@ export const useEditorCollaboration = ({
     const remoteSelection = bindRemoteSelection({
       socket,
       drawingId,
-      collaboration: adapter.collaboration,
+      collaboration,
       onCapabilityFailure: reportCapabilityFailure,
     });
     const workshopTimer = bindSocketWorkshopTimer({
@@ -165,7 +175,7 @@ export const useEditorCollaboration = ({
     const inviteHereController = bindInviteHere({
       socket,
       drawingId,
-      viewport: createViewportCapability(() => excalidrawAPI.current),
+      viewport,
       onInvitationChange: setViewportInvitation,
       onStatusChange: setInviteHereStatus,
     });
@@ -227,9 +237,9 @@ export const useEditorCollaboration = ({
       resetConnectionState,
       onJoined: (serverUser) => {
         collaborators.setSelfPresenceId(serverUser.presenceId);
-        const selection = adapter.selection.read();
-        if (!selection.ok) reportCapabilityFailure(selection);
-        else remoteSelection.publish(selection.value.selectedIds);
+        const selected = selection.read();
+        if (!selected.ok) reportCapabilityFailure(selected);
+        else remoteSelection.publish(selected.value.selectedIds);
         if (serverUser.name && serverUser.color) {
           setSelfIdentity({
             id: me.id,
@@ -240,7 +250,7 @@ export const useEditorCollaboration = ({
         }
       },
       getFollowTargetPresenceId: () => {
-        const followState = adapter.collaboration.readFollowState();
+        const followState = collaboration.readFollowState();
         if (!followState.ok) {
           reportCapabilityFailure(followState);
           return null;
@@ -259,9 +269,9 @@ export const useEditorCollaboration = ({
       const pendingOrderRaw = pendingRemoteElementOrderRef.current;
       const hasPendingOrder = hasNonEmptyArray(pendingOrderRaw);
       if (!hasPendingElements && !hasPendingFiles && !hasPendingOrder) return;
-      const interaction = adapter.interaction.read();
-      if (!interaction.ok) {
-        reportCapabilityFailure(interaction);
+      const interactionState = interaction.read();
+      if (!interactionState.ok) {
+        reportCapabilityFailure(interactionState);
         if (!remoteFlushScheduledRef.current) {
           remoteFlushScheduledRef.current = true;
           remoteFlushRafIdRef.current = requestAnimationFrame(flushRemoteUpdates);
@@ -270,9 +280,9 @@ export const useEditorCollaboration = ({
       }
       const protectedIds = new Set<ElementId>();
       for (const id of [
-        interaction.value.editingTextElementId,
-        interaction.value.resizingElementId,
-        interaction.value.creatingElementId,
+        interactionState.value.editingTextElementId,
+        interactionState.value.resizingElementId,
+        interactionState.value.creatingElementId,
       ]) {
         if (id) protectedIds.add(id);
       }
@@ -286,7 +296,7 @@ export const useEditorCollaboration = ({
         pendingRemoteElementOrderRef.current = null;
         const { sceneUpdate, mergedElements, nextFiles, shouldUpdateFiles } =
           buildRemoteSceneUpdate({
-            localElements: excalidrawAPI.current.getSceneElementsIncludingDeleted(),
+            localElements: latestElementsRef.current,
             pendingElements,
             elementOrder,
             lastSyncedFiles: lastSyncedFilesRef.current,
@@ -295,7 +305,7 @@ export const useEditorCollaboration = ({
           });
         let filesAdded = true;
         if (shouldUpdateFiles) {
-          const added = adapter.files.add(Object.values(incomingFiles) as SceneFile[]);
+          const added = files.add(Object.values(incomingFiles) as SceneFile[]);
           if (!added.ok) {
             reportCapabilityFailure(added);
             pendingRemoteFilesRef.current = {
@@ -313,22 +323,50 @@ export const useEditorCollaboration = ({
             filesAdded = false;
           }
         }
-        if (filesAdded && mergedElements) {
+        let sceneApplied = true;
+        if (filesAdded && mergedElements && sceneUpdate && "elements" in sceneUpdate) {
+          const applied = scene.apply(
+            [
+              {
+                kind: "replaceDocument",
+                document: sealSceneDocument({
+                  elements: sceneUpdate.elements,
+                  appState: {},
+                  files: {},
+                }),
+              },
+            ],
+            { capture: "never" },
+          );
+          if (!applied.ok) {
+            reportCapabilityFailure(applied);
+            if (shouldUpdateFiles) {
+              pendingRemoteFilesRef.current = {
+                ...incomingFiles,
+                ...pendingRemoteFilesRef.current,
+              };
+            }
+            for (const element of pendingElements) {
+              if (!pendingRemoteElementsRef.current.has(element.id)) {
+                pendingRemoteElementsRef.current.set(element.id, element);
+              }
+            }
+            if (elementOrder && pendingRemoteElementOrderRef.current === null) {
+              pendingRemoteElementOrderRef.current = elementOrder;
+            }
+            sceneApplied = false;
+          }
+        }
+        if (filesAdded && sceneApplied && mergedElements) {
           if (elementOrder) {
             lastSyncedElementOrderSigRef.current = computeElementOrderSig(mergedElements);
           }
           pendingElements.forEach((el: any) => {
             recordElementVersion(el);
           });
-          if (sceneUpdate && "elements" in sceneUpdate) {
-            excalidrawAPI.current.updateScene({
-              elements: sceneUpdate.elements,
-              captureUpdate: sceneUpdate.captureUpdate,
-            });
-          }
           latestElementsRef.current = mergedElements;
         }
-        if (shouldUpdateFiles && filesAdded) {
+        if (shouldUpdateFiles && filesAdded && sceneApplied) {
           latestFilesRef.current = nextFiles;
           lastSyncedFilesRef.current = nextFiles;
         }
@@ -449,7 +487,12 @@ export const useEditorCollaboration = ({
     onAccessDenied,
     onDrawingNameChange,
     shareToken,
-    adapter,
+    collaboration,
+    files,
+    interaction,
+    scene,
+    selection,
+    viewport,
     reportCapabilityFailure,
   ]);
   const onPointerUpdate = useCallback(

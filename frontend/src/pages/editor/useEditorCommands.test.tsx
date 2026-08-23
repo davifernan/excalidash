@@ -36,15 +36,17 @@ describe("editor command capability failures", () => {
     const enqueueSceneSave = vi.fn().mockResolvedValue(undefined);
     const savePreview = vi.fn().mockResolvedValue(undefined);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const getSceneElementsIncludingDeleted = vi.fn(() => [{ id: "raw-element" }]);
     const refs = {
       excalidrawAPI: {
         current: {
-          getSceneElementsIncludingDeleted: () => [{ id: "element" }],
+          getSceneElementsIncludingDeleted,
           getAppState: () => ({}),
           getFiles: () => ({}),
         },
       },
       hasSceneChangesSinceLoad: { current: true },
+      latestElements: { current: [{ id: "element" }] },
       latestFiles: { current: {} },
       saveData: { current: vi.fn() },
       savePreview: { current: savePreview },
@@ -84,6 +86,7 @@ describe("editor command capability failures", () => {
     );
     expect(enqueueSceneSave).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+    expect(getSceneElementsIncludingDeleted).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 });

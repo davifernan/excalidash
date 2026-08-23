@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { toast } from "sonner";
 import { splitFilesIntoUpdatePayloads, type ElementUpdatePayload } from "./elementUpdateDelivery";
 import { boardSettingsSignature, getFilesDelta, shouldSaveBoardSettings } from "./shared";
-import { createExcalidrawAdapter } from "../../integrations/excalidraw";
+import type { FileCapability } from "../../integrations/excalidraw/capabilities";
 
 const ELEMENT_ORDER_BYTE_LIMIT = 8 * 1024 * 1024;
 const ELEMENT_UPDATE_ACK_TIMEOUT_MS = 3_000;
@@ -19,7 +19,7 @@ const elementOrderByteLength = (ids: readonly string[]) => {
 
 type UseEditorBroadcastParams = {
   drawingId: string | undefined;
-  excalidrawAPI: MutableRefObject<any>;
+  files: Pick<FileCapability, "read">;
   lastLocalChangeAtRef: MutableRefObject<number>;
   lastSyncedElementOrderSigRef: MutableRefObject<string>;
   lastSyncedFilesRef: MutableRefObject<Record<string, any>>;
@@ -87,7 +87,7 @@ const referencesRejectedFile = (element: any, rejectedFileIds: ReadonlySet<strin
 
 export const useEditorBroadcast = ({
   drawingId,
-  excalidrawAPI,
+  files,
   lastLocalChangeAtRef,
   lastSyncedElementOrderSigRef,
   lastSyncedFilesRef,
@@ -115,16 +115,6 @@ export const useEditorBroadcast = ({
   >(() => false);
   const lastRunAtRef = useRef(0);
   const trailingArgsRef = useRef<[readonly any[], Record<string, any> | undefined] | null>(null);
-  const adapter = useMemo(
-    () =>
-      createExcalidrawAdapter({
-        api: () => excalidrawAPI.current,
-        container: () => null,
-        canEdit: () => true,
-      }),
-    [excalidrawAPI],
-  );
-
   const deliverPackets = useCallback(
     (packets: readonly DeliveryPacket[], onFinished: (delivered: boolean) => void) => {
       const generation = deliveryGenerationRef.current;
@@ -201,12 +191,12 @@ export const useEditorBroadcast = ({
       if (!socketRef.current || !drawingId) return false;
       let nextFiles = currentFiles;
       if (!nextFiles) {
-        const files = adapter.files.read();
-        if (!files.ok) {
+        const fileState = files.read();
+        if (!fileState.ok) {
           toast.error("Live collaboration could not read editor files.");
           return false;
         }
-        nextFiles = files.value;
+        nextFiles = fileState.value;
       }
       const rawFilesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles);
       const shouldSyncFiles = Object.keys(rawFilesDelta).length > 0;
@@ -345,7 +335,7 @@ export const useEditorBroadcast = ({
     },
     [
       computeElementOrderSig,
-      adapter,
+      files,
       debouncedSave,
       debouncedSavePreview,
       deliverPackets,

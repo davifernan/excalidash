@@ -11,8 +11,8 @@
  * a re-render on every mouse position would be the same mistake that once
  * drove the editor into an infinite loop, only quieter.
  */
-import React, { useCallback, useEffect, useRef } from "react";
-import { createExcalidrawAdapter } from "../integrations/excalidraw";
+import React, { useEffect, useRef } from "react";
+import type { ViewportCapability } from "../integrations/excalidraw/capabilities";
 import { STICKY_SIZE, type StickyColor } from "./stickyNote";
 
 /**
@@ -22,34 +22,24 @@ import { STICKY_SIZE, type StickyColor } from "./stickyNote";
 const GHOST_OPACITY = "0.45";
 
 type Props = {
-  excalidrawAPI: { current: any };
   containerRef: React.RefObject<HTMLElement>;
   color: StickyColor;
+  viewport: Pick<ViewportCapability, "read">;
 };
 
-export const StickyPreview: React.FC<Props> = ({ excalidrawAPI, containerRef, color }) => {
+export const StickyPreview: React.FC<Props> = ({ containerRef, color, viewport }) => {
   const ghost = useRef<HTMLDivElement>(null);
-  const getAdapter = useCallback(
-    () =>
-      createExcalidrawAdapter({
-        api: () => excalidrawAPI.current,
-        container: () => containerRef.current,
-        canEdit: () => true,
-      }),
-    [containerRef, excalidrawAPI],
-  );
 
   useEffect(() => {
-    const adapter = getAdapter();
     const container = containerRef.current;
     const node = ghost.current;
     if (!container || !node) return;
 
     const place = (event: PointerEvent) => {
-      const viewport = adapter.viewport.read();
+      const state = viewport.read();
       // Before the editor attaches, the preview has always used an unzoomed
       // note. Keep that harmless fallback while the capability reports why.
-      const zoom = viewport.ok ? viewport.value.zoom : 1;
+      const zoom = state.ok ? state.value.zoom : 1;
       const rect = container.getBoundingClientRect();
       // Scaled with the canvas, so the ghost is the size the note will be —
       // which is the whole point of showing it.
@@ -74,7 +64,7 @@ export const StickyPreview: React.FC<Props> = ({ excalidrawAPI, containerRef, co
       container.removeEventListener("pointermove", place);
       container.removeEventListener("pointerleave", hide);
     };
-  }, [containerRef, getAdapter]);
+  }, [containerRef, viewport]);
 
   return (
     <div

@@ -1,14 +1,7 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createAdapter, toastError } = vi.hoisted(() => ({
-  createAdapter: vi.fn(),
-  toastError: vi.fn(),
-}));
-
-vi.mock("../integrations/excalidraw", () => ({
-  createExcalidrawAdapter: createAdapter,
-}));
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
 
 vi.mock("../integrations/excalidraw/domBridge", () => ({
   beginCanvasDrag: vi.fn(),
@@ -75,7 +68,6 @@ const makeAdapter = (note = createStickyNote(200, 200)) => {
       toScene: vi.fn().mockReturnValue({ ok: true, value: { x: 200, y: 200 } }),
     },
   };
-  createAdapter.mockReturnValue(adapter);
   return adapter;
 };
 
@@ -90,9 +82,9 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     render(
       <StickyPreview
-        excalidrawAPI={{ current: {} }}
         containerRef={{ current: container }}
         color={DEFAULT_STICKY_COLOR}
+        viewport={adapter.viewport as any}
       />,
     );
     fireEvent.pointerMove(container, { clientX: 100, clientY: 100 });
@@ -112,9 +104,9 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     render(
       <StickyPreview
-        excalidrawAPI={{ current: null }}
         containerRef={{ current: container }}
         color={DEFAULT_STICKY_COLOR}
+        viewport={adapter.viewport as any}
       />,
     );
     fireEvent.pointerMove(container, { clientX: 100, clientY: 100 });
@@ -128,10 +120,12 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     renderHook(() =>
       useStickyHint({
-        excalidrawAPI: { current: {} },
         containerRef: { current: container },
         canEdit: true,
+        interaction: adapter.interaction as any,
         ready: true,
+        scene: adapter.scene as any,
+        selection: adapter.selection as any,
       }),
     );
 
@@ -146,9 +140,11 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     const { result } = renderHook(() =>
       useStickyNotes({
-        excalidrawAPI: { current: {} },
         containerRef: { current: document.createElement("div") },
         canEdit: true,
+        elements: () => [],
+        interaction: adapter.interaction as any,
+        scene: adapter.scene as any,
       }),
     );
 
@@ -170,9 +166,11 @@ describe("sticky consumers at the Excalidraw boundary", () => {
     });
     const { result } = renderHook(() =>
       useStickyNotes({
-        excalidrawAPI: { current: {} },
         containerRef: { current: document.createElement("div") },
         canEdit: true,
+        elements: () => [],
+        interaction: adapter.interaction as any,
+        scene: adapter.scene as any,
       }),
     );
 
@@ -188,21 +186,15 @@ describe("sticky consumers at the Excalidraw boundary", () => {
     const note = createStickyNote(200, 200);
     const adapter = makeAdapter(note);
     const container = document.createElement("div");
-    const api = {
-      getAppState: vi.fn().mockReturnValue({
-        editingTextElement: null,
-        selectedElementIds: { [note.id]: true },
-      }),
-      getSceneElements: vi.fn().mockReturnValue([note]),
-      getSceneElementsIncludingDeleted: vi.fn().mockReturnValue([note]),
-      updateScene: vi.fn(),
-    };
 
     renderHook(() =>
       useStickyKeys({
-        excalidrawAPI: { current: api },
         containerRef: { current: container },
         canEdit: true,
+        elements: () => [note],
+        interaction: adapter.interaction as any,
+        scene: adapter.scene as any,
+        selection: adapter.selection as any,
       }),
     );
     fireEvent.keyDown(container, { key: "Tab" });
@@ -218,9 +210,13 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     render(
       <StickyHandles
-        excalidrawAPI={{ current: { getAppState: () => ({ draggingElement: null }) } }}
         containerRef={{ current: container }}
         canEdit
+        interaction={adapter.interaction as any}
+        isDragging={() => false}
+        scene={adapter.scene as any}
+        selection={adapter.selection as any}
+        viewport={adapter.viewport as any}
       />,
     );
 
@@ -234,7 +230,7 @@ describe("sticky consumers at the Excalidraw boundary", () => {
   it("arms arrow drags through the assembled interaction capability", () => {
     const adapter = makeAdapter();
 
-    beginArrowDrag({}, document.createElement("div"), {
+    beginArrowDrag(adapter.interaction as any, document.createElement("div"), {
       clientX: 10,
       clientY: 20,
       pointerId: 1,
@@ -255,7 +251,7 @@ describe("sticky consumers at the Excalidraw boundary", () => {
       seam: "interaction.setActiveTool",
     });
 
-    beginArrowDrag({}, document.createElement("div"), {
+    beginArrowDrag(adapter.interaction as any, document.createElement("div"), {
       clientX: 10,
       clientY: 20,
       pointerId: 1,
@@ -272,40 +268,65 @@ describe("sticky consumers at the Excalidraw boundary", () => {
       ok: true,
       value: { ...interactionState, editingTextContainerId: note.id },
     });
-    const api = {
-      getAppState: vi.fn().mockReturnValue({ editingTextElement: { containerId: note.id } }),
-      getSceneElementsIncludingDeleted: vi.fn().mockReturnValue([]),
-      updateScene: vi.fn(),
-    };
     const frame = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
       callback(0);
       return 1;
     });
 
-    insertStickyNote(api, document.createElement("div"), note, DEFAULT_STICKY_COLOR);
+    insertStickyNote(
+      adapter.scene as any,
+      [],
+      document.createElement("div"),
+      note,
+      DEFAULT_STICKY_COLOR,
+      adapter.interaction as any,
+    );
 
     expect(adapter.interaction.read).toHaveBeenCalled();
     frame.mockRestore();
   });
 
+  it("does not start label editing when the scene rejects a sticky insertion", () => {
+    const adapter = makeAdapter();
+    adapter.scene.apply.mockReturnValue({
+      ok: false,
+      code: "editor-changed",
+      seam: "scene.apply",
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const frame = vi.spyOn(globalThis, "requestAnimationFrame");
+
+    insertStickyNote(
+      adapter.scene as any,
+      [],
+      document.createElement("div"),
+      createStickyNote(200, 200),
+      DEFAULT_STICKY_COLOR,
+      adapter.interaction as any,
+    );
+
+    expect(error).toHaveBeenCalledWith(
+      "[Sticky] Failed to insert note",
+      expect.objectContaining({ ok: false, seam: "scene.apply" }),
+    );
+    expect(frame).not.toHaveBeenCalled();
+    frame.mockRestore();
+    error.mockRestore();
+  });
+
   it("watches editor closure through the interaction capability", async () => {
     const adapter = makeAdapter();
-    const api = {
-      getAppState: vi.fn().mockReturnValue({
-        editingTextElement: null,
-        resizingElement: null,
-        newElement: null,
-      }),
-      getSceneElementsIncludingDeleted: vi.fn().mockReturnValue([{}]),
-      updateScene: vi.fn(),
-    };
     const frames: FrameRequestCallback[] = [];
     const frame = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback);
       return frames.length;
     });
     const { result } = renderHook(() =>
-      useStickyUpkeep({ excalidrawAPI: { current: api }, canEdit: true }),
+      useStickyUpkeep({
+        canEdit: true,
+        interaction: adapter.interaction as any,
+        scene: adapter.scene as any,
+      }),
     );
 
     act(() => {
@@ -316,5 +337,32 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     expect(adapter.interaction.read).toHaveBeenCalled();
     frame.mockRestore();
+  });
+
+  it("reports a rejected sticky upkeep write", async () => {
+    const note = { ...createStickyNote(200, 200), height: 300 };
+    const adapter = makeAdapter(note);
+    adapter.scene.apply.mockReturnValue({
+      ok: false,
+      code: "editor-changed",
+      seam: "scene.apply",
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { result } = renderHook(() =>
+      useStickyUpkeep({
+        canEdit: true,
+        interaction: adapter.interaction as any,
+        scene: adapter.scene as any,
+      }),
+    );
+
+    act(() => result.current.onSceneChange([note], {}));
+    await act(async () => Promise.resolve());
+
+    expect(error).toHaveBeenCalledWith(
+      "[Sticky] Failed to normalise notes",
+      expect.objectContaining({ ok: false, seam: "scene.apply" }),
+    );
+    error.mockRestore();
   });
 });

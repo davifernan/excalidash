@@ -1,5 +1,5 @@
 import { beginCanvasDrag } from "../integrations/excalidraw/domBridge";
-import { createExcalidrawAdapter } from "../integrations/excalidraw";
+import type { InteractionCapability } from "../integrations/excalidraw/capabilities";
 import { toast } from "sonner";
 
 /**
@@ -109,14 +109,12 @@ export type DragOrigin = {
  * bridge's business -- the tool is set through React state, and a pointer event
  * that lands before that commits is read as a selection drag instead.
  */
-export function beginArrowDrag(api: any, container: HTMLElement | null, origin: DragOrigin): void {
-  if (!api) return;
-  const adapter = createExcalidrawAdapter({
-    api: () => api,
-    container: () => container,
-    canEdit: () => true,
-  });
-  const { setActiveTool } = adapter.interaction;
+export function beginArrowDrag(
+  interaction: Pick<InteractionCapability, "setActiveTool">,
+  container: HTMLElement | null,
+  origin: DragOrigin,
+): void {
+  const { setActiveTool } = interaction;
   const armed = setActiveTool({ type: "builtin", name: "arrow" });
   if (!armed.ok) {
     toast.error("Couldn't start the arrow. Please try again.");

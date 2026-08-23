@@ -18,7 +18,9 @@ describe("editor broadcast delivery tracking", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>(null),
+        files: {
+          read: () => ({ ok: false, code: "not-ready", seam: "files.read" }),
+        } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: ref("same-order"),
         lastSyncedFilesRef: ref({}),
@@ -52,7 +54,7 @@ describe("editor broadcast delivery tracking", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>({ getFiles: () => ({}) }),
+        files: { read: () => ({ ok: true, value: {} }) } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: orderRef,
         lastSyncedFilesRef: ref({}),
@@ -94,7 +96,7 @@ describe("editor broadcast delivery tracking", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>({ getFiles: () => ({}) }),
+        files: { read: () => ({ ok: true, value: {} }) } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: ref("same-order"),
         lastSyncedFilesRef: ref({}),
@@ -145,7 +147,7 @@ describe("editor broadcast delivery tracking", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>({ getFiles: () => files }),
+        files: { read: () => ({ ok: true, value: files }) } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: ref("same-order"),
         lastSyncedFilesRef,
@@ -213,7 +215,7 @@ describe("editor broadcast delivery tracking", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>({ getFiles: () => ({}) }),
+        files: { read: () => ({ ok: true, value: {} }) } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: ref("same-order"),
         lastSyncedFilesRef: ref({}),
@@ -269,7 +271,7 @@ describe("editor broadcast delivery tracking", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>({ getFiles: () => ({}) }),
+        files: { read: () => ({ ok: true, value: {} }) } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: orderRef,
         lastSyncedFilesRef: ref({}),
@@ -310,7 +312,7 @@ describe("editor broadcast delivery tracking", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>({ getFiles: () => ({}) }),
+        files: { read: () => ({ ok: true, value: {} }) } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: ref("old-order"),
         lastSyncedFilesRef: ref({}),
@@ -361,7 +363,7 @@ describe("saving the settings a board keeps", () => {
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
-        excalidrawAPI: ref<any>({ getFiles: () => ({}) }),
+        files: { read: () => ({ ok: true, value: {} }) } as any,
         lastLocalChangeAtRef: ref(0),
         lastSyncedElementOrderSigRef: ref(orderSig),
         lastSyncedFilesRef: ref({}),

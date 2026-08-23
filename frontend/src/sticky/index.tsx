@@ -6,6 +6,12 @@
  * to know nothing else about how a note is put together.
  */
 import React, { useCallback, useRef, useState } from "react";
+import type {
+  InteractionCapability,
+  SceneCapability,
+  SelectionCapability,
+  ViewportCapability,
+} from "../integrations/excalidraw/capabilities";
 import { StickyHandles } from "./StickyHandles";
 import { StickyPalette } from "./StickyPalette";
 import { StickyPreview } from "./StickyPreview";
@@ -17,18 +23,28 @@ import { useStickyUpkeep } from "./useStickyUpkeep";
 import { useToolbarElement } from "./useToolbarElement";
 
 type Options = {
-  excalidrawAPI: { current: any };
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
+  elements: () => readonly any[];
+  interaction: InteractionCapability;
+  isDragging: () => boolean;
+  scene: SceneCapability;
+  selection: SelectionCapability;
+  viewport: ViewportCapability;
   /** The editor's own change handler, which still has to run. */
   onCanvasChange: (elements: readonly any[], appState: any, files?: Record<string, any>) => void;
 };
 
 export function useStickyNotesFeature({
-  excalidrawAPI,
   containerRef,
   canEdit,
+  elements,
+  interaction,
+  isDragging,
   onCanvasChange,
+  scene,
+  selection,
+  viewport,
 }: Options) {
   // The editor hands its API over after the first render, so anything that
   // needs to subscribe has to wait for a sign of life. The first change event
@@ -37,14 +53,16 @@ export function useStickyNotesFeature({
   const readyRef = useRef(false);
 
   const { armed, color, arm, setColor } = useStickyNotes({
-    excalidrawAPI,
     containerRef,
     canEdit,
+    elements,
+    interaction,
+    scene,
   });
 
-  useStickyKeys({ excalidrawAPI, containerRef, canEdit });
-  useStickyHint({ excalidrawAPI, containerRef, canEdit, ready });
-  const { onSceneChange } = useStickyUpkeep({ excalidrawAPI, canEdit });
+  useStickyKeys({ containerRef, canEdit, elements, interaction, scene, selection });
+  useStickyHint({ containerRef, canEdit, interaction, ready, scene, selection });
+  const { onSceneChange } = useStickyUpkeep({ canEdit, interaction, scene });
   const toolbar = useToolbarElement(containerRef);
 
   const handleCanvasChange = useCallback(
@@ -63,10 +81,16 @@ export function useStickyNotesFeature({
     <>
       <StickyToolbarButton containerRef={containerRef} armed={armed} color={color} onArm={arm} />
       {armed && <StickyPalette toolbar={toolbar} color={color} onPick={setColor} />}
-      {armed && (
-        <StickyPreview excalidrawAPI={excalidrawAPI} containerRef={containerRef} color={color} />
-      )}
-      <StickyHandles excalidrawAPI={excalidrawAPI} containerRef={containerRef} canEdit={canEdit} />
+      {armed && <StickyPreview containerRef={containerRef} color={color} viewport={viewport} />}
+      <StickyHandles
+        containerRef={containerRef}
+        canEdit={canEdit}
+        interaction={interaction}
+        isDragging={isDragging}
+        scene={scene}
+        selection={selection}
+        viewport={viewport}
+      />
     </>
   ) : null;
 

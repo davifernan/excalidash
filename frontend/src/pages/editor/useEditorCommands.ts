@@ -16,6 +16,7 @@ const capabilityError = (failure: { seam: string; code: string }) =>
 type EditorCommandRefs = {
   excalidrawAPI: MutableRefObject<any>;
   hasSceneChangesSinceLoad: MutableRefObject<boolean>;
+  latestElements: MutableRefObject<readonly any[]>;
   latestFiles: MutableRefObject<any>;
   saveData: MutableRefObject<
     | ((
@@ -104,7 +105,7 @@ export const useEditorCommands = ({
           return;
         }
         if (!drawingId) return;
-        const elements = refs.excalidrawAPI.current.getSceneElementsIncludingDeleted();
+        const elements = refs.latestElements.current;
         const { snapshot: safeElements } = resolveSafeSnapshot(elements);
         const appState = readBoardSettings();
         const files = readFiles();
@@ -163,7 +164,7 @@ export const useEditorCommands = ({
       } else if (!drawingId) {
         shouldNavigate = true;
       } else {
-        const elements = refs.excalidrawAPI.current.getSceneElementsIncludingDeleted();
+        const elements = refs.latestElements.current;
         const { snapshot: safeElements } = resolveSafeSnapshot(elements);
         const appState = readBoardSettings();
         const files = readFiles();
@@ -203,7 +204,7 @@ export const useEditorCommands = ({
 
   const handleExportClick = useCallback(() => {
     if (!refs.excalidrawAPI.current) return;
-    const elements = refs.excalidrawAPI.current.getSceneElementsIncludingDeleted();
+    const elements = refs.latestElements.current;
     const appState = readBoardSettings();
     const files = readFiles();
     exportFromEditor(drawingName, elements, appState, files);

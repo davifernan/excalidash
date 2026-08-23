@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditorDialogs } from "./EditorDialogs";
 import { useEditorCanvasHandlers } from "./useEditorCanvasHandlers";
+import { createHistoryCapability } from "../../integrations/excalidraw/history";
 
 vi.mock("../../components/ShareModal", () => ({ ShareModal: () => null }));
 vi.mock("../../components/HistoryPanel", () => ({
@@ -42,7 +43,7 @@ describe("history preview persistence guard", () => {
         ((elements: readonly any[], appState: any, files?: any) => void) | null
       >(null);
       const isHistoryPreviewing = useRef(false);
-      const previewBackup = useRef<any>(null);
+      const previewTransaction = useRef<any>(null);
       const currentElements = useRef<readonly any[]>(initialElements);
       const api = useRef<any>({
         getSceneElementsIncludingDeleted: () => currentElements.current,
@@ -54,6 +55,10 @@ describe("history preview persistence guard", () => {
           canvasChange.current?.(elements, appState, {});
         },
       });
+      const history = {
+        beginPreview: (document: any) =>
+          createHistoryCapability(() => api.current).beginPreview(document),
+      } as any;
       const { handleCanvasChange } = useEditorCanvasHandlers({
         canEdit: true,
         debouncedSavePreview: vi.fn(),
@@ -95,10 +100,10 @@ describe("history preview persistence guard", () => {
         <EditorDialogs
           drawingId="drawing-1"
           drawingName="Board"
-          excalidrawAPIRef={api}
+          history={history}
           isHistoryOpen
           isShareOpen={false}
-          previewBackupRef={previewBackup}
+          previewTransactionRef={previewTransaction}
           isHistoryPreviewingRef={isHistoryPreviewing}
           onCloseHistory={vi.fn()}
           onCloseShare={vi.fn()}
@@ -114,5 +119,41 @@ describe("history preview persistence guard", () => {
     expect(debouncedSave).not.toHaveBeenCalled();
     expect(serverState.version).toBe(12);
     expect(serverState.elements[0].id).toBe("current");
+  });
+
+  it("releases the preview guard and reports when history.beginPreview fails", async () => {
+    const isHistoryPreviewing = { current: false };
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    render(
+      <EditorDialogs
+        drawingId="drawing-1"
+        drawingName="Board"
+        history={
+          {
+            beginPreview: vi.fn().mockResolvedValue({
+              ok: false,
+              code: "editor-changed",
+              seam: "history.beginPreview",
+            }),
+          } as any
+        }
+        isHistoryOpen
+        isShareOpen={false}
+        previewTransactionRef={{ current: null }}
+        isHistoryPreviewingRef={isHistoryPreviewing}
+        onCloseHistory={vi.fn()}
+        onCloseShare={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview historical version" }));
+    await Promise.resolve();
+
+    expect(isHistoryPreviewing.current).toBe(false);
+    expect(error).toHaveBeenCalledWith(
+      "[Editor] Failed to begin history preview",
+      expect.objectContaining({ ok: false, seam: "history.beginPreview" }),
+    );
+    error.mockRestore();
   });
 });

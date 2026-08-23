@@ -13,8 +13,13 @@
  * Subscribing keeps the churn inside this component, and the layout is compared
  * before it is stored so a change that moves nothing costs nothing.
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { createExcalidrawAdapter, type ExcalidrawAdapter } from "../integrations/excalidraw";
+import React, { useEffect, useState } from "react";
+import type {
+  InteractionCapability,
+  SceneCapability,
+  SelectionCapability,
+  ViewportCapability,
+} from "../integrations/excalidraw/capabilities";
 import type {
   ElementId,
   ElementSummary,
@@ -38,9 +43,13 @@ type Dot = { side: HandleSide; x: number; y: number };
 type Layout = { noteId: ElementId; dots: Dot[] };
 
 type Props = {
-  excalidrawAPI: { current: any };
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
+  isDragging: () => boolean;
+  interaction: Pick<InteractionCapability, "read" | "setActiveTool">;
+  scene: Pick<SceneCapability, "subscribe" | "summaries" | "summaryById">;
+  selection: Pick<SelectionCapability, "read">;
+  viewport: Pick<ViewportCapability, "read" | "toScene">;
 };
 
 /** The single selected note, if exactly one note is selected. */
@@ -64,21 +73,23 @@ function isBusy(interaction: InteractionState, dragging: boolean): boolean {
   );
 }
 
-function layoutFor(adapter: ExcalidrawAdapter, api: any, hoveredId: string | null): Layout | null {
-  const interaction = adapter.interaction.read();
-  // Contract gap (NIL-322): InteractionState has no dragging element. Keep
-  // this one raw read until the frozen capability can preserve that guard.
-  const dragging = !!api?.getAppState?.()?.draggingElement;
-  if (!interaction.ok || isBusy(interaction.value, dragging)) return null;
+function layoutFor(
+  capabilities: Pick<Props, "interaction" | "scene" | "selection" | "viewport">,
+  dragging: boolean,
+  hoveredId: string | null,
+): Layout | null {
+  const { interaction, scene, selection, viewport } = capabilities;
+  const state = interaction.read();
+  if (!state.ok || isBusy(state.value, dragging)) return null;
 
-  const scene = adapter.scene.summaries();
-  const selection = adapter.selection.read();
-  const viewport = adapter.viewport.read();
-  if (!scene.ok || !selection.ok || !viewport.ok) return null;
+  const elements = scene.summaries();
+  const selected = selection.read();
+  const viewportState = viewport.read();
+  if (!elements.ok || !selected.ok || !viewportState.ok) return null;
 
   const note =
-    scene.value.find((element) => element.id === hoveredId && isStickyNote(element)) ??
-    selectedNote(scene.value, selection.value);
+    elements.value.find((element) => element.id === hoveredId && isStickyNote(element)) ??
+    selectedNote(elements.value, selected.value);
   // A rotated note would need rotated points; nobody rotates a sticky note, and
   // guessing wrong would put the dots somewhere they do not belong.
   if (!note || note.angle) return null;
@@ -87,7 +98,7 @@ function layoutFor(adapter: ExcalidrawAdapter, api: any, hoveredId: string | nul
     noteId: note.id,
     dots: HANDLE_SIDES.map((side) => {
       const scene = handlePoint(note, side);
-      const { x, y } = projectPoint({ x: scene.x, y: scene.y }, viewport.value);
+      const { x, y } = projectPoint({ x: scene.x, y: scene.y }, viewportState.value);
       return { side, x, y };
     }),
   };
@@ -98,40 +109,38 @@ const signature = (layout: Layout | null) =>
     ? `${layout.noteId}:${layout.dots.map((d) => `${Math.round(d.x)},${Math.round(d.y)}`).join("|")}`
     : "";
 
-export const StickyHandles: React.FC<Props> = ({ excalidrawAPI, containerRef, canEdit }) => {
+export const StickyHandles: React.FC<Props> = ({
+  containerRef,
+  canEdit,
+  isDragging,
+  interaction,
+  scene,
+  selection,
+  viewport,
+}) => {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout | null>(null);
-  const getAdapter = useCallback(
-    () =>
-      createExcalidrawAdapter({
-        api: () => excalidrawAPI.current,
-        container: () => containerRef.current,
-        canEdit: () => canEdit,
-      }),
-    [canEdit, containerRef, excalidrawAPI],
-  );
 
   // Excalidraw does not say what the pointer is over, so the note under it is
   // worked out here. Sticky notes are plain axis-aligned boxes, which makes
   // that a comparison rather than a hit test.
   useEffect(() => {
-    const adapter = getAdapter();
     const container = containerRef.current;
     if (!container || !canEdit) return;
 
     const onMove = (event: PointerEvent) => {
-      const interaction = adapter.interaction.read();
-      if (!interaction.ok || interaction.value.activeTool.type !== "selection") {
+      const state = interaction.read();
+      if (!state.ok || state.value.activeTool.type !== "selection") {
         setHoveredId(null);
         return;
       }
-      const point = adapter.viewport.toScene({ x: event.clientX, y: event.clientY });
-      const scene = adapter.scene.summaries();
-      if (!point.ok || !scene.ok) {
+      const point = viewport.toScene({ x: event.clientX, y: event.clientY });
+      const elements = scene.summaries();
+      if (!point.ok || !elements.ok) {
         setHoveredId(null);
         return;
       }
-      const note = noteAt(scene.value, isStickyNote, point.value.x, point.value.y);
+      const note = noteAt(elements.value, isStickyNote, point.value.x, point.value.y);
       setHoveredId((current) => {
         const next = note?.id ?? null;
         return current === next ? current : next;
@@ -145,21 +154,23 @@ export const StickyHandles: React.FC<Props> = ({ excalidrawAPI, containerRef, ca
       container.removeEventListener("pointermove", onMove);
       container.removeEventListener("pointerleave", onLeave);
     };
-  }, [canEdit, containerRef, getAdapter]);
+  }, [canEdit, containerRef, interaction, scene, viewport]);
 
   useEffect(() => {
     if (!canEdit) return;
-    const adapter = getAdapter();
-
     const refresh = () =>
       setLayout((current) => {
-        const next = layoutFor(adapter, excalidrawAPI.current, hoveredId);
+        const next = layoutFor(
+          { interaction, scene, selection, viewport },
+          isDragging(),
+          hoveredId,
+        );
         return signature(current) === signature(next) ? current : next;
       });
 
     refresh();
-    return adapter.scene.subscribe(refresh);
-  }, [canEdit, excalidrawAPI, getAdapter, hoveredId]);
+    return scene.subscribe(refresh);
+  }, [canEdit, hoveredId, interaction, isDragging, scene, selection, viewport]);
 
   if (!canEdit || !layout) return null;
 
@@ -174,17 +185,15 @@ export const StickyHandles: React.FC<Props> = ({ excalidrawAPI, containerRef, ca
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            const adapter = getAdapter();
-            const api = excalidrawAPI.current;
-            const note = adapter.scene.summaryById(layout.noteId);
-            const viewport = adapter.viewport.read();
+            const note = scene.summaryById(layout.noteId);
+            const viewportState = viewport.read();
             const container = containerRef.current;
-            if (!api || !note.ok || !note.value || !viewport.ok || !container) return;
+            if (!note.ok || !note.value || !viewportState.ok || !container) return;
 
             const from = startPoint(note.value, dot.side);
-            const point = projectPoint({ x: from.x, y: from.y }, viewport.value);
+            const point = projectPoint({ x: from.x, y: from.y }, viewportState.value);
             const rect = container.getBoundingClientRect();
-            beginArrowDrag(api, container, {
+            beginArrowDrag(interaction, container, {
               clientX: rect.left + point.x,
               clientY: rect.top + point.y,
               pointerId: event.pointerId,

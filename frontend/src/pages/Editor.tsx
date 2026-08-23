@@ -21,6 +21,7 @@ import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
 import { useEditorBroadcast } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
+import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 export const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -39,11 +40,7 @@ export const Editor: React.FC = () => {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [langCode, setLangCode] = useState(getInitialLangCode);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const previewBackup = useRef<{
-    elements: readonly any[];
-    appState: any;
-    files: any;
-  } | null>(null);
+  const previewTransaction = useRef<PreviewTransaction | null>(null);
   const isHistoryPreviewing = useRef(false);
   useEditorChrome({ drawingName });
   const me: UserIdentity = useEditorIdentity(user);
@@ -137,6 +134,9 @@ export const Editor: React.FC = () => {
     inviteHere,
   } = useEditorCollaboration({
     drawingId: id,
+    collaboration: adapter.collaboration,
+    files: adapter.files,
+    interaction: adapter.interaction,
     me,
     isReady,
     excalidrawAPI,
@@ -147,6 +147,9 @@ export const Editor: React.FC = () => {
     latestFilesRef,
     computeElementOrderSig,
     recordElementVersion,
+    scene: adapter.scene,
+    selection: adapter.selection,
+    viewport: adapter.viewport,
     onAccessDenied: handleSocketAccessDenied,
     onDrawingNameChange: setDrawingName,
   });
@@ -188,7 +191,7 @@ export const Editor: React.FC = () => {
   }, []);
   const { broadcastChanges, broadcastFiles } = useEditorBroadcast({
     drawingId: id,
-    excalidrawAPI,
+    files: adapter.files,
     lastLocalChangeAtRef,
     lastSyncedElementOrderSigRef,
     lastSyncedFilesRef,
@@ -287,10 +290,15 @@ export const Editor: React.FC = () => {
     viewport: adapter.viewport,
   });
   const { stickyOverlay, onCanvasChange: handleChangeWithNotes } = useStickyNotesFeature({
-    excalidrawAPI,
     containerRef: editorContainerRef,
     canEdit,
+    elements: () => latestElementsRef.current,
+    interaction: adapter.interaction,
+    isDragging: () => !!latestAppStateRef.current?.draggingElement,
     onCanvasChange: handleCanvasChange,
+    scene: adapter.scene,
+    selection: adapter.selection,
+    viewport: adapter.viewport,
   });
   useCursorChatKey({
     containerRef: editorContainerRef,
@@ -313,6 +321,7 @@ export const Editor: React.FC = () => {
     () => ({
       excalidrawAPI,
       hasSceneChangesSinceLoad: hasSceneChangesSinceLoadRef,
+      latestElements: latestElementsRef,
       latestFiles: latestFilesRef,
       saveData: saveDataRef,
       savePreview: savePreviewRef,
@@ -389,10 +398,10 @@ export const Editor: React.FC = () => {
       <EditorDialogs
         drawingId={id}
         drawingName={drawingName}
-        excalidrawAPIRef={excalidrawAPI}
+        history={adapter.history}
         isHistoryOpen={isHistoryOpen}
         isShareOpen={isShareOpen}
-        previewBackupRef={previewBackup}
+        previewTransactionRef={previewTransaction}
         isHistoryPreviewingRef={isHistoryPreviewing}
         onCloseHistory={() => setIsHistoryOpen(false)}
         onCloseShare={() => setIsShareOpen(false)}

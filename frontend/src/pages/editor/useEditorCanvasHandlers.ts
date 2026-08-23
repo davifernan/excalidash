@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { MutableRefObject } from "react";
-import { buildElements, HISTORY } from "../../integrations/excalidraw/elements";
+import { buildElements } from "../../integrations/excalidraw/elements";
+import { sealSceneDocument } from "../../integrations/excalidraw/adapter";
 import type {
   FileCapability,
   SceneCapability,
@@ -124,9 +125,7 @@ export const useEditorCanvasHandlers = ({
       if (Object.keys(currentFiles).length > 0) {
         latestFilesRef.current = currentFiles;
       }
-      const allElements = excalidrawAPIRef.current
-        ? excalidrawAPIRef.current.getSceneElementsIncludingDeleted()
-        : elements;
+      const allElements = elements;
       if (!hasHydratedInitialSceneRef.current) {
         const matchesInitialSnapshot = haveSameElements(
           allElements,
@@ -162,7 +161,6 @@ export const useEditorCanvasHandlers = ({
     [
       broadcastChanges,
       canEdit,
-      excalidrawAPIRef,
       hasHydratedInitialSceneRef,
       initialSceneElementsRef,
       isBootstrappingSceneRef,
@@ -237,24 +235,30 @@ export const useEditorCanvasHandlers = ({
             };
           }),
         );
-        excalidrawAPIRef.current.updateScene({
-          elements: [
-            ...excalidrawAPIRef.current.getSceneElementsIncludingDeleted(),
-            ...imageElements,
+        const applied = scene.apply(
+          [
+            {
+              kind: "replaceDocument",
+              document: sealSceneDocument({
+                elements: [...latestElementsRef.current, ...imageElements],
+                appState: {
+                  selectedElementIds: Object.fromEntries(
+                    imageElements.map((element: any) => [element.id, true]),
+                  ),
+                },
+                files: {},
+              }),
+            },
           ],
-          appState: {
-            selectedElementIds: Object.fromEntries(
-              imageElements.map((element: any) => [element.id, true]),
-            ),
-          },
-          captureUpdate: HISTORY.immediate,
-        });
+          { capture: "immediate" },
+        );
+        if (!applied.ok) throw capabilityError(applied);
       } catch (err) {
         console.error("[Editor] Failed to import dropped images", err);
         toast.error("Failed to import dropped images");
       }
     },
-    [canEdit, drawingId, excalidrawAPIRef, fileCapability, scene, toScenePoint],
+    [canEdit, drawingId, excalidrawAPIRef, fileCapability, latestElementsRef, scene, toScenePoint],
   );
 
   useEffect(() => {

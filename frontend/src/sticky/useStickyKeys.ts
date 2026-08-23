@@ -10,26 +10,37 @@
  * mean reaching into a private text editor and would break the first time that
  * editor changed. Escape, then Tab.
  */
-import { useCallback, useEffect } from "react";
-import { createExcalidrawAdapter, type ExcalidrawAdapter } from "../integrations/excalidraw";
+import { useEffect } from "react";
+import type {
+  InteractionCapability,
+  SceneCapability,
+  SelectionCapability,
+} from "../integrations/excalidraw/capabilities";
 import { STICKY_GAP, insertStickyNote } from "./stickyPlacement";
 import { createStickyNote, stickyColorById, stickyDataOf } from "./stickyNote";
 
 type Options = {
-  excalidrawAPI: { current: any };
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
+  elements: () => readonly any[];
+  interaction: Pick<InteractionCapability, "read">;
+  scene: Pick<SceneCapability, "apply" | "summaryById">;
+  selection: Pick<SelectionCapability, "read">;
 };
 
 /** The single selected note, if that is what is selected. */
-function selectedNote(adapter: ExcalidrawAdapter): any | null {
-  const interaction = adapter.interaction.read();
-  if (!interaction.ok || interaction.value.editingTextElementId) return null;
+function selectedNote({
+  interaction,
+  scene,
+  selection,
+}: Pick<Options, "interaction" | "scene" | "selection">): any | null {
+  const state = interaction.read();
+  if (!state.ok || state.value.editingTextElementId) return null;
 
-  const selection = adapter.selection.read();
-  if (!selection.ok || selection.value.selectedIds.length !== 1) return null;
+  const selected = selection.read();
+  if (!selected.ok || selected.value.selectedIds.length !== 1) return null;
 
-  const note = adapter.scene.summaryById(selection.value.selectedIds[0]);
+  const note = scene.summaryById(selected.value.selectedIds[0]);
   return note.ok && stickyDataOf(note.value) ? note.value : null;
 }
 
@@ -47,28 +58,23 @@ export function nextNoteCentre(
   return { x: centreX + (direction === "right" ? step : -step), y: centreY };
 }
 
-export function useStickyKeys({ excalidrawAPI, containerRef, canEdit }: Options) {
-  const getAdapter = useCallback(
-    () =>
-      createExcalidrawAdapter({
-        api: () => excalidrawAPI.current,
-        container: () => containerRef.current,
-        canEdit: () => canEdit,
-      }),
-    [canEdit, containerRef, excalidrawAPI],
-  );
-
+export function useStickyKeys({
+  canEdit,
+  containerRef,
+  elements,
+  interaction,
+  scene,
+  selection,
+}: Options) {
   useEffect(() => {
     if (!canEdit) return;
-    const adapter = getAdapter();
 
     const onKeyDown = (event: KeyboardEvent) => {
-      const api = excalidrawAPI.current;
       const wantsSideways = event.key === "Tab" && !event.ctrlKey && !event.metaKey;
       const wantsBelow = event.key === "Enter" && (event.ctrlKey || event.metaKey);
       if (!wantsSideways && !wantsBelow) return;
 
-      const note = selectedNote(adapter);
+      const note = selectedNote({ interaction, scene, selection });
       if (!note) return;
 
       // Only now, once we know the key was meant for us — Tab still has to
@@ -81,10 +87,12 @@ export function useStickyKeys({ excalidrawAPI, containerRef, canEdit }: Options)
       const colour = stickyColorById(stickyDataOf(note)?.color);
 
       insertStickyNote(
-        api,
+        scene,
+        elements(),
         containerRef.current,
         createStickyNote(centre.x, centre.y, colour),
         colour,
+        interaction,
       );
     };
 
@@ -92,5 +100,5 @@ export function useStickyKeys({ excalidrawAPI, containerRef, canEdit }: Options)
     if (!target) return;
     target.addEventListener("keydown", onKeyDown);
     return () => target.removeEventListener("keydown", onKeyDown);
-  }, [canEdit, containerRef, excalidrawAPI, getAdapter]);
+  }, [canEdit, containerRef, elements, interaction, scene, selection]);
 }

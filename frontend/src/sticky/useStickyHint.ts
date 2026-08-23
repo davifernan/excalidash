@@ -6,37 +6,53 @@
  * worst that a renamed hint element can do is leave the hint showing, which is
  * where it started.
  */
-import { useCallback, useEffect } from "react";
-import { createExcalidrawAdapter, type ExcalidrawAdapter } from "../integrations/excalidraw";
+import { useEffect } from "react";
+import type {
+  InteractionCapability,
+  SceneCapability,
+  SelectionCapability,
+} from "../integrations/excalidraw/capabilities";
 import { isStickyNote } from "./stickyNote";
 import "./stickyHint.css";
 
 /** True when the only thing selected, or being typed into, is a note. */
-function stickyIsTheSelection(adapter: ExcalidrawAdapter): boolean {
-  const interaction = adapter.interaction.read();
-  if (!interaction.ok) return false;
+function stickyIsTheSelection({
+  interaction,
+  scene,
+  selection,
+}: {
+  interaction: Pick<InteractionCapability, "read">;
+  scene: Pick<SceneCapability, "summaryById">;
+  selection: Pick<SelectionCapability, "read">;
+}): boolean {
+  const state = interaction.read();
+  if (!state.ok) return false;
 
-  const editingId = interaction.value.editingTextContainerId;
+  const editingId = state.value.editingTextContainerId;
   if (editingId) {
-    const editing = adapter.scene.summaryById(editingId);
+    const editing = scene.summaryById(editingId);
     return editing.ok && isStickyNote(editing.value);
   }
 
-  const selection = adapter.selection.read();
-  if (!selection.ok || selection.value.selectedIds.length !== 1) return false;
-  const selected = adapter.scene.summaryById(selection.value.selectedIds[0]);
+  const selectedState = selection.read();
+  if (!selectedState.ok || selectedState.value.selectedIds.length !== 1) return false;
+  const selected = scene.summaryById(selectedState.value.selectedIds[0]);
   return selected.ok && isStickyNote(selected.value);
 }
 
 export function useStickyHint({
-  excalidrawAPI,
   containerRef,
   canEdit,
+  interaction,
   ready,
+  scene,
+  selection,
 }: {
-  excalidrawAPI: { current: any };
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
+  interaction: Pick<InteractionCapability, "read">;
+  scene: Pick<SceneCapability, "subscribe" | "summaryById">;
+  selection: Pick<SelectionCapability, "read">;
   /**
    * Whether the editor has handed over its API yet.
    *
@@ -46,32 +62,21 @@ export function useStickyHint({
    */
   ready: boolean;
 }) {
-  const getAdapter = useCallback(
-    () =>
-      createExcalidrawAdapter({
-        api: () => excalidrawAPI.current,
-        container: () => containerRef.current,
-        canEdit: () => canEdit,
-      }),
-    [canEdit, containerRef, excalidrawAPI],
-  );
-
   useEffect(() => {
-    const adapter = getAdapter();
     const container = containerRef.current;
     if (!ready || !container || !canEdit) return;
 
     const update = () => {
-      const on = stickyIsTheSelection(adapter);
+      const on = stickyIsTheSelection({ interaction, scene, selection });
       if (on) container.dataset.stickySelection = "true";
       else delete container.dataset.stickySelection;
     };
 
     update();
-    const stop = adapter.scene.subscribe(update);
+    const stop = scene.subscribe(update);
     return () => {
       stop?.();
       delete container.dataset.stickySelection;
     };
-  }, [canEdit, containerRef, getAdapter, ready]);
+  }, [canEdit, containerRef, interaction, ready, scene, selection]);
 }

@@ -11,7 +11,10 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { createExcalidrawAdapter } from "../integrations/excalidraw";
+import type {
+  InteractionCapability,
+  SceneCapability,
+} from "../integrations/excalidraw/capabilities";
 import type { ActiveTool } from "../integrations/excalidraw/types";
 import { insertStickyNote } from "./stickyPlacement";
 import {
@@ -40,34 +43,29 @@ const isTyping = (target: EventTarget | null): boolean => {
 const STICKY_TOOL = "sticky";
 
 type Options = {
-  excalidrawAPI: { current: any };
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
+  elements: () => readonly any[];
+  interaction: Pick<
+    InteractionCapability,
+    "onPointerDown" | "read" | "setActiveTool" | "subscribe"
+  >;
+  scene: Pick<SceneCapability, "apply">;
 };
 
-export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options) {
+export function useStickyNotes({ containerRef, canEdit, elements, interaction, scene }: Options) {
   const [armed, setArmed] = useState(false);
   const [color, setColor] = useState<StickyColor>(DEFAULT_STICKY_COLOR);
-  const getAdapter = useCallback(
-    () =>
-      createExcalidrawAdapter({
-        api: () => excalidrawAPI.current,
-        container: () => containerRef.current,
-        canEdit: () => canEdit,
-      }),
-    [canEdit, containerRef, excalidrawAPI],
-  );
 
   const setTool = useCallback(
     (tool: ActiveTool): boolean => {
-      const adapter = getAdapter();
-      const { setActiveTool } = adapter.interaction;
+      const { setActiveTool } = interaction;
       const changed = setActiveTool(tool);
       if (changed.ok) return true;
       toast.error("Couldn't change the sticky-note tool. Please try again.");
       return false;
     },
-    [getAdapter],
+    [interaction],
   );
   const armTool = useCallback(
     () => setTool({ type: "custom", customType: STICKY_TOOL }),
@@ -89,12 +87,10 @@ export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options
    */
   useEffect(() => {
     if (!armed) return;
-    const adapter = getAdapter();
-
-    return adapter.interaction.subscribe(({ activeTool: tool }) => {
+    return interaction.subscribe(({ activeTool: tool }) => {
       if (tool?.type !== "custom" || tool.customType !== STICKY_TOOL) setArmed(false);
     });
-  }, [armed, getAdapter]);
+  }, [armed, interaction]);
 
   const disarm = () => {
     setArmed(false);
@@ -123,9 +119,7 @@ export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options
   // shows, with no stale closure to reason about.
   useEffect(() => {
     if (!armed || !canEdit) return;
-    const adapter = getAdapter();
-
-    const { onPointerDown } = adapter.interaction;
+    const { onPointerDown } = interaction;
     return onPointerDown((point, activeTool) => {
       if (activeTool?.type !== "custom" || activeTool.customType !== STICKY_TOOL) return;
 
@@ -135,26 +129,26 @@ export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options
       if (!dropTool()) return;
 
       insertStickyNote(
-        excalidrawAPI.current,
+        scene,
+        elements(),
         containerRef.current,
         createStickyNote(point.x, point.y, color),
         color,
+        interaction,
       );
     });
-  }, [armed, canEdit, color, containerRef, dropTool, excalidrawAPI, getAdapter]);
+  }, [armed, canEdit, color, containerRef, dropTool, elements, interaction, scene]);
 
   // The tool answers to a key like every other tool does.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !canEdit) return;
-    const adapter = getAdapter();
-
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== STICKY_SHORTCUT) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (isTyping(event.target)) return;
-      const interaction = adapter.interaction.read();
-      if (!interaction.ok || interaction.value.editingTextElementId) return;
+      const state = interaction.read();
+      if (!state.ok || state.value.editingTextElementId) return;
 
       event.preventDefault();
       if (armed) {
@@ -167,7 +161,7 @@ export function useStickyNotes({ excalidrawAPI, containerRef, canEdit }: Options
 
     container.addEventListener("keydown", onKeyDown);
     return () => container.removeEventListener("keydown", onKeyDown);
-  }, [armed, armTool, canEdit, containerRef, dropTool, getAdapter]);
+  }, [armed, armTool, canEdit, containerRef, dropTool, interaction]);
 
   return { armed, color, arm, disarm, setColor };
 }
