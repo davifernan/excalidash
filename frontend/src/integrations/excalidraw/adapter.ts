@@ -41,7 +41,7 @@ export type RawApi = {
 };
 
 /** What a SceneDocument actually is, on this side of the boundary only. */
-type DocumentInner = {
+export type SceneDocumentContents = {
   elements: readonly Record<string, unknown>[];
   appState: Record<string, unknown>;
   files: Record<string, unknown>;
@@ -54,16 +54,21 @@ type DocumentInner = {
  * nothing can be read off it, serialised out of it, or reached by walking it.
  * Only this module holds the key, so "opaque" is enforced rather than asked for.
  */
-const inner = new WeakMap<object, DocumentInner>();
+const inner = new WeakMap<object, SceneDocumentContents>();
 
-const seal = (value: DocumentInner): SceneDocument => {
+const seal = (value: SceneDocumentContents): SceneDocument => {
   const handle = Object.freeze({}) as unknown as SceneDocument;
   inner.set(handle as unknown as object, value);
   return handle;
 };
 
-const open = (document: SceneDocument): DocumentInner | null =>
+const open = (document: SceneDocument): SceneDocumentContents | null =>
   document ? (inner.get(document as unknown as object) ?? null) : null;
+
+/** Shared only by capabilities that must operate on the complete opaque document. */
+export const sealSceneDocument = (value: SceneDocumentContents): SceneDocument => seal(value);
+export const openSceneDocument = (document: SceneDocument): SceneDocumentContents | null =>
+  open(document);
 
 const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
   if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());

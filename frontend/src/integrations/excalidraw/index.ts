@@ -12,6 +12,8 @@ import {
   createBoardSettingsCapability,
   createFileCapability,
   createSceneCapability,
+  openSceneDocument,
+  sealSceneDocument,
   type RawApi,
 } from "./adapter";
 import type { ExcalidrawAdapter } from "./capabilities";
@@ -19,7 +21,10 @@ import { createCollaborationCapability } from "./collaboration";
 import { verifySeams } from "./compatibility/seams";
 import { onDiagnostic } from "./compatibility/diagnostics";
 import { createInteractionCapability } from "./interaction";
+import { createExportCapability } from "./export";
+import { createHistoryCapability } from "./history";
 import { fail, ok } from "./errors";
+import { createTextContainerCapability } from "./text";
 import { createUiCapability } from "./uiSlots";
 import { createViewportCapability } from "./viewport";
 import { packageVersion } from "./version";
@@ -42,20 +47,7 @@ export const createExcalidrawAdapter = (host: AdapterHost): ExcalidrawAdapter =>
 
   return {
     scene,
-    text: {
-      readLabel: () =>
-        fail("unsupported", "text.readLabel", {
-          detail: "arrives with the sticky migration",
-        }),
-      labelsBeingTyped: () =>
-        fail("unsupported", "text.labelsBeingTyped", {
-          detail: "arrives with the sticky migration",
-        }),
-      setLabelFontSize: () =>
-        fail("unsupported", "text.setLabelFontSize", {
-          detail: "arrives with the sticky migration",
-        }),
-    },
+    text: createTextContainerCapability(() => raw<RawApi>()),
     boardSettings: createBoardSettingsCapability(() => raw<RawApi>()),
     selection: {
       read: () => {
@@ -95,20 +87,8 @@ export const createExcalidrawAdapter = (host: AdapterHost): ExcalidrawAdapter =>
       getAppState: () => raw<RawApi>()?.getAppState() ?? {},
       canEdit: host.canEdit,
     })),
-    export: {
-      exportableDocument: () =>
-        fail("unsupported", "export.exportableDocument", {
-          detail: "arrives with the export migration",
-        }),
-      toSvg: async () =>
-        fail("unsupported", "export.toSvg", { detail: "arrives with the export migration" }),
-    },
-    history: {
-      beginPreview: async () =>
-        fail("unsupported", "history.beginPreview", {
-          detail: "arrives with the version-history migration",
-        }),
-    },
+    export: createExportCapability(openSceneDocument, sealSceneDocument),
+    history: createHistoryCapability(() => raw<RawApi>()),
     ui: createUiCapability(() => ({
       container: host.container,
       isEditingLabelOf: (id) => {
@@ -119,7 +99,9 @@ export const createExcalidrawAdapter = (host: AdapterHost): ExcalidrawAdapter =>
       // at runtime, and the caller quietly falls back to the raw handle -- which
       // is the boundary hole this layer exists to close.
       updateLibrary: (payload) => {
-        const api = raw<RawApi & { updateLibrary?: (p: Record<string, unknown>) => Promise<unknown> }>();
+        const api = raw<
+          RawApi & { updateLibrary?: (p: Record<string, unknown>) => Promise<unknown> }
+        >();
         return api?.updateLibrary
           ? api.updateLibrary(payload)
           : Promise.reject(new Error("updateLibrary is not attached"));
