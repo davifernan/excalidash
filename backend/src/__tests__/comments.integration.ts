@@ -511,4 +511,62 @@ describe("Comments, mentions, activity and inbox", () => {
       await new Promise((resolve) => setTimeout(resolve, 5200));
     }
   });
+
+  it("keeps a reply intact when its parent comment's author is offboarded, reassigning authorship instead of losing it to the cascade", async () => {
+    const { offboardUserAndTransferBoards } = await import("../auth/userOffboarding");
+
+    const boardOwner = await makeUser("owner-8@test.local", "Owner Eight");
+    const alice = await makeUser("alice-8@test.local", "Alice Eight");
+    const bob = await makeUser("bob-8@test.local", "Bob Eight");
+    const successor = await makeUser("successor-8@test.local", "Successor Eight");
+    const drawing = await makeDrawing(boardOwner.id, "Board 8");
+    await grant(drawing.id, alice.id, "comment", boardOwner.id);
+    await grant(drawing.id, bob.id, "comment", boardOwner.id);
+
+    const aliceClient = await clientFor(alice);
+    const bobClient = await clientFor(bob);
+
+    const root = await aliceClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "Alice's root comment",
+    });
+    expect(root.status).toBe(201);
+    const reply = await bobClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "Bob's reply",
+      rootId: root.body.comment.id,
+    });
+    expect(reply.status).toBe(201);
+
+    // RED PROBE evidence (see PR HANDOFF): Comment.authorUserId and
+    // ActivityEvent.actorUserId are real onDelete: Cascade relations, and
+    // Comment.root is too -- without reassignCommentAuthorshipOps running
+    // inside the same transaction before tx.user.delete, offboarding Alice
+    // deletes her root comment via the author cascade, which cascades a
+    // SECOND time through Comment.root and takes Bob's reply with it. Bob
+    // never left the board and never lost his own access; only Alice was
+    // offboarded.
+    await offboardUserAndTransferBoards({
+      prisma,
+      userId: alice.id,
+      successorUserId: successor.id,
+      useCompanyArchive: false,
+    });
+
+    const rootAfter = await prisma.comment.findUnique({ where: { id: root.body.comment.id } });
+    const replyAfter = await prisma.comment.findUnique({ where: { id: reply.body.comment.id } });
+    expect(rootAfter).not.toBeNull();
+    expect(rootAfter!.authorUserId).toBe(successor.id);
+    expect(rootAfter!.body).toBe("Alice's root comment");
+    expect(replyAfter).not.toBeNull();
+    expect(replyAfter!.body).toBe("Bob's reply");
+    expect(replyAfter!.authorUserId).toBe(bob.id);
+
+    const aliceActivityEvents = await prisma.activityEvent.count({
+      where: { actorUserId: alice.id },
+    });
+    expect(aliceActivityEvents).toBe(0);
+    const reassignedActivityEvents = await prisma.activityEvent.count({
+      where: { actorUserId: successor.id, drawingId: drawing.id },
+    });
+    expect(reassignedActivityEvents).toBeGreaterThan(0);
+  });
 });

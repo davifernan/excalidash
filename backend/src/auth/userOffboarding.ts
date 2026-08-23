@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "../generated/client";
 import { revokeUserCredentials } from "./userCredentialRevocation";
 import { reassignGrantAuthorshipOps } from "../authz/grants";
 import { transferOwnedBoards } from "../authz/boards";
+import { reassignCommentAuthorshipOps } from "../comments/commentsDomain";
 
 export const COMPANY_ARCHIVE_USER_EMAIL = "deleted-boards@placeholder.excalidash.invalid";
 const COMPANY_ARCHIVE_USER_NAME = "Deleted user boards";
@@ -135,6 +136,18 @@ export const offboardUserAndTransferBoards = async (params: {
       // remove their link to the departing person.
       ...reassignGrantAuthorshipOps({
         db: tx,
+        fromUserId: params.userId,
+        toUserId: successorUserId,
+      }),
+      // Comment.authorUserId and ActivityEvent.actorUserId ARE real
+      // relations with onDelete: Cascade, unlike the grant creator ids
+      // above -- which is exactly why this has to run first: reassigned
+      // before the delete below, the cascade never finds a row to remove.
+      // See reassignCommentAuthorshipOps' own comment for what breaks
+      // without it (other people's replies under the departing author's
+      // own root comment).
+      ...reassignCommentAuthorshipOps({
+        prisma: tx,
         fromUserId: params.userId,
         toUserId: successorUserId,
       }),

@@ -505,3 +505,36 @@ export const reopenThread = (params: {
   rootId: string;
   actorUserId: string;
 }) => setResolution({ ...params, resolve: false });
+
+/**
+ * Hand every comment (and comment-authored activity event) this account
+ * wrote to a successor, the same shape as reassignGrantAuthorshipOps
+ * (authz/grants.ts) and for the same reason userOffboarding.ts already
+ * calls that one: it must run before `tx.user.delete(...)`, in the same
+ * transaction, not after.
+ *
+ * Unlike a share grant's createdByUserId, Comment.authorUserId and
+ * ActivityEvent.actorUserId are real relations with onDelete: Cascade --
+ * `author` has to be a real account for every row (no anonymous
+ * authorship), which a nullable/SetNull field would quietly relax. Cascade
+ * is correct for a board or a single comment being deleted on purpose. It
+ * is wrong for offboarding: Comment.root also cascades, so an offboarded
+ * author's own root comment disappearing would silently take every OTHER
+ * person's reply nested under it with it. Reassigning first means the
+ * delete never finds a Comment or ActivityEvent still pointing at the
+ * departing account, so neither cascade ever fires here.
+ */
+export const reassignCommentAuthorshipOps = (params: {
+  prisma: Prisma.TransactionClient;
+  fromUserId: string;
+  toUserId: string;
+}) => [
+  params.prisma.comment.updateMany({
+    where: { authorUserId: params.fromUserId },
+    data: { authorUserId: params.toUserId },
+  }),
+  params.prisma.activityEvent.updateMany({
+    where: { actorUserId: params.fromUserId },
+    data: { actorUserId: params.toUserId },
+  }),
+];
