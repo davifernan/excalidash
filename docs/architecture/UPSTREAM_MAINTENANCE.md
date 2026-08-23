@@ -29,13 +29,15 @@ Konfigurationen oder Datenformen fuer unbekannte fremde Installationen kompatibe
 ## Branch-Modell
 
 - `origin/main`: unveraenderte Referenz auf ExcaliDash-Upstream
-- `fork/main`: kanonischer, veroeffentlichter Integrationsstand und Basis aller Issue-Branches
+- `fork/main`: kanonischer, veroeffentlichter Integrationsstand und Basis aller Package-PR-Branches
 - `upstream-sync/YYYY-MM-DD`: kurzlebiger Branch fuer ExcaliDash-Merge
 - `upgrade/excalidraw-X.Y.Z`: kurzlebiger Branch fuer Paketupgrade
-- `feat/nil-NNN-slug`, `fix/nil-NNN-slug`: isolierte Issue-Branches
+- `feat/nil-NNN-slug`, `fix/nil-NNN-slug`: isolierte PR-Branches eines Ownership Packages
 
-Viele Agenten arbeiten in getrennten Git-Worktrees. Pro Issue existiert genau ein
-Implementierungsworktree. Der PR Overseer besitzt die Merge-Reihenfolge und integriert lokal
+Viele Agenten arbeiten in getrennten Git-Worktrees. Pro Ownership Package existieren genau ein
+kanonischer Owner und ein langlebiger Package-Worktree; serielle PRs erhalten darin jeweils
+einen frischen Branch aus aktuellem `fork/main`. Acceptance Slices erhalten weder Agentenlauf
+noch Worktree oder Branch. Der PR Overseer besitzt die Merge-Reihenfolge und integriert lokal
 in `fork/main`; es existiert kein zweiter dauerhafter Integrationsbranch.
 
 ## ExcaliDash-Upstream synchronisieren

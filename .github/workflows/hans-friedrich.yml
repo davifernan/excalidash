@@ -37,12 +37,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Build diff-derived impact manifest
+        id: impact
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels) }}
+        run: |
+          manifest=$(node scripts/delivery-v2.cjs impact)
+          echo "manifest=${manifest}" >> "$GITHUB_OUTPUT"
+
       - name: Check review admission
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
-        run: node scripts/delivery-contracts.cjs admission
+          IMPACT_MANIFEST: ${{ steps.impact.outputs.manifest }}
+        run: node scripts/delivery-v2.cjs admission
 
       - name: Check commit identity and trailer
         env:

@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -8,7 +10,6 @@ const {
   admitCommitContracts,
   checkCommitContracts,
   checkFixVerificationCoverage,
-  checkPrAdmission,
   checkReviewedHead,
   parseFixVerificationMarker,
   validateHansReview,
@@ -19,24 +20,6 @@ const FIX_SHA = "b".repeat(40);
 const NEXT_SHA = "c".repeat(40);
 const TEST_BLOB_SHA = "d".repeat(40);
 const NILO_IDENTITY = "Nilo <127136134+davifernan@users.noreply.github.com>";
-
-function readyBody(extra = "") {
-  return `Multica-Issue: NIL-385
-
-- [x] Multica HANDOFF posted
-- [x] Local verification complete
-- [x] Ready for Hans-Friedrich
-${extra}`;
-}
-
-function reviewedReadyBody() {
-  return `Multica-Issue: NIL-316
-
-- [x] Multica HANDOFF posted for the reviewed product head and the re-admitted test-only head.
-- [x] Local verification complete for finding-fix head \`85f5554\`.
-- [x] Hans-Friedrich completed the one general review on \`33c8112\`.
-`;
-}
 
 function marker(overrides = {}) {
   const value = {
@@ -100,66 +83,6 @@ function fixVerificationComment(overrides = {}) {
     body: fixVerificationMarker(overrides),
   };
 }
-
-test("admits exactly one ready Multica PR", () => {
-  assert.deepEqual(checkPrAdmission({ body: readyBody() }), {
-    ok: true,
-    code: "ready",
-    primaryIssue: "NIL-385",
-  });
-});
-
-test("admits the explanatory ready-gate labels from PR #13", () => {
-  assert.deepEqual(checkPrAdmission({ body: reviewedReadyBody() }), {
-    ok: true,
-    code: "ready",
-    primaryIssue: "NIL-316",
-  });
-
-  const readinessDetails = readyBody()
-    .replace("Multica HANDOFF posted", "Multica HANDOFF posted for head abc123")
-    .replace("Local verification complete", "Local verification complete for head abc123")
-    .replace("Ready for Hans-Friedrich", "Ready for Hans-Friedrich on head abc123");
-  assert.equal(checkPrAdmission({ body: readinessDetails }).code, "ready");
-});
-
-test("still rejects an unchecked box or a missing ready-gate label", () => {
-  const unchecked = reviewedReadyBody().replace(
-    "- [x] Multica HANDOFF posted",
-    "- [ ] Multica HANDOFF posted",
-  );
-  assert.deepEqual(checkPrAdmission({ body: unchecked }), {
-    ok: false,
-    code: "ready-gate",
-    message: "Review admission is missing: Multica HANDOFF posted.",
-  });
-
-  const missingLabel = reviewedReadyBody().replace(
-    "- [x] Local verification complete for finding-fix head `85f5554`.",
-    "- [x] Finding-fix head `85f5554` was verified locally.",
-  );
-  assert.deepEqual(checkPrAdmission({ body: missingLabel }), {
-    ok: false,
-    code: "ready-gate",
-    message: "Review admission is missing: Local verification complete.",
-  });
-});
-
-test("rejects an incomplete or ambiguous PR before spending review tokens", () => {
-  assert.equal(checkPrAdmission({ body: readyBody(), draft: true }).code, "draft");
-  assert.equal(
-    checkPrAdmission({ body: readyBody("\nMultica-Issue: NIL-328") }).code,
-    "primary-issue",
-  );
-  assert.equal(
-    checkPrAdmission({ body: "Multica-Issue: NIL-385" }).code,
-    "ready-gate",
-  );
-  assert.equal(
-    checkPrAdmission({ body: readyBody().replace("NIL-385", "NIL-000") }).code,
-    "primary-issue",
-  );
-});
 
 test("admits only exact Nilo-authored commits with the required trailer", () => {
   assert.deepEqual(
@@ -510,11 +433,23 @@ test("normalizes PR and review events for the external overseer", () => {
         head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
         author_association: "OWNER",
         draft: false,
+        body: `Multica-Package: NIL-404
+Delivery-Slices: NIL-410, NIL-411
+Package-Session: 01a02bc5-fe01-7ce3-b520-387137968d9a
+Impact-Manifest: generated from git diff
+Visual-Evidence: skipped: no visible frontend product delta`,
       },
     },
   });
   assert.equal(pullRequest.skip, false);
   assert.equal(pullRequest.event.head_sha, FIX_SHA);
+  assert.equal(pullRequest.event.primary_package, "NIL-404");
+  assert.equal(pullRequest.event.delivery_contract_error, null);
+  assert.deepEqual(pullRequest.event.delivery_slices, ["NIL-410", "NIL-411"]);
+  assert.equal(
+    pullRequest.event.package_session,
+    "01a02bc5-fe01-7ce3-b520-387137968d9a",
+  );
   assert.match(pullRequest.idempotencyKey, /davifernan\/excalidash#7/);
 
   const reviewEvent = buildDeliveryEvent({
@@ -560,6 +495,91 @@ test("delivery event identity survives workflow retries and ignores overseer com
       },
     }),
     { skip: true, reason: "pr-overseer-self-comment" },
+  );
+});
+
+test("delivery events distinguish absent, unfilled-template, and malformed contracts", () => {
+  const eventWithoutContract = buildDeliveryEvent({
+    eventName: "pull_request",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "opened",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+        author_association: "OWNER",
+        body: "Draft notes only.",
+      },
+    },
+  });
+  assert.equal(eventWithoutContract.event.primary_package, null);
+  assert.equal(eventWithoutContract.event.delivery_contract_error, null);
+
+  const templateEvent = buildDeliveryEvent({
+    eventName: "pull_request",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "opened",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+        author_association: "OWNER",
+        body: fs.readFileSync(
+          path.join(__dirname, "..", ".github", "pull_request_template.md"),
+          "utf8",
+        ),
+      },
+    },
+  });
+  assert.equal(templateEvent.skip, false);
+  assert.equal(templateEvent.event.primary_package, null);
+  assert.equal(templateEvent.event.delivery_contract_error, null);
+
+  const duplicatePackage = buildDeliveryEvent({
+    eventName: "pull_request",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "opened",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+        author_association: "OWNER",
+        body: `Multica-Package: NIL-404
+Multica-Package: NIL-405
+Delivery-Slices: none
+Package-Session: not-a-session
+Impact-Manifest: generated from git diff
+Visual-Evidence: skipped: no visible frontend product delta`,
+      },
+    },
+  });
+  assert.equal(duplicatePackage.event.primary_package, null);
+  assert.match(
+    duplicatePackage.event.delivery_contract_error,
+    /exactly one `Multica-Package/,
+  );
+
+  const malformedSession = buildDeliveryEvent({
+    eventName: "pull_request_review",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "submitted",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA },
+        body: `Multica-Package: NIL-404
+Delivery-Slices: none
+Package-Session: not-a-session
+Impact-Manifest: generated from git diff
+Visual-Evidence: skipped: no visible frontend product delta`,
+      },
+      review: { id: 42, commit_id: SHA, user: { login: "the-hans-friedrich[bot]" } },
+    },
+  });
+  assert.equal(malformedSession.event.primary_package, null);
+  assert.match(
+    malformedSession.event.delivery_contract_error,
+    /exactly one real `Package-Session/,
   );
 });
 

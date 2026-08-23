@@ -4,6 +4,7 @@
 
 const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
+const { parsePrDeliveryContract } = require("./delivery-v2.cjs");
 
 const REVIEW_MARKER = /<!-- excalidash-review:v1\s*([\s\S]*?)\s*-->/m;
 const FIX_VERIFICATION_MARKER = /<!-- excalidash-fix-verification:v1\s*([\s\S]*?)\s*-->/gm;
@@ -20,66 +21,6 @@ const REQUIRED_GIT_IDENTITY = "Nilo <127136134+davifernan@users.noreply.github.c
 const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 const FIX_EVIDENCE_TYPES = new Set(["objective-red-green", "finding-verification"]);
 const FIX_VERIFIER_ROLES = new Set(["pr-overseer", "finding-verifier"]);
-
-function checkPrAdmission({ body, draft = false, authorType = "User" }) {
-  if (draft) {
-    return { ok: false, code: "draft", message: "Draft PRs are not review-ready." };
-  }
-  if (authorType === "Bot") {
-    return { ok: false, code: "bot", message: "Bot PRs are not reviewed automatically." };
-  }
-
-  const text = body || "";
-  const primaryIssues = [
-    ...text.matchAll(/^Multica-Issue:\s*(NIL-[1-9][0-9]*)\s*$/gim),
-  ].map((match) => match[1].toUpperCase());
-
-  if (primaryIssues.length !== 1) {
-    return {
-      ok: false,
-      code: "primary-issue",
-      message: "PR body must contain exactly one `Multica-Issue: NIL-NNN` line.",
-    };
-  }
-
-  const requiredChecks = [
-    {
-      label: "Multica HANDOFF posted",
-      acceptedStarts: ["Multica HANDOFF posted"],
-    },
-    {
-      label: "Local verification complete",
-      acceptedStarts: ["Local verification complete"],
-    },
-    {
-      label: "Ready for Hans-Friedrich",
-      acceptedStarts: [
-        "Ready for Hans-Friedrich",
-        "Hans-Friedrich completed the one general review",
-      ],
-    },
-  ];
-  const lines = text.split(/\r?\n/);
-  const missingChecks = requiredChecks
-    .filter(({ acceptedStarts }) => !acceptedStarts.some((start) => {
-      const checkedLabel = new RegExp(
-        `^- \\[x\\] ${escapeRegExp(start)}(?:[ \\t]+.*)?[ \\t]*$`,
-        "i",
-      );
-      return lines.some((line) => checkedLabel.test(line));
-    }))
-    .map(({ label }) => label);
-
-  if (missingChecks.length > 0) {
-    return {
-      ok: false,
-      code: "ready-gate",
-      message: `Review admission is missing: ${missingChecks.join(", ")}.`,
-    };
-  }
-
-  return { ok: true, code: "ready", primaryIssue: primaryIssues[0] };
-}
 
 function parseReviewMarker(body) {
   const match = REVIEW_MARKER.exec(body || "");
@@ -509,6 +450,7 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
   let event;
 
   if (eventName === "pull_request") {
+    const delivery = parseOptionalPrDeliveryContract(payload.pull_request?.body);
     event = {
       event: "pull_request",
       action: payload.action,
@@ -519,11 +461,16 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
       draft: Boolean(payload.pull_request?.draft),
       merged: Boolean(payload.pull_request?.merged),
       merge_commit_sha: payload.pull_request?.merge_commit_sha || null,
+      primary_package: delivery.contract?.primaryPackage || null,
+      delivery_slices: delivery.contract?.deliverySlices || [],
+      package_session: delivery.contract?.packageSession || null,
+      delivery_contract_error: delivery.error,
       trusted_source:
         payload.pull_request?.head?.repo?.full_name === repository &&
         TRUSTED_ASSOCIATIONS.has(payload.pull_request?.author_association),
     };
   } else if (eventName === "pull_request_review") {
+    const delivery = parseOptionalPrDeliveryContract(payload.pull_request?.body);
     event = {
       event: "pull_request_review",
       action: payload.action,
@@ -533,6 +480,10 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
       reviewed_sha: payload.review?.commit_id,
       review_id: payload.review?.id,
       reviewer: payload.review?.user?.login,
+      primary_package: delivery.contract?.primaryPackage || null,
+      delivery_slices: delivery.contract?.deliverySlices || [],
+      package_session: delivery.contract?.packageSession || null,
+      delivery_contract_error: delivery.error,
       trusted_source:
         payload.review?.user?.login === "the-hans-friedrich[bot]" ||
         TRUSTED_ASSOCIATIONS.has(payload.review?.author_association),
@@ -594,23 +545,30 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
   };
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function parseOptionalPrDeliveryContract(body) {
+  const text = body || "";
+  const hasDeliveryField = /^(?:Multica-Package|Delivery-Slices|Package-Session|Impact-Manifest|Visual-Evidence):/im
+    .test(text);
+  const hasTemplatePlaceholder =
+    /^Multica-Package:\s*NIL-000\s*$/im.test(text) ||
+    /^Package-Session:\s*REAL-SESSION-ID\s*$/im.test(text);
+
+  if (!hasDeliveryField || hasTemplatePlaceholder) {
+    return { contract: null, error: null };
+  }
+
+  try {
+    return { contract: parsePrDeliveryContract(text), error: null };
+  } catch (error) {
+    return {
+      contract: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function main() {
   const command = process.argv[2];
-  if (command === "admission") {
-    const result = checkPrAdmission({
-      body: process.env.PR_BODY,
-      draft: process.env.PR_DRAFT === "true",
-      authorType: process.env.PR_AUTHOR_TYPE,
-    });
-    process.stdout.write(`${JSON.stringify(result)}\n`);
-    if (!result.ok) process.exitCode = 1;
-    return;
-  }
-
   if (command === "review") {
     const input = JSON.parse(await readStdin());
     process.stdout.write(`${JSON.stringify(validateHansReview(input))}\n`);
@@ -652,7 +610,7 @@ async function main() {
   }
 
   throw new Error(
-    "Usage: delivery-contracts.cjs admission|commits|review|reviewed-head|fix-verification|event",
+    "Usage: delivery-contracts.cjs commits|review|reviewed-head|fix-verification|event",
   );
 }
 
@@ -671,7 +629,6 @@ function readStdin() {
 module.exports = {
   buildDeliveryEvent,
   admitCommitContracts,
-  checkPrAdmission,
   checkCommitContracts,
   checkFixVerificationCoverage,
   parseReviewMarker,
