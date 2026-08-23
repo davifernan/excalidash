@@ -13,7 +13,6 @@ Environment=SENTINEL_REPOSITORY=davifernan/excalidash
 Environment=SENTINEL_REPO_PATH=/home/claude/excalidash-control-pr
 Environment=SENTINEL_MAIN_REF=own/main
 Environment=SENTINEL_MASTER_ISSUE=NIL-383
-Environment=SENTINEL_PR_ISSUE=NIL-384
 Environment=SENTINEL_HANS_AUTOPILOT_ID=0957dd3a-f30c-4a5b-b7b4-24733122bf2b
 Environment=SENTINEL_STATE_FILE=/var/lib/excalidash-pipeline-sentinel/state.json
 ExecStart=/usr/bin/node /usr/local/lib/excalidash-pipeline-sentinel.cjs

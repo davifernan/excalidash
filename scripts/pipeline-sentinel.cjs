@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { buildImpactManifest, checkPrAdmission } = require("./delivery-v2.cjs");
 
 const ACTIVE_RUN_STATES = new Set(["queued", "running"]);
 const RECOVERABLE_ISSUE_STATES = new Set(["todo", "in_progress"]);
@@ -66,7 +67,6 @@ function classifyPackage(snapshot, now = Date.now()) {
   const recoverable = RECOVERABLE_ISSUE_STATES.has(issue.status) && assigned && !active;
 
   return {
-    refreshPullRequests() { openPullRequests = null; },
     active,
     activeSignals,
     anomaly: recoverable ? "stalled-package" : null,
@@ -95,12 +95,14 @@ function executablePackages(packages) {
   });
 }
 
-function isReviewReady(pr) {
-  if (pr.isDraft || pr.draft) return false;
-  const body = pr.body || "";
-  const hasPackage = /^(?:Multica-Package|Multica-Issue):\s*NIL-[1-9]\d*\s*$/im.test(body);
-  const ready = /^- \[x\] (?:Ready for Hans-Friedrich|Hans-Friedrich completed the one general review)(?:\s+.*)?$/im.test(body);
-  return hasPackage && ready;
+function isReviewReady(pr, impactManifest) {
+  const authorType = pr.authorType || (pr.author?.is_bot ? "Bot" : "User");
+  return checkPrAdmission({
+    body: pr.body || "",
+    draft: Boolean(pr.isDraft || pr.draft),
+    authorType,
+    impactManifest,
+  }).ok;
 }
 
 function hasCurrentHansReview(reviews, headSha) {
@@ -113,8 +115,8 @@ function hasCurrentHansReview(reviews, headSha) {
   });
 }
 
-function hansAnomaly(pr, reviews, now = Date.now()) {
-  if (!isReviewReady(pr) || hasCurrentHansReview(reviews, pr.headRefOid)) return null;
+function hansAnomaly(pr, reviews, impactManifest, now = Date.now()) {
+  if (!isReviewReady(pr, impactManifest) || hasCurrentHansReview(reviews, pr.headRefOid)) return null;
   const updatedAt = Date.parse(pr.updatedAt || pr.updated_at || pr.createdAt || "");
   if (Number.isFinite(updatedAt) && now - updatedAt < READY_GRACE_MS) return null;
   return {
@@ -125,13 +127,17 @@ function hansAnomaly(pr, reviews, now = Date.now()) {
   };
 }
 
-function qaDue(controlRoom, packages, mainSha) {
-  const metadata = controlRoom?.metadata || {};
-  const countDue = Number(metadata.qa_prs_since_anchor || 0) >= Number(metadata.qa_checkpoint_max_prs || 3);
-  const packageDue = packages.some((issue) =>
-    ["awaiting_qa", "qa_due"].includes(issue.metadata?.package_status) && issue.metadata?.last_qa_sha !== mainSha,
-  );
-  return countDue || packageDue;
+function packageQaDue(issue, mainSha) {
+  const metadata = issue.metadata || {};
+  const countDue = Number(metadata.integrated_prs_since_qa_anchor || 0) >=
+    Number(metadata.qa_checkpoint_max_prs || 3);
+  const completionDue = ["awaiting_qa", "qa_due"].includes(metadata.package_status) &&
+    metadata.last_qa_sha !== mainSha;
+  return countDue || completionDue;
+}
+
+function qaDue(packages, mainSha) {
+  return packages.some((issue) => packageQaDue(issue, mainSha));
 }
 
 function emptyState() {
@@ -238,7 +244,13 @@ function createLiveAdapter(config) {
   let openPullRequests = null;
   const getOpenPullRequests = () => {
     if (!openPullRequests) {
-      openPullRequests = gh("pr", "list", "--repo", config.repository, "--state", "open", "--limit", "100", "--json", "number,isDraft,body,headRefOid,updatedAt,url");
+      openPullRequests = gh(
+        "pr", "list",
+        "--repo", config.repository,
+        "--state", "open",
+        "--limit", "100",
+        "--json", "number,isDraft,body,headRefOid,baseRefOid,updatedAt,url,author,labels",
+      );
     }
     return openPullRequests;
   };
@@ -261,6 +273,21 @@ function createLiveAdapter(config) {
     listOpenPullRequests() { return getOpenPullRequests(); },
     getPrReviews(number) {
       return gh("api", `repos/${config.repository}/pulls/${number}/reviews`);
+    },
+    getPrImpactManifest(pr) {
+      const files = gh(
+        "api",
+        `repos/${config.repository}/pulls/${pr.number}/files`,
+        "--paginate",
+        "--slurp",
+        "--jq", "add | map(.filename)",
+      );
+      return buildImpactManifest({
+        baseSha: pr.baseRefOid,
+        headSha: pr.headRefOid,
+        files,
+        labels: pr.labels || [],
+      });
     },
     rerun(identifier) { return multica("issue", "rerun", identifier); },
     setMetadata(identifier, key, value) {
@@ -413,8 +440,9 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
   }
 
   for (const pr of adapter.listOpenPullRequests()) {
-    if (!isReviewReady(pr)) continue;
-    const anomaly = hansAnomaly(pr, adapter.getPrReviews(pr.number), now.getTime());
+    const impactManifest = adapter.getPrImpactManifest(pr);
+    if (!isReviewReady(pr, impactManifest)) continue;
+    const anomaly = hansAnomaly(pr, adapter.getPrReviews(pr.number), impactManifest, now.getTime());
     if (!anomaly) {
       clearObservation(state, `pr:${pr.number}`);
       continue;
@@ -429,7 +457,13 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
     adapter.refreshPullRequests?.();
     const currentPr = adapter.listOpenPullRequests().find((candidate) => candidate.number === pr.number);
     const currentReviews = currentPr ? adapter.getPrReviews(pr.number) : [];
-    if (!currentPr || currentPr.headRefOid !== pr.headRefOid || hasCurrentHansReview(currentReviews, pr.headRefOid)) {
+    const currentImpactManifest = currentPr ? adapter.getPrImpactManifest(currentPr) : null;
+    if (
+      !currentPr ||
+      currentPr.headRefOid !== pr.headRefOid ||
+      !isReviewReady(currentPr, currentImpactManifest) ||
+      hasCurrentHansReview(currentReviews, pr.headRefOid)
+    ) {
       events.push({ type: "hans-recovery", pr: pr.number, result: "already-recovered" });
       continue;
     }
@@ -438,10 +472,16 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
     events.push({ type: "hans-recovery", pr: pr.number, result });
   }
 
-  const prControlRoom = adapter.getIssue(config.prIssue);
   const qaKey = "global:package-qa";
-  if (qaDue(prControlRoom, packages, mainSha)) {
-    const qaFingerprint = crypto.createHash("sha256").update(stableJson({ mainSha, anchor: prControlRoom.metadata?.qa_anchor_sha, count: prControlRoom.metadata?.qa_prs_since_anchor })).digest("hex");
+  const duePackages = packages.filter((issue) => packageQaDue(issue, mainSha));
+  if (qaDue(packages, mainSha)) {
+    const qaState = duePackages.map((issue) => ({
+      package: issue.identifier,
+      anchor: issue.metadata?.qa_anchor_sha || issue.metadata?.last_qa_sha || null,
+      integrations: Number(issue.metadata?.integrated_prs_since_qa_anchor || 0),
+      status: issue.metadata?.package_status || null,
+    }));
+    const qaFingerprint = crypto.createHash("sha256").update(stableJson({ mainSha, packages: qaState })).digest("hex");
     const observation = observe(state, qaKey, qaFingerprint, nowIso);
     if (observation.shouldAct) {
       let result = "dry-run";
@@ -450,7 +490,7 @@ async function scan({ adapter, config, now = new Date(), dryRun = false }) {
           adapter.triggerQa();
           result = "qa-triggered";
         } else {
-          adapter.comment(config.masterIssue, `SENTINEL RECOVERY — Package QA ist fällig\n\nMain: ${mainSha}\nQA-Anchor: ${prControlRoom.metadata?.qa_anchor_sha || "nicht gesetzt"}\nPRs seit Anchor: ${prControlRoom.metadata?.qa_prs_since_anchor || 0}\nAktion: Package-QA-Agent starten.\n\nGenerated by Pipeline Sentinel`);
+          adapter.comment(config.masterIssue, `SENTINEL RECOVERY — Package QA ist fällig\n\nPackages: ${duePackages.map((issue) => issue.identifier).join(", ")}\nMain: ${mainSha}\nPackage-Zustand: ${qaState.map((entry) => `${entry.package} anchor=${entry.anchor || "nicht gesetzt"} integrations=${entry.integrations} status=${entry.status || "nicht gesetzt"}`).join("; ")}\nAktion: Package-QA-Agent starten.\n\nGenerated by Pipeline Sentinel`);
           result = "master-alerted";
         }
         recordAction(state, qaKey, nowIso);
@@ -477,7 +517,6 @@ function readConfig() {
     stateFile,
     lockRoot: `${stateFile}.locks`,
     masterIssue: process.env.SENTINEL_MASTER_ISSUE || "NIL-383",
-    prIssue: process.env.SENTINEL_PR_ISSUE || "NIL-384",
     hansAutopilotId: process.env.SENTINEL_HANS_AUTOPILOT_ID || "0957dd3a-f30c-4a5b-b7b4-24733122bf2b",
     qaAutopilotId: process.env.SENTINEL_QA_AUTOPILOT_ID || null,
     intervalMs: Number(process.env.SENTINEL_INTERVAL_MS || 180_000),

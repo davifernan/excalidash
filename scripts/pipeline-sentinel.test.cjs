@@ -18,6 +18,7 @@ const {
   qaDue,
   recordAction,
 } = require("./pipeline-sentinel.cjs");
+const { buildImpactManifest } = require("./delivery-v2.cjs");
 
 const SHA = "a".repeat(40);
 
@@ -133,28 +134,55 @@ test("only dependency-complete, unclaimed execution packages are eligible", () =
   assert.deepEqual(executablePackages(packages).map((candidate) => candidate.identifier), ["NIL-321"]);
 });
 
-test("Hans recovery waits for a ready, stable head and accepts only a matching bot review", () => {
+test("Hans recovery waits for Delivery v2 admission, a stable head and a matching bot review", () => {
   const pr = {
     number: 41,
     isDraft: false,
-    body: "Multica-Package: NIL-404\n\n- [x] Ready for Hans-Friedrich",
+    body: [
+      "Multica-Package: NIL-404",
+      "Delivery-Slices: none",
+      "Package-Session: 01a02bc5-fe01-7ce3-b520-387137968d9a",
+      "Impact-Manifest: generated from git diff",
+      "Visual-Evidence: skipped: no visible frontend product delta",
+      "",
+      "- [x] Multica HANDOFF posted",
+      "- [x] Local verification complete",
+      "- [x] Ready for Hans-Friedrich",
+    ].join("\n"),
     headRefOid: SHA,
     updatedAt: "2026-08-22T22:00:00Z",
   };
-  assert.equal(hansAnomaly(pr, [], Date.parse("2026-08-22T23:00:00Z")).action, "trigger-hans");
+  const impactManifest = buildImpactManifest({
+    baseSha: "b".repeat(40),
+    headSha: SHA,
+    files: ["scripts/pipeline-sentinel.cjs"],
+  });
+  assert.equal(hansAnomaly(pr, [], impactManifest, Date.parse("2026-08-22T23:00:00Z")).action, "trigger-hans");
   const reviews = [{
     user: { login: "the-hans-friedrich[bot]" },
     commit_id: SHA,
     body: `<!-- excalidash-review:v1 {"reviewed_head_sha":"${SHA}"} -->`,
   }];
   assert.equal(hasCurrentHansReview(reviews, SHA), true);
-  assert.equal(hansAnomaly(pr, reviews, Date.parse("2026-08-22T23:00:00Z")), null);
+  assert.equal(hansAnomaly(pr, reviews, impactManifest, Date.parse("2026-08-22T23:00:00Z")), null);
+
+  const legacyAlias = { ...pr, body: pr.body.replace("Multica-Package", "Multica-Issue") };
+  assert.equal(hansAnomaly(legacyAlias, [], impactManifest, Date.parse("2026-08-22T23:00:00Z")), null);
+  const reviewedAlias = {
+    ...pr,
+    body: pr.body.replace("Ready for Hans-Friedrich", "Hans-Friedrich completed the one general review"),
+  };
+  assert.equal(hansAnomaly(reviewedAlias, [], impactManifest, Date.parse("2026-08-22T23:00:00Z")), null);
 });
 
-test("QA becomes due from the checkpoint counter or explicit package state", () => {
-  assert.equal(qaDue({ metadata: { qa_prs_since_anchor: 3, qa_checkpoint_max_prs: 3 } }, [], SHA), true);
-  assert.equal(qaDue({ metadata: { qa_prs_since_anchor: 0 } }, [
+test("QA becomes due from package-owned counters or explicit package state", () => {
+  assert.equal(qaDue([
+    issue({ metadata: { integrated_prs_since_qa_anchor: 3, qa_checkpoint_max_prs: 3 } }),
+  ], SHA), true);
+  assert.equal(qaDue([
     issue({ metadata: { package_status: "awaiting_qa", last_qa_sha: "b".repeat(40) } }),
   ], SHA), true);
-  assert.equal(qaDue({ metadata: { qa_prs_since_anchor: 0 } }, [], SHA), false);
+  assert.equal(qaDue([
+    issue({ metadata: { integrated_prs_since_qa_anchor: 0, qa_checkpoint_max_prs: 3 } }),
+  ], SHA), false);
 });
