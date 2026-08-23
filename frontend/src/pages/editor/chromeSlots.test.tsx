@@ -17,6 +17,8 @@ const baseCtx: ChromeSlotContext = {
   canEdit: true,
   mobile: false,
   drawingName: "Untitled",
+  collectionId: null,
+  collectionName: null,
   isRenaming: false,
   isSavingOnLeave: false,
   newName: "",
@@ -60,10 +62,30 @@ describe("MAIN_MENU_ENTRIES", () => {
     expect(ids[ids.length - 1]).toBe("help");
   });
 
-  it("places back-to-dashboard directly after the board name (NIL-374)", () => {
+  it("places back-to-dashboard directly after the board name when there is no workspace context to show (NIL-374)", () => {
     const ids = renderedIds(MAIN_MENU_ENTRIES, baseCtx).filter(Boolean);
     const nameIdx = ids.indexOf("board-name");
     expect(ids[nameIdx + 1]).toBe("back-to-dashboard");
+  });
+
+  it("slots workspace-context between board-name and back-to-dashboard when the board has a collection (NIL-323/NIL-344)", () => {
+    const inCollection: ChromeSlotContext = {
+      ...baseCtx,
+      collectionId: "c1",
+      collectionName: "Roadmap",
+    };
+    const ids = renderedIds(MAIN_MENU_ENTRIES, inCollection).filter(Boolean);
+    expect(ids.slice(ids.indexOf("board-name"), ids.indexOf("board-name") + 3)).toEqual([
+      "board-name",
+      "workspace-context",
+      "back-to-dashboard",
+    ]);
+  });
+
+  it("hides workspace-context for an unorganized board or a viewer the backend never sent collection data to", () => {
+    expect(renderedIds(MAIN_MENU_ENTRIES, baseCtx)).not.toContain("workspace-context");
+    const partial: ChromeSlotContext = { ...baseCtx, collectionId: "c1", collectionName: null };
+    expect(renderedIds(MAIN_MENU_ENTRIES, partial)).not.toContain("workspace-context");
   });
 
   it("hides version history for a read-only visitor", () => {
