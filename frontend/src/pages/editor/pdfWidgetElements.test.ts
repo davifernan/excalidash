@@ -50,4 +50,37 @@ describe("PDF widget elements", () => {
     });
     expect(getPdfWidgetAssetId(element)).toBeNull();
   });
+
+  /**
+   * A widget has to stay a widget when somebody else writes on the element.
+   *
+   * The recognition used to require customData to have exactly three keys, so
+   * any fourth one -- a namespace, sticky metadata, anything a future writer
+   * adds -- made it unrecognisable. That is not a cosmetic failure: an
+   * unrecognised widget renders as Excalidraw's own embeddable for an
+   * excalidash:// link, which is an empty box with a URL.
+   */
+  describe("recognition survives a foreign key on the element", () => {
+    const widget = (customData: Record<string, unknown>) => ({
+      type: "embeddable",
+      link: ASSET_WIDGET_LINK,
+      customData,
+    });
+    const valid = { schemaVersion: 1, widgetKind: "pdf" as const, assetId: "asset-1" };
+
+    it("still recognises the widget beside an unrelated key", () => {
+      expect(getAssetWidgetData(widget({ ...valid, somebodyElse: { note: 1 } }))).toEqual(valid);
+    });
+
+    it("still recognises the widget beside sticky metadata", () => {
+      expect(getAssetWidgetData(widget({ ...valid, excalidashSticky: { v: 1 } }))).toEqual(valid);
+    });
+
+    it("still rejects data that is actually wrong", () => {
+      expect(getAssetWidgetData(widget({ ...valid, schemaVersion: 99 }))).toBeNull();
+      expect(getAssetWidgetData(widget({ ...valid, widgetKind: "spreadsheet" }))).toBeNull();
+      expect(getAssetWidgetData(widget({ ...valid, assetId: "" }))).toBeNull();
+      expect(getAssetWidgetData(widget({ schemaVersion: 1, widgetKind: "pdf" }))).toBeNull();
+    });
+  });
 });

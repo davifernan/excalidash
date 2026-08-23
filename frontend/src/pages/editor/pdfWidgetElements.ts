@@ -49,7 +49,12 @@ export const getAssetWidgetData = (element: EmbeddableLike): AssetWidgetData | n
     !element.link ||
     !isAssetWidgetLink(element.link) ||
     !customData ||
-    Object.keys(customData).length !== 3 ||
+    // Every field is named, and nothing is said about the ones that are not.
+    // This used to require exactly three keys, which turned any fourth one --
+    // a namespace, sticky metadata, anything another writer adds to the same
+    // element -- into an unrecognised widget, and an unrecognised widget
+    // renders as Excalidraw's own embeddable for an excalidash:// link: an
+    // empty box with a URL. A key count is not a schema.
     customData.schemaVersion !== 1 ||
     !["pdf", "markdown", "text"].includes(String(customData.widgetKind)) ||
     typeof customData.assetId !== "string" ||
@@ -58,7 +63,14 @@ export const getAssetWidgetData = (element: EmbeddableLike): AssetWidgetData | n
   ) {
     return null;
   }
-  return customData as AssetWidgetData;
+  // Projected, not cast. The element may legitimately carry data belonging to
+  // somebody else; handing that on as widget data would make every consumer a
+  // second place where a foreign key can go wrong.
+  return {
+    schemaVersion: 1,
+    widgetKind: customData.widgetKind as AssetWidgetKind,
+    assetId: customData.assetId,
+  };
 };
 
 export const getPdfWidgetAssetId = (element: EmbeddableLike): string | null => {
