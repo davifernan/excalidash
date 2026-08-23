@@ -1,5 +1,5 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ COPY src ./src
 RUN npx tsc
 
 # Production stage
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Install runtime packages and create non-root user
 # poppler-utils renders PDF pages. ImageMagick decodes untrusted remote link
