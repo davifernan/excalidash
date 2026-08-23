@@ -445,12 +445,17 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
               // eines Mitglieds hinterlaesst kein ownerloses oder
               // unzugaengliches Teamboard"). Boards keep their place in
               // collections here (unlike full offboarding): the collections
-              // themselves are reassigned, not deleted.
+              // themselves are reassigned, not deleted. The departing
+              // member's own trash is excluded from both transfers -- it is
+              // scoped to their account, not team organization, and handing
+              // it to the admin would resurface already-deleted boards as a
+              // plain "Trash"-named collection in the admin's own lists.
               transferredDrawings = await transferOwnedBoards({
                 db: tx,
                 fromUserId: userId,
                 toUserId: req.user.id,
                 detachFromCollection: false,
+                excludeTrash: true,
               });
               transferredCollections = await transferOwnedCollections({
                 db: tx,
