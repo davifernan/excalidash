@@ -9,6 +9,12 @@ import {
 } from "./helpers/api";
 
 test.describe("Drawing Version History", () => {
+  // RED PROBE (temporary, reverted in the next commit): proves the gate job
+  // that carries the required check name actually goes red when a shard fails.
+  test("red probe: the gate must not stay green", async () => {
+    expect(1).toBe(2);
+  });
+
   let createdDrawingIds: string[] = [];
 
   test.afterEach(async ({ request }) => {
