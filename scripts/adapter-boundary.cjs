@@ -30,21 +30,23 @@ const CUSTOM_DATA_HELPER = path.join(LAYER, "customData.ts");
  * Measured on main 85c3919. Sixteen entries; the list is emptied by the
  * consumer migration (NIL-336 to NIL-340), not extended.
  */
-const PACKAGE_IMPORT_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/EditorView.tsx",
-]);
+const PACKAGE_IMPORT_EXCEPTIONS = new Set(["frontend/src/pages/editor/EditorView.tsx"]);
 
 /** Files that still reach into the editor's own DOM. */
-const DOM_INTERNAL_EXCEPTIONS = new Set([
-  "frontend/src/sticky/StickyPalette.tsx",
-  "frontend/src/sticky/stickyPlacement.ts",
-]);
+/**
+ * Files that still reach into the editor's own DOM.
+ *
+ * Empty: every reach now goes through domBridge.ts. This rule is closed.
+ */
+const DOM_INTERNAL_EXCEPTIONS = new Set([]);
 
 /** Files that still synthesise input events. */
-const SYNTHETIC_EVENT_EXCEPTIONS = new Set([
-  "frontend/src/sticky/stickyConnect.ts",
-  "frontend/src/sticky/stickyPlacement.ts",
-]);
+/**
+ * Files that still synthesise input events.
+ *
+ * Empty: the Enter, the pointerdown and the wheel all live in domBridge.ts now.
+ */
+const SYNTHETIC_EVENT_EXCEPTIONS = new Set([]);
 
 /**
  * Files that still write customData without the central helper.

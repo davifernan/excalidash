@@ -13,19 +13,20 @@
  */
 import { STICKY_BASE_FONT_SIZE, type StickyColor } from "./stickyNote";
 
+import { pressEnterToEditLabel } from "../integrations/excalidraw/domBridge";
+
 /** Space between a note and the one spawned next to it. */
 export const STICKY_GAP = 24;
 
-function pressEnter(container: HTMLElement | null): void {
-  const target = container?.querySelector(".excalidraw") ?? container;
-  target?.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Enter",
-      code: "Enter",
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
+/**
+ * Ask the editor to open the selected note's label.
+ *
+ * Through the bridge, which waits for the editor to actually be editing rather
+ * than assuming it is. `isEditing` is passed by the caller because only it knows
+ * which note was just placed.
+ */
+function pressEnter(container: HTMLElement | null, isEditing: () => boolean): void {
+  void pressEnterToEditLabel(container, isEditing);
 }
 
 /**
@@ -92,8 +93,13 @@ export function insertStickyNote(
   });
 
   // The scene update is React state. The key has to arrive after it has been
-  // committed, or Excalidraw finds nothing selected to type into.
+  // committed, or Excalidraw finds nothing selected to type into -- and the
+  // bridge then waits for the editor to really be editing rather than assuming
+  // it, which is what NIL-308 asked for: a detection that survives the frame.
   requestAnimationFrame(() => {
-    pressEnter(containerEl);
+    pressEnter(containerEl, () => {
+      const editing = api.getAppState?.()?.editingTextElement;
+      return !!editing && editing.containerId === placed.id;
+    });
   });
 }

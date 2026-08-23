@@ -39,6 +39,8 @@ export const INTERNAL_SELECTORS = {
   mobile: ".excalidraw--mobile",
   /** Chrome that should swallow a wheel event instead of zooming the canvas. */
   chrome: ".layer-ui__wrapper, .App-menu",
+  /** The canvas that receives pointer input. Not the static one beneath it. */
+  interactiveCanvas: "canvas.excalidraw__canvas.interactive",
 } as const;
 
 const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
@@ -167,6 +169,69 @@ export const pressEnterToEditLabel = async (
       fallback: "manual-selection",
     }),
   );
+};
+
+/**
+ * The toolbar's outer box, for measuring against.
+ *
+ * Different from findToolbarSlot on purpose: that returns the row a button is
+ * appended to, this returns the island a panel has to clear. Appending to the
+ * island stacks vertically; measuring against the row leaves a panel overlapping
+ * the island's lower edge.
+ */
+export const findToolbarIsland = (toolbar: HTMLElement | null): CapabilityResult<HTMLElement> => {
+  if (!toolbar) {
+    return report(fail("not-ready", "domBridge.findToolbarIsland", { detail: "no toolbar yet" }));
+  }
+  return ok(toolbar.closest<HTMLElement>(INTERNAL_SELECTORS.toolbar) ?? toolbar);
+};
+
+/**
+ * Begin a drag on the editor's canvas at a point on screen.
+ *
+ * There is no public way to start a drag. Dragging an arrow out of a sticky note
+ * arms the arrow tool and then synthesises the pointerdown the editor would have
+ * received, on the interactive canvas -- the static one beneath it takes no
+ * input.
+ *
+ * The frame between the two is not decoration: the tool is set through React
+ * state, and a pointer event that lands before that commits is read as a
+ * selection drag instead.
+ */
+export const beginCanvasDrag = async (
+  container: HTMLElement | null,
+  origin: {
+    clientX: number;
+    clientY: number;
+    pointerId: number;
+    pointerType?: string;
+  },
+): Promise<CapabilityResult<void>> => {
+  const canvas = container?.querySelector<HTMLCanvasElement>(INTERNAL_SELECTORS.interactiveCanvas);
+  if (!canvas) {
+    return report(
+      fail("editor-changed", "domBridge.beginCanvasDrag", {
+        detail: `no element matching ${INTERNAL_SELECTORS.interactiveCanvas}`,
+        fallback: "manual-selection",
+      }),
+    );
+  }
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  canvas.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: origin.clientX,
+      clientY: origin.clientY,
+      pointerId: origin.pointerId,
+      pointerType: origin.pointerType || "mouse",
+      button: 0,
+      buttons: 1,
+      isPrimary: true,
+    }),
+  );
+  return ok(undefined);
 };
 
 /**
