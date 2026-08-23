@@ -15,12 +15,15 @@ Worktrees startet und niemand mehr weiß, welcher der 46 vorhandenen noch etwas 
 ## Die Routine
 
 1. `scripts/worktree-audit.sh` -- listet jeden registrierten Worktree mit Branch, ob ein
-   Prozess gerade `cwd` darin hat, und ob `git status` etwas meldet.
+   Prozess gerade `cwd` darin hat, und ob `git status` etwas meldet. Die Prozessprüfung kennt
+   drei Zustände, nicht zwei: `nein`, `JA -- anfassen`, und `UNKLAR -- prüfen` für jeden
+   Prozess, dessen `/proc/PID/cwd` wir mangels Rechten (andere UID, meist root) gar nicht lesen
+   konnten -- ein Lesefehler wird nie stillschweigend als "nichts da" gewertet.
 2. `scripts/worktree-audit.sh --with-pr-status` -- zusätzlich der PR-Zustand jedes Branches
    über `gh pr list`. Läuft separat, weil es bei vielen Worktrees API-Zeit kostet.
 3. Ein Worktree ist erst dann ein Löschkandidat, wenn **alle drei** zutreffen:
-   - kein Prozess hat ihn als `cwd` (weder direkt noch in einem Unterverzeichnis)
-   - `git status --porcelain` ist leer (ein einzelnes untracked `node_modules/` zählt nicht)
+   - kein Prozess hat ihn als `cwd`, **und** keiner war unlesbar (`nein`, nicht `UNKLAR`)
+   - `git status --porcelain` ist leer
    - sein Branch ist entweder MERGED/CLOSED, oder er hat keine Commits, die nicht schon auf
      `fork/main` liegen (`git log --oneline fork/main..<branch>` ist leer)
 4. **Vor jedem Entfernen erneut prüfen, nicht nur einmal am Anfang.** Zwischen der ersten und
@@ -78,6 +81,15 @@ unlandete Arbeit, keine Aufräum-Entscheidung.
 | `.../c3a99ee6…/scratchpad/recon` | kein laufender Prozess, aber Aktivität am selben Tag ohne eindeutiges Ende -- im Zweifel stehen gelassen |
 
 Ergebnis: 46 → 20 registrierte Worktrees (`git worktree list | wc -l`).
+
+**Nachträglich mit `sudo` verifiziert:** Die Live-Prüfung während dieser Runde lief ohne
+Root-Rechte und hätte damit -- wie in `scripts/worktree-audit.sh` inzwischen behoben -- jeden
+Prozess einer fremden UID (root via systemd, andere Sitzung) fälschlich als "kein Prozess"
+gelesen. Ein Root-Sweep über `/proc/*/cwd` nach der Runde zeigt: **jeder** Prozess mit `cwd`
+unter `excalidash-*` oder `multica_workspaces/` gehört Nutzer `claude`, keiner root oder einem
+anderen Konto. Die 26 Entfernungen waren damit faktisch sicher -- aber durch Glück (gleiche UID
+auf dieser Maschine heute), nicht durch die Prüfung selbst. Das ist der Grund, warum der Fix in
+`worktree-audit.sh` bleibt: die nächste Runde hat dieses Glück nicht garantiert.
 
 ## Wann als Nächstes prüfen
 
