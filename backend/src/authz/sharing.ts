@@ -2,8 +2,41 @@ import type { PrismaClient } from "../generated/client";
 import crypto from "crypto";
 import { hashTokenForStorage } from "../auth/tokenSecurity";
 
-export type DrawingPermission = "view" | "edit";
+/**
+ * The grantable levels, weakest first.
+ *
+ * `"comment"` sits between seeing and changing (NIL-487). It is a third thing a
+ * person may do to a board, not a variant of the other two: a reviewer may
+ * leave a note on a diagram without being able to move a box, and today that
+ * person has to be given `"edit"` -- which grants far more than was meant.
+ *
+ * It is added here, ahead of any feature that hands it out, on purpose. The
+ * column is a plain String. If NIL-324 starts writing `"comment"` while a
+ * reader still normalizes it to null, a granted share reads back as NO ACCESS:
+ * a silent revocation, green in every test, visible only to the person locked
+ * out. Every reader has to understand a level before anything writes it.
+ *
+ * Nothing in this PR grants it. `"view"` and `"edit"` keep their exact meaning.
+ */
+export type DrawingPermission = "view" | "comment" | "edit";
 export type DrawingAccess = "none" | DrawingPermission | "owner";
+
+/**
+ * One ranking for the whole contract.
+ *
+ * membership.ts and roster.ts each carried their own copy of this table. Two
+ * copies of an ordering means adding a level is a change in three files that
+ * type-checks after the first -- and the missed copies sort a `"comment"` claim
+ * as unknown, which `strongest()` then quietly loses against anything else.
+ * A level is a property of the contract, so the ordering lives with it.
+ */
+export const ACCESS_RANK: Record<DrawingAccess, number> = {
+  none: 0,
+  view: 1,
+  comment: 2,
+  edit: 3,
+  owner: 4,
+};
 
 export type DrawingPrincipal = {
   kind: "user";
@@ -22,7 +55,7 @@ export type DrawingPrincipal = {
 };
 
 export const normalizeDrawingPermission = (input: unknown): DrawingPermission | null => {
-  if (input === "view" || input === "edit") return input;
+  if (input === "view" || input === "comment" || input === "edit") return input;
   return null;
 };
 
@@ -148,9 +181,23 @@ export const getDrawingAccess = async (params: {
 export const canViewDrawing = (access: DrawingAccess): access is Exclude<DrawingAccess, "none"> =>
   access !== "none";
 
+/**
+ * Unchanged by `"comment"`, and that is the whole point.
+ *
+ * Commenting is not a weak form of editing -- it must not open a single write
+ * path that `"view"` does not already open. Written as an explicit membership
+ * test rather than `rank >= edit` so that inserting a level below `edit` can
+ * never widen it by arithmetic.
+ */
 export const canEditDrawing = (
   access: DrawingAccess,
 ): access is Extract<DrawingAccess, "edit" | "owner"> => access === "edit" || access === "owner";
+
+/** May annotate without changing the drawing itself. Implied by edit and owner. */
+export const canCommentDrawing = (
+  access: DrawingAccess,
+): access is Extract<DrawingAccess, "comment" | "edit" | "owner"> =>
+  access === "comment" || access === "edit" || access === "owner";
 
 export const isOwnerAccess = (access: DrawingAccess): boolean => access === "owner";
 
@@ -173,18 +220,7 @@ const getActiveLinkShareAccess = async (params: {
   return normalizeDrawingPermission(linkShare?.permission);
 };
 
-const accessRank = (access: DrawingAccess): number => {
-  switch (access) {
-    case "owner":
-      return 3;
-    case "edit":
-      return 2;
-    case "view":
-      return 1;
-    default:
-      return 0;
-  }
-};
+const accessRank = (access: DrawingAccess): number => ACCESS_RANK[access] ?? 0;
 
 const maxAccess = (a: DrawingAccess, b: DrawingAccess): DrawingAccess =>
   accessRank(a) >= accessRank(b) ? a : b;
