@@ -43,6 +43,13 @@
 #
 # "Build and push" is deliberately absent: it runs on workflow_run after Tests
 # completes on main, so requiring it would deadlock every push.
+#
+# "Authz Boundary" (NIL-487) is required for the same reason the adapter check is
+# enforced: a boundary nobody has to pass is a suggestion. Note the ordering
+# constraint that comes with it -- apply this rule only once the job exists on
+# main. A required check that no workflow produces blocks every push, and an
+# open PR branched before the job was added does not report it until its checks
+# are re-run against the updated merge ref.
 
 set -euo pipefail
 
@@ -65,6 +72,7 @@ ruleset_payload() {
       "parameters": {
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
+          { "context": "Authz Boundary" },
           { "context": "Backend Tests" },
           { "context": "Dead Code" },
           { "context": "Delivery Contract Tests" },

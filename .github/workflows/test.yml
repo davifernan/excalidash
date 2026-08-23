@@ -65,6 +65,29 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/adapter-boundary.test.cjs
 
+  authz-boundary:
+    name: Authz Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No dependency install: the check reads backend/src with node:fs and
+      # nothing else. That is deliberate -- a boundary check that needs a
+      # package tree can only run where one was installed, and this one has to
+      # be cheap enough to keep as its own required gate.
+      - name: Check the board-ownership boundary
+        run: node scripts/authz-boundary.cjs
+
+      - name: Prove the boundary check rejects what it claims to
+        run: node scripts/authz-boundary.test.cjs
+
   frontend-format:
     name: Frontend Format
     runs-on: ubuntu-latest
