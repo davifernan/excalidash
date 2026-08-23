@@ -115,6 +115,20 @@ export const createExcalidrawAdapter = (host: AdapterHost): ExcalidrawAdapter =>
         const state = interaction.read();
         return state.ok && state.value.editingTextContainerId === id;
       },
+      // Without these two the library capability compiles, reports `unsupported`
+      // at runtime, and the caller quietly falls back to the raw handle -- which
+      // is the boundary hole this layer exists to close.
+      updateLibrary: (payload) => {
+        const api = raw<RawApi & { updateLibrary?: (p: Record<string, unknown>) => Promise<unknown> }>();
+        return api?.updateLibrary
+          ? api.updateLibrary(payload)
+          : Promise.reject(new Error("updateLibrary is not attached"));
+      },
+      readLibraryItems: () => {
+        const state = raw<RawApi>()?.getAppState();
+        const items = state?.libraryItems;
+        return Array.isArray(items) ? items : [];
+      },
     })),
     compatibility: {
       packageVersion,

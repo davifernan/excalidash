@@ -126,3 +126,27 @@ describe("the assembled adapter", () => {
     expect(adapter.compatibility.packageVersion()).toBe("0.18.1");
   });
 });
+
+describe("the library seam", () => {
+  /**
+   * Without the wiring in index.ts the capability still compiles: `updateLibrary`
+   * and `readLibraryItems` are optional on UiApi, so an unwired host reports
+   * `unsupported` at runtime and the caller falls back to the raw handle. That
+   * fallback is the boundary hole this layer exists to close, so the wiring
+   * itself needs a guard.
+   */
+  it("imports through the host instead of reporting unsupported", async () => {
+    const api = { ...handle(), getAppState: () => ({ libraryItems: [{ id: "one" }] }) };
+    const adapter = createExcalidrawAdapter({
+      api: () => api as never,
+      container: () => null,
+      canEdit: () => true,
+    });
+
+    const result = await adapter.ui.importLibrary([{ id: "one" }] as never, { merge: true });
+
+    expect(result.ok).toBe(true);
+    expect(api.updateLibrary).toHaveBeenCalledTimes(1);
+    expect(result.ok && result.value).toEqual([{ id: "one" }]);
+  });
+});
