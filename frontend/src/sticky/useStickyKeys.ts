@@ -24,7 +24,7 @@ type Options = {
   canEdit: boolean;
   elements: () => readonly any[];
   interaction: Pick<InteractionCapability, "read">;
-  scene: Pick<SceneCapability, "apply" | "summaryById">;
+  scene: Pick<SceneCapability, "apply" | "summaryById" | "summaries">;
   selection: Pick<SelectionCapability, "read">;
 };
 
@@ -88,7 +88,6 @@ export function useStickyKeys({
 
       insertStickyNote(
         scene,
-        elements(),
         containerRef.current,
         createStickyNote(centre.x, centre.y, colour),
         colour,

@@ -275,7 +275,6 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     insertStickyNote(
       adapter.scene as any,
-      [],
       document.createElement("div"),
       note,
       DEFAULT_STICKY_COLOR,
@@ -298,7 +297,6 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     insertStickyNote(
       adapter.scene as any,
-      [],
       document.createElement("div"),
       createStickyNote(200, 200),
       DEFAULT_STICKY_COLOR,

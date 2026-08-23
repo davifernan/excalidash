@@ -50,7 +50,7 @@ type Options = {
     InteractionCapability,
     "onPointerDown" | "read" | "setActiveTool" | "subscribe"
   >;
-  scene: Pick<SceneCapability, "apply">;
+  scene: Pick<SceneCapability, "summaries" | "apply">;
 };
 
 export function useStickyNotes({ containerRef, canEdit, elements, interaction, scene }: Options) {
@@ -130,7 +130,6 @@ export function useStickyNotes({ containerRef, canEdit, elements, interaction, s
 
       insertStickyNote(
         scene,
-        elements(),
         containerRef.current,
         createStickyNote(point.x, point.y, color),
         color,
