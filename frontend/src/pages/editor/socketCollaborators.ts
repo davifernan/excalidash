@@ -44,6 +44,43 @@ export const withAwayStatus = (name: unknown, away: boolean): string => {
   return away ? `${base}${AWAY_SUFFIX}` : base;
 };
 
+/**
+ * Client-only cursor smoothing (NIL-373's third build item).
+ *
+ * A sender's own cursor-move emits are throttled to at most one per ~50ms
+ * (`lastCursorEmit` in useEditorCollaboration.ts), so a remote cursor drawn
+ * only on receipt jumps between those points at ~20fps instead of gliding.
+ * `CURSOR_INTERP_MS` matches that throttle: each new position is interpolated
+ * to over roughly the same window a real update would take to arrive, so the
+ * glide finishes right around when the next one is due -- short enough to
+ * add no perceptible lag, long enough to remove the jump.
+ *
+ * This does not fight the "only run while there is something to draw"
+ * invariant on `renderCursors` below -- an interpolation in flight *is*
+ * something to draw. The loop still starts on a cursor-move and still stops,
+ * exactly when the last tracked cursor has reached its target: nothing here
+ * schedules a frame for a cursor sitting still.
+ */
+const CURSOR_INTERP_MS = 50;
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+type CursorAnim = {
+  from: { x: number; y: number } | null;
+  to: { x: number; y: number };
+  startedAt: number;
+  button: string;
+  username: string;
+  color: string | null;
+};
+
+/** Where this cursor actually is right now: mid-glide, or already arrived. */
+const pointAt = (anim: CursorAnim, now: number): { x: number; y: number } => {
+  if (!anim.from) return anim.to;
+  const progress = Math.min(1, (now - anim.startedAt) / CURSOR_INTERP_MS);
+  return { x: lerp(anim.from.x, anim.to.x, progress), y: lerp(anim.from.y, anim.to.y, progress) };
+};
+
 export const bindSocketCollaborators = ({
   socket,
   collaboration,
@@ -65,7 +102,7 @@ export const bindSocketCollaborators = ({
   let selfPresenceId: string | null = null;
   let lastPresenceUsers: Peer[] | null = null;
   let knownPresenceIds = new Set<string>();
-  const cursorBuffer = new Map<string, any>();
+  const cursorAnims = new Map<string, CursorAnim>();
   let animationFrameId = 0;
   const awayTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const awayPresenceIds = new Set<string>();
@@ -122,35 +159,38 @@ export const bindSocketCollaborators = ({
    *
    * It used to schedule the next frame unconditionally, so an idle editor kept
    * a sixty-times-a-second loop alive doing nothing at all. A cursor arriving
-   * starts it; an empty buffer lets it stop.
+   * starts it; every tracked cursor having reached its target lets it stop.
    */
   const renderCursors = () => {
     animationFrameId = 0;
-    if (cursorBuffer.size > 0) {
-      const peers = currentPeers();
-      if (!peers) {
-        cursorBuffer.clear();
-        return;
-      }
-      const patches: CollaboratorPatch[] = [];
-      cursorBuffer.forEach((data, presenceId) => {
-        const existing = peers.get(presenceId);
-        patches.push({
-          socketId: presenceId as SocketId,
-          pointer: data.pointer ?? null,
-          pointerButton: data.button === "down" ? "down" : "up",
-          color: data.color ?? null,
-          name: withLargeSelectionStatus(
-            decorateName(data.username, presenceId),
-            existing?.selectionAllSelected === true,
-          ),
-        });
-      });
-      cursorBuffer.clear();
-      write(patches);
-      // One more frame, in case cursors arrived while this one was drawing.
-      animationFrameId = requestAnimationFrame(renderCursors);
+    if (cursorAnims.size === 0) return;
+    const peers = currentPeers();
+    if (!peers) {
+      cursorAnims.clear();
+      return;
     }
+    const now = Date.now();
+    const patches: CollaboratorPatch[] = [];
+    let stillAnimating = false;
+    cursorAnims.forEach((anim, presenceId) => {
+      const existing = peers.get(presenceId);
+      patches.push({
+        socketId: presenceId as SocketId,
+        pointer: pointAt(anim, now),
+        pointerButton: anim.button === "down" ? "down" : "up",
+        color: anim.color,
+        name: withLargeSelectionStatus(
+          decorateName(anim.username, presenceId),
+          existing?.selectionAllSelected === true,
+        ),
+      });
+      if (anim.from && now - anim.startedAt < CURSOR_INTERP_MS) stillAnimating = true;
+    });
+    write(patches);
+    // Kept in the map rather than cleared even once settled: the next
+    // cursor-move for this peer reads `to` back out as the glide's starting
+    // point, which is what keeps a second move from snapping backward first.
+    if (stillAnimating) animationFrameId = requestAnimationFrame(renderCursors);
   };
 
   const wake = () => {
@@ -231,12 +271,28 @@ export const bindSocketCollaborators = ({
 
   const onCursor = (data: any) => {
     if (typeof data?.presenceId !== "string") return;
-    cursorBuffer.set(data.presenceId, {
-      pointer: data.pointer,
+    const target = data.pointer;
+    if (!target || typeof target.x !== "number" || typeof target.y !== "number") return;
+    const now = Date.now();
+    const existing = cursorAnims.get(data.presenceId);
+    cursorAnims.set(data.presenceId, {
+      // Glide from wherever this cursor visually is right now -- mid-flight
+      // or long settled -- never from the previous target. Starting from the
+      // old target on every update would make a fast-moving cursor visibly
+      // snap backward each time a new position arrives.
+      from: existing ? pointAt(existing, now) : null,
+      to: target,
+      startedAt: now,
       button: data.button || "up",
       username: data.username,
-      color: { background: data.color, stroke: data.color },
-      id: data.presenceId,
+      // A plain colour, matching what `onPresence` already writes below and
+      // what `CollaboratorPatch.color`/`applyPatch` (integrations/excalidraw/
+      // collaboration.ts) expect: `applyPatch` is what wraps it into
+      // `{background, stroke}` on the raw record. Wrapping it again here --
+      // the pre-existing shape this replaces -- fed a `{background, stroke}`
+      // object into a field `applyPatch` treats as a single colour string,
+      // silently producing a malformed nested colour on every remote cursor.
+      color: typeof data.color === "string" ? data.color : null,
     });
     wake();
   };
@@ -254,7 +310,7 @@ export const bindSocketCollaborators = ({
     selfPresenceId = null;
     lastPresenceUsers = null;
     knownPresenceIds.clear();
-    cursorBuffer.clear();
+    cursorAnims.clear();
     clearAllAwayTimers();
     onPeersChange([]);
     const peers = currentPeers();

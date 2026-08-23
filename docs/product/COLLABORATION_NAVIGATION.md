@@ -108,11 +108,11 @@ someone who is already following you.") statt der bisherigen generischen Fallbac
 
 Zwei sichtbar unterschiedliche Zustaende, nicht einer:
 
-| Zustand | Ausloeser | Sichtbar als | Folgen-Wirkung |
-|---|---|---|---|
-| Aktiv | Tab im Fokus | normaler Avatar/Cursor | folgt normal |
-| Inaktiv ("away") | Tab-Blur/Fenster verlassen, laenger als 4s | Name traegt `· away`-Suffix, Cursor bleibt an letzter Position stehen | Folgen laeuft unveraendert weiter |
-| Getrennt | echter Socket-Disconnect | verschwindet vollstaendig aus der Teilnehmerkarte | Folgen endet mit expliziter Meldung |
+| Zustand          | Ausloeser                                  | Sichtbar als                                                          | Folgen-Wirkung                      |
+| ---------------- | ------------------------------------------ | --------------------------------------------------------------------- | ----------------------------------- |
+| Aktiv            | Tab im Fokus                               | normaler Avatar/Cursor                                                | folgt normal                        |
+| Inaktiv ("away") | Tab-Blur/Fenster verlassen, laenger als 4s | Name traegt `· away`-Suffix, Cursor bleibt an letzter Position stehen | Folgen laeuft unveraendert weiter   |
+| Getrennt         | echter Socket-Disconnect                   | verschwindet vollstaendig aus der Teilnehmerkarte                     | Folgen endet mit expliziter Meldung |
 
 Die 4-Sekunden-Verzoegerung ist eine reine Frontend-Massnahme (`socketCollaborators.ts`,
 `AWAY_GRACE_MS`) gegen Flackern bei einem kurzen Alt-Tab; sie ist keine serverseitige Frist,
@@ -134,15 +134,27 @@ absichtlich nicht gebaut.
 - Wer jemanden **folgte**, bevor diese Person das Board verliess, bekommt beim Verlassen die
   explizite "disconnected"-Meldung und muss danach aktiv neu folgen.
 
+## Glatter Cursor (NIL-373, Punkt 3 von 3)
+
+Ein aktiver Cursor bewegt sich jetzt zwischen zwei empfangenen Positionen, statt zwischen
+ihnen zu springen. `cursor-move`-Events kommen mit maximal ~20/s an (der Sender drosselt auf
+minimal 50ms Abstand, `lastCursorEmit` in `useEditorCollaboration.ts`); `socketCollaborators.ts`
+interpoliert jede neue Zielposition ueber ein 50ms-Fenster (`CURSOR_INTERP_MS`), gezeichnet mit
+`requestAnimationFrame` bei jedem Frame, bis das Ziel erreicht ist.
+
+Das bricht die dokumentierte "laeuft nur, waehrend es etwas zu zeichnen gibt"-Optimierung nicht:
+eine laufende Interpolation IST etwas zu zeichnen. Der Loop startet bei einer `cursor-move` und
+stoppt wieder, sobald jeder verfolgte Cursor sein Ziel erreicht hat — bei einem still stehenden
+Cursor wird kein einziger Frame mehr angefordert. Eine dritte Position, die eintrifft, bevor die
+vorherige Interpolation fertig ist, setzt bei der tatsaechlichen aktuellen Zwischenposition an
+(nicht beim zuletzt gesendeten Ziel), damit ein schnell bewegter Cursor nicht sichtbar
+zurueckspringt.
+
+Reine Client-Arbeit wie im Ticket verlangt: keine neuen Events, keine zusaetzliche Netzlast — die
+Interpolation rechnet ausschliesslich mit Positionen, die ohnehin schon eintreffen.
+
 ## Bewusst nicht gebaut in diesem Paket
 
-- **Cursor-Interpolation ("glatter Cursor")** ueber mehrere Frames hinweg. Das bestehende
-  `requestAnimationFrame`-Batching in `socketCollaborators.ts` glaettet bereits Bursts von
-  `cursor-move`-Events auf einen Patch pro Frame; eine echte Positions-Interpolation zwischen
-  zwei Punkten braeuchte einen kontinuierlichen Animationsloop unabhaengig von neuen Events,
-  was der bestehenden, bewusst dokumentierten Optimierung "läuft nur, während es etwas zu
-  zeichnen gibt" direkt widerspricht. Nicht in den Exit-Kriterien dieses Tickets gefordert;
-  als Folgearbeit an NIL-357 gemeldet, falls M4 es fuer die Praesentationsansicht braucht.
 - Eine eigene serverseitige Inaktivitaets-Verfallsuhr (siehe oben).
 
 ## Was M4 (NIL-357, Presenter/Audience) uebernehmen kann

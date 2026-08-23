@@ -275,4 +275,167 @@ describe("socket collaborators", () => {
 
     vi.useRealTimers();
   });
+
+  describe("cursor smoothing (NIL-373)", () => {
+    const withControllableFrames = () => {
+      let pending: (() => void) | null = null;
+      vi.stubGlobal(
+        "requestAnimationFrame",
+        vi.fn((cb: () => void) => {
+          pending = cb;
+          return 1;
+        }),
+      );
+      vi.stubGlobal("cancelAnimationFrame", vi.fn());
+      return {
+        // Advances the fake clock, then runs whichever frame is pending --
+        // the same order a real browser observes (time passes, then paints).
+        advanceFrame: (ms: number) => {
+          vi.advanceTimersByTime(ms);
+          const cb = pending;
+          pending = null;
+          cb?.();
+        },
+        framePending: () => pending !== null,
+      };
+    };
+
+    it("interpolates a second cursor position across frames instead of snapping to it", () => {
+      vi.useFakeTimers();
+      const { advanceFrame } = withControllableFrames();
+      const socket = new FakeSocket();
+      const { peers, capability } = fakeCollaboration();
+      bindSocketCollaborators({
+        socket: socket as any,
+        collaboration: capability,
+        onPeersChange: vi.fn(),
+      });
+
+      // A first-ever sighting of this cursor has nothing to glide from --
+      // it lands immediately, the same as before this change.
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 0, y: 0 },
+        button: "up",
+        username: "Peer",
+        color: "#123456",
+      });
+      advanceFrame(0);
+      expect(peers.get("peer")?.pointer).toEqual({ x: 0, y: 0 });
+
+      // A second position, some time later, is where the smoothing this
+      // ticket asks for actually shows up.
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 100, y: 0 },
+        button: "up",
+        username: "Peer",
+        color: "#123456",
+      });
+      advanceFrame(25); // halfway through the 50ms glide
+      const mid = peers.get("peer")?.pointer;
+      expect(mid).toBeTruthy();
+      expect(mid.x).toBeGreaterThan(0);
+      expect(mid.x).toBeLessThan(100);
+
+      advanceFrame(25); // the glide completes
+      expect(peers.get("peer")?.pointer).toEqual({ x: 100, y: 0 });
+
+      vi.useRealTimers();
+    });
+
+    it("takes several distinct frames to arrive, then stops scheduling more", () => {
+      // Distinguishes real interpolation from a stale-but-passing sequence:
+      // the pre-smoothing code also happened to reschedule exactly once more
+      // after any cursor-move ("in case cursors arrived while this one was
+      // drawing"), so a single before/after framePending() check would have
+      // stayed green against the unpatched file. Three or more genuinely
+      // distinct, strictly increasing samples cannot come from a single
+      // snap-then-one-extra-frame implementation.
+      vi.useFakeTimers();
+      const { advanceFrame, framePending } = withControllableFrames();
+      const socket = new FakeSocket();
+      const { peers, capability } = fakeCollaboration();
+      bindSocketCollaborators({
+        socket: socket as any,
+        collaboration: capability,
+        onPeersChange: vi.fn(),
+      });
+
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 0, y: 0 },
+        username: "Peer",
+        color: "#123456",
+      });
+      advanceFrame(0);
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 100, y: 0 },
+        username: "Peer",
+        color: "#123456",
+      });
+
+      const samples: number[] = [];
+      for (let i = 0; i < 5; i += 1) {
+        advanceFrame(10);
+        samples.push(peers.get("peer")?.pointer.x);
+      }
+      for (let i = 1; i < samples.length; i += 1) {
+        expect(samples[i]).toBeGreaterThan(samples[i - 1]);
+      }
+      expect(samples[samples.length - 1]).toBe(100);
+      // Arrived: nothing left to animate, nothing left scheduled.
+      expect(framePending()).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it("glides from the cursor's current position, not the previous target, on a fast third update", () => {
+      vi.useFakeTimers();
+      const { advanceFrame } = withControllableFrames();
+      const socket = new FakeSocket();
+      const { peers, capability } = fakeCollaboration();
+      bindSocketCollaborators({
+        socket: socket as any,
+        collaboration: capability,
+        onPeersChange: vi.fn(),
+      });
+
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 0, y: 0 },
+        username: "Peer",
+        color: "#123456",
+      });
+      advanceFrame(0);
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 100, y: 0 },
+        username: "Peer",
+        color: "#123456",
+      });
+      advanceFrame(25); // now at x=50, still gliding toward 100
+      const midway = peers.get("peer")?.pointer.x;
+
+      // A third position arrives before the second glide finished.
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 100, y: 40 },
+        username: "Peer",
+        color: "#123456",
+      });
+      advanceFrame(0);
+      // The very next frame must start from where the cursor actually was
+      // (~50), not snap back to the target it never reached (0 or 100).
+      const justAfterRedirect = peers.get("peer")?.pointer;
+      expect(justAfterRedirect.x).toBeCloseTo(midway, 0);
+      expect(justAfterRedirect.y).toBe(0);
+
+      advanceFrame(50);
+      expect(peers.get("peer")?.pointer).toEqual({ x: 100, y: 40 });
+
+      vi.useRealTimers();
+    });
+  });
 });
