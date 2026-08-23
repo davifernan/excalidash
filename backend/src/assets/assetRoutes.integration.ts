@@ -364,9 +364,7 @@ describe("document routes", () => {
       // page-render route. A regression that removes the kind check would
       // make getPage run and throw PdfRejectedError, turning this 404 into a
       // 422 — the mock is wired so "it rendered" is observable, not silent.
-      const created = await upload("plain prose, no markup", "text/plain", "notes.txt").expect(
-        201,
-      );
+      const created = await upload("plain prose, no markup", "text/plain", "notes.txt").expect(201);
       expect(created.body.pageCount).toBeGreaterThan(0);
 
       const res = await request(app)
