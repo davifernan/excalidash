@@ -316,4 +316,33 @@ const main = () => {
   process.exit(1);
 };
 
-main();
+/**
+ * The lists are empty, and adapter-boundary.test.cjs asserts that they stay so.
+ *
+ * An exception is a legitimate tool while a migration is running -- that is how
+ * these five rules were closed, one named file at a time. But once a list is
+ * empty, a new entry is no longer a step in a migration; it is a bypass, and it
+ * arrives in a diff that otherwise looks like ordinary work.
+ *
+ * So the state is asserted, not just reported. Adding a name back turns CI red
+ * and the change has to be argued for rather than slipped in. Removing this
+ * guard is itself the decision to allow bypasses again.
+ */
+const assertNoExceptions = () => {
+  const listed = RULES.flatMap((rule) => [...rule.exceptions].map((file) => `${rule.id}: ${file}`));
+  if (listed.length === 0) return;
+  console.error(
+    "REGRESSION  The adapter boundary has exceptions again. Extend the contract in\n" +
+      "            frontend/src/integrations/excalidraw/capabilities.ts instead of\n" +
+      "            reaching past it, or argue the exception on NIL-322 and change\n" +
+      "            this guard deliberately.",
+  );
+  for (const line of listed) console.error(`REGRESSION  ${line}`);
+  process.exit(1);
+};
+
+module.exports = { RULES, assertNoExceptions };
+
+if (require.main === module) {
+  main();
+}

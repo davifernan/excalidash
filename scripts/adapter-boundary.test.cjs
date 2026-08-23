@@ -165,6 +165,40 @@ const assertLegacyKeyCaught = () => {
   }
 };
 
+/**
+ * The lists are empty, and this is what keeps them that way.
+ *
+ * An exception is a legitimate tool while a migration runs -- all five rules
+ * were closed by shrinking a named list to nothing, one file at a time. Once a
+ * list is empty, a new entry is no longer a step in that work: it is a bypass,
+ * and it arrives inside a diff that otherwise looks like ordinary feature work.
+ *
+ * So the empty state is asserted, not merely printed at the end of a run. A name
+ * coming back turns this test red, and the change has to be argued for instead
+ * of slipped in. Deleting this probe is itself the decision to allow bypasses.
+ */
+const assertNoExceptionsRemain = () => {
+  const { RULES } = require("./adapter-boundary.cjs");
+  const listed = RULES.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
+  if (listed.length > 0) {
+    throw new Error(
+      "The adapter boundary has exceptions again:\n  " +
+        listed.join("\n  ") +
+        "\nExtend the contract in frontend/src/integrations/excalidraw/capabilities.ts " +
+        "instead of reaching past it, or argue the exception on NIL-322 and change this " +
+        "probe deliberately.",
+    );
+  }
+
+  // The assertion above only means something if it fails on a populated list.
+  const populated = [{ id: "raw-api-call", exceptions: new Set(["frontend/src/x.ts"]) }];
+  const wouldList = populated.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
+  if (wouldList.length === 0) {
+    throw new Error("The empty-list probe cannot tell an exception from none.");
+  }
+  console.log("  no rule carries an exception, and the probe still sees one when it is there");
+};
+
 const main = () => {
   const clean = run();
   if (clean.status !== 0) {
@@ -175,6 +209,7 @@ const main = () => {
   for (const [label, name, contents] of probes) assertRejects(label, name, contents);
   assertStaleExceptionCaught();
   assertLegacyKeyCaught();
+  assertNoExceptionsRemain();
 
   const after = run();
   if (after.status !== 0) {
