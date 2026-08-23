@@ -200,6 +200,32 @@ Beispiele:
 - interaktives Widget ist im Read-only-Modus nicht aktivierbar: eindeutiger statischer
   Lesemodus statt wirkungsloser Buttons.
 
+### Meldbarkeit
+
+`CapabilityResult` ist ein Rueckgabewert, keine Ausnahme. Das ist gewollt: ein Fallback ist ein
+erwartetes Ergebnis, kein Ausnahmefall. Es hat aber eine Konsequenz, die ausgesprochen werden
+muss: **ein nicht-`ok`-Ergebnis wirft nie, also sieht es ausserhalb des Aufrufers niemand.**
+
+Das trifft ausgerechnet `code: "editor-changed"` — die Meldung "ein Upgrade hat einen Seam
+gebrochen, bei einem echten Nutzer". Genau das findet der Canary-Lauf per Konstruktion nicht,
+weil er nur die eigenen Testpfade abgeht.
+
+Deshalb gehoert zum Vertrag eine Senke:
+
+- Jedes nicht-`ok`-Ergebnis ist meldbar. Der Vertrag definiert die Form der Meldung —
+  Capability, `code`, gewaehlter Fallback, Excalidraw-Paketversion — nicht ihr Ziel.
+- Die Senke ist eine Abo-Schnittstelle in `compatibility/diagnostics.ts`, kein Import. Die
+  Abhaengigkeitsrichtung bleibt unveraendert: die Integrationsschicht importiert nichts aus der
+  Produkt- oder App-Schicht, die App-Shell registriert sich.
+- Ohne registrierten Abonnenten aendert sich nichts. Kein Fallback haengt davon ab, dass jemand
+  zuhoert.
+- Eine Meldung enthaelt keine Boardinhalte, keine Elementtexte und keine Nutzerkennung.
+
+Ein Absturz im Renderbaum ist der Fall, den diese Senke nicht abdeckt: er wirft, statt ein
+Ergebnis zurueckzugeben. Dafuer traegt `ExcalidrawHost` einen eigenen ErrorBoundary, damit ein
+Fehler aus dem Editor den Canvasbereich kostet und nicht die Anwendung. Das aeussere Netz um
+den gesamten Routenbaum liegt ausserhalb dieser Schicht und ist nicht ihre Aufgabe.
+
 ## `customData`-Vertrag
 
 Alle ExcaliDash-Daten auf Elementen erhalten:
