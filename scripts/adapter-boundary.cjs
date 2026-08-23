@@ -118,6 +118,45 @@ const SYNTHETIC_EVENT_PATTERNS = [
  */
 const CUSTOM_DATA_WRITE_PATTERNS = [/customData\s*:\s*\{/];
 
+/**
+ * Keys the stored customData shape used to have.
+ *
+ * Named here because a migration of that shape has to move every reader, and
+ * "every reader" is not only product code: it is the backend that decides which
+ * assets a board references, and the E2E helpers that look for a note. Both were
+ * missed once each, and each time the symptom pointed somewhere else -- a page
+ * that would not turn, then a spec that waited a minute for an element that was
+ * there under a different name.
+ *
+ * A grep would have found all of them at once. This is that grep, run for us.
+ */
+const LEGACY_CUSTOM_DATA_KEYS = ["excalidashSticky"];
+
+/** Directories outside frontend/src that also read the stored shape. */
+const LEGACY_SCAN_ROOTS = ["e2e/tests", "backend/src", "frontend/src"];
+
+const scanForLegacyKeys = (root) => {
+  const base = path.join(root, ...[]);
+  const dir = path.join(rootDir(), base);
+  if (!fs.existsSync(dir)) return [];
+  const hits = [];
+  for (const file of walk(dir)) {
+    const relative = rel(file);
+    // The schema module documents the old key in its own header, and one test
+    // asserts that the old shape is NOT read. Both are about the key rather
+    // than uses of it.
+    if (relative.endsWith("integrations/excalidraw/customData.ts")) continue;
+    if (relative.endsWith("sticky/stickyNote.test.ts")) continue;
+    const contents = fs.readFileSync(file, "utf8");
+    for (const key of LEGACY_CUSTOM_DATA_KEYS) {
+      if (contents.includes(key)) hits.push(`${relative}: still names the retired key "${key}".`);
+    }
+  }
+  return hits;
+};
+
+const rootDir = () => root;
+
 const walk = (dir, out = []) => {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
@@ -197,6 +236,8 @@ const main = () => {
    * nobody removed its licence to misbehave -- which quietly widens the hole
    * again the next time somebody edits that file.
    */
+  const legacy = LEGACY_SCAN_ROOTS.flatMap(scanForLegacyKeys);
+
   const stale = [];
   for (const rule of RULES) {
     for (const entry of rule.exceptions) {
@@ -206,7 +247,7 @@ const main = () => {
     }
   }
 
-  if (violations.length === 0 && stale.length === 0) {
+  if (violations.length === 0 && stale.length === 0 && legacy.length === 0) {
     const total = RULES.reduce((n, rule) => n + rule.exceptions.size, 0);
     console.log(
       `Adapter boundary holds. ${files.length} files checked, ${total} named exceptions remaining.`,
@@ -216,6 +257,7 @@ const main = () => {
 
   for (const line of violations) console.error(`VIOLATION  ${line}`);
   for (const line of stale) console.error(`STALE      ${line}`);
+  for (const line of legacy) console.error(`LEGACY     ${line}`);
   process.exit(1);
 };
 

@@ -31,7 +31,7 @@ const scene = (page: Page) =>
       containerId: element.containerId,
       fontSize: element.fontSize,
       text: element.text,
-      sticky: element.customData?.excalidashSticky ?? null,
+      sticky: element.customData?.excalidash?.sticky ?? null,
     }));
   });
 
@@ -58,7 +58,7 @@ const placeNote = async (page: Page, at: { x: number; y: number }) => {
   await page.waitForFunction(() =>
     (window as any).__EXCALIDASH_EXCALIDRAW_API__
       .getSceneElements()
-      .some((element: any) => element.customData?.excalidashSticky),
+      .some((element: any) => element.customData?.excalidash?.sticky),
   );
 };
 
@@ -307,7 +307,7 @@ test.describe("a note dropped into a frame", () => {
     const joined = await page.evaluate(() => {
       const els = (window as any).__EXCALIDASH_EXCALIDRAW_API__.getSceneElements();
       const frame = els.find((e: any) => e.type === "frame");
-      const note = els.find((e: any) => e.customData?.excalidashSticky);
+      const note = els.find((e: any) => e.customData?.excalidash?.sticky);
       return { belongs: note?.frameId === frame?.id, y: note?.y };
     });
     expect(joined.belongs).toBe(true);
@@ -328,7 +328,7 @@ test.describe("a note dropped into a frame", () => {
       () =>
         (window as any).__EXCALIDASH_EXCALIDRAW_API__
           .getSceneElements()
-          .find((e: any) => e.customData?.excalidashSticky)?.y,
+          .find((e: any) => e.customData?.excalidash?.sticky)?.y,
     );
     expect(movedTo).toBeGreaterThan(joined.y);
   });

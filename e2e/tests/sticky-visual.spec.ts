@@ -59,7 +59,7 @@ test("a board full of notes", async ({ page, request }: { page: Page; request: A
     const placed = await page.evaluate(() =>
       (window as any).__EXCALIDASH_EXCALIDRAW_API__
         .getSceneElements()
-        .filter((element: any) => element.customData?.excalidashSticky)
+        .filter((element: any) => element.customData?.excalidash?.sticky)
         .map((element: any) => ({ w: element.width, h: element.height })),
     );
     expect(placed).toHaveLength(6);

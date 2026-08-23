@@ -32,7 +32,10 @@ const scene = (page: Page) =>
       containerId: element.containerId,
       fontSize: element.fontSize,
       text: element.text,
-      sticky: element.customData?.excalidashSticky ?? null,
+      sticky: element.customData?.excalidash?.sticky ?? null,
+      // The version lives on the namespace, not inside the record: one number
+      // for everything this application stores on an element.
+      schemaVersion: element.customData?.excalidash?.schemaVersion ?? null,
     }));
   });
 
@@ -59,7 +62,7 @@ const placeNote = async (page: Page, at: { x: number; y: number }) => {
   await page.waitForFunction(() =>
     (window as any).__EXCALIDASH_EXCALIDRAW_API__
       .getSceneElements()
-      .some((element: any) => element.customData?.excalidashSticky),
+      .some((element: any) => element.customData?.excalidash?.sticky),
   );
 };
 
@@ -197,7 +200,7 @@ test.describe("sticky notes", () => {
       () =>
         (window as any).__EXCALIDASH_EXCALIDRAW_API__
           .getSceneElements()
-          .filter((element: any) => element.customData?.excalidashSticky).length === 2,
+          .filter((element: any) => element.customData?.excalidash?.sticky).length === 2,
       undefined,
       { timeout: 5000 },
     );
@@ -216,7 +219,7 @@ test.describe("sticky notes", () => {
     await page.waitForFunction(() =>
       (window as any).__EXCALIDASH_EXCALIDRAW_API__
         .getSceneElements()
-        .some((element: any) => element.customData?.excalidashSticky),
+        .some((element: any) => element.customData?.excalidash?.sticky),
     );
 
     const [note] = await notes(page);
@@ -239,7 +242,8 @@ test.describe("sticky notes", () => {
     const placed = await notes(page);
     expect(placed).toHaveLength(1);
     expect(placed[0].height).toBe(200);
-    expect(placed[0].sticky).toMatchObject({ v: 1, color: "yellow" });
+    expect(placed[0].sticky).toMatchObject({ color: "yellow" });
+    expect(placed[0].schemaVersion).toBe(2);
     const [label] = await labels(page);
     expect(label.text).toContain("Persisted");
   });
@@ -316,7 +320,7 @@ test.describe("where a new note lands in the stack", () => {
         .getSceneElements()
         .filter((e: any) => !e.isDeleted)
         .map((e: any) => [
-          e.customData?.excalidashSticky ? "NOTE" : e.id,
+          e.customData?.excalidash?.sticky ? "NOTE" : e.id,
           e.index,
         ]),
     );
@@ -362,7 +366,7 @@ test.describe("where a new note lands in the stack", () => {
     const notes = await page.evaluate(() =>
       (window as any).__EXCALIDASH_EXCALIDRAW_API__
         .getSceneElements()
-        .filter((e: any) => e.customData?.excalidashSticky)
+        .filter((e: any) => e.customData?.excalidash?.sticky)
         .map((e: any) => e.index),
     );
     expect(notes).toHaveLength(3);
