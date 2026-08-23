@@ -91,10 +91,7 @@ const capabilitySet = () => ({
   interaction: fakeInteraction(),
 });
 
-const renderPersistence = (
-  refs: ReturnType<typeof createRefs>,
-  capabilities = capabilitySet(),
-) =>
+const renderPersistence = (refs: ReturnType<typeof createRefs>, capabilities = capabilitySet()) =>
   renderHook(() =>
     useEditorPersistence({
       refs,
@@ -269,9 +266,7 @@ describe("useEditorPersistence", () => {
     );
     // Through the capability now, not the handle: the hook hands the compressed
     // files to the boundary and lets it answer.
-    expect(capabilities.fileCapability.add).toHaveBeenCalledWith(
-      Object.values(compressedFiles),
-    );
+    expect(capabilities.fileCapability.add).toHaveBeenCalledWith(Object.values(compressedFiles));
     expect(refs.latestFiles.current).toBe(compressedFiles);
     expect(refs.lastPersistedFiles.current).toBe(compressedFiles);
     expect(refs.lastSyncedFiles.current).toBe(editorFiles);

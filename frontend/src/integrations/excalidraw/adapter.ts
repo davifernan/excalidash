@@ -431,43 +431,43 @@ export const createFileCapability = (getApi: () => RawApi | null): FileCapabilit
   };
 
   return {
-  read() {
-    const api = getApi();
-    if (!api) return report(fail("not-ready", "files.read"));
-    const raw = api.getFiles() || {};
-    const out: Record<string, SceneFile> = {};
-    for (const [id, file] of Object.entries(raw)) {
-      out[id] = toSceneFile(id, file as Record<string, unknown>);
-    }
-    return ok(out as Readonly<Record<FileId, SceneFile>>);
-  },
-
-  add(files) {
-    const api = getApi();
-    if (!api) return report(fail("not-ready", "files.add"));
-    api.addFiles(files.map((file) => ({ ...file })));
-    return ok(undefined);
-  },
-
-  deltaAgainst(confirmed) {
-    const api = getApi();
-    if (!api) return report(fail("not-ready", "files.deltaAgainst"));
-    const raw = api.getFiles() || {};
-    const missing: SceneFile[] = [];
-    for (const [id, file] of Object.entries(raw)) {
-      if (!confirmed.has(id as FileId)) {
-        missing.push(toSceneFile(id, file as Record<string, unknown>));
+    read() {
+      const api = getApi();
+      if (!api) return report(fail("not-ready", "files.read"));
+      const raw = api.getFiles() || {};
+      const out: Record<string, SceneFile> = {};
+      for (const [id, file] of Object.entries(raw)) {
+        out[id] = toSceneFile(id, file as Record<string, unknown>);
       }
-    }
-    return ok(missing);
-  },
+      return ok(out as Readonly<Record<FileId, SceneFile>>);
+    },
 
-  onFilesAdded(listener) {
-    ensureWrapped(getApi());
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  },
+    add(files) {
+      const api = getApi();
+      if (!api) return report(fail("not-ready", "files.add"));
+      api.addFiles(files.map((file) => ({ ...file })));
+      return ok(undefined);
+    },
+
+    deltaAgainst(confirmed) {
+      const api = getApi();
+      if (!api) return report(fail("not-ready", "files.deltaAgainst"));
+      const raw = api.getFiles() || {};
+      const missing: SceneFile[] = [];
+      for (const [id, file] of Object.entries(raw)) {
+        if (!confirmed.has(id as FileId)) {
+          missing.push(toSceneFile(id, file as Record<string, unknown>));
+        }
+      }
+      return ok(missing);
+    },
+
+    onFilesAdded(listener) {
+      ensureWrapped(getApi());
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 };

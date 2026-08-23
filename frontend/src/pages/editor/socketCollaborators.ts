@@ -1,7 +1,11 @@
 import type { Socket } from "socket.io-client";
 import { withLargeSelectionStatus } from "./remoteSelection";
 import type { CollaborationCapability } from "../../integrations/excalidraw/capabilities";
-import type { CollaboratorInfo, CollaboratorPatch, SocketId } from "../../integrations/excalidraw/types";
+import type {
+  CollaboratorInfo,
+  CollaboratorPatch,
+  SocketId,
+} from "../../integrations/excalidraw/types";
 
 export interface Peer {
   presenceId: string;

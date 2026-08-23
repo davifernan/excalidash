@@ -92,7 +92,8 @@ export const applyPatch = (
     else delete next.selectionAllSelected;
   }
   if (patch.color !== undefined) {
-    next.color = patch.color === null ? undefined : { background: patch.color, stroke: patch.color };
+    next.color =
+      patch.color === null ? undefined : { background: patch.color, stroke: patch.color };
   }
   if (patch.pointerButton !== undefined) {
     next.button = patch.pointerButton ?? undefined;

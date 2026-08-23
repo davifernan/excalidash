@@ -10,11 +10,7 @@ type UseLibraryImportFromUrlParams = {
   user: unknown;
 };
 
-export const useLibraryImportFromUrl = ({
-  ui,
-  isReady,
-  user,
-}: UseLibraryImportFromUrlParams) => {
+export const useLibraryImportFromUrl = ({ ui, isReady, user }: UseLibraryImportFromUrlParams) => {
   useEffect(() => {
     if (!isReady) return;
     const hash = window.location.hash;

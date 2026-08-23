@@ -27,7 +27,10 @@ const uiWith = (result: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = "#addLibrary=https://example.test/lib.excalidrawlib";
-  vi.stubGlobal("confirm", vi.fn(() => true));
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ ok: true, blob: async () => new Blob(["x"]) })),
@@ -42,7 +45,11 @@ describe("importing a library from the URL", () => {
    */
   it("tells the user when the import was refused", async () => {
     renderHook(() =>
-      useLibraryImportFromUrl({ ui: uiWith({ ok: false, code: "unsupported" }), isReady: true, user: {} }),
+      useLibraryImportFromUrl({
+        ui: uiWith({ ok: false, code: "unsupported" }),
+        isReady: true,
+        user: {},
+      }),
     );
 
     await waitFor(() => expect(errorToast).toHaveBeenCalled());
@@ -52,7 +59,11 @@ describe("importing a library from the URL", () => {
 
   it("persists the items the editor reports back on success", async () => {
     renderHook(() =>
-      useLibraryImportFromUrl({ ui: uiWith({ ok: true, value: [{ id: "one" }] }), isReady: true, user: {} }),
+      useLibraryImportFromUrl({
+        ui: uiWith({ ok: true, value: [{ id: "one" }] }),
+        isReady: true,
+        user: {},
+      }),
     );
 
     await waitFor(() => expect(successToast).toHaveBeenCalled());

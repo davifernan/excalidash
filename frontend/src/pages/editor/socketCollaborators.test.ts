@@ -22,7 +22,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-
 /**
  * A collaboration capability backed by a plain map.
  *
@@ -65,7 +64,10 @@ const fakeCollaboration = (initial: Record<string, any> = {}) => {
         for (const id of ids) peers.delete(String(id));
         return { ok: true as const, value: undefined };
       }),
-      readFollowState: () => ({ ok: true as const, value: { followingSocketId: null, followedBySocketIds: [] } }),
+      readFollowState: () => ({
+        ok: true as const,
+        value: { followingSocketId: null, followedBySocketIds: [] },
+      }),
       follow: () => ({ ok: true as const, value: undefined }),
       setFollowedBy: () => ({ ok: true as const, value: undefined }),
       onFollowIntent: () => () => {},
@@ -114,7 +116,11 @@ describe("socket collaborators", () => {
     const { peers, capability } = fakeCollaboration({
       peer: { name: "Peer · large selection", selectionAllSelected: true, selectedIds: [] },
     });
-    bindSocketCollaborators({ socket: socket as any, collaboration: capability, onPeersChange: vi.fn() });
+    bindSocketCollaborators({
+      socket: socket as any,
+      collaboration: capability,
+      onPeersChange: vi.fn(),
+    });
 
     socket.trigger("presence-update", [
       {
