@@ -35,6 +35,23 @@ model User {
   updatedAt           DateTime             @updatedAt
 }
 
+/// The team this instance serves. Deliberately a singleton (id fixed to
+/// "default", like SystemConfig): the product is built for one team of about
+/// ten people per self-hosted install, not for multi-tenant workspaces
+/// (explicit non-goal, see docs/product/PRODUCT_VISION.md). Every active
+/// `User` is implicitly this team's member -- there is no separate membership
+/// table, because a second place to record "who is on the team" would be a
+/// second copy of a fact `User.isActive` already holds, and this project has
+/// already paid once for a duplicated authority (see ACCESS_RANK in
+/// authz/sharing.ts). Team role is `User.role` (ADMIN/USER), read through
+/// authz/team.ts rather than duplicated here.
+model Team {
+  id        String   @id @default("default")
+  name      String   @default("Team")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model SystemConfig {
   id                               String    @id @default("default")
   authEnabled                      Boolean   @default(false)
