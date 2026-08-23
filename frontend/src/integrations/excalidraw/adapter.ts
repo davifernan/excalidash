@@ -132,6 +132,12 @@ const toSceneFile = (id: string, file: Record<string, unknown>): SceneFile => ({
  * point: a frame's children sit immediately before it in the element list, so
  * an insert that names a frame goes before that frame rather than at the end.
  */
+/** Which operations need to see the scene that is already there. */
+const NEEDS_CURRENT: ReadonlySet<SceneOp["kind"]> = new Set(["insert", "patch", "remove"]);
+
+export const opsNeedCurrentScene = (ops: readonly SceneOp[]): boolean =>
+  ops.some((op) => NEEDS_CURRENT.has(op.kind));
+
 export const buildSceneUpdate = (
   current: readonly Record<string, unknown>[],
   ops: readonly SceneOp[],
@@ -174,6 +180,11 @@ export const buildSceneUpdate = (
           });
         }
         list[at] = { ...list[at], ...op.changes };
+        break;
+      }
+      case "replaceElements": {
+        elements = [...(op.elements as Record<string, unknown>[])];
+        touchedElements = true;
         break;
       }
       case "remove": {
@@ -295,7 +306,11 @@ export const createSceneCapability = (getApi: () => RawApi | null): SceneCapabil
     apply(ops, options) {
       const api = getApi();
       if (!api) return notReady("scene.apply");
-      const update = buildSceneUpdate(readRaw(true, api), ops, options?.capture);
+      // Only read the scene when an operation actually needs it. Replacing the
+      // element list wholesale does not, and reading anyway would make every
+      // caller depend on a read its own operation never uses.
+      const current = opsNeedCurrentScene(ops) ? readRaw(true, api) : [];
+      const update = buildSceneUpdate(current, ops, options?.capture);
       if ("ok" in update && update.ok === false) return report(update as CapabilityFailure);
       api.updateScene(update as Record<string, unknown>);
       return ok(undefined);

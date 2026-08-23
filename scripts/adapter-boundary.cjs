@@ -77,14 +77,12 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
 const RAW_API_EXCEPTIONS = new Set([
   "frontend/src/pages/editor/EditorDialogs.tsx",
   "frontend/src/pages/editor/documentDrop.ts",
-  "frontend/src/pages/editor/followMode.ts",
   "frontend/src/pages/editor/remoteSelection.ts",
   "frontend/src/pages/editor/socketCollaborators.ts",
   "frontend/src/pages/editor/useEditorBroadcast.ts",
   "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
   "frontend/src/pages/editor/useEditorCollaboration.ts",
   "frontend/src/pages/editor/useEditorCommands.ts",
-  "frontend/src/pages/editor/useEditorPersistence.ts",
   "frontend/src/pages/editor/useLibraryImportFromUrl.ts",
   "frontend/src/sticky/StickyHandles.tsx",
   "frontend/src/sticky/stickyConnect.ts",
@@ -95,11 +93,19 @@ const RAW_API_EXCEPTIONS = new Set([
   "frontend/src/sticky/useStickyUpkeep.ts",
 ]);
 
-/** The imperative handle's methods, as measured on the pinned version. */
+/**
+ * The imperative handle's methods, as measured on the pinned version.
+ *
+ * `updateLibrary` is deliberately absent. This application's own REST client is
+ * also called `api` and also has an updateLibrary, so matching the bare method
+ * name flags a server call as an editor call. A rule that goes red on correct
+ * code trains people to ignore it exactly as surely as one that stays green on
+ * wrong code, and the library seam is covered by the import rule anyway.
+ */
 const RAW_API_PATTERNS = [
   {
     name: "raw editor API call",
-    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool|updateLibrary)\s*\(/,
+    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)\s*\(/,
   },
 ];
 

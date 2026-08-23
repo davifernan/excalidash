@@ -1,3 +1,4 @@
+import { createCollaborationCapability } from "../../integrations/excalidraw/collaboration";
 import {
   createViewportCapability,
   projectPoint,
@@ -90,10 +91,13 @@ export const fitFollowedBounds = (
     updateScene: api.updateScene as (change: Record<string, unknown>) => void,
     getSceneElements: () => [],
   }));
-  const before = api.getAppState();
+  // Read through the capability, not the handle: this is the state before the
+  // write, and it has to come from the same reading the capability uses.
+  const read = viewport.read();
+  const before = read.ok ? read.value : null;
   const applied = viewport.showBounds(bounds as never);
-  if (!applied.ok) {
-    return { appState: before, zoomClamped: false };
+  if (!applied.ok || !before) {
+    return { appState: {}, zoomClamped: false };
   }
   // The viewport the capability computed, merged over the state we read before
   // the write -- NOT a fresh getAppState(). Excalidraw's updateScene goes
@@ -105,7 +109,6 @@ export const fitFollowedBounds = (
   const { viewport: fitted } = applied.value;
   return {
     appState: {
-      ...before,
       scrollX: fitted.scrollX,
       scrollY: fitted.scrollY,
       zoom: { value: fitted.zoom },
@@ -178,6 +181,21 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
   };
 };
 
+/** The capabilities this feature needs, built once per binding. */
+const capabilitiesFor = (api: ExcalidrawApi) => {
+  const handle = () => ({
+    getAppState: api.getAppState,
+    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
+    getSceneElements: () => [],
+    onScrollChange: api.onScrollChange,
+    onUserFollow: api.onUserFollow,
+  });
+  return {
+    viewport: createViewportCapability(handle),
+    collaboration: createCollaborationCapability(handle),
+  };
+};
+
 export const bindFollowMode = ({
   socket,
   drawingId,
@@ -193,6 +211,7 @@ export const bindFollowMode = ({
   onFollowersChange: (followers: Follower[]) => void;
   onFollowInterrupted?: (reason: string) => void;
 }) => {
+  const { collaboration, viewport } = capabilitiesFor(api);
   let followers = new Map<string, Follower>();
   const lastViewportSequence = new Map<string, number>();
   let sendTimer: ReturnType<typeof setTimeout> | null = null;
@@ -256,7 +275,8 @@ export const bindFollowMode = ({
 
   const applyReceivedBounds = () => {
     if (!lastReceivedBounds || !lastReceivedPresenceId) return;
-    if (api.getAppState().userToFollow?.socketId !== lastReceivedPresenceId) return;
+    const following = collaboration.readFollowState();
+    if (!following.ok || following.value.followingSocketId !== lastReceivedPresenceId) return;
     applyingIncomingBounds = true;
     try {
       const fitted = fitFollowedBounds(api, lastReceivedBounds);
@@ -267,8 +287,8 @@ export const bindFollowMode = ({
     }
   };
 
-  const unsubscribeFollow = api.onUserFollow((payload) => {
-    const targetPresenceId = payload.userToFollow?.socketId || null;
+  const unsubscribeFollow = collaboration.onFollowIntent((payload) => {
+    const targetPresenceId = payload.targetSocketId;
     const suppressedIndex = suppressedServerActions.findIndex(
       (action) => action.action === payload.action && action.targetPresenceId === targetPresenceId,
     );
@@ -287,11 +307,11 @@ export const bindFollowMode = ({
     viewportIndicator?.hide();
     socket.emit("follow-user", {
       drawingId,
-      targetPresenceId: payload.userToFollow?.socketId,
+      targetPresenceId: payload.targetSocketId ?? undefined,
       action: payload.action,
     });
   });
-  const unsubscribeScroll = api.onScrollChange(scheduleBounds);
+  const unsubscribeScroll = viewport.subscribeScroll(scheduleBounds);
 
   const onFollowedBy = (payload: any) => {
     if (payload?.drawingId !== drawingId || !Array.isArray(payload.followers)) {
@@ -308,9 +328,7 @@ export const bindFollowMode = ({
     }
     followers = next;
     onFollowersChange(Array.from(next.values()));
-    api.updateScene({
-      appState: { followedBy: new Set(next.keys()) },
-    });
+    collaboration.setFollowedBy([...next.keys()] as never);
     if (followers.size > 0) sendBounds();
   };
 
@@ -318,12 +336,13 @@ export const bindFollowMode = ({
     if (payload?.drawingId !== drawingId) return;
     const targetPresenceId =
       typeof payload.followingPresenceId === "string" ? payload.followingPresenceId : null;
-    const appState = api.getAppState();
+    const state = collaboration.readFollowState();
+    const currentTargetId = state.ok ? state.value.followingSocketId : null;
     if (typeof payload.reason === "string") {
       onFollowInterrupted?.(payload.reason);
     }
-    if (appState.userToFollow?.socketId === targetPresenceId) return;
-    const previousTargetId = appState.userToFollow?.socketId || null;
+    if (currentTargetId === targetPresenceId) return;
+    const previousTargetId = currentTargetId;
     suppressServerFeedback(previousTargetId, targetPresenceId);
     lastViewportSequence.clear();
     if (!targetPresenceId) {
@@ -331,16 +350,11 @@ export const bindFollowMode = ({
       lastReceivedPresenceId = null;
       lastAppliedVisibleBounds = null;
       viewportIndicator?.hide();
-      if (appState.userToFollow) {
-        api.updateScene({ appState: { userToFollow: null } });
+      if (currentTargetId) {
+        collaboration.follow(null);
       }
     } else {
-      const collaborator = appState.collaborators?.get?.(targetPresenceId) || {};
-      api.updateScene({
-        appState: {
-          userToFollow: { ...collaborator, socketId: targetPresenceId },
-        },
-      });
+      collaboration.follow(targetPresenceId as never);
     }
   };
 
@@ -352,9 +366,12 @@ export const bindFollowMode = ({
     if ((lastViewportSequence.get(payload.presenceId) || 0) >= payload.sequence) {
       return;
     }
-    const appState = api.getAppState();
-    if (appState.userToFollow?.socketId !== payload.presenceId) return;
-    if (appState.followedBy?.has?.(payload.presenceId)) return;
+    const state = collaboration.readFollowState();
+    if (!state.ok) return;
+    if (state.value.followingSocketId !== payload.presenceId) return;
+    // Somebody following me does not get to move my view: that would be a loop
+    // between two people each following the other.
+    if (state.value.followedBySocketIds.includes(payload.presenceId as never)) return;
     lastViewportSequence.clear();
     lastViewportSequence.set(payload.presenceId, payload.sequence);
     lastReceivedBounds = bounds;
@@ -387,7 +404,7 @@ export const bindFollowMode = ({
     suppressionTimer = null;
     sendTimer = null;
     onFollowersChange([]);
-    api.updateScene({ appState: { followedBy: new Set() } });
+    collaboration.setFollowedBy([]);
   };
 
   const cleanup = () => {
