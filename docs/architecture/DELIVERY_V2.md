@@ -105,6 +105,13 @@ after whitespace following the complete label are accepted. The label itself is 
 and cannot be rewritten or replaced by a semantic alias. The Hans workflow checks the merge
 candidate with `scripts/delivery-v2.cjs admission` before requesting the one full review.
 
+PR and review wake events transport the same contract without turning event normalization
+into an admission gate. A missing or still-unfilled template produces `primary_package:null`
+and `delivery_contract_error:null`. A malformed filled contract produces
+`primary_package:null` plus the parser message in `delivery_contract_error`, so consumers can
+distinguish broken input while the PR Overseer wake path remains available. Admission is the
+enforcement boundary and still rejects placeholders or malformed contracts.
+
 ## Diff-derived impact manifest
 
 Generate the manifest from the base/head range used by the PR:

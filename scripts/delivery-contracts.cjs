@@ -461,9 +461,10 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
       draft: Boolean(payload.pull_request?.draft),
       merged: Boolean(payload.pull_request?.merged),
       merge_commit_sha: payload.pull_request?.merge_commit_sha || null,
-      primary_package: delivery?.primaryPackage || null,
-      delivery_slices: delivery?.deliverySlices || [],
-      package_session: delivery?.packageSession || null,
+      primary_package: delivery.contract?.primaryPackage || null,
+      delivery_slices: delivery.contract?.deliverySlices || [],
+      package_session: delivery.contract?.packageSession || null,
+      delivery_contract_error: delivery.error,
       trusted_source:
         payload.pull_request?.head?.repo?.full_name === repository &&
         TRUSTED_ASSOCIATIONS.has(payload.pull_request?.author_association),
@@ -479,9 +480,10 @@ function buildDeliveryEvent({ eventName, payload, repository }) {
       reviewed_sha: payload.review?.commit_id,
       review_id: payload.review?.id,
       reviewer: payload.review?.user?.login,
-      primary_package: delivery?.primaryPackage || null,
-      delivery_slices: delivery?.deliverySlices || [],
-      package_session: delivery?.packageSession || null,
+      primary_package: delivery.contract?.primaryPackage || null,
+      delivery_slices: delivery.contract?.deliverySlices || [],
+      package_session: delivery.contract?.packageSession || null,
+      delivery_contract_error: delivery.error,
       trusted_source:
         payload.review?.user?.login === "the-hans-friedrich[bot]" ||
         TRUSTED_ASSOCIATIONS.has(payload.review?.author_association),
@@ -547,7 +549,22 @@ function parseOptionalPrDeliveryContract(body) {
   const text = body || "";
   const hasDeliveryField = /^(?:Multica-Package|Delivery-Slices|Package-Session|Impact-Manifest|Visual-Evidence):/im
     .test(text);
-  return hasDeliveryField ? parsePrDeliveryContract(text) : null;
+  const hasTemplatePlaceholder =
+    /^Multica-Package:\s*NIL-000\s*$/im.test(text) ||
+    /^Package-Session:\s*REAL-SESSION-ID\s*$/im.test(text);
+
+  if (!hasDeliveryField || hasTemplatePlaceholder) {
+    return { contract: null, error: null };
+  }
+
+  try {
+    return { contract: parsePrDeliveryContract(text), error: null };
+  } catch (error) {
+    return {
+      contract: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function main() {

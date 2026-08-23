@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -442,6 +444,7 @@ Visual-Evidence: skipped: no visible frontend product delta`,
   assert.equal(pullRequest.skip, false);
   assert.equal(pullRequest.event.head_sha, FIX_SHA);
   assert.equal(pullRequest.event.primary_package, "NIL-404");
+  assert.equal(pullRequest.event.delivery_contract_error, null);
   assert.deepEqual(pullRequest.event.delivery_slices, ["NIL-410", "NIL-411"]);
   assert.equal(
     pullRequest.event.package_session,
@@ -495,7 +498,7 @@ test("delivery event identity survives workflow retries and ignores overseer com
   );
 });
 
-test("delivery events distinguish an absent contract from a malformed one", () => {
+test("delivery events distinguish absent, unfilled-template, and malformed contracts", () => {
   const eventWithoutContract = buildDeliveryEvent({
     eventName: "pull_request",
     repository: "davifernan/excalidash",
@@ -510,47 +513,72 @@ test("delivery events distinguish an absent contract from a malformed one", () =
     },
   });
   assert.equal(eventWithoutContract.event.primary_package, null);
+  assert.equal(eventWithoutContract.event.delivery_contract_error, null);
 
-  assert.throws(
-    () => buildDeliveryEvent({
-      eventName: "pull_request",
-      repository: "davifernan/excalidash",
-      payload: {
-        action: "opened",
-        pull_request: {
-          number: 7,
-          head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
-          author_association: "OWNER",
-          body: `Multica-Package: NIL-404
+  const templateEvent = buildDeliveryEvent({
+    eventName: "pull_request",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "opened",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+        author_association: "OWNER",
+        body: fs.readFileSync(
+          path.join(__dirname, "..", ".github", "pull_request_template.md"),
+          "utf8",
+        ),
+      },
+    },
+  });
+  assert.equal(templateEvent.skip, false);
+  assert.equal(templateEvent.event.primary_package, null);
+  assert.equal(templateEvent.event.delivery_contract_error, null);
+
+  const duplicatePackage = buildDeliveryEvent({
+    eventName: "pull_request",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "opened",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA, repo: { full_name: "davifernan/excalidash" } },
+        author_association: "OWNER",
+        body: `Multica-Package: NIL-404
 Multica-Package: NIL-405
 Delivery-Slices: none
 Package-Session: not-a-session
 Impact-Manifest: generated from git diff
 Visual-Evidence: skipped: no visible frontend product delta`,
-        },
       },
-    }),
+    },
+  });
+  assert.equal(duplicatePackage.event.primary_package, null);
+  assert.match(
+    duplicatePackage.event.delivery_contract_error,
     /exactly one `Multica-Package/,
   );
 
-  assert.throws(
-    () => buildDeliveryEvent({
-      eventName: "pull_request_review",
-      repository: "davifernan/excalidash",
-      payload: {
-        action: "submitted",
-        pull_request: {
-          number: 7,
-          head: { sha: FIX_SHA },
-          body: `Multica-Package: NIL-404
+  const malformedSession = buildDeliveryEvent({
+    eventName: "pull_request_review",
+    repository: "davifernan/excalidash",
+    payload: {
+      action: "submitted",
+      pull_request: {
+        number: 7,
+        head: { sha: FIX_SHA },
+        body: `Multica-Package: NIL-404
 Delivery-Slices: none
 Package-Session: not-a-session
 Impact-Manifest: generated from git diff
 Visual-Evidence: skipped: no visible frontend product delta`,
-        },
-        review: { id: 42, commit_id: SHA, user: { login: "the-hans-friedrich[bot]" } },
       },
-    }),
+      review: { id: 42, commit_id: SHA, user: { login: "the-hans-friedrich[bot]" } },
+    },
+  });
+  assert.equal(malformedSession.event.primary_package, null);
+  assert.match(
+    malformedSession.event.delivery_contract_error,
     /exactly one real `Package-Session/,
   );
 });
