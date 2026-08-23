@@ -63,20 +63,21 @@
  * for exactly this reason.
  */
 import React from "react";
-import { ArrowLeft, Download, History, LocateFixed, Share2 } from "lucide-react";
+import { ArrowLeft, Download, History, LocateFixed, MessageSquare, Share2 } from "lucide-react";
 import {
   EditorFooter as Footer,
   EditorMenu as MainMenu,
 } from "../../integrations/excalidraw/slots";
 import { LanguageSelector } from "../../components/LanguageSelector";
 import { BoardNameMenuEntry } from "./slots/boardNameMenuEntry";
+import { CommentsHeaderControl, CommentsMenuEntry } from "./slots/commentsMenuEntry";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
 
 export type ChromeSlotContext = {
   id?: string;
-  accessLevel: "none" | "view" | "edit" | "owner";
+  accessLevel: "none" | "view" | "comment" | "edit" | "owner";
   canEdit: boolean;
   mobile: boolean;
   drawingName: string;
@@ -87,6 +88,8 @@ export type ChromeSlotContext = {
   followers: readonly Follower[];
   inviteHere: InviteHereUiState;
   langCode: string;
+  isCommentsOpen: boolean;
+  unresolvedCommentCount: number;
   onBackClick: () => void;
   onNewNameChange: (value: string) => void;
   onRenameBlur: () => void;
@@ -96,6 +99,7 @@ export type ChromeSlotContext = {
   onShareOpen: () => void;
   onHistoryOpen: () => void;
   onSetLangCode: (langCode: string) => void;
+  onToggleComments: () => void;
 };
 
 type SlotEntry = {
@@ -163,6 +167,19 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
       ctx.canEdit && ctx.id ? (
         <MainMenu.Item onSelect={ctx.onHistoryOpen} icon={<History size={16} />}>
           Version history
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "comments",
+    order: 140,
+    // Grouped with export/version-history (content actions on the board)
+    // rather than under collab-separator with share/invite: opening the
+    // panel does not invite or hand anyone access, it just annotates.
+    render: (ctx) =>
+      ctx.accessLevel !== "none" && ctx.id ? (
+        <MainMenu.Item onSelect={ctx.onToggleComments} icon={<MessageSquare size={16} />}>
+          <CommentsMenuEntry ctx={ctx} />
         </MainMenu.Item>
       ) : null,
   },
@@ -260,6 +277,12 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
           <Share2 size={16} />
         </button>
       ) : null,
+  },
+  {
+    id: "comments",
+    order: 25,
+    render: (ctx) =>
+      ctx.accessLevel !== "none" && ctx.id ? <CommentsHeaderControl ctx={ctx} /> : null,
   },
 ];
 

@@ -79,6 +79,13 @@
   cursor: pointer;
 }
 
+/* The one header control with a persistent open/closed state (comments) --
+   the rest are one-shot actions with nothing to show as "on". */
+.editor-header-control[data-active] {
+  background: var(--color-primary-light, #e3e2fe);
+  color: var(--color-primary-darker, #4a47b1);
+}
+
 .editor-header-control__badge {
   font-size: 0.625rem;
   font-weight: 700;

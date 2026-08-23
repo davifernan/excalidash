@@ -30,6 +30,8 @@ const baseCtx: ChromeSlotContext = {
     decline: vi.fn(),
   },
   langCode: "en",
+  isCommentsOpen: false,
+  unresolvedCommentCount: 0,
   onBackClick: vi.fn(),
   onNewNameChange: vi.fn(),
   onRenameBlur: vi.fn(),
@@ -39,6 +41,7 @@ const baseCtx: ChromeSlotContext = {
   onShareOpen: vi.fn(),
   onHistoryOpen: vi.fn(),
   onSetLangCode: vi.fn(),
+  onToggleComments: vi.fn(),
 };
 
 /** Render functions return element descriptors without mounting -- Excalidraw's
@@ -89,6 +92,13 @@ describe("MAIN_MENU_ENTRIES", () => {
     expect(renderedIds(MAIN_MENU_ENTRIES, baseCtx)).toContain("board-name");
     expect(renderedIds(MAIN_MENU_ENTRIES, readOnly)).toContain("board-name");
   });
+
+  it("shows comments for any real access level, hides it once access is none", () => {
+    const viewOnly: ChromeSlotContext = { ...baseCtx, accessLevel: "view", canEdit: false };
+    const noAccess: ChromeSlotContext = { ...baseCtx, accessLevel: "none", id: undefined };
+    expect(renderedIds(MAIN_MENU_ENTRIES, viewOnly)).toContain("comments");
+    expect(renderedIds(MAIN_MENU_ENTRIES, noAccess)).not.toContain("comments");
+  });
 });
 
 describe("renderMainMenuEntries", () => {
@@ -103,22 +113,30 @@ describe("renderMainMenuEntries", () => {
 });
 
 describe("HEADER_CONTROL_ENTRIES", () => {
-  it("orders invite before share", () => {
+  it("orders invite, then comments, then share", () => {
     const ids = [...HEADER_CONTROL_ENTRIES].sort((a, b) => a.order - b.order).map((e) => e.id);
-    expect(ids).toEqual(["invite-everyone-here", "share"]);
+    expect(ids).toEqual(["invite-everyone-here", "comments", "share"]);
   });
 
-  it("hides both controls under the conditions MainMenu also hides its own copies under", () => {
+  it("hides invite and share under the conditions MainMenu also hides its own copies under -- comments has its own, broader condition", () => {
     const readOnlyEditor: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
-    expect(renderedIds(HEADER_CONTROL_ENTRIES, readOnlyEditor)).toEqual([null, null]);
+    // Comments is not gated on peers (unlike invite) or ownership (unlike
+    // share): any account with real access to the board may open the panel
+    // alone, so it renders here where the other two do not.
+    expect(renderedIds(HEADER_CONTROL_ENTRIES, readOnlyEditor)).toEqual([null, "comments", null]);
+  });
+
+  it("hides comments too once there is no real access at all", () => {
+    const noAccess: ChromeSlotContext = { ...baseCtx, accessLevel: "none" };
+    expect(renderedIds(HEADER_CONTROL_ENTRIES, noAccess)).toEqual([null, null, null]);
   });
 });
 
 describe("renderHeaderControlEntries", () => {
-  it("renders nothing when neither control applies", () => {
-    const alone: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
+  it("renders nothing when no control applies", () => {
+    const noAccess: ChromeSlotContext = { ...baseCtx, accessLevel: "none", peers: [] };
     const output = React.Children.toArray(
-      renderHeaderControlEntries(alone),
+      renderHeaderControlEntries(noAccess),
     ) as React.ReactElement[];
     expect(output.every((el) => el.props.children == null)).toBe(true);
   });
