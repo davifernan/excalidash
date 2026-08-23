@@ -11,7 +11,6 @@ RUN npm ci
 
 # Copy test files and config
 COPY playwright.config.ts ./
-COPY global-setup.ts ./
 COPY tests/ ./tests/
 COPY fixtures/ ./fixtures/
 
