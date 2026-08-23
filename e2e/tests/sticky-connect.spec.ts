@@ -47,8 +47,8 @@ const armTool = async (page: Page) => {
   // would be read as a selection drag instead.
   await page.waitForFunction(
     () =>
-      (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool
-        ?.customType === "sticky",
+      (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool?.customType ===
+      "sticky",
   );
 };
 
@@ -90,19 +90,22 @@ test.describe("the note tool in the toolbar", () => {
 
   test("answers to its key", async ({ page }) => {
     await openEditor(page, drawingId);
-    await page.locator("canvas").last().click({ position: { x: 700, y: 500 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 700, y: 500 } });
     await page.keyboard.press("n");
     await page.waitForFunction(
       () =>
-        (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool
-          ?.customType === "sticky",
+        (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool?.customType ===
+        "sticky",
     );
 
     await page.keyboard.press("n");
     await page.waitForFunction(
       () =>
-        (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool
-          ?.type === "selection",
+        (window as any).__EXCALIDASH_EXCALIDRAW_API__.getAppState().activeTool?.type ===
+        "selection",
     );
   });
 
@@ -300,7 +303,24 @@ test.describe("a note dropped into a frame", () => {
     await page.mouse.up();
     await page.waitForTimeout(600);
 
-    await placeNote(page, { x: 600, y: 260 });
+    // Place the note at the centre of the frame that actually got drawn, not at
+    // a pixel that assumes the drag landed exactly. WebKit applies a synthetic
+    // drag only partly and by a varying amount -- measured at 84x64, 210x160
+    // and 294x224 across runs for the same 420x320 gesture -- so a fixed point
+    // lands outside the frame there and the test then measures the drag rather
+    // than the thing it is named after.
+    const frameBox = await page.evaluate(() => {
+      const frame = (window as any).__EXCALIDASH_EXCALIDRAW_API__
+        .getSceneElements()
+        .find((e: any) => e.type === "frame");
+      return { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+    });
+    const frameCentre = {
+      x: frameBox.x + frameBox.width / 2,
+      y: frameBox.y + frameBox.height / 2,
+    };
+
+    await placeNote(page, frameCentre);
     await page.keyboard.press("Escape");
     await settle(page);
 
