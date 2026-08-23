@@ -282,6 +282,9 @@ export const Editor: React.FC = () => {
     refs: canvasHandlerRefs,
     resolveSafeSnapshot,
     broadcastChanges,
+    fileCapability: adapter.files,
+    scene: adapter.scene,
+    viewport: adapter.viewport,
   });
   const { stickyOverlay, onCanvasChange: handleChangeWithNotes } = useStickyNotesFeature({
     excalidrawAPI,
@@ -295,7 +298,7 @@ export const Editor: React.FC = () => {
     // View access is enough to speak: the server says so explicitly, and a
     // visitor on a read-only link is still in the meeting.
     enabled: accessLevel !== "none",
-    excalidrawAPI,
+    selection: adapter.selection,
     chatRef: cursorChatRef,
   });
 
@@ -324,6 +327,8 @@ export const Editor: React.FC = () => {
     handleRenameStart,
     handleRenameSubmit,
   } = useEditorCommands({
+    boardSettings: adapter.boardSettings,
+    files: adapter.files,
     canEdit,
     debouncedSaveLibrary,
     drawingId: id,
