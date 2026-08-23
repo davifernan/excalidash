@@ -155,7 +155,45 @@ export const Editor: React.FC = () => {
           ] as never);
         }
         if (change.appState) {
-          const state = change.appState as { collaborators?: unknown };
+          const state = change.appState as {
+            collaborators?: unknown;
+            selectedElementIds?: Record<string, boolean>;
+          };
+          // Selection is a scene op, not an app-state write: `scene.apply` has a
+          // `select` kind and the capability has no setter. A spec that picks a
+          // frame this way and then nudges it with the arrow keys was moving
+          // nothing at all while the shim quietly ignored the field.
+          if (state.selectedElementIds) {
+            adapter.scene.apply([
+              {
+                kind: "select",
+                ids: Object.keys(state.selectedElementIds).filter(
+                  (id) => state.selectedElementIds?.[id],
+                ),
+              },
+            ] as never);
+          }
+          // Zoom, expressed the way the boundary offers it. There is no zoom
+          // setter and there should not be one: the product never sets zoom
+          // directly, it shows bounds and lets the zoom follow. So the harness
+          // asks for the bounds that produce the zoom it wants.
+          const zoom = (change.appState as { zoom?: { value?: number } }).zoom?.value;
+          if (typeof zoom === "number" && zoom > 0) {
+            const current = adapter.viewport.read();
+            if (current.ok) {
+              const { scrollX, scrollY, width, height, zoom: was } = current.value;
+              const centreX = -scrollX + width / 2 / was;
+              const centreY = -scrollY + height / 2 / was;
+              const halfW = width / 2 / zoom;
+              const halfH = height / 2 / zoom;
+              adapter.viewport.showBounds([
+                centreX - halfW,
+                centreY - halfH,
+                centreX + halfW,
+                centreY + halfH,
+              ] as never);
+            }
+          }
           if (state.collaborators instanceof Map) {
             adapter.collaboration.patchCollaborators(
               [...state.collaborators.entries()].map(([socketId, peer]) => ({
