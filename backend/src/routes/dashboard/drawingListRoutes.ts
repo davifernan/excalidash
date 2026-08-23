@@ -5,6 +5,7 @@ import { getDrawingMemberProjections } from "../../authz/drawingMembers";
 import { getUserTrashCollectionId, toPublicTrashCollectionId } from "./trash";
 import { SortDirection, SortField } from "./types";
 import type { DrawingRouteContext } from "./drawingRouteContext";
+import { getCollectionAccess, listSharedCollectionIds } from "../../authz/collections";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -70,18 +71,16 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
             return res.status(404).json({ error: "Collection not found" });
           }
 
-          // Check if user is owner or has a share entry
-          const isOwner = collection.userId === req.user.id;
-          if (!isOwner) {
-            const share = await prisma.collectionShare.findFirst({
-              where: {
-                collectionId: normalizedCollectionId,
-                granteeUserId: req.user.id,
-              },
-            });
-            if (!share) {
-              return res.status(404).json({ error: "Collection not found" });
-            }
+          // Owner or grantee -- one question, one answer. A collection the
+          // account has no claim on is reported as absent rather than as
+          // forbidden, so the endpoint cannot be used to test which ids exist.
+          const collectionAccess = await getCollectionAccess({
+            db: prisma,
+            userId: req.user.id,
+            collectionId: normalizedCollectionId,
+          });
+          if (!collectionAccess) {
+            return res.status(404).json({ error: "Collection not found" });
           }
           // Always fetch all drawings in the collection regardless of who created them
           delete (where as any).userId;
@@ -263,11 +262,7 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
             : { updatedAt: parsedSortDirection };
 
       // Get collection IDs shared with this user to exclude drawings already visible via collection sharing
-      const sharedCollectionIds = await prisma.collectionShare.findMany({
-        where: { granteeUserId: req.user.id },
-        select: { collectionId: true },
-      });
-      const sharedColIds = sharedCollectionIds.map((s) => s.collectionId);
+      const sharedColIds = await listSharedCollectionIds({ db: prisma, userId: req.user.id });
 
       const whereDrawing: Prisma.DrawingWhereInput = {
         // "Shared with me" should only include drawings owned by someone else.

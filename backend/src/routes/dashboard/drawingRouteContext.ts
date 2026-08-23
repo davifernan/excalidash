@@ -10,12 +10,16 @@ import {
   isS3Enabled,
   listS3Objects,
 } from "../../s3";
-import { shareLinkTokenFromRequest, type DrawingPrincipal } from "../../authz/sharing";
+import {
+  shareLinkTokenFromRequest,
+  type DrawingPermission,
+  type DrawingPrincipal,
+} from "../../authz/sharing";
 
 export type DrawingRouteContext = DashboardRouteDeps & {
   getRequestPrincipal: (req: express.Request) => Promise<DrawingPrincipal | null>;
   getShareToken: (req: express.Request) => string | null;
-  resolveDefaultTtlMs: (permission: "view" | "edit") => number;
+  resolveDefaultTtlMs: (permission: DrawingPermission) => number;
   resolveMaxTtlMs: () => number;
   respondWithAuthErrorIfPresent: (req: express.Request, res: express.Response) => boolean;
   cleanupS3FilesForDrawing: (drawingId: string, userId: string) => Promise<void>;
@@ -41,7 +45,17 @@ export const createDrawingRouteContext = (deps: DashboardRouteDeps): DrawingRout
 
   const getShareToken = (req: express.Request): string | null => shareLinkTokenFromRequest(req);
 
-  const resolveDefaultTtlMs = (permission: "view" | "edit"): number => {
+  /**
+   * A shorter life for links that can change the board.
+   *
+   * `"comment"` groups with `"view"` rather than `"edit"`: the short window
+   * exists because a leaked edit link can destroy work, and a comment link
+   * cannot. Typed as DrawingPermission instead of a hand-written union, which
+   * is how the compiler pointed at this function the moment the level was
+   * added -- a local copy of the union would have kept its silence and quietly
+   * given comment links the edit TTL.
+   */
+  const resolveDefaultTtlMs = (permission: DrawingPermission): number => {
     const raw =
       permission === "edit"
         ? process.env.LINK_SHARE_EDIT_DEFAULT_TTL_MS

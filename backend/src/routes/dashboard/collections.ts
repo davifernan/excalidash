@@ -1,6 +1,22 @@
 import express from "express";
 import { DashboardRouteDeps } from "./types";
 import { getUserTrashCollectionId, isTrashCollectionId } from "./trash";
+import {
+  changeCollectionShareRole,
+  collectionsWithShares,
+  controlsCollection,
+  deleteOwnedCollectionOp,
+  getOwnedCollection,
+  grantCollectionShare,
+  listCollectionGranteeIds,
+  listCollectionShares,
+  listCollectionsSharedWith,
+  listOwnedCollections,
+  renameOwnedCollection,
+  revokeAllCollectionSharesOp,
+  revokeCollectionShare,
+} from "../../authz/collections";
+import { normalizeDrawingPermission } from "../../authz/sharing";
 
 export const registerCollectionRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
   const {
@@ -25,21 +41,12 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       const trashCollectionId = getUserTrashCollectionId(req.user.id);
       await ensureTrashCollection(prisma, req.user.id);
 
-      const rawCollections = await prisma.collection.findMany({
-        where: { userId: req.user.id },
-        orderBy: { createdAt: "desc" },
-      });
+      const rawCollections = await listOwnedCollections({ db: prisma, userId: req.user.id });
       const hasInternalTrash = rawCollections.some((c) => c.id === trashCollectionId);
-      const shareCountMap = await prisma.collectionShare.groupBy({
-        by: ["collectionId"],
-        where: {
-          collectionId: {
-            in: rawCollections.map((c) => c.id),
-          },
-        },
-        _count: { collectionId: true },
+      const sharedCollectionIds = await collectionsWithShares({
+        db: prisma,
+        collectionIds: rawCollections.map((c) => c.id),
       });
-      const sharedCollectionIds = new Set(shareCountMap.map((s) => s.collectionId));
 
       const ownedCollections = rawCollections
         .filter((c) => !(hasInternalTrash && c.id === "trash"))
@@ -64,16 +71,7 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       // Collections shared with this user by others.
       // Projected field by field: spreading the row handed every grantee the
       // owner's email address, which navigation never needed.
-      const sharedEntries = await prisma.collectionShare.findMany({
-        where: { granteeUserId: req.user.id },
-        include: {
-          collection: {
-            include: {
-              user: { select: { name: true } },
-            },
-          },
-        },
-      });
+      const sharedEntries = await listCollectionsSharedWith({ db: prisma, userId: req.user.id });
       const sharedCollections = sharedEntries.map((s) => ({
         id: s.collection.id,
         name: s.collection.name,
@@ -126,10 +124,9 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
           message: "Trash collection cannot be renamed",
         });
       }
-      const existing = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
-      });
-      if (!existing) return res.status(404).json({ error: "Collection not found" });
+      if (!(await controlsCollection({ db: prisma, userId: req.user.id, collectionId: id }))) {
+        return res.status(404).json({ error: "Collection not found" });
+      }
 
       const parsed = collectionNameSchema.safeParse(req.body.name);
       if (!parsed.success) {
@@ -140,12 +137,16 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       }
 
       const sanitizedName = sanitizeText(parsed.data, 100);
-      await prisma.collection.updateMany({
-        where: { id, userId: req.user.id },
-        data: { name: sanitizedName },
+      await renameOwnedCollection({
+        db: prisma,
+        userId: req.user.id,
+        collectionId: id,
+        name: sanitizedName,
       });
-      const updated = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
+      const updated = await getOwnedCollection({
+        db: prisma,
+        userId: req.user.id,
+        collectionId: id,
       });
       if (!updated) return res.status(404).json({ error: "Collection not found" });
       return res.json(updated);
@@ -166,15 +167,14 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
           message: "Trash collection cannot be deleted",
         });
       }
-      const collection = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
+      const collection = await getOwnedCollection({
+        db: prisma,
+        userId: req.user.id,
+        collectionId: id,
       });
       if (!collection) return res.status(404).json({ error: "Collection not found" });
 
-      const affectedShares = await prisma.collectionShare.findMany({
-        where: { collectionId: id },
-        select: { granteeUserId: true },
-      });
+      const affectedGranteeIds = await listCollectionGranteeIds({ db: prisma, collectionId: id });
 
       await prisma.$transaction([
         // Every board in the collection, not only the ones this account owns.
@@ -184,12 +184,12 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
           where: { collectionId: id },
           data: { collectionId: null },
         }),
-        prisma.collectionShare.deleteMany({ where: { collectionId: id } }),
-        prisma.collection.deleteMany({ where: { id, userId: req.user.id } }),
+        revokeAllCollectionSharesOp({ db: prisma, collectionId: id }),
+        deleteOwnedCollectionOp({ db: prisma, userId: req.user.id, collectionId: id }),
       ]);
       invalidateDrawingsCache();
       await Promise.all(
-        Array.from(new Set(affectedShares.map((share) => share.granteeUserId))).map((userId) =>
+        Array.from(new Set(affectedGranteeIds)).map((userId) =>
           collaborationAccess.recheckUserAccess(userId),
         ),
       );
@@ -218,18 +218,11 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id } = req.params;
 
-      const collection = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
-      });
-      if (!collection) return res.status(404).json({ error: "Collection not found" });
+      if (!(await controlsCollection({ db: prisma, userId: req.user.id, collectionId: id }))) {
+        return res.status(404).json({ error: "Collection not found" });
+      }
 
-      const shares = await prisma.collectionShare.findMany({
-        where: { collectionId: id },
-        include: {
-          granteeUser: { select: { id: true, name: true, email: true } },
-        },
-        orderBy: { createdAt: "asc" },
-      });
+      const shares = await listCollectionShares({ db: prisma, collectionId: id });
 
       return res.json({ shares });
     }),
@@ -248,16 +241,16 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
         role: string;
       };
 
-      if ((!identifier && !granteeUserId) || !["view", "edit"].includes(role)) {
+      const normalizedRole = normalizeDrawingPermission(role);
+      if ((!identifier && !granteeUserId) || !normalizedRole) {
         return res
           .status(400)
           .json({ error: "granteeUserId or identifier, and role (view|edit), are required" });
       }
 
-      const collection = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
-      });
-      if (!collection) return res.status(404).json({ error: "Collection not found" });
+      if (!(await controlsCollection({ db: prisma, userId: req.user.id, collectionId: id }))) {
+        return res.status(404).json({ error: "Collection not found" });
+      }
 
       // Resolve by account id, or by a value that is unique by definition.
       // Display names are neither unique nor stable, and findFirst quietly
@@ -279,23 +272,12 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       if (grantee.id === req.user.id)
         return res.status(400).json({ error: "Cannot share with yourself" });
 
-      const share = await prisma.collectionShare.upsert({
-        where: {
-          collectionId_granteeUserId: {
-            collectionId: id,
-            granteeUserId: grantee.id,
-          },
-        },
-        update: { role, updatedAt: new Date() },
-        create: {
-          collectionId: id,
-          granteeUserId: grantee.id,
-          role,
-          createdByUserId: req.user.id,
-        },
-        include: {
-          granteeUser: { select: { id: true, name: true, email: true } },
-        },
+      const share = await grantCollectionShare({
+        db: prisma,
+        collectionId: id,
+        granteeUserId: grantee.id,
+        role: normalizedRole,
+        grantedByUserId: req.user.id,
       });
       invalidateDrawingsCache();
 
@@ -312,20 +294,22 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       const { id, userId } = req.params;
       const { role } = req.body as { role: string };
 
-      if (!["view", "edit"].includes(role)) {
+      const normalizedRole = normalizeDrawingPermission(role);
+      if (!normalizedRole) {
         return res.status(400).json({ error: "role must be view or edit" });
       }
 
-      const collection = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
-      });
-      if (!collection) return res.status(404).json({ error: "Collection not found" });
+      if (!(await controlsCollection({ db: prisma, userId: req.user.id, collectionId: id }))) {
+        return res.status(404).json({ error: "Collection not found" });
+      }
 
-      const share = await prisma.collectionShare.updateMany({
-        where: { collectionId: id, granteeUserId: userId },
-        data: { role, updatedAt: new Date() },
+      const changed = await changeCollectionShareRole({
+        db: prisma,
+        collectionId: id,
+        granteeUserId: userId,
+        role: normalizedRole,
       });
-      if (share.count === 0) return res.status(404).json({ error: "Share not found" });
+      if (!changed) return res.status(404).json({ error: "Share not found" });
       invalidateDrawingsCache();
 
       return res.json({ success: true });
@@ -340,16 +324,17 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id, userId } = req.params;
 
-      const collection = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
-      });
-      if (!collection) return res.status(404).json({ error: "Collection not found" });
+      if (!(await controlsCollection({ db: prisma, userId: req.user.id, collectionId: id }))) {
+        return res.status(404).json({ error: "Collection not found" });
+      }
 
-      const deleted = await prisma.collectionShare.deleteMany({
-        where: { collectionId: id, granteeUserId: userId },
+      const revoked = await revokeCollectionShare({
+        db: prisma,
+        collectionId: id,
+        granteeUserId: userId,
       });
       invalidateDrawingsCache();
-      if (deleted.count > 0) {
+      if (revoked) {
         await collaborationAccess.recheckUserAccess(userId);
       }
       return res.json({ success: true });
@@ -367,17 +352,15 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
 
       if (q.length < 2) return res.json({ users: [] });
 
-      const collection = await prisma.collection.findFirst({
-        where: { id, userId: req.user.id },
-      });
-      if (!collection) return res.status(404).json({ error: "Collection not found" });
+      if (!(await controlsCollection({ db: prisma, userId: req.user.id, collectionId: id }))) {
+        return res.status(404).json({ error: "Collection not found" });
+      }
 
       // Get already-shared user IDs to exclude them
-      const existing = await prisma.collectionShare.findMany({
-        where: { collectionId: id },
-        select: { granteeUserId: true },
-      });
-      const excludeIds = [req.user.id, ...existing.map((s) => s.granteeUserId)];
+      const excludeIds = [
+        req.user.id,
+        ...(await listCollectionGranteeIds({ db: prisma, collectionId: id })),
+      ];
 
       const users = await prisma.user.findMany({
         where: {

@@ -17,6 +17,7 @@ import {
 } from "./storage/plans";
 import { deleteS3KeysInBatches } from "./storage/s3Delete";
 import { syncDrawingDocumentState } from "../assets/documentWidgetState";
+import { getOwnedBoard } from "../authz/boards";
 
 export type StorageRouteDeps = {
   prisma: PrismaClient;
@@ -56,9 +57,7 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
       const { confirmName } = req.body ?? {};
 
       // 1. Find drawing owned by user
-      const drawing = await prisma.drawing.findFirst({
-        where: { id, userId },
-      });
+      const drawing = await getOwnedBoard({ db: prisma, userId, boardId: id });
       if (!drawing) {
         return res.status(404).json({ error: "Drawing not found" });
       }
@@ -151,9 +150,7 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
 
       const { id } = req.params;
 
-      const drawing = await prisma.drawing.findFirst({
-        where: { id, userId },
-      });
+      const drawing = await getOwnedBoard({ db: prisma, userId, boardId: id });
       if (!drawing) {
         return res.status(404).json({ error: "Drawing not found" });
       }
@@ -215,9 +212,7 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
       }
       const fileIds = rawFileIds as string[];
 
-      const drawing = await prisma.drawing.findFirst({
-        where: { id, userId },
-      });
+      const drawing = await getOwnedBoard({ db: prisma, userId, boardId: id });
       if (!drawing) {
         return res.status(404).json({ error: "Drawing not found" });
       }

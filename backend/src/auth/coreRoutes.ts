@@ -21,6 +21,7 @@ import {
   upsertAuthModeState,
 } from "./coreRouteHelpers";
 import { canUseLocalPasswordFlows } from "./localPassword";
+import { getOwnedCollection } from "../authz/collections";
 type RegisterCoreRoutesDeps = {
   /** Optional: only a configured mailer makes password reset usable. */
   mailer?: { enabled: boolean };
@@ -269,8 +270,10 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
           throw error;
         }
         const trashCollectionId = getUserTrashCollectionId(user.id);
-        const existingTrash = await prisma.collection.findFirst({
-          where: { id: trashCollectionId, userId: user.id },
+        const existingTrash = await getOwnedCollection({
+          db: prisma,
+          userId: user.id,
+          collectionId: trashCollectionId,
         });
         if (!existingTrash) {
           await prisma.collection.create({
@@ -342,8 +345,10 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
         },
       });
       const trashCollectionId = getUserTrashCollectionId(user.id);
-      const existingTrash = await prisma.collection.findFirst({
-        where: { id: trashCollectionId, userId: user.id },
+      const existingTrash = await getOwnedCollection({
+        db: prisma,
+        userId: user.id,
+        collectionId: trashCollectionId,
       });
       if (!existingTrash) {
         await prisma.collection.create({

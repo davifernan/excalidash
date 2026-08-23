@@ -56,6 +56,8 @@ import {
 import { registerLinkPreviewRoutes } from "./linkPreviews/routes";
 import { collectExpiredLinkPreviews } from "./linkPreviews/cache";
 import { createLinkPreviewService } from "./linkPreviews/service";
+import { getOwnedCollection } from "./authz/collections";
+import { adoptLegacyTrashBoards } from "./authz/boards";
 const backendRoot = path.resolve(__dirname, "../");
 const redactDatabaseUrl = (value: string | undefined): string => {
   if (!value) return "<unset>";
@@ -196,16 +198,15 @@ const ensureTrashCollection = async (
   userId: string,
 ): Promise<void> => {
   const trashCollectionId = getUserTrashCollectionId(userId);
-  const trashCollection = await db.collection.findFirst({
-    where: { id: trashCollectionId, userId },
+  const trashCollection = await getOwnedCollection({
+    db,
+    userId,
+    collectionId: trashCollectionId,
   });
   if (!trashCollection) {
     await db.collection.create({ data: { id: trashCollectionId, name: "Trash", userId } });
   }
-  await db.drawing.updateMany({
-    where: { userId, collectionId: "trash" },
-    data: { collectionId: trashCollectionId },
-  });
+  await adoptLegacyTrashBoards({ db, userId, trashCollectionId });
 };
 const PORT = config.port;
 const upload = multer({

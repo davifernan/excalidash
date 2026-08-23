@@ -5,6 +5,11 @@ import archiver from "archiver";
 import { resolveStoragePath } from "../../assets/assetStorage";
 import { decodeSnapshotField } from "../../snapshots/snapshotCodec";
 import {
+  ownedBoardsWhere,
+  ownedCollectionsWhere,
+  throughOwnedBoardWhere,
+} from "../../authz/boards";
+import {
   RegisterImportExportDeps,
   assertSafeArchivePath,
   getUserTrashCollectionId,
@@ -33,7 +38,7 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
 
       const exportedAt = new Date().toISOString();
       const drawings = await prisma.drawing.findMany({
-        where: { userId: req.user.id },
+        where: ownedBoardsWhere(req.user.id),
         select: {
           id: true,
           name: true,
@@ -43,13 +48,15 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
           updatedAt: true,
         },
       });
-      const userCollections = await prisma.collection.findMany({ where: { userId: req.user.id } });
+      const userCollections = await prisma.collection.findMany({
+        where: ownedCollectionsWhere(req.user.id),
+      });
       const drawingAssetRows = await prisma.drawingAsset.findMany({
-        where: { drawing: { userId: req.user.id } },
+        where: throughOwnedBoardWhere(req.user.id),
         include: { asset: { include: { blob: true } } },
       });
       const snapshots = await prisma.drawingSnapshot.findMany({
-        where: { drawing: { userId: req.user.id } },
+        where: throughOwnedBoardWhere(req.user.id),
         select: {
           id: true,
           drawingId: true,
@@ -74,7 +81,10 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
         !collectionsToExport.some((collection) => isTrashCollectionId(collection.id, req.user!.id))
       ) {
         const trash = await prisma.collection.findFirst({
-          where: { userId: req.user.id, id: { in: [trashCollectionId, "trash"] } },
+          where: {
+            ...ownedCollectionsWhere(req.user.id),
+            id: { in: [trashCollectionId, "trash"] },
+          },
         });
         if (trash) collectionsToExport.push(trash);
       }

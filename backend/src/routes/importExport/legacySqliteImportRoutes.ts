@@ -13,6 +13,7 @@ import {
   sanitizeDrawingData,
 } from "./shared";
 import { processFilesForS3 } from "../../fileProcessing";
+import { claimOnBoard, isBoardCreator, isCollectionCreator } from "../../authz/boards";
 export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps) => {
   const {
     app,
@@ -253,11 +254,14 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
               finalId = uuidv4();
               d.importedId = finalId;
             } else {
-              const existing = await prisma.drawing.findUnique({
-                where: { id: d.importedId },
-                select: { userId: true },
+              // Only a board somebody else owns forces a new id. An absent id
+              // and an id already ours both keep the imported one.
+              const claim = await claimOnBoard({
+                db: prisma,
+                userId: req.user!.id,
+                boardId: d.importedId,
               });
-              finalId = existing && existing.userId !== req.user!.id ? uuidv4() : d.importedId;
+              finalId = claim === "foreign" ? uuidv4() : d.importedId;
             }
             finalDrawingIdMap.set(i, finalId);
           }
@@ -323,7 +327,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                 collectionsCreated += 1;
                 continue;
               }
-              if (existing.userId === req.user!.id) {
+              if (isCollectionCreator(existing, req.user!.id)) {
                 await tx.collection.update({
                   where: { id: importedId },
                   data: { name: sanitizeText(name, 100) || "Collection" },
@@ -384,7 +388,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                 drawingsCreated += 1;
                 continue;
               }
-              if (existing.userId === req.user!.id) {
+              if (isBoardCreator(existing, req.user!.id)) {
                 await tx.drawing.update({
                   where: { id: existing.id },
                   data: {

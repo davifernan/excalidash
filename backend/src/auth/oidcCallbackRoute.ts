@@ -15,6 +15,7 @@ import {
   readClaimByPath,
   readStringClaim,
 } from "./oidcRouteHelpers";
+import { getOwnedCollection } from "../authz/collections";
 
 type OidcUser = {
   id: string;
@@ -66,9 +67,10 @@ export const registerOidcCallbackRoute = (deps: RegisterOidcCallbackRouteDeps) =
   } as const;
   const ensureTrashCollection = async (tx: Prisma.TransactionClient, userId: string) => {
     const trashCollectionId = `trash:${userId}`;
-    const existingTrash = await tx.collection.findFirst({
-      where: { id: trashCollectionId, userId },
-      select: { id: true },
+    const existingTrash = await getOwnedCollection({
+      db: tx,
+      userId,
+      collectionId: trashCollectionId,
     });
     if (!existingTrash) {
       await tx.collection.create({

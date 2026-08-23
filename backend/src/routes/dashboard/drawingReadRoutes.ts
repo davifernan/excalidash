@@ -1,5 +1,6 @@
 import express from "express";
 import { canViewDrawing, getDrawingAccess } from "../../authz/sharing";
+import { isBoardCreator } from "../../authz/boards";
 import { toPublicTrashCollectionId } from "./trash";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
@@ -70,7 +71,11 @@ export const registerDrawingReadRoutes = (app: express.Express, context: Drawing
         });
       }
 
-      const isOwner = principal?.kind === "user" && principal.userId === drawing.userId;
+      // The creator claim, not owner access. A collection's owner has owner
+      // access to a board they never drew, and widening the test here would
+      // disclose the creator's account id to them. Same answer as before,
+      // asked through the contract so NIL-323 moves it in one place.
+      const isOwner = isBoardCreator(drawing, principal?.userId);
       return res.json({
         id: drawing.id,
         name: drawing.name,
