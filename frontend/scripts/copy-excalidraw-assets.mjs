@@ -56,7 +56,23 @@ const main = async () => {
 
       await copyDir(src, dest);
 
-      console.log(`[copy-excalidraw-assets] Copied ${srcRel} -> ${targetName}/${destName}`);
+      // A missing directory already throws above. An empty one did not: fs.cp
+      // copies nothing and reports success, and the fonts go missing only in
+      // the browser, on somebody else's machine. This reaches into Excalidraw's
+      // own dist layout, which has moved before -- excalidraw-assets became
+      // dist/prod in 0.18.0 -- so the next move should stop a build, not a
+      // reader.
+      const copied = await fs.readdir(dest);
+      if (copied.length === 0) {
+        throw new Error(
+          `[copy-excalidraw-assets] ${src} exists but is empty, so ${destName} would ship ` +
+            `without fonts. The package's dist layout has probably changed again.`,
+        );
+      }
+
+      console.log(
+        `[copy-excalidraw-assets] Copied ${srcRel} (${copied.length} entries) -> ${targetName}/${destName}`,
+      );
     }
   }
 };

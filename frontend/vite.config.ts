@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import fs from "fs";
 import path from "path";
 
+import { readExcalidrawVersion } from "./scripts/excalidraw-version";
+
 const versionFilePath = path.resolve(__dirname, "../VERSION");
 let versionFromFile = "0.0.0";
 
@@ -32,6 +34,7 @@ export default defineConfig(({ command }) => {
       ...processEnvDefines,
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
       'import.meta.env.VITE_APP_BUILD_LABEL': JSON.stringify(buildLabel),
+      'import.meta.env.VITE_EXCALIDRAW_VERSION': JSON.stringify(readExcalidrawVersion()),
     },
     optimizeDeps: {
       esbuildOptions: {
