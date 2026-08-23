@@ -246,9 +246,9 @@ describe("document backup and export round trip", () => {
     expect(restoredAsset?.originalName).toBe("proof.pdf");
     expect(restoredAsset?.drawings).toHaveLength(1);
     expect(restoredAsset?.snapshots).toHaveLength(1);
-    expect(
-      JSON.parse(restoredDrawing!.elements)[0].customData.excalidash.widget.assetId,
-    ).toBe(restoredAsset!.id);
+    expect(JSON.parse(restoredDrawing!.elements)[0].customData.excalidash.widget.assetId).toBe(
+      restoredAsset!.id,
+    );
     const restoredBytes = await fs.readFile(
       resolveStoragePath(assetStorageDir, restoredAsset!.blob.storageKey),
     );

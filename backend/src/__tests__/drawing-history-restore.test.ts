@@ -36,7 +36,9 @@ describe("drawing history restore coordination", () => {
           id: "pdf-widget",
           type: "embeddable",
           link: "excalidash://asset-widget",
-          customData: { excalidash: { schemaVersion: 2, widget: { kind: "pdf", assetId: archivedAssetId } } },
+          customData: {
+            excalidash: { schemaVersion: 2, widget: { kind: "pdf", assetId: archivedAssetId } },
+          },
         },
       ]),
     };
