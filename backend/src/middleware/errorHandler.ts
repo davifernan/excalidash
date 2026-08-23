@@ -5,6 +5,17 @@
 import { Request, Response, NextFunction } from "express";
 import { config } from "../config";
 
+/**
+ * The correlation key is minted per request in index.ts and returned as the
+ * X-Request-ID header. Every ordinary request is logged with it; the failing
+ * one was the exception, which is precisely where a report and a log line need
+ * to meet.
+ */
+const requestIdOf = (req: Request): string => {
+  const raw = req.headers["x-request-id"];
+  return typeof raw === "string" && raw.length > 0 ? raw : "unknown";
+};
+
 export interface AppError extends Error {
   statusCode?: number;
   isOperational?: boolean;
@@ -21,11 +32,14 @@ export const errorHandler = (
   res: Response,
   next: NextFunction,
 ): void => {
+  const requestId = requestIdOf(req);
+
   if (err.code === "LIMIT_FILE_SIZE") {
     res.status(413).json({
       code: "upload-too-large",
       error: "Payload too large",
       message: "The upload exceeds the configured backend limit.",
+      requestId,
     });
     return;
   }
@@ -38,6 +52,7 @@ export const errorHandler = (
     statusCode,
     path: req.path,
     method: req.method,
+    requestId,
     timestamp: new Date().toISOString(),
   });
 
@@ -46,6 +61,7 @@ export const errorHandler = (
       res.status(statusCode).json({
         error: "Internal server error",
         message: "An error occurred while processing your request",
+        requestId,
       });
       return;
     }
@@ -53,6 +69,7 @@ export const errorHandler = (
     res.status(statusCode).json({
       error: "Request error",
       message: err.isOperational ? err.message : "Invalid request",
+      requestId,
     });
     return;
   }
@@ -61,6 +78,7 @@ export const errorHandler = (
     error: err.message,
     stack: err.stack,
     statusCode,
+    requestId,
   });
 };
 
