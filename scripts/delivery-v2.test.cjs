@@ -201,6 +201,20 @@ test("git diff overrides a stale frontend label", () => {
   assert.equal(manifest.browser_scope, "none");
 });
 
+test("versioned operations assets are classified as operations", () => {
+  const manifest = impact([
+    "ops/systemd/excalidash-pipeline-sentinel.service",
+    "ops/systemd/excalidash-pipeline-sentinel.timer",
+  ]);
+
+  assert.deepEqual(manifest.diff.operations, [
+    "ops/systemd/excalidash-pipeline-sentinel.service",
+    "ops/systemd/excalidash-pipeline-sentinel.timer",
+  ]);
+  assert.equal(manifest.effective.operations, true);
+  assert.equal(manifest.diff.other.length, 0);
+});
+
 test("a frontend product diff requires visual evidence even without a label", () => {
   const manifest = impact(["frontend/src/pages/Dashboard.tsx"], []);
 

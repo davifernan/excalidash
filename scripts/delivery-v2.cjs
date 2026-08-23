@@ -384,6 +384,7 @@ function classifyChangedFile(file) {
   if (file.startsWith("backend/")) return "backend";
   if (
     file.startsWith(".github/") ||
+    file.startsWith("ops/") ||
     file.startsWith("scripts/") ||
     file.startsWith("make/") ||
     /(^|\/)(Dockerfile|docker-compose[^/]*\.ya?ml)$/.test(file) ||
