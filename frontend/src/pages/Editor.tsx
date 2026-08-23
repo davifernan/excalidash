@@ -169,6 +169,10 @@ export const Editor: React.FC = () => {
       addFiles: (files: Record<string, unknown> | readonly unknown[]) =>
         adapter.files.add((Array.isArray(files) ? files : Object.values(files)) as never),
       getAppState: () => ({
+        // `activeTool` too: the sticky specs wait for the tool to arm, and a
+        // surface that answers `undefined` there makes a working tool look
+        // like a broken one.
+        activeTool: unwrap(adapter.interaction.read(), null)?.activeTool ?? null,
         collaborators: new Map(
           unwrap(adapter.collaboration.readCollaborators(), []).map((peer) => [
             String(peer.socketId),
