@@ -89,4 +89,48 @@ describe("editor command capability failures", () => {
     expect(getSceneElementsIncludingDeleted).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
+
+  it("sends 'back to dashboard' to the drawings list, not the app's / (Team Home, NIL-323/NIL-345)", async () => {
+    const boardSettings = { read: vi.fn() } as any;
+    const files = { read: vi.fn() } as any;
+    const refs = {
+      excalidrawAPI: { current: null },
+      hasSceneChangesSinceLoad: { current: false },
+      latestElements: { current: [] },
+      latestFiles: { current: {} },
+      saveData: { current: null },
+      savePreview: { current: null },
+      suspiciousBlankLoad: { current: false },
+    };
+
+    const { result } = renderHook(() =>
+      useEditorCommands({
+        boardSettings,
+        canEdit: true,
+        debouncedSaveLibrary: vi.fn(),
+        drawingId: "drawing-1",
+        drawingName: "Board",
+        enqueueSceneSave: vi.fn(),
+        files,
+        isSavingOnLeave: false,
+        newName: "Board",
+        refs,
+        resolveSafeSnapshot: (elements) => ({
+          snapshot: elements ?? [],
+          prevented: false,
+          staleEmptySnapshot: false,
+          staleNonRenderableSnapshot: false,
+        }),
+        setDrawingName: vi.fn(),
+        setIsRenaming: vi.fn(),
+        setIsSavingOnLeave: vi.fn(),
+        setNewName: vi.fn(),
+        user: {},
+      }),
+    );
+
+    await act(() => result.current.handleBackClick());
+
+    expect(navigate).toHaveBeenCalledWith("/collections");
+  });
 });
