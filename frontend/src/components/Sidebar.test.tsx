@@ -106,3 +106,43 @@ describe("Sidebar collection ownership", () => {
     expect(screen.getByText("Rename Collection")).toBeTruthy();
   });
 });
+
+describe("Sidebar Team Home entry", () => {
+  it("navigates to /team when clicked", () => {
+    render(
+      <MemoryRouter initialEntries={["/collections"]}>
+        <Sidebar {...baseProps} collections={[]} />
+      </MemoryRouter>,
+    );
+    const teamHomeButton = screen.getByRole("button", { name: "Team Home" });
+    expect(teamHomeButton).not.toHaveClass("bg-indigo-50");
+
+    fireEvent.click(teamHomeButton);
+
+    // The button re-renders as active once the route actually changed to
+    // /team -- a real navigation assertion, not a click-happened one.
+    expect(screen.getByRole("button", { name: "Team Home" })).toHaveClass("bg-indigo-50");
+  });
+
+  it("highlights Team Home only while on /team, not on other pages", () => {
+    const onTeamHome = render(
+      <MemoryRouter initialEntries={["/team"]}>
+        <Sidebar {...baseProps} collections={[]} />
+      </MemoryRouter>,
+    );
+    expect(onTeamHome.getByRole("button", { name: "Team Home" })).toHaveClass("bg-indigo-50");
+    onTeamHome.unmount();
+
+    // Fresh MemoryRouter, not a rerender: `initialEntries` only applies on
+    // first mount, so reusing the same router instance would leave the
+    // location at /team and let this assertion pass for the wrong reason.
+    const onCollections = render(
+      <MemoryRouter initialEntries={["/collections"]}>
+        <Sidebar {...baseProps} collections={[]} />
+      </MemoryRouter>,
+    );
+    expect(onCollections.getByRole("button", { name: "Team Home" })).not.toHaveClass(
+      "bg-indigo-50",
+    );
+  });
+});
