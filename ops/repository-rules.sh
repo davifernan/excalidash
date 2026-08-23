@@ -81,9 +81,23 @@ ruleset_payload() {
 JSON
 }
 
-# The rule types this script intends to have active on BRANCH.
+# Both expectations are derived from ruleset_payload() rather than restated, so
+# there is one source of truth. A second hand-maintained list would be the very
+# drift this script exists to catch.
 expected_rule_types() {
-  printf '%s\n' deletion non_fast_forward required_status_checks
+  ruleset_payload | jq -r '.rules[].type' | sort -u
+}
+
+expected_contexts() {
+  ruleset_payload |
+    jq -r '.rules[] | select(.type == "required_status_checks")
+           | .parameters.required_status_checks[].context' | sort
+}
+
+actual_contexts() {
+  gh api "repos/${REPO}/rules/branches/${BRANCH}" \
+    --jq '.[] | select(.type == "required_status_checks")
+          | .parameters.required_status_checks[].context' | sort
 }
 
 ruleset_id() {
@@ -121,12 +135,21 @@ case "${1:-show}" in
     # matching the live configuration, so `apply` would have removed a rule that
     # was protecting main. Exits non-zero on any difference.
     actual="$(gh api "repos/${REPO}/rules/branches/${BRANCH}" --jq '.[].type' | sort -u)"
-    expected="$(expected_rule_types | sort -u)"
+    expected="$(expected_rule_types)"
     squash="$(gh api "repos/${REPO}" --jq '.allow_squash_merge')"
     status=0
     if [ "${actual}" != "${expected}" ]; then
       echo "Rule drift on ${BRANCH}:" >&2
       diff <(echo "${expected}") <(echo "${actual}") | sed 's/^/  /' >&2
+      status=1
+    fi
+    # Which checks are required is half the configuration. Comparing only rule
+    # types reports green while a job has been quietly dropped from the list.
+    actual_checks="$(actual_contexts)"
+    expected_checks="$(expected_contexts)"
+    if [ "${actual_checks}" != "${expected_checks}" ]; then
+      echo "Required-check drift on ${BRANCH}:" >&2
+      diff <(echo "${expected_checks}") <(echo "${actual_checks}") | sed 's/^/  /' >&2
       status=1
     fi
     if [ "${squash}" != "false" ]; then
