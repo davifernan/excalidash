@@ -15,7 +15,7 @@ export interface DrawingSummary {
   createdAt: number;
   version: number;
   preview?: string | null;
-  accessLevel?: "none" | "view" | "edit" | "owner";
+  accessLevel?: "none" | "view" | "comment" | "edit" | "owner";
   creatorName?: string | null;
   /** Who has a standing claim on this board. Capped; totalCount may be larger. */
   members?: { totalCount: number; items: DrawingMember[] };
