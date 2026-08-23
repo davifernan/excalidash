@@ -266,25 +266,21 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
 /** No entries in this PR -- see the file comment's "An empty slot" section. */
 export const FOOTER_ENTRIES: FooterSlotEntry[] = [];
 
-export const renderMainMenuEntries = (ctx: ChromeSlotContext): React.ReactNode =>
-  [...MAIN_MENU_ENTRIES]
+/** Sort by `order`, render each entry into a keyed fragment -- shared by all three slot kinds below. */
+const renderSorted = (entries: readonly SlotEntry[], ctx: ChromeSlotContext): React.ReactNode =>
+  [...entries]
     .sort(byOrder)
     .map((entry) => <React.Fragment key={entry.id}>{entry.render(ctx)}</React.Fragment>);
 
+export const renderMainMenuEntries = (ctx: ChromeSlotContext): React.ReactNode =>
+  renderSorted(MAIN_MENU_ENTRIES, ctx);
+
 export const renderHeaderControlEntries = (ctx: ChromeSlotContext): React.ReactNode =>
-  [...HEADER_CONTROL_ENTRIES]
-    .sort(byOrder)
-    .map((entry) => <React.Fragment key={entry.id}>{entry.render(ctx)}</React.Fragment>);
+  renderSorted(HEADER_CONTROL_ENTRIES, ctx);
 
 export const renderFooterEntries = (ctx: ChromeSlotContext): React.ReactNode => {
   if (FOOTER_ENTRIES.length === 0) return null;
-  return (
-    <Footer>
-      {[...FOOTER_ENTRIES].sort(byOrder).map((entry) => (
-        <React.Fragment key={entry.id}>{entry.render(ctx)}</React.Fragment>
-      ))}
-    </Footer>
-  );
+  return <Footer>{renderSorted(FOOTER_ENTRIES, ctx)}</Footer>;
 };
 
 export const followerNotice = (followers: readonly Follower[]): string | null =>
