@@ -11,8 +11,13 @@ compare the two recorded observations.
 
 ## Who writes the record
 
-- The PR Overseer writes it after accepting objective red/green evidence and replaying or
-  otherwise checking both observations.
+The delivery pipeline that once carried this out as a service is gone: the `PR Overseer Events`
+workflow was removed on 2026-08-23, and the sentinel that chased fix deltas is switched off. The
+procedure below is unchanged and is now carried out by hand. `pr-overseer` stays the recorded
+role value -- it names the role performing the check, not a running service.
+
+- Whoever holds the overseer role writes it after accepting objective red/green evidence and
+  replaying or otherwise checking both observations.
 - The Finding Verifier writes it when the expensive, narrow verification path was required.
 - The Implementer may supply commands and raw observations in the fix handoff, but does not
   turn their own claim into a machine-covered delta.

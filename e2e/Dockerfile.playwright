@@ -11,6 +11,7 @@ RUN npm ci
 
 # Copy test files and config
 COPY playwright.config.ts ./
+COPY playwright-retry-summary-reporter.cjs ./
 COPY global-setup.ts ./
 COPY tests/ ./tests/
 COPY fixtures/ ./fixtures/
@@ -18,5 +19,7 @@ COPY fixtures/ ./fixtures/
 # Set environment variables
 ENV CI=true
 
-# Default command runs tests in headless mode
-CMD ["npx", "playwright", "test", "--reporter=html,list"]
+# Default command runs tests in headless mode.
+# No `--reporter` here: the CLI flag REPLACES the reporter list from the config
+# rather than extending it, which silently drops the retry reporter.
+CMD ["npx", "playwright", "test"]

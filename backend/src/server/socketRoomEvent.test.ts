@@ -146,4 +146,33 @@ describe("authorized room event feedback", () => {
     expect(disconnect).toHaveBeenCalledOnce();
     expect(disconnect).toHaveBeenCalledWith(true);
   });
+  it("keeps a connection alive through a flood of ordinary access refusals", async () => {
+    const { send, disconnect } = setup(40, 1_000, false);
+    const acknowledgements: any[] = [];
+
+    // Above HARD_FAILURE_LIMIT (10) on purpose: an ordinary refusal must never
+    // reach the hard-failure counter, so crossing the threshold changes nothing.
+    for (let index = 0; index < 12; index += 1) {
+      await send(validPayload, (value: any) => acknowledgements.push(value));
+    }
+
+    expect(acknowledgements).toHaveLength(12);
+    expect(acknowledgements.every((value) => value.ok === false)).toBe(true);
+    expect(acknowledgements.every((value) => value.error.code === "access-denied")).toBe(true);
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("keeps a connection alive through a flood of handler-reported business errors", async () => {
+    const { send, disconnect, handle } = setup(40, 1_000);
+    handle.mockResolvedValue({ error: { code: "board-locked", message: "board is locked" } });
+    const acknowledgements: any[] = [];
+
+    for (let index = 0; index < 12; index += 1) {
+      await send(validPayload, (value: any) => acknowledgements.push(value));
+    }
+
+    expect(acknowledgements).toHaveLength(12);
+    expect(acknowledgements.every((value) => value.error?.code === "board-locked")).toBe(true);
+    expect(disconnect).not.toHaveBeenCalled();
+  });
 });
