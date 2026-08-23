@@ -126,7 +126,7 @@ const hasPlausibleDrawingId = (value: unknown): boolean =>
   value.trim().length > 0 &&
   value.trim().length <= SOCKET_LIMITS.drawingIdLength;
 
-export const hasPlausibleElementUpdateShape = (
+const hasPlausibleElementUpdateShape = (
   value: unknown,
 ): value is Record<string, unknown> & { elements: unknown[] } => {
   if (!isPlainRecord(value) || !hasPlausibleDrawingId(value.drawingId)) return false;
