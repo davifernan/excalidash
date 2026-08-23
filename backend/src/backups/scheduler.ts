@@ -144,12 +144,14 @@ const pruneOldBackups = async (backupDir: string, retentionDays: number): Promis
         (entry) =>
           entry.isFile() &&
           (/^excalidash-(?:sqlite-.*\.db|backup-.*\.zip(?:\.part)?)$/.test(entry.name) ||
-            /^\.excalidash-.*\.sqlite\.part$/.test(entry.name)),
+            /^\.excalidash-.*\.sqlite\.part(?:-shm|-wal)?$/.test(entry.name)),
       )
       .map(async (entry) => {
         const filePath = path.join(backupDir, entry.name);
         const stat = await fs.promises.stat(filePath);
-        const partial = entry.name.endsWith(".part");
+        // `-shm`/`-wal` are the sidecars a read-only open of a WAL-mode copy
+        // leaves next to the `.part`; they age out on the same clock.
+        const partial = /\.part(?:-shm|-wal)?$/.test(entry.name);
         if (
           (partial && stat.mtimeMs < partialCutoff) ||
           (!partial && Number.isFinite(retentionDays) && retentionDays > 0 && stat.mtimeMs < cutoff)
@@ -316,7 +318,14 @@ export const createSqliteBackup = async ({
     await fs.promises.rm(partialTarget, { force: true });
     throw error;
   } finally {
-    await fs.promises.rm(databaseCopy, { force: true });
+    // Reading the copy's blob table opens it read-only, and a read-only
+    // connection can neither checkpoint nor unlink the `-shm`/`-wal` it creates
+    // for a WAL-mode database. Dropping only the copy strands them for good.
+    await Promise.all(
+      [databaseCopy, `${databaseCopy}-shm`, `${databaseCopy}-wal`].map((file) =>
+        fs.promises.rm(file, { force: true }),
+      ),
+    );
   }
 };
 

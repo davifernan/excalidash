@@ -100,6 +100,75 @@ describe("scheduled backups", () => {
     await expect(fs.stat(stalePartial)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("leaves no WAL sidecar files behind when the source database uses WAL mode", async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), "scheduled-backup-wal-"));
+    tempDirs.push(root);
+    const databasePath = join(root, "source.db");
+    const backupDir = join(root, "backups");
+    const assetStorageDir = join(root, "assets");
+    await fs.mkdir(backupDir);
+    await fs.mkdir(join(assetStorageDir, "originals"), { recursive: true });
+
+    const db = new Database(databasePath);
+    db.pragma("journal_mode = WAL");
+    db.exec('CREATE TABLE "StoredBlob" ("storageKey" TEXT NOT NULL, "state" TEXT NOT NULL)');
+    // Enough rows to grow a real WAL. A database left in rollback mode copies
+    // without sidecars, and the test would then measure nothing.
+    const insert = db.prepare('INSERT INTO "StoredBlob" ("storageKey", "state") VALUES (?, ?)');
+    for (let index = 0; index < 500; index += 1) {
+      insert.run(`originals/ab/cd/blob-${index}`, "PENDING");
+    }
+    db.close();
+
+    const target = await createSqliteBackup({
+      prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
+      databaseUrl: `file:${databasePath}`,
+      backupDir,
+      assetStorageDir,
+      retentionDays: 14,
+    });
+
+    expect(target).toBeTruthy();
+    // The working copy is opened read-only to read its blob table, and a
+    // read-only connection can neither checkpoint nor unlink the -shm/-wal it
+    // creates. Removing only the `.part` leaves both behind for good.
+    const leftovers = (await fs.readdir(backupDir)).filter((name) => !name.endsWith(".zip"));
+    expect(leftovers).toEqual([]);
+  });
+
+  it("prunes WAL sidecars stranded by earlier backup runs", async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), "scheduled-backup-sidecar-prune-"));
+    tempDirs.push(root);
+    const databasePath = join(root, "source.db");
+    const backupDir = join(root, "backups");
+    const assetStorageDir = join(root, "assets");
+    await fs.mkdir(backupDir);
+    await fs.mkdir(join(assetStorageDir, "originals"), { recursive: true });
+
+    const strandedShm = join(backupDir, ".excalidash-2026-08-23T09-46-28-913Z-350.sqlite.part-shm");
+    const strandedWal = join(backupDir, ".excalidash-2026-08-23T09-46-28-913Z-350.sqlite.part-wal");
+    await fs.writeFile(strandedShm, "shared memory index");
+    await fs.writeFile(strandedWal, "");
+    const strandedTime = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    await fs.utimes(strandedShm, strandedTime, strandedTime);
+    await fs.utimes(strandedWal, strandedTime, strandedTime);
+
+    const db = new Database(databasePath);
+    db.exec('CREATE TABLE "StoredBlob" ("storageKey" TEXT NOT NULL, "state" TEXT NOT NULL)');
+    db.close();
+
+    await createSqliteBackup({
+      prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
+      databaseUrl: `file:${databasePath}`,
+      backupDir,
+      assetStorageDir,
+      retentionDays: 14,
+    });
+
+    await expect(fs.stat(strandedShm)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(strandedWal)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("keeps no more than the configured number of completed backups", async () => {
     const root = await fs.mkdtemp(join(tmpdir(), "scheduled-backup-count-"));
     tempDirs.push(root);
