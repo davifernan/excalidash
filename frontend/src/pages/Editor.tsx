@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { createExcalidrawAdapter } from "../integrations/excalidraw";
+import { openSceneDocument } from "../integrations/excalidraw/adapter";
 import { useCursorChatKey } from "./editor/useCursorChatKey";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getInitialLangCode } from "../components/LanguageSelector";
@@ -126,13 +127,21 @@ export const Editor: React.FC = () => {
     if (!import.meta.env.DEV || !isReady) return;
     const unwrap = <T,>(result: { ok: true; value: T } | { ok: false }, fallback: T): T =>
       result.ok ? result.value : fallback;
+    const openDocument = (result: ReturnType<typeof adapter.scene.readDocument>) =>
+      (result.ok ? (openSceneDocument(result.value)?.elements ?? []) : []) as readonly unknown[];
     (window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__ = {
+      // The document, not the projection. `summaries()` is a read model -- it
+      // names geometry, frames, links and customData, and deliberately not
+      // `fileId` or `status`. A spec asserting on an image's file id got
+      // `undefined` from it, which looked like a broken sync and was a missing
+      // field. `readDocument` is the lossless one, which is what a harness
+      // observing the real scene needs.
       getSceneElements: () =>
-        unwrap(adapter.scene.summaries(), [] as readonly unknown[]).filter(
+        openDocument(adapter.scene.readDocument({ includeDeleted: false })).filter(
           (element) => !(element as { isDeleted?: boolean }).isDeleted,
         ),
       getSceneElementsIncludingDeleted: () =>
-        unwrap(adapter.scene.summaries({ includeDeleted: true }), [] as readonly unknown[]),
+        openDocument(adapter.scene.readDocument({ includeDeleted: true })),
       getFiles: () => unwrap(adapter.files.read(), {} as Record<string, unknown>),
       /**
        * Writing, too. Some specs plant an element or a file to drive a live
