@@ -315,6 +315,9 @@ jobs:
   e2e-cross-engine:
     name: E2E Cross-Engine Tests
     runs-on: ubuntu-latest
+    # The same bound as a shard. It carries roughly as many tests -- about
+    # seventy across three engines -- plus the install of two more browsers.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       
