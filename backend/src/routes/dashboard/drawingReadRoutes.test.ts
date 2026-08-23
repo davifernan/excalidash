@@ -52,11 +52,12 @@ const rowWithAnUnknownColumn = {
 };
 
 // `grantee` gets an explicit `view` share so the non-owner case reaches the
-// projection instead of stopping at the access check.
-const buildApp = ({ grantee }: { grantee?: string } = {}) => {
+// projection instead of stopping at the access check. `row` overrides the
+// mocked drawing row (default: rowWithAnUnknownColumn).
+const buildApp = ({ grantee, row }: { grantee?: string; row?: unknown } = {}) => {
   const prisma: any = {
     user: { findUnique: vi.fn().mockResolvedValue({ isActive: true }) },
-    drawing: { findUnique: vi.fn().mockResolvedValue(rowWithAnUnknownColumn) },
+    drawing: { findUnique: vi.fn().mockResolvedValue(row ?? rowWithAnUnknownColumn) },
     drawingPermission: {
       findUnique: vi.fn(async ({ where }: any) =>
         where?.drawingId_granteeUserId?.granteeUserId === grantee ? { permission: "view" } : null,
@@ -105,6 +106,7 @@ describe("drawing read projection", () => {
         "accessLevel",
         "appState",
         "collectionId",
+        "collectionName",
         "createdAt",
         "creatorName",
         "elements",
@@ -117,6 +119,22 @@ describe("drawing read projection", () => {
         "version",
       ].sort(),
     );
+  });
+
+  it("gates collectionName behind the same creator check as collectionId (NIL-344)", async () => {
+    const row = { ...rowWithAnUnknownColumn, collection: { name: "Roadmap" } };
+
+    const creator = await invoke(buildApp({ row, grantee: "account-9" }), {
+      kind: "user",
+      userId: "account-1",
+    });
+    expect(creator.payload.collectionName).toBe("Roadmap");
+
+    const stranger = await invoke(buildApp({ row, grantee: "account-9" }), {
+      kind: "user",
+      userId: "account-9",
+    });
+    expect(stranger.payload.collectionName).toBeNull();
   });
 
   it("still keeps the owner's account id from anyone who is not the owner", async () => {
