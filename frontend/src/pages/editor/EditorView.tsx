@@ -28,6 +28,8 @@ type EditorViewProps = {
   accessLevel: "none" | "view" | "edit" | "owner";
   canEdit: boolean;
   drawingName: string;
+  collectionId: string | null;
+  collectionName: string | null;
   editorContainerRef: React.RefObject<HTMLDivElement>;
   followers: Follower[];
   initialData: any;
@@ -68,6 +70,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
   accessLevel,
   canEdit,
   drawingName,
+  collectionId,
+  collectionName,
   editorContainerRef,
   followers,
   initialData,
@@ -115,6 +119,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
     canEdit,
     mobile,
     drawingName,
+    collectionId,
+    collectionName,
     isRenaming,
     isSavingOnLeave,
     newName,

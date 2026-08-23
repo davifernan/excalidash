@@ -32,6 +32,11 @@ export const Editor: React.FC = () => {
   const [accessLevel, setAccessLevel] = useState<"none" | "view" | "edit" | "owner">("none");
   const canEdit = accessLevel === "edit" || accessLevel === "owner";
   const [drawingName, setDrawingName] = useState("Drawing Editor");
+  // Workspace context for the Canvas Shell chrome (NIL-323/NIL-344): which
+  // collection this board sits in, gated server-side to the creator exactly
+  // like collectionId already was -- see drawingReadRoutes.ts.
+  const [collectionId, setCollectionId] = useState<string | null>(null);
+  const [collectionName, setCollectionName] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [initialData, setInitialData] = useState<any>(null);
@@ -379,6 +384,8 @@ export const Editor: React.FC = () => {
     refs: sceneLoaderRefs,
     setAccessLevel,
     setDrawingName,
+    setCollectionId,
+    setCollectionName,
     setInitialData,
     setIsReady,
     setIsSceneLoading,
@@ -490,6 +497,8 @@ export const Editor: React.FC = () => {
         accessLevel={accessLevel}
         canEdit={canEdit}
         drawingName={drawingName}
+        collectionId={collectionId}
+        collectionName={collectionName}
         editorContainerRef={editorContainerRef}
         followers={followers}
         initialData={initialData}
