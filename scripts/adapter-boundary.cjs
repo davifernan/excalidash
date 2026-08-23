@@ -27,10 +27,11 @@ const CUSTOM_DATA_HELPER = path.join(LAYER, "customData.ts");
 /**
  * Files that still import the package directly.
  *
- * Measured on main 85c3919. Sixteen entries; the list is emptied by the
- * consumer migration (NIL-336 to NIL-340), not extended.
+ * Empty. Every consumer goes through a capability, and the layer itself is the
+ * only place that names @excalidraw/excalidraw. All four rules are now closed,
+ * which means an upgrade has one directory to check rather than a repository.
  */
-const PACKAGE_IMPORT_EXCEPTIONS = new Set(["frontend/src/pages/editor/EditorView.tsx"]);
+const PACKAGE_IMPORT_EXCEPTIONS = new Set([]);
 
 /** Files that still reach into the editor's own DOM. */
 /**
