@@ -86,16 +86,15 @@ const probes = [
 const assertStaleExceptionCaught = () => {
   const patched = path.join(root, "scripts", ".adapter-boundary.stale-probe.cjs");
   const source = fs.readFileSync(CHECK, "utf8");
-  const marker = '  "frontend/src/utils/importHelpers.ts",\n]);';
+  // Anchored on the structure, not on a particular entry. The list shrinks as
+  // consumers migrate, and an anchor that is one of its members stops matching
+  // the moment that file is done -- which it did, loudly, on the first batch.
+  const marker = "const PACKAGE_IMPORT_EXCEPTIONS = new Set([";
   if (!source.includes(marker)) {
     throw new Error("Stale probe anchor missing; adapter-boundary.cjs changed shape.");
   }
   const bogus = "frontend/src/utils/never-imported-excalidraw.ts";
-  fs.writeFileSync(
-    patched,
-    source.replace(marker, `  "frontend/src/utils/importHelpers.ts",\n  "${bogus}",\n]);`),
-    "utf8",
-  );
+  fs.writeFileSync(patched, source.replace(marker, `${marker}\n  "${bogus}",`), "utf8");
   try {
     const result = run(patched);
     const output = outputOf(result);

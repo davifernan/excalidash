@@ -1,5 +1,4 @@
-import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
-
+import { buildElements } from "../../integrations/excalidraw/elements";
 import {
   readWidget,
   withExcalidashData,
@@ -79,10 +78,10 @@ export const createAssetWidgetElement = ({
   widgetKind: AssetWidgetKind;
   x: number;
   y: number;
-}) => {
+}): Record<string, unknown> => {
   const width = widgetKind === "pdf" ? PDF_WIDGET_WIDTH : TEXT_WIDGET_WIDTH;
   const height = widgetKind === "pdf" ? PDF_WIDGET_HEIGHT : TEXT_WIDGET_HEIGHT;
-  const [baseElement] = convertToExcalidrawElements([
+  const [baseElement] = buildElements([
     { type: "rectangle", x: x - width / 2, y: y - height / 2, width, height },
   ]);
   return {
@@ -101,8 +100,8 @@ export const createPdfWidgetElement = ({
   assetId: string;
   x: number;
   y: number;
-}) => {
-  const [baseElement] = convertToExcalidrawElements([
+}): Record<string, unknown> => {
+  const [baseElement] = buildElements([
     {
       type: "rectangle",
       x: x - PDF_WIDGET_WIDTH / 2,

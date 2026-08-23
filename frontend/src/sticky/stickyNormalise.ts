@@ -13,7 +13,7 @@
  * past each other forever. `newElementWith` hands back the original element
  * when nothing actually differs, and that is what makes the loop terminate.
  */
-import { newElementWith } from "@excalidraw/excalidraw";
+import { withChanges } from "../integrations/excalidraw/elements";
 import { fitTextToNote } from "./stickyFit";
 import { withExcalidashData } from "../integrations/excalidraw/customData";
 import { stickyDataOf, type StickyData } from "./stickyNote";
@@ -81,13 +81,13 @@ export function normaliseStickyNotes(
       // Adopt what the person chose. From here on this is the size to defend.
       if (container.width !== data.width || container.height !== data.height) {
         next = { ...data, width: container.width, height: container.height };
-        container = newElementWith(container, {
+        container = withChanges(container, {
           customData: withExcalidashData(container, { sticky: next }),
         } as any);
       }
     } else if (container.height !== next.height || container.width !== next.width) {
       // Grown by its own label. Put it back.
-      container = newElementWith(container, {
+      container = withChanges(container, {
         width: next.width,
         height: next.height,
       } as any);
@@ -106,8 +106,8 @@ export function normaliseStickyNotes(
         // Excalidraw would otherwise hand the label whichever colour the person
         // last drew a line in.
         const fitted = beingTyped
-          ? newElementWith(label, { fontSize: fit.fontSize } as any)
-          : newElementWith(label, {
+          ? withChanges(label, { fontSize: fit.fontSize } as any)
+          : withChanges(label, {
               fontSize: fit.fontSize,
               text: fit.text,
               width: fit.width,

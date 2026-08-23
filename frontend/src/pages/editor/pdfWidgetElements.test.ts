@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 
+// The whole surface integrations/excalidraw/elements imports, not only the one
+// this file calls: centralising the utilities means one module reaches for all
+// four, so a partial mock leaves the module unloadable.
 vi.mock("@excalidraw/excalidraw", () => ({
   convertToExcalidrawElements: (elements: Array<Record<string, unknown>>) =>
     elements.map((element, index) => ({ id: `element-${index}`, ...element })),
+  CaptureUpdateAction: { IMMEDIATELY: "IMMEDIATELY", NEVER: "NEVER", EVENTUALLY: "EVENTUALLY" },
+  newElementWith: (element: Record<string, unknown>, changes: Record<string, unknown>) => ({
+    ...element,
+    ...changes,
+  }),
+  restoreElements: (elements: unknown[]) => elements,
 }));
 
 import {

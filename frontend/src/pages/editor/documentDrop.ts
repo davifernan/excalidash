@@ -1,4 +1,4 @@
-import { CaptureUpdateAction } from "@excalidraw/excalidraw";
+import { HISTORY } from "../../integrations/excalidraw/elements";
 import { toast } from "sonner";
 import { isAxiosError, uploadDocumentAsset, type UploadDocumentKind } from "../../api";
 import { createAssetWidgetElement, PDF_WIDGET_HEIGHT } from "./pdfWidgetElements";
@@ -95,7 +95,7 @@ export const addDroppedDocumentWidgets = async ({
     appState: {
       selectedElementIds: Object.fromEntries(elements.map((element) => [element.id, true])),
     },
-    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    captureUpdate: HISTORY.immediate,
   });
 };
 

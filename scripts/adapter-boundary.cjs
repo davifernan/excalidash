@@ -33,17 +33,11 @@ const CUSTOM_DATA_HELPER = path.join(LAYER, "customData.ts");
 const PACKAGE_IMPORT_EXCEPTIONS = new Set([
   "frontend/src/components/LanguageSelector.tsx",
   "frontend/src/main.tsx",
-  "frontend/src/pages/editor/EditorDialogs.tsx",
   "frontend/src/pages/editor/EditorView.tsx",
-  "frontend/src/pages/editor/documentDrop.ts",
   "frontend/src/pages/editor/followMode.ts",
-  "frontend/src/pages/editor/pdfWidgetElements.ts",
   "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
   "frontend/src/pages/editor/useEditorPersistence.ts",
   "frontend/src/sticky/StickyHandles.tsx",
-  "frontend/src/sticky/stickyFit.ts",
-  "frontend/src/sticky/stickyNormalise.ts",
-  "frontend/src/sticky/stickyNote.ts",
 ]);
 
 /** Files that still reach into the editor's own DOM. */

@@ -13,7 +13,7 @@
  * mean maintaining a second answer to the same question, and the two would
  * drift apart on the first CJK line break.
  */
-import { restoreElements } from "@excalidraw/excalidraw";
+import { restore } from "../integrations/excalidraw/elements";
 
 /** Excalidraw's own padding between a container and its label, per side. */
 const BOUND_TEXT_PADDING = 5;
@@ -65,7 +65,7 @@ function layoutAt(container: any, text: any, fontSize: number): StickyFit | null
     text: text.originalText ?? text.text ?? "",
   };
 
-  const restored = restoreElements([container, probe], null, {
+  const restored = restore([container, probe], {
     repairBindings: true,
     refreshDimensions: true,
   }) as any[];
