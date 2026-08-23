@@ -44,6 +44,27 @@ const LAYER = "backend/src/authz";
  */
 const GRANT_TABLES = ["drawingPermission", "collectionShare", "drawingLinkShare"];
 
+/**
+ * The relation fields that reach the same tables from the other side.
+ *
+ * `permissions: { some: { granteeUserId } }` reads DrawingPermission without ever
+ * naming it, and `permissions: { where: ... }` in a select does the same. The
+ * first version of this check listed only the model names, so both walked past
+ * it -- the identical mistake the adapter check shipped with, made again one
+ * layer down. Found by review, not by me.
+ *
+ * Matched only when the key opens an object literal. `permissions:
+ * grantedLevelSelect(userId)` is the contract handing back the shape, which is
+ * the whole point of having one.
+ */
+const GRANT_RELATIONS = [
+  "permissions",
+  "linkShares",
+  "shares",
+  "drawingPermissions",
+  "collectionShares",
+];
+
 /** The models whose `userId` column IS board ownership. */
 const OWNED_MODELS = ["drawing", "collection"];
 
@@ -116,10 +137,19 @@ const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * learned this lesson about `api.getSceneElements?.()` after the fact; there is
  * no reason to learn it twice.
  */
-const GRANT_TABLE_PATTERNS = GRANT_TABLES.flatMap((table) => [
-  { name: `${table} (property access)`, re: new RegExp(`\\??\\.\\s*${escape(table)}\\s*\\??\\s*\\.`) },
-  { name: `${table} (index access)`, re: new RegExp(`\\[\\s*["'\`]${escape(table)}["'\`]\\s*\\]`) },
-]);
+const GRANT_TABLE_PATTERNS = [
+  ...GRANT_TABLES.flatMap((table) => [
+    {
+      name: `${table} (property access)`,
+      re: new RegExp(`\\??\\.\\s*${escape(table)}\\s*\\??\\s*\\.`),
+    },
+    { name: `${table} (index access)`, re: new RegExp(`\\[\\s*["'\`]${escape(table)}["'\`]\\s*\\]`) },
+  ]),
+  ...GRANT_RELATIONS.map((relation) => ({
+    name: `${relation} (grant relation)`,
+    re: new RegExp(`\\b${escape(relation)}\\s*:\\s*\\{`),
+  })),
+];
 
 /**
  * A level rebuilt from raw strings instead of read through the contract.
@@ -280,8 +310,37 @@ const rootModelBefore = (source, position) => {
  * The relation form counts too: exportRoutes.ts filters other models by
  * `where: { drawing: { userId } }`, which is the same decision one hop away.
  */
-const findOwnershipFilters = (source) => {
+/**
+ * A where-clause built as a named variable rather than inline at the call.
+ *
+ * `const where: Prisma.DrawingWhereInput = { userId: req.user.id }` is the same
+ * ownership decision as writing it inside `findMany`, and the first version of
+ * this rule -- anchored on `where:` immediately followed by `{` -- saw neither
+ * that nor `whereDrawing`. Both sat unmigrated in the core "list my boards"
+ * query while the check reported zero exceptions. Review found it; the
+ * counterprobe had never planted the form.
+ *
+ * The Prisma type annotation is the anchor, not the variable name. A name can
+ * be anything; the annotation is what makes the object a board filter.
+ */
+const findAnnotatedWhereFilters = (source) => {
   const hits = [];
+  const re = /:\s*Prisma\.(Drawing|Collection)WhereInput\s*=\s*\{/g;
+  let match;
+  while ((match = re.exec(source)) !== null) {
+    const open = source.indexOf("{", match.index + match[0].length - 1);
+    const block = readBlock(source, open);
+    // `userId: { not: me }` is an ownership decision too -- the negated half of
+    // "shared with me" is still the same column deciding the same thing.
+    if (block && hasOwnKey(block.body, "userId")) {
+      hits.push(`declares a ${match[1].toLowerCase()} ownership filter as a variable`);
+    }
+  }
+  return hits;
+};
+
+const findOwnershipFilters = (source) => {
+  const hits = [...findAnnotatedWhereFilters(source)];
   const whereRe = /\bwhere\s*:\s*\{/g;
   let match;
   while ((match = whereRe.exec(source)) !== null) {

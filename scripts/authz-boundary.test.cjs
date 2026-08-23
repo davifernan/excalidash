@@ -151,6 +151,51 @@ const rejected = [
       "  return me === board!.userId;\n" +
       "};\n",
   ],
+  [
+    // Found by review, not by this file. The rule was anchored on `where:`
+    // followed immediately by `{`, so a where-clause declared as a variable was
+    // invisible -- and the core "list my boards" query was written exactly that
+    // way, unmigrated, while the check reported zero exceptions.
+    "a board ownership filter declared as a variable",
+    "declaredWhere.ts",
+    'import type { Prisma, PrismaClient } from "../generated/client";\n' +
+      "export const probe = (prisma: PrismaClient, userId: string) => {\n" +
+      "  const where: Prisma.DrawingWhereInput = { userId };\n" +
+      "  return prisma.drawing.findMany({ where });\n" +
+      "};\n",
+  ],
+  [
+    // The negated half of "shared with me" is the same column deciding the same
+    // thing, and it sat in the same missed declaration.
+    "a board ownership filter declared with a negation",
+    "declaredWhereNegated.ts",
+    'import type { Prisma } from "../generated/client";\n' +
+      "export const probe = (userId: string) => {\n" +
+      "  const whereDrawing: Prisma.DrawingWhereInput = { userId: { not: userId } };\n" +
+      "  return whereDrawing;\n" +
+      "};\n",
+  ],
+  [
+    // Reaching DrawingPermission without ever naming it. The check listed the
+    // model names and not the relation fields, which is the adapter check's
+    // original mistake made again one layer down.
+    "a grant table read through its relation field",
+    "grantRelation.ts",
+    'import type { PrismaClient } from "../generated/client";\n' +
+      "export const probe = (prisma: PrismaClient, userId: string) =>\n" +
+      "  prisma.drawing.findMany({\n" +
+      "    where: { permissions: { some: { granteeUserId: userId } } },\n" +
+      "  });\n",
+  ],
+  [
+    "a grant table read through a relation select",
+    "grantRelationSelect.ts",
+    'import type { PrismaClient } from "../generated/client";\n' +
+      "export const probe = (prisma: PrismaClient, userId: string) =>\n" +
+      "  prisma.drawing.findMany({\n" +
+      "    select: { permissions: { where: { granteeUserId: userId }, select: { permission: true } } },\n" +
+      "  });\n",
+  ],
 ];
 
 /**
@@ -195,6 +240,29 @@ const accepted = [
       "  const permission = normalizeDrawingPermission(raw);\n" +
       '  return permission === "edit" ? 1 : 2;\n' +
       "};\n",
+  ],
+  [
+    // drawingCreateUpdateRoutes builds `updateWhere: Prisma.DrawingWhereInput =
+    // { id }`. A rule that flagged the annotation instead of the userId key
+    // would redden it, and filtering a board by its own id decides nothing.
+    "a where variable that carries no ownership claim",
+    "declaredWhereById.ts",
+    'import type { Prisma } from "../generated/client";\n' +
+      "export const probe = (id: string) => {\n" +
+      "  const updateWhere: Prisma.DrawingWhereInput = { id };\n" +
+      "  return updateWhere;\n" +
+      "};\n",
+  ],
+  [
+    // After migration the route still names the field; the contract builds the
+    // shape. `permissions: grantedLevelSelect(userId)` is the boundary working,
+    // not a hole in it.
+    "a grant relation whose shape comes from the contract",
+    "grantRelationViaContract.ts",
+    'import { grantedLevelSelect } from "../authz/boards";\n' +
+      "export const probe = (userId: string) => ({\n" +
+      "  permissions: grantedLevelSelect(userId),\n" +
+      "});\n",
   ],
   [
     // Nine `.userId ===` comparisons in this backend are about a JWT payload, a

@@ -22,6 +22,34 @@ export const ownedBoardsWhere = (userId: string): Prisma.DrawingWhereInput => ({
 export const ownedCollectionsWhere = (userId: string): Prisma.CollectionWhereInput => ({ userId });
 
 /**
+ * Boards somebody else owns that this account holds a direct grant on.
+ *
+ * Both halves are one claim and belong together. `userId: { not: me }` is not a
+ * detail of the listing -- it is what makes this "shared with me" rather than
+ * "everything I can see", and some deployments keep an owner self-permission
+ * row that would otherwise put your own boards in someone else's list.
+ *
+ * Split across a route and a relation filter, it was invisible to the boundary
+ * check and to NIL-323 alike.
+ */
+export const boardsSharedWithWhere = (userId: string): Prisma.DrawingWhereInput => ({
+  userId: { not: userId },
+  permissions: { some: { granteeUserId: userId } },
+});
+
+/**
+ * The viewer's own grant on each board, as a nested select.
+ *
+ * The route may name the field; it must not build the filter. Same rule as
+ * everywhere else here: reaching the grant table is the contract's job, and a
+ * select that carries `granteeUserId` is reaching it.
+ */
+export const grantedLevelSelect = (userId: string) => ({
+  where: { granteeUserId: userId },
+  select: { permission: true },
+});
+
+/**
  * The same claim one relation hop away.
  *
  * Snapshots and drawing-assets have no owner of their own; they belong to
