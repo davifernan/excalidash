@@ -35,6 +35,14 @@ const renderDeliveryBridge = ({
       setHasSceneChangesSinceLoad: vi.fn(),
     });
     return useEditorAddFilesBridge({
+      // The capability, not the handle: this hook subscribes to "files arrived"
+      // now instead of overwriting the editor's own method.
+      fileCapability: {
+        read: () => ({ ok: true as const, value: {} }),
+        add: vi.fn(() => ({ ok: true as const, value: undefined })),
+        deltaAgainst: vi.fn(() => ({ ok: true as const, value: [] })),
+        onFilesAdded: () => () => {},
+      } as any,
       drawingId: "drawing-1",
       debouncedSaveRef: ref(null),
       excalidrawAPIRef: ref(null),

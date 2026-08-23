@@ -72,20 +72,17 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  * reports clean over the biggest hole is worse than no guard, because people
  * believe it.
  *
- * Named, like the others, and emptied by the consumer migration. Three left,
- * each for a stated reason rather than because nobody got to it:
+ * Named, like the others, and emptied by the consumer migration. Empty now: no
+ * product file calls the editor's imperative API. The last one to go was the
+ * files bridge, which had to overwrite `api.addFiles` to notice a paste --
+ * Excalidraw calls it itself and offers no files-changed event. That
+ * interception did not disappear; it moved inside the layer as
+ * `FileCapability.onFilesAdded`, which is the one place allowed to know how
+ * fragile it is.
  *
 
- *   useEditorAddFilesBridge.ts  the keystone. Excalidraw calls `addFiles`
- *                             itself when somebody pastes an image, and the API
- *                             has no files-changed event -- so this file wraps
- *                             the method to notice. That interception belongs
- *                             inside the layer as a capability; until it moves,
- *                             this is the one place that still holds the handle.
  */
-const RAW_API_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/useEditorAddFilesBridge.ts",
-]);
+const RAW_API_EXCEPTIONS = new Set([]);
 
 /**
  * The imperative handle's methods, as measured on the pinned version.

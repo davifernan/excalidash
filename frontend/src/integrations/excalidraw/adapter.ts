@@ -407,7 +407,30 @@ export const createBoardSettingsCapability = (
   },
 });
 
-export const createFileCapability = (getApi: () => RawApi | null): FileCapability => ({
+export const createFileCapability = (getApi: () => RawApi | null): FileCapability => {
+  /**
+   * One wrapper per handle, however many consumers subscribe.
+   *
+   * A `WeakSet` rather than a flag: the editor hands out a new API object on
+   * remount, and a flag would leave the second one unwrapped. Weak so a handle
+   * that goes away takes its entry with it.
+   */
+  const wrapped = new WeakSet<object>();
+  const listeners = new Set<() => void>();
+
+  const ensureWrapped = (api: RawApi | null) => {
+    if (!api || typeof api.addFiles !== "function" || wrapped.has(api as object)) return;
+    wrapped.add(api as object);
+    const original = api.addFiles.bind(api);
+    (api as { addFiles: (files: unknown) => void }).addFiles = (files: unknown) => {
+      // The editor takes the files first. A listener that ran before this would
+      // read the map as it was and miss exactly the change it was told about.
+      original(Array.isArray(files) ? files : Object.values((files as object) ?? {}));
+      for (const listener of listeners) listener();
+    };
+  };
+
+  return {
   read() {
     const api = getApi();
     if (!api) return report(fail("not-ready", "files.read"));
@@ -438,4 +461,13 @@ export const createFileCapability = (getApi: () => RawApi | null): FileCapabilit
     }
     return ok(missing);
   },
-});
+
+  onFilesAdded(listener) {
+    ensureWrapped(getApi());
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  },
+  };
+};

@@ -1,7 +1,10 @@
-import { useCallback, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, type MutableRefObject } from "react";
+import type { FileCapability } from "../../integrations/excalidraw/capabilities";
 
 type UseEditorAddFilesBridgeInput = {
   drawingId?: string;
+  /** Files arrive through the boundary; nothing here touches the editor. */
+  fileCapability: FileCapability;
   debouncedSaveRef: MutableRefObject<
     | ((
         drawingId: string,
@@ -30,6 +33,7 @@ type UseEditorAddFilesBridgeInput = {
  */
 export const useEditorAddFilesBridge = ({
   drawingId,
+  fileCapability,
   debouncedSaveRef,
   excalidrawAPIRef,
   hasSceneChangesSinceLoadRef,
@@ -41,7 +45,6 @@ export const useEditorAddFilesBridge = ({
   setIsReady,
   broadcastFiles,
 }: UseEditorAddFilesBridgeInput) => {
-  const patchedApisRef = useRef<WeakSet<object>>(new WeakSet());
   const emitFilesDeltaIfNeeded = useCallback(
     (nextFiles: Record<string, any>) => {
       latestFilesRef.current = nextFiles;
@@ -49,34 +52,50 @@ export const useEditorAddFilesBridge = ({
     },
     [broadcastFiles, latestFilesRef],
   );
+
+  /**
+   * What to do once the editor has taken new files.
+   *
+   * This used to be the body of a function written over `api.addFiles`. The
+   * interception is still necessary -- Excalidraw calls `addFiles` itself on a
+   * paste and the API has no files-changed event -- but it belongs inside the
+   * integration layer, not out here on the editor's own object.
+   */
+  const onFilesArrived = useCallback(() => {
+    if (isSyncingRef.current || isHistoryPreviewingRef.current) return;
+    const read = fileCapability.read();
+    if (!read.ok) return;
+    const didEmit = emitFilesDeltaIfNeeded({ ...read.value });
+    if (didEmit && drawingId && latestAppStateRef.current && debouncedSaveRef.current) {
+      hasSceneChangesSinceLoadRef.current = true;
+      debouncedSaveRef.current(
+        drawingId,
+        latestElementsRef.current,
+        latestAppStateRef.current,
+        latestFilesRef.current || {},
+      );
+    }
+  }, [
+    debouncedSaveRef,
+    drawingId,
+    emitFilesDeltaIfNeeded,
+    fileCapability,
+    hasSceneChangesSinceLoadRef,
+    isHistoryPreviewingRef,
+    isSyncingRef,
+    latestAppStateRef,
+    latestElementsRef,
+    latestFilesRef,
+  ]);
+
+  useEffect(() => fileCapability.onFilesAdded(onFilesArrived), [fileCapability, onFilesArrived]);
+
   const setExcalidrawAPI = useCallback(
     (api: any) => {
+      // Still recorded: Editor.tsx builds the one adapter from this ref. What is
+      // gone is the patch on the editor's own method and the debug global that
+      // handed the raw handle to anything on the page.
       excalidrawAPIRef.current = api;
-      if (import.meta.env.DEV) {
-        (window as any).__EXCALIDASH_EXCALIDRAW_API__ = api;
-      }
-      if (api && typeof api.addFiles === "function" && !patchedApisRef.current.has(api as object)) {
-        patchedApisRef.current.add(api as object);
-        const originalAddFiles = api.addFiles.bind(api);
-        api.addFiles = (filesInput: Record<string, any> | any[]) => {
-          const normalizedFiles = Array.isArray(filesInput)
-            ? filesInput
-            : Object.values(filesInput || {});
-          originalAddFiles(normalizedFiles);
-          if (isSyncingRef.current || isHistoryPreviewingRef.current) return;
-          const nextFiles = api.getFiles?.() || {};
-          const didEmit = emitFilesDeltaIfNeeded(nextFiles);
-          if (didEmit && drawingId && latestAppStateRef.current && debouncedSaveRef.current) {
-            hasSceneChangesSinceLoadRef.current = true;
-            debouncedSaveRef.current(
-              drawingId,
-              latestElementsRef.current,
-              latestAppStateRef.current,
-              latestFilesRef.current || {},
-            );
-          }
-        };
-      }
       setIsReady(true);
     },
     [

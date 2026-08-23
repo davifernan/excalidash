@@ -211,6 +211,7 @@ export const Editor: React.FC = () => {
     setHasSceneChangesSinceLoad: markSceneChangedSinceLoad,
   });
   const { emitFilesDeltaIfNeeded, setExcalidrawAPI } = useEditorAddFilesBridge({
+    fileCapability: adapter.files,
     drawingId: id,
     debouncedSaveRef,
     excalidrawAPIRef: excalidrawAPI,
