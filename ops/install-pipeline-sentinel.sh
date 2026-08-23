@@ -9,6 +9,11 @@ fi
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 unit_root=/etc/systemd/system
+sentinel_root=/usr/local/lib/excalidash-pipeline-sentinel
+
+install -d -m 0755 "$sentinel_root"
+install -m 0755 "$repo_root/scripts/pipeline-sentinel.cjs" "$sentinel_root/pipeline-sentinel.cjs"
+install -m 0644 "$repo_root/scripts/delivery-v2.cjs" "$sentinel_root/delivery-v2.cjs"
 
 install -m 0644 \
   "$repo_root/ops/systemd/excalidash-pipeline-sentinel.service" \
