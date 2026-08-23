@@ -161,9 +161,20 @@ jobs:
       - name: Prove dead-code detection in both directions
         run: node scripts/dead-code-counterprobe.cjs
 
-  e2e-tests:
-    name: E2E Browser Tests
+  # Split across two runners rather than more workers. The suite deliberately
+  # runs with workers: 1 because it shares one backend SQLite database and
+  # cleans up by naming convention, so concurrency inside a job leaks between
+  # tests. A separate job does not: it brings its own checkout, its own
+  # database and its own servers.
+  e2e-shards:
+    name: E2E Shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
+    strategy:
+      # One red shard must not cut the other one short — both results are
+      # wanted, otherwise a failure hides whatever the other half would say.
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     
     steps:
       - uses: actions/checkout@v4
@@ -172,6 +183,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
       
       - name: Install backend dependencies
         run: |
@@ -253,7 +269,7 @@ jobs:
           
           # Run E2E tests
           cd e2e
-          NO_SERVER=true CI=true npx playwright test
+          NO_SERVER=true CI=true npx playwright test --shard=${{ matrix.shard }}/2
           TEST_EXIT_CODE=$?
           
           # Cleanup
@@ -267,7 +283,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7
       
@@ -275,9 +291,32 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-results
+          name: test-results-shard-${{ matrix.shard }}
           path: e2e/test-results/
           retention-days: 7
+
+
+  # Carries the name the branch ruleset requires. The shards run under their
+  # own names, so without this the required context 'E2E Browser Tests' would
+  # never report again and every pull request would block forever.
+  #
+  # always() matters: a skipped gate never reports either, so it has to run
+  # even when a shard failed, and decide from the results.
+  e2e-tests:
+    name: E2E Browser Tests
+    runs-on: ubuntu-latest
+    needs: e2e-shards
+    if: always()
+
+    steps:
+      - name: Require every shard to have passed
+        run: |
+          result="${{ needs.e2e-shards.result }}"
+          echo "Shard results: ${result}"
+          if [ "${result}" != "success" ]; then
+            echo "At least one E2E shard did not pass."
+            exit 1
+          fi
 
   # Security tests for data sanitization
   security-tests:
