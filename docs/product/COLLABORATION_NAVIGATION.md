@@ -22,8 +22,10 @@ heisst folgen eigentlich" anfaengt.
 - Startet, wenn jemand den Avatar eines Kollaborators anklickt (Excalidraws eigene
   `onUserFollow`-UI) oder ueber die sichtbare Follow-Anzeige erneut ausgeloest wird.
 - Haelt an, bis eines von vieren eintritt:
-  1. Die folgende Person klickt **Stop following** (die sichtbare Abbruchmoeglichkeit,
-     `FollowStatusOverlay.tsx`, oder erneuter Avatar-Klick).
+  1. Die folgende Person klickt die sichtbare Abbruchmoeglichkeit — Excalidraws eigenen
+     Trennen-Knopf im Follow-Badge (`.follow-mode__disconnect-btn`) — oder klickt den Avatar
+     erneut; beides loest denselben `follow-user UNFOLLOW` aus (Details unten unter
+     "Follow-Anzeige und Abbruchmöglichkeit").
   2. Die verfolgte Person **trennt die Verbindung wirklich** (Server-Disconnect, nicht Tab-
      Wechsel) — die Folge-Beziehung endet mit einer expliziten Meldung
      (`getFollowInterruptionMessage("disconnected")`).
@@ -55,12 +57,13 @@ heisst folgen eigentlich" anfaengt.
 ### Warum das nicht verwechselt werden kann
 
 Beide Pfade waren im Code schon vor diesem Paket architektonisch getrennt (kein Aufruf von
-`collaboration.follow()` irgendwo im Invite-Here-Pfad). Was fehlte, war die **sichtbare**
-Unterscheidung: der blaue Rahmen erklaerte, wohin man gezogen wird, aber nicht, dass man das
-angefordert hat oder wie man es beendet — waehrend Invite Here schon immer einen Countdown-
-Banner mit Accept/Decline hatte. `FollowStatusOverlay.tsx` schliesst genau diese Luecke: ein
-"Following {Name}"-Chip mit Stop-Knopf, sichtbar auf jeder Bildschirmbreite, solange die
-Beziehung besteht.
+`collaboration.follow()` irgendwo im Invite-Here-Pfad). Was vor diesem Paket fehlte, war die
+**sichtbare** Unterscheidung: der blaue Rahmen erklaerte, wohin man gezogen wird, aber nicht,
+dass man das angefordert hat oder wie man es beendet — waehrend Invite Here schon immer einen
+Countdown-Banner mit Accept/Decline hatte. Diese Luecke schliesst kein neues Overlay dieses
+Pakets, sondern Excalidraws eigenes, bereits vorhandenes `FollowMode`-Badge (naechster
+Abschnitt) — vor diesem Paket lief es nur ins Leere, weil der Root-Cause-Bug es staendig
+verschwinden liess.
 
 ## Follow-Anzeige und Abbruchmöglichkeit: nicht neu gebaut
 
