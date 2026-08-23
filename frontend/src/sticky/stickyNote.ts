@@ -15,8 +15,11 @@
  */
 import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
 
-/** Namespaced so a board shared with another ExcaliDash cannot collide. */
-export const STICKY_KEY = "excalidashSticky";
+import {
+  readSticky,
+  withExcalidashData,
+  type StickyRecord,
+} from "../integrations/excalidraw/customData";
 
 /** Miro's key for the same tool, and free in Excalidraw's own bindings. */
 export const STICKY_SHORTCUT = "n";
@@ -56,30 +59,15 @@ export const DEFAULT_STICKY_COLOR = STICKY_COLORS[0];
 export const stickyColorById = (id: string | undefined): StickyColor =>
   STICKY_COLORS.find((color) => color.id === id) ?? DEFAULT_STICKY_COLOR;
 
-export type StickyData = {
-  /** Bumped if the shape of this record ever changes. */
-  v: 1;
-  color: string;
-  ink: string;
-  /**
-   * The size the note is meant to be.
-   *
-   * Kept apart from `width`/`height` because Excalidraw grows a container to
-   * fit its label before this code ever sees the change. Without a remembered
-   * size, each growth would become the new target and the note would creep
-   * downwards forever instead of shrinking its writing.
-   */
-  width: number;
-  height: number;
-  /** The size the writing returns to whenever it fits again. */
-  fontSize: number;
-};
+/**
+ * What a note remembers about itself.
+ *
+ * The shape belongs to the customData schema, not to this file: it is stored
+ * on the element and read back by anything that meets one.
+ */
+export type StickyData = StickyRecord;
 
-export const stickyDataOf = (element: any): StickyData | null => {
-  const data = element?.customData?.[STICKY_KEY];
-  if (!data || data.v !== 1) return null;
-  return data as StickyData;
-};
+export const stickyDataOf = (element: any): StickyData | null => readSticky(element);
 
 export const isStickyNote = (element: any): boolean => stickyDataOf(element) !== null;
 
@@ -120,7 +108,6 @@ export function createStickyNote(
   ) as any[];
 
   const data: StickyData = {
-    v: 1,
     color: color.id,
     ink: color.ink,
     width: STICKY_SIZE,
@@ -139,7 +126,7 @@ export function createStickyNote(
     // "not placed yet", and it leaves the ordering to the only code that knows
     // the board.
     index: null,
-    customData: { ...(rectangle.customData ?? {}), [STICKY_KEY]: data },
+    customData: withExcalidashData(rectangle, { sticky: data }),
   };
 }
 
@@ -151,9 +138,8 @@ export function recolourSticky(element: any, color: StickyColor): any {
     ...element,
     backgroundColor: color.fill,
     strokeColor: color.edge,
-    customData: {
-      ...(element.customData ?? {}),
-      [STICKY_KEY]: { ...data, color: color.id, ink: color.ink },
-    },
+    customData: withExcalidashData(element, {
+      sticky: { ...data, color: color.id, ink: color.ink },
+    }),
   };
 }

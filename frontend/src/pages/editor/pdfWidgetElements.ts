@@ -1,5 +1,11 @@
 import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
 
+import {
+  readWidget,
+  withExcalidashData,
+  type WidgetKind,
+} from "../../integrations/excalidraw/customData";
+
 export const PDF_WIDGET_LINK = "excalidash://pdf-widget";
 export const ASSET_WIDGET_LINK = "excalidash://asset-widget";
 const PDF_WIDGET_WIDTH = 480;
@@ -7,16 +13,16 @@ export const PDF_WIDGET_HEIGHT = 680;
 const TEXT_WIDGET_WIDTH = 520;
 const TEXT_WIDGET_HEIGHT = 560;
 
-export type AssetWidgetKind = "pdf" | "markdown" | "text";
+export type AssetWidgetKind = WidgetKind;
 
-export type PdfWidgetCustomData = {
-  schemaVersion: 1;
-  widgetKind: "pdf";
-  assetId: string;
-};
-
+/**
+ * What a widget element carries, as the rest of the editor reads it.
+ *
+ * The stored shape belongs to the customData schema; this is the reading of it
+ * that a widget consumer works with, keyed the way this module has always
+ * named things.
+ */
 export type AssetWidgetData = {
-  schemaVersion: 1;
   widgetKind: AssetWidgetKind;
   assetId: string;
 };
@@ -43,34 +49,19 @@ export const validateEmbeddableLink = (link: string): true | undefined =>
   isAssetWidgetLink(link) ? true : undefined;
 
 export const getAssetWidgetData = (element: EmbeddableLike): AssetWidgetData | null => {
-  const customData = element.customData;
-  if (
-    element.type !== "embeddable" ||
-    !element.link ||
-    !isAssetWidgetLink(element.link) ||
-    !customData ||
-    // Every field is named, and nothing is said about the ones that are not.
-    // This used to require exactly three keys, which turned any fourth one --
-    // a namespace, sticky metadata, anything another writer adds to the same
-    // element -- into an unrecognised widget, and an unrecognised widget
-    // renders as Excalidraw's own embeddable for an excalidash:// link: an
-    // empty box with a URL. A key count is not a schema.
-    customData.schemaVersion !== 1 ||
-    !["pdf", "markdown", "text"].includes(String(customData.widgetKind)) ||
-    typeof customData.assetId !== "string" ||
-    customData.assetId.length === 0 ||
-    (element.link === PDF_WIDGET_LINK && customData.widgetKind !== "pdf")
-  ) {
+  if (element.type !== "embeddable" || !element.link || !isAssetWidgetLink(element.link)) {
     return null;
   }
-  // Projected, not cast. The element may legitimately carry data belonging to
-  // somebody else; handing that on as widget data would make every consumer a
-  // second place where a foreign key can go wrong.
-  return {
-    schemaVersion: 1,
-    widgetKind: customData.widgetKind as AssetWidgetKind,
-    assetId: customData.assetId,
-  };
+
+  const widget = readWidget(element);
+  if (!widget) return null;
+
+  // The two links are not interchangeable: the older one names a PDF and
+  // nothing else, so a record claiming another kind behind it is inconsistent
+  // rather than merely unexpected.
+  if (element.link === PDF_WIDGET_LINK && widget.kind !== "pdf") return null;
+
+  return { widgetKind: widget.kind, assetId: widget.assetId };
 };
 
 export const getPdfWidgetAssetId = (element: EmbeddableLike): string | null => {
@@ -91,7 +82,6 @@ export const createAssetWidgetElement = ({
 }) => {
   const width = widgetKind === "pdf" ? PDF_WIDGET_WIDTH : TEXT_WIDGET_WIDTH;
   const height = widgetKind === "pdf" ? PDF_WIDGET_HEIGHT : TEXT_WIDGET_HEIGHT;
-  const customData: AssetWidgetData = { schemaVersion: 1, widgetKind, assetId };
   const [baseElement] = convertToExcalidrawElements([
     { type: "rectangle", x: x - width / 2, y: y - height / 2, width, height },
   ]);
@@ -99,7 +89,7 @@ export const createAssetWidgetElement = ({
     ...baseElement,
     type: "embeddable" as const,
     link: ASSET_WIDGET_LINK,
-    customData,
+    customData: withExcalidashData(baseElement, { widget: { kind: widgetKind, assetId } }),
   };
 };
 
@@ -112,11 +102,6 @@ export const createPdfWidgetElement = ({
   x: number;
   y: number;
 }) => {
-  const customData: PdfWidgetCustomData = {
-    schemaVersion: 1,
-    widgetKind: "pdf",
-    assetId,
-  };
   const [baseElement] = convertToExcalidrawElements([
     {
       type: "rectangle",
@@ -130,6 +115,6 @@ export const createPdfWidgetElement = ({
     ...baseElement,
     type: "embeddable" as const,
     link: PDF_WIDGET_LINK,
-    customData,
+    customData: withExcalidashData(baseElement, { widget: { kind: "pdf", assetId } }),
   };
 };

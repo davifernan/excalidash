@@ -15,7 +15,8 @@
  */
 import { newElementWith } from "@excalidraw/excalidraw";
 import { fitTextToNote } from "./stickyFit";
-import { STICKY_KEY, stickyDataOf, type StickyData } from "./stickyNote";
+import { withExcalidashData } from "../integrations/excalidraw/customData";
+import { stickyDataOf, type StickyData } from "./stickyNote";
 
 /** The label bound to a container, if it has one. */
 const labelOf = (container: any, byId: Map<string, any>): any | null => {
@@ -81,7 +82,7 @@ export function normaliseStickyNotes(
       if (container.width !== data.width || container.height !== data.height) {
         next = { ...data, width: container.width, height: container.height };
         container = newElementWith(container, {
-          customData: { ...(container.customData ?? {}), [STICKY_KEY]: next },
+          customData: withExcalidashData(container, { sticky: next }),
         } as any);
       }
     } else if (container.height !== next.height || container.width !== next.width) {

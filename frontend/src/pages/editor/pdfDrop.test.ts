@@ -81,7 +81,9 @@ describe("PDF drop errors", () => {
     );
     expect(updateScene.mock.calls[0][0].elements[0]).toMatchObject({
       type: "embeddable",
-      customData: { widgetKind: "markdown", assetId: "asset-md" },
+      customData: {
+        excalidash: { schemaVersion: 2, widget: { kind: "markdown", assetId: "asset-md" } },
+      },
     });
   });
 

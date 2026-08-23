@@ -66,12 +66,13 @@ const SYNTHETIC_EVENT_EXCEPTIONS = new Set([
   "frontend/src/sticky/stickyPlacement.ts",
 ]);
 
-/** Files that still write customData without the central helper. */
-const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/pdfWidgetElements.ts",
-  "frontend/src/sticky/stickyNormalise.ts",
-  "frontend/src/sticky/stickyNote.ts",
-]);
+/**
+ * Files that still write customData without the central helper.
+ *
+ * Empty: the three writers moved to integrations/excalidraw/customData.ts with
+ * the schema, and their old shapes went with them. This rule is closed.
+ */
+const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
 
 /**
  * Both import forms.
@@ -107,7 +108,15 @@ const SYNTHETIC_EVENT_PATTERNS = [
   /new\s+MouseEvent\s*\(/,
 ];
 
-const CUSTOM_DATA_WRITE_PATTERNS = [/customData\s*:/];
+/**
+ * An object literal assigned to customData -- the direct write.
+ *
+ * `customData: withExcalidashData(element, ...)` is not one: it is the write
+ * going through the helper, which is the whole point. Matching every
+ * `customData:` would flag the correct call as loudly as the wrong one, and a
+ * rule that cannot tell them apart teaches people to ignore it.
+ */
+const CUSTOM_DATA_WRITE_PATTERNS = [/customData\s*:\s*\{/];
 
 const walk = (dir, out = []) => {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
