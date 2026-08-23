@@ -73,6 +73,16 @@ describe("team roster", () => {
     expect(body).not.toContain("@");
   });
 
+  it("gives every member presentable initials and a color, derived server-side", async () => {
+    const { app } = buildApp();
+    const res = await invoke(app, { id: "acct-member" });
+
+    const olga = res.payload.members.find((m: any) => m.name === "Owner Olga");
+    expect(olga.initials).toBe("OO");
+    expect(typeof olga.color).toBe("string");
+    expect(olga.color.length).toBeGreaterThan(0);
+  });
+
   it('scopes the subjectKey to "team", distinct from drawing/collection roster scopes for the same account', async () => {
     const { app } = buildApp();
     const res = await invoke(app, { id: "acct-member" });
