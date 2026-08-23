@@ -202,7 +202,14 @@ export const registerDrawingSharingRoutes = (
 
       let expiresAt: Date | null;
       if (hasExpiresAtKey && rawExpiresAt === null) {
-        expiresAt = permission === "view" ? null : new Date(now + effectiveDefaultTtlMs);
+        // Only "edit" is forced to expire. This line predates NIL-487's
+        // "comment" level and had not been re-audited for it: matched
+        // against "edit" rather than "view", it groups comment with edit
+        // here while resolveDefaultTtlMs (above) deliberately groups comment
+        // with view for the *duration* of that expiry. A leaked comment
+        // link cannot destroy work any more than a view link can, so the
+        // eternal-link allowance follows the same grouping here.
+        expiresAt = permission === "edit" ? new Date(now + effectiveDefaultTtlMs) : null;
       } else {
         const requestedExpiresAt =
           typeof rawExpiresAt === "string" && rawExpiresAt.trim().length > 0

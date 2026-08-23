@@ -30,8 +30,8 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
 
   const [userQuery, setUserQuery] = useState("");
   const [userResults, setUserResults] = useState<api.ShareResolvedUser[]>([]);
-  const [userPermission, setUserPermission] = useState<"view" | "edit">("view");
-  const [linkPermission, setLinkPermission] = useState<"view" | "edit">("view");
+  const [userPermission, setUserPermission] = useState<"view" | "comment" | "edit">("view");
+  const [linkPermission, setLinkPermission] = useState<"view" | "comment" | "edit">("view");
   const [expiryOption, setExpiryOption] = useState("1d");
   const [customExpiry, setCustomExpiry] = useState("");
   const [isCopied, setIsCopied] = useState(false);
@@ -181,7 +181,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     }
   };
 
-  const handleUpdateUserPermission = async (granteeUserId: string, permission: "view" | "edit") => {
+  const handleUpdateUserPermission = async (granteeUserId: string, permission: "view" | "comment" | "edit") => {
     setIsLoading(true);
     setError(null);
     try {
@@ -203,7 +203,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     }
   };
 
-  const handleUpdateLink = async (newPermission?: "view" | "edit", newExpiry?: string | null) => {
+  const handleUpdateLink = async (newPermission?: "view" | "comment" | "edit", newExpiry?: string | null) => {
     setIsLoading(true);
     setError(null);
     try {

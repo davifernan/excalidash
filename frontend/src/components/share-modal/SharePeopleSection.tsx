@@ -13,7 +13,7 @@ type Props = {
   handleRevokeUser: (permissionId: string) => void | Promise<void>;
   handleUpdateUserPermission: (
     granteeUserId: string,
-    permission: "view" | "edit",
+    permission: "view" | "comment" | "edit",
   ) => void | Promise<void>;
 };
 
@@ -111,11 +111,12 @@ export const SharePeopleSection: React.FC<Props> = ({
               value={permission.permission}
               onChange={async (value) => {
                 if (value === "remove") await handleRevokeUser(permission.id);
-                else if (value === "view" || value === "edit")
+                else if (value === "view" || value === "comment" || value === "edit")
                   await handleUpdateUserPermission(permission.granteeUserId, value);
               }}
               options={[
                 { label: "Viewer", value: "view" },
+                { label: "Commenter", value: "comment" },
                 { label: "Editor", value: "edit" },
                 { label: "Remove access", value: "remove", danger: true },
               ]}

@@ -12,14 +12,14 @@ import {
 
 type Props = {
   activeLink: api.DrawingLinkShareRow | null;
-  linkPermission: "view" | "edit";
+  linkPermission: "view" | "comment" | "edit";
   expiryOption: string;
   customExpiry: string;
-  setLinkPermission: (value: "view" | "edit") => void;
+  setLinkPermission: (value: "view" | "comment" | "edit") => void;
   setExpiryOption: (value: string) => void;
   setCustomExpiry: (value: string) => void;
   handleUpdateLink: (
-    permission?: "view" | "edit",
+    permission?: "view" | "comment" | "edit",
     expiresAt?: string | null,
   ) => void | Promise<void>;
   handleRevokeLink: () => void | Promise<void>;
@@ -86,6 +86,7 @@ export const GeneralAccessSection: React.FC<Props> = ({
                 onChange={(value) => handleUpdateLink(value as any)}
                 options={[
                   { label: "Viewer", value: "view" },
+                  { label: "Commenter", value: "comment" },
                   { label: "Editor", value: "edit" },
                 ]}
                 icon={<Shield size={12} strokeWidth={2.5} className="text-slate-400" />}
