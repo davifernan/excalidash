@@ -1,5 +1,8 @@
 import React from "react";
-import { languages, useI18n } from "@excalidraw/excalidraw";
+import {
+  editorLanguages as languages,
+  useEditorTranslations as useI18n,
+} from "../integrations/excalidraw/i18n";
 
 const STORAGE_KEY = "excalidash-lang";
 

@@ -31,8 +31,6 @@ const CUSTOM_DATA_HELPER = path.join(LAYER, "customData.ts");
  * consumer migration (NIL-336 to NIL-340), not extended.
  */
 const PACKAGE_IMPORT_EXCEPTIONS = new Set([
-  "frontend/src/components/LanguageSelector.tsx",
-  "frontend/src/main.tsx",
   "frontend/src/pages/editor/EditorView.tsx",
   "frontend/src/pages/editor/followMode.ts",
   "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
