@@ -54,11 +54,18 @@ describe("knowing when a fit will be clamped", () => {
     expect(wouldClampZoom(appState(), [0, 0, 1, 1] as SceneBounds)).toBe(true);
   });
 
-  it("is asked before the fit is applied, because afterwards the clamp is invisible", () => {
-    // The applied zoom is always inside the limits, so a check after the fact
-    // can only ever say "no".
-    const after = appState({ zoom: { value: 30 } });
-    expect(wouldClampZoom(after, [0, 0, 1, 1] as SceneBounds)).toBe(true);
+  it("reads the viewport size, not the zoom -- so it can be asked before the fit", () => {
+    // The earlier version of this test varied `zoom` between "before" and
+    // "after" and asserted the same result, which proved nothing: this function
+    // never reads zoom. What actually decides the answer is width and height,
+    // and zoomToFitBounds does not change those -- which is why asking before
+    // the write is meaningful at all.
+    const bounds = [0, 0, 1, 1] as SceneBounds;
+    expect(wouldClampZoom(appState({ zoom: { value: 1 } }), bounds)).toBe(true);
+    expect(wouldClampZoom(appState({ zoom: { value: 30 } }), bounds)).toBe(true);
+
+    // Change what it does read, and the answer moves.
+    expect(wouldClampZoom(appState({ width: 20, height: 20 }), bounds)).toBe(false);
   });
 });
 

@@ -13,6 +13,7 @@
  */
 import { STICKY_BASE_FONT_SIZE, type StickyColor } from "./stickyNote";
 
+import { createSceneCapability } from "../integrations/excalidraw/adapter";
 import { pressEnterToEditLabel } from "../integrations/excalidraw/domBridge";
 
 /** Space between a note and the one spawned next to it. */
@@ -77,20 +78,31 @@ export function insertStickyNote(
 ): void {
   if (!api) return;
 
-  const scene = api.getSceneElementsIncludingDeleted();
-  const frame = frameAt(scene, note.x + note.width / 2, note.y + note.height / 2);
+  const scene = createSceneCapability(() => api);
+  const summaries = scene.summaries({ includeDeleted: true });
+  if (!summaries.ok) return;
+
+  const frame = frameAt(summaries.value, note.x + note.width / 2, note.y + note.height / 2);
   const placed = frame ? { ...note, frameId: frame.id } : note;
 
-  api.updateScene({
-    elements: withNoteInserted(scene, placed),
-    appState: {
-      selectedElementIds: { [placed.id]: true },
-      // The label Excalidraw is about to create takes its size and colour from
-      // these, and the note's upkeep expects to start from that size.
-      currentItemFontSize: STICKY_BASE_FONT_SIZE,
-      currentItemStrokeColor: color.ink,
+  // One write, not four. The note goes in immediately before its frame -- a
+  // frame's children sit before it in the element order, and that rule lives in
+  // the adapter now rather than here -- and the selection and the item defaults
+  // the label will inherit travel with it. Splitting these would make three
+  // renders out of one and let a remote change land in the middle.
+  scene.apply([
+    {
+      kind: "insert",
+      elements: [placed],
+      ...(frame ? { before: frame.id } : {}),
     },
-  });
+    { kind: "select", ids: [placed.id] },
+    {
+      kind: "itemDefaults",
+      fontSize: STICKY_BASE_FONT_SIZE,
+      strokeColor: color.ink,
+    },
+  ]);
 
   // The scene update is React state. The key has to arrive after it has been
   // committed, or Excalidraw finds nothing selected to type into -- and the

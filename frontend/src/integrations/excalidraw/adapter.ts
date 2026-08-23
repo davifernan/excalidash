@@ -102,9 +102,13 @@ export const summarise = (element: Record<string, unknown>): ElementSummary => (
   frameId: optionalId(element.frameId),
   containerId: optionalId(element.containerId),
   link: typeof element.link === "string" ? element.link : null,
+  // Deep-copied like everything else here. The Readonly<> on the type is a
+  // compile-time promise and nothing at runtime; handing the editor's own
+  // object out would let product code mutate a nested field and have it land on
+  // the live element -- the exact thing this projection exists to prevent.
   customData:
     element.customData && typeof element.customData === "object"
-      ? (element.customData as Record<string, unknown>)
+      ? (structuredClone(element.customData) as Record<string, unknown>)
       : null,
 });
 

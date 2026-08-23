@@ -86,7 +86,6 @@ const RAW_API_EXCEPTIONS = new Set([
   "frontend/src/pages/editor/useLibraryImportFromUrl.ts",
   "frontend/src/sticky/StickyHandles.tsx",
   "frontend/src/sticky/stickyConnect.ts",
-  "frontend/src/sticky/stickyPlacement.ts",
   "frontend/src/sticky/useStickyHint.ts",
   "frontend/src/sticky/useStickyKeys.ts",
   "frontend/src/sticky/useStickyNotes.ts",

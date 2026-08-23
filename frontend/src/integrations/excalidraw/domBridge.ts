@@ -85,7 +85,21 @@ export const findToolbarSlot = (container: HTMLElement | null): CapabilityResult
       }),
     );
   }
-  return ok(island.querySelector<HTMLElement>(INTERNAL_SELECTORS.toolbarRow) ?? island);
+  const row = island.querySelector<HTMLElement>(INTERNAL_SELECTORS.toolbarRow);
+  if (!row) {
+    // The island is still usable, so this is not a failure -- but it is not
+    // silence either. Appending to the island stacks vertically and puts our
+    // button on a second row under the tools, which is visibly wrong and which
+    // nobody watching the diagnostics would otherwise hear about.
+    reportFailure(
+      fail("editor-changed", "domBridge.findToolbarSlot", {
+        detail: `no element matching ${INTERNAL_SELECTORS.toolbarRow}`,
+      }),
+      packageVersion(),
+    );
+    return ok(island);
+  }
+  return ok(row);
 };
 
 export const readChrome = (container: HTMLElement | null): ChromeState => ({
@@ -138,10 +152,13 @@ export const pressEnterToEditLabel = async (
   isEditing: () => boolean,
   options: { timeoutMs?: number } = {},
 ): Promise<CapabilityResult<void>> => {
+  // findRoot already reported whatever went wrong -- a missing container or a
+  // missing root. Reporting again here would hand every diagnostics subscriber
+  // two events for one failure and skew any count built on them.
   const rooted = findRoot(container);
   const target = rooted.ok ? rooted.value : container;
   if (!target) {
-    return report(fail("not-ready", "domBridge.pressEnterToEditLabel"));
+    return rooted.ok ? report(fail("not-ready", "domBridge.pressEnterToEditLabel")) : rooted;
   }
 
   target.dispatchEvent(

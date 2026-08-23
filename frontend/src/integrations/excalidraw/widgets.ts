@@ -112,14 +112,25 @@ export const createWidgetCapability = (getApi: () => WidgetApi | null): WidgetCa
     },
 
     /**
-     * NIL-311, answered by measurement rather than assumption.
+     * NIL-311, and the answer is narrower than it first looked.
      *
-     * Excalidraw activates an embeddable only after a double click, and that
-     * code path is guarded by `!viewModeEnabled`. The host sets
-     * `viewModeEnabled={!canEdit}`. A read-only visitor therefore cannot
-     * activate the element at all, and its page controls are unreachable --
-     * so the widget must render a static view rather than buttons that do
-     * nothing when pressed.
+     * With a mouse the premise holds: an embeddable activates on double click,
+     * that path is guarded by `!viewModeEnabled`, and the host sets
+     * `viewModeEnabled={!canEdit}`. A read-only visitor never reaches the
+     * widget's own controls.
+     *
+     * With touch it does not. Excalidraw also activates an embeddable from a
+     * short tap on its centre (`handleEmbeddableCenterClick`, reached from
+     * `handleCanvasPointerUp` via `isIframeLikeElementCenter`), and that path
+     * carries no view-mode check at all -- verified against 0.18.1. So a
+     * read-only visitor on a tablet CAN make the widget interactive.
+     *
+     * This still reports "read-only" for such a viewer, and that is the point:
+     * it describes what the application permits, not what the editor happens to
+     * allow. A widget rendering a static view honours the permission even where
+     * the editor would not enforce it. What it must not do is claim the editor
+     * makes that impossible -- it does not, and a control that appears only on
+     * touch is exactly the kind of thing nobody tests.
      */
     interactionMode() {
       const api = getApi();

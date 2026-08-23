@@ -143,6 +143,36 @@ describe("the collaboration capability", () => {
     expect(api.updateScene).not.toHaveBeenCalled();
   });
 
+  it("composes two patches in the same tick instead of letting the second win", () => {
+    // updateScene goes through setState on React 18, so the editor's map is
+    // still the old one when the second call reads it. Presence sets a name,
+    // remote selection sets a selection; neither may erase the other.
+    const api = makeApi(new Map());
+    const capability = createCollaborationCapability(() => api);
+
+    capability.patchCollaborators([{ socketId: id("s1"), name: "Grace" }]);
+    capability.patchCollaborators([{ socketId: id("s1"), selectedIds: ["e9" as ElementId] }]);
+
+    const written = api.updateScene.mock.calls[1][0] as {
+      collaborators: Map<string, Record<string, unknown>>;
+    };
+    const entry = written.collaborators.get("s1")!;
+    expect(entry.username).toBe("Grace");
+    expect(entry.selectedElementIds).toEqual({ e9: true });
+  });
+
+  it("goes back to the editor's map once the write has landed", () => {
+    const api = makeApi(new Map());
+    const capability = createCollaborationCapability(() => api);
+    capability.patchCollaborators([{ socketId: id("s1"), name: "Grace" }]);
+
+    // The editor now reports a map of its own; it is the truth again.
+    const settled = makeApi(new Map([["s2", { username: "Ada" }]]));
+    const after = createCollaborationCapability(() => settled);
+    const read = after.readCollaborators();
+    expect(read.ok && read.value.map((c) => c.socketId)).toEqual(["s2"]);
+  });
+
   it("reports not-ready without an editor rather than throwing", () => {
     const result = createCollaborationCapability(() => null).readCollaborators();
     expect(result.ok).toBe(false);

@@ -109,7 +109,30 @@ export const createCollaborationCapability = (
   const notReady = <T>(seam: string): CapabilityResult<T> =>
     report(fail("not-ready", seam, { detail: "the editor handle is not attached" }));
 
+  /**
+   * The map this capability last wrote, if the editor has not caught up yet.
+   *
+   * Excalidraw's updateScene goes through setState on a React 18 class
+   * component, so a read straight after a write still returns the old
+   * collaborators. Two patches in the same tick would therefore both start from
+   * the same stale map and the second would erase the first -- presence setting
+   * a name, remote selection setting a selection, one of them silently lost.
+   *
+   * Cleared as soon as the editor reports the map back, so this never becomes a
+   * second source of truth: it only bridges the gap until the write lands.
+   */
+  let pending: Map<string, RawCollaborator> | null = null;
+
+  const currentMap = (api: CollaborationApi): Map<string, RawCollaborator> => {
+    const live = asMap(api.getAppState().collaborators);
+    if (pending && live.size === 0) return new Map(pending);
+    // The editor has the write; its map is the truth again.
+    if (pending && live.size > 0) pending = null;
+    return live;
+  };
+
   const writeMap = (api: CollaborationApi, map: Map<string, RawCollaborator>) => {
+    pending = new Map(map);
     api.updateScene({ collaborators: map });
   };
 
@@ -125,7 +148,7 @@ export const createCollaborationCapability = (
       const api = getApi();
       if (!api) return notReady("collaboration.patchCollaborators");
       if (patches.length === 0) return ok(undefined);
-      const map = asMap(api.getAppState().collaborators);
+      const map = currentMap(api);
       for (const patch of patches) {
         map.set(String(patch.socketId), applyPatch(map.get(String(patch.socketId)), patch));
       }
@@ -137,7 +160,7 @@ export const createCollaborationCapability = (
       const api = getApi();
       if (!api) return notReady("collaboration.removeCollaborators");
       if (socketIds.length === 0) return ok(undefined);
-      const map = asMap(api.getAppState().collaborators);
+      const map = currentMap(api);
       for (const id of socketIds) map.delete(String(id));
       writeMap(api, map);
       return ok(undefined);
