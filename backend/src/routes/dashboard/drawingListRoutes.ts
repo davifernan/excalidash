@@ -263,7 +263,16 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
             : { updatedAt: parsedSortDirection };
 
       // Get collection IDs shared with this user to exclude drawings already visible via collection sharing
-      const sharedColIds = await listSharedCollectionIds({ db: prisma, userId: req.user.id });
+      // NIL-490 NACHWEIS-PR — WIRD NIE GEMERGT.
+      // Genau eine absichtliche Grenzverletzung: derselbe Aufruf, am Vertrag
+      // vorbei direkt auf die Grant-Tabelle. Verhalten identisch, damit genau
+      // EIN Pflichtcheck rot wird und die Ursache eindeutig ist.
+      const sharedColIds = (
+        await prisma.collectionShare.findMany({
+          where: { granteeUserId: req.user.id },
+          select: { collectionId: true },
+        })
+      ).map((s) => s.collectionId);
 
       const whereDrawing: Prisma.DrawingWhereInput = {
         ...boardsSharedWithWhere(req.user.id),
