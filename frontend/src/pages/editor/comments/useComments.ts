@@ -29,6 +29,23 @@ const groupThreads = (comments: CommentDTO[]): Thread[] => {
     .sort((a, b) => a.root.createdAt.localeCompare(b.root.createdAt));
 };
 
+/**
+ * Insert-or-replace by id, never append blindly.
+ *
+ * The author's own create/reply both (a) gets the new row back from the
+ * HTTP response and (b) receives its own "comment-created" socket echo --
+ * the server emits to the whole drawing room, itself included, and does so
+ * before the HTTP response is even sent, so the echo reliably arrives
+ * first. Two unconditional appends of the same id duplicated the row (and
+ * its React key), which is exactly the state every OTHER local update here
+ * already avoided -- onCreated (the socket handler) already deduped this
+ * way; the actor's own optimistic append was the only path that had not.
+ */
+const upsertComment = (prev: CommentDTO[], comment: CommentDTO): CommentDTO[] =>
+  prev.some((c) => c.id === comment.id)
+    ? prev.map((c) => (c.id === comment.id ? comment : c))
+    : [...prev, comment];
+
 export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCommentsInput) => {
   const [comments, setComments] = useState<CommentDTO[]>([]);
   const [candidates, setCandidates] = useState<MentionCandidate[]>([]);
@@ -72,11 +89,11 @@ export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCo
     if (!socket || !isReady) return;
     const onCreated = (comment: CommentDTO) => {
       if (comment.drawingId !== drawingIdRef.current) return;
-      setComments((prev) => (prev.some((c) => c.id === comment.id) ? prev : [...prev, comment]));
+      setComments((prev) => upsertComment(prev, comment));
     };
     const onUpdated = (comment: CommentDTO) => {
       if (comment.drawingId !== drawingIdRef.current) return;
-      setComments((prev) => prev.map((c) => (c.id === comment.id ? comment : c)));
+      setComments((prev) => upsertComment(prev, comment));
     };
     const onDeleted = ({ id }: { id: string }) => {
       // Deletion is a tombstone server-side, not a removal -- refresh that one
@@ -103,7 +120,7 @@ export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCo
         anchorX: anchor?.x,
         anchorY: anchor?.y,
       });
-      setComments((prev) => [...prev, comment]);
+      setComments((prev) => upsertComment(prev, comment));
       return comment;
     },
     [drawingId],
@@ -113,7 +130,7 @@ export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCo
     async (rootId: string, body: string) => {
       if (!drawingId) return;
       const comment = await commentsApi.createComment(drawingId, { body, rootId });
-      setComments((prev) => [...prev, comment]);
+      setComments((prev) => upsertComment(prev, comment));
       return comment;
     },
     [drawingId],
