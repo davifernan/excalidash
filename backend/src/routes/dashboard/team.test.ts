@@ -1,6 +1,7 @@
 import express from "express";
 import { describe, expect, it, vi } from "vitest";
-import { registerTeamRoutes } from "./team";
+import { registerTeamRoutes, TEAM_SUBJECT_SCOPE } from "./team";
+import { subjectKey } from "../../authz/subjectKey";
 
 const invoke = async (app: express.Express, user: any) => {
   const layer = (app as any).router.stack.find(
@@ -72,11 +73,17 @@ describe("team roster", () => {
     expect(body).not.toContain("@");
   });
 
-  it("gives the same account a different key than the drawing/collection roster scopes would", async () => {
+  it('scopes the subjectKey to "team", distinct from drawing/collection roster scopes for the same account', async () => {
     const { app } = buildApp();
     const res = await invoke(app, { id: "acct-member" });
     const selfKey = res.payload.members.find((m: any) => m.isSelf).subjectKey;
-    expect(typeof selfKey).toBe("string");
-    expect(selfKey.length).toBeGreaterThan(0);
+
+    // Recomputed from the actual scope constant and the same secret/userId,
+    // not merely typeof/length-checked: this fails the moment
+    // TEAM_SUBJECT_SCOPE collides with another scope string, which a
+    // presence check on the key alone cannot detect.
+    expect(selfKey).toBe(subjectKey("test-secret", TEAM_SUBJECT_SCOPE, "acct-member"));
+    expect(selfKey).not.toBe(subjectKey("test-secret", "drawing:some-board", "acct-member"));
+    expect(selfKey).not.toBe(subjectKey("test-secret", "collection:some-folder", "acct-member"));
   });
 });

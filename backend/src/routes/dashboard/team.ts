@@ -3,7 +3,8 @@ import { getTeam, listTeamMembers } from "../../authz/team";
 import { subjectKey } from "../../authz/subjectKey";
 import { DashboardRouteDeps } from "./types";
 
-const TEAM_SUBJECT_SCOPE = "team";
+/** Exported so tests can prove this scope actually differs from others -- not just that a key comes back. */
+export const TEAM_SUBJECT_SCOPE = "team";
 
 /**
  * The team roster. Reads only, and deliberately small: this is the seam
