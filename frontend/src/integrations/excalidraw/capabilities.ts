@@ -23,6 +23,7 @@ import type {
   ActiveTool,
   AppliedViewport,
   BoardSettings,
+  BoundLabel,
   CollaboratorInfo,
   CollaboratorPatch,
   ElementId,
@@ -32,6 +33,7 @@ import type {
   FollowState,
   HistoryCapture,
   InteractionState,
+  PersistedScene,
   PointerUpdate,
   SceneBounds,
   SceneDocument,
@@ -73,6 +75,54 @@ export interface SceneCapability {
 
   /** onChange. Fires on every editor change; consumers throttle. */
   subscribe(listener: () => void): Unsubscribe;
+
+  /**
+   * Document to stored payload and back.
+   *
+   * The save path is three steps, not one: normalise, reconcile against what
+   * the server has, serialise. An opaque document that cannot be converted
+   * would force the save back onto raw elements, which is the seam this layer
+   * exists to close.
+   */
+  toPersisted(document: SceneDocument): CapabilityResult<PersistedScene>;
+  fromPersisted(payload: PersistedScene): CapabilityResult<SceneDocument>;
+
+  /**
+   * Merge a local document onto a newer server one without losing either side.
+   *
+   * `protect` names elements a gesture is currently holding -- what is being
+   * typed, dragged, drawn or resized right now. A rebase mid-gesture that does
+   * not honour them pulls the element out from under the person doing it.
+   */
+  reconcile(
+    local: SceneDocument,
+    remote: PersistedScene,
+    options?: { protect?: readonly ElementId[] },
+  ): CapabilityResult<SceneDocument>;
+
+  /**
+   * Re-run the editor's own layout over a document.
+   *
+   * The sticky upkeep resizes containers and needs their bound labels laid out
+   * the way the editor would lay them out, not the way this application guesses
+   * it would. Without this the upkeep keeps a raw path into the package.
+   */
+  relayout(document: SceneDocument): CapabilityResult<SceneDocument>;
+}
+
+/**
+ * Text bound inside a container.
+ *
+ * Split out rather than folded into ElementSummary because only two consumers
+ * need it and both need more than a summary: the sticky upkeep reasons about
+ * the text as typed against the text as wrapped, and the hint asks which
+ * container is currently being written into.
+ */
+export interface TextContainerCapability {
+  readLabel(containerId: ElementId): CapabilityResult<BoundLabel | null>;
+  /** Containers whose label the editor is rewriting this very moment. */
+  labelsBeingTyped(): CapabilityResult<readonly ElementId[]>;
+  setLabelFontSize(containerId: ElementId, fontSize: number): CapabilityResult<SceneOp>;
 }
 
 export interface BoardSettingsCapability {
@@ -276,6 +326,7 @@ export interface CompatibilityCapability {
 
 export interface ExcalidrawAdapter {
   readonly scene: SceneCapability;
+  readonly text: TextContainerCapability;
   readonly boardSettings: BoardSettingsCapability;
   readonly selection: SelectionCapability;
   readonly files: FileCapability;

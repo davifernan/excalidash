@@ -28,9 +28,13 @@ export type SocketId = string & { readonly __brand: "SocketId" };
 declare const documentBrand: unique symbol;
 
 /**
- * A complete scene, lossless by construction. Opaque on purpose: product code
- * may hold one, pass it to persistence or export, and compare identity -- but
- * it may not read elements out of it. Everything readable has a capability.
+ * A complete scene. Opaque on purpose: product code may hold one, pass it to
+ * persistence or export, and compare identity -- but it may not read elements
+ * out of it. Everything readable has a capability.
+ *
+ * The brand buys opacity, not completeness: nothing in the type system stops an
+ * adapter from building one out of a projection. Completeness is a property of
+ * the implementation, asserted by the contract tests rather than claimed here.
  */
 export type SceneDocument = {
   readonly [documentBrand]: true;
@@ -63,17 +67,53 @@ export type ElementSummary = {
  * An element this application is creating. Deliberately not an ElementSummary:
  * a summary describes something that exists, this describes something being
  * made, and the adapter fills in every field Excalidraw needs beyond these.
+ *
+ * The id is supplied by the caller rather than handed back afterwards. Placing
+ * a sticky note selects the note it just inserted in the SAME atomic write, and
+ * an id that only exists after the write has returned cannot be referenced from
+ * inside it. `frameId` is here for the same reason: frame membership is decided
+ * before the insert, not patched in afterwards.
  */
 export type NewElement = {
+  readonly id: ElementId;
   readonly type: "rectangle" | "embeddable";
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  readonly frameId?: ElementId | null;
   readonly link?: string;
   readonly backgroundColor?: string;
   readonly strokeColor?: string;
   readonly customData?: Readonly<Record<string, unknown>>;
+};
+
+/**
+ * A scene as it is stored and sent over the wire.
+ *
+ * Opaque like SceneDocument, and separate from it on purpose: the save path
+ * converts, reconciles against what the server has, and only then serialises.
+ * Those are three different states and collapsing them is how a save silently
+ * drops what it did not understand.
+ */
+export type PersistedScene = {
+  readonly [documentBrand]: true;
+  readonly kind: "persisted";
+};
+
+/**
+ * The label bound to a container, as the sticky upkeep needs to see it.
+ *
+ * `originalText` is separate from `text` because Excalidraw stores the text as
+ * typed and the text as wrapped, and the upkeep has to reason about the first
+ * while the editor is rewriting the second.
+ */
+export type BoundLabel = {
+  readonly id: ElementId;
+  readonly containerId: ElementId;
+  readonly text: string;
+  readonly originalText: string;
+  readonly fontSize: number;
 };
 
 /** Field-level change to an existing element. Unlisted fields are untouched. */
