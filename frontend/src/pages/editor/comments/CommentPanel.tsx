@@ -218,6 +218,7 @@ const ThreadCard: React.FC<{
             type="button"
             onClick={() => (isResolved ? onReopen(thread.root.id) : onResolve(thread.root.id))}
             title={isResolved ? "Reopen thread" : "Resolve thread"}
+            aria-label={isResolved ? "Reopen thread" : "Resolve thread"}
             data-testid={isResolved ? "thread-reopen" : "thread-resolve"}
             className={
               "shrink-0 flex items-center justify-center w-6 h-6 rounded-lg border-2 " +
@@ -323,6 +324,7 @@ export const CommentPanel: React.FC<Props> = ({
           <Link
             to="/inbox"
             title="Inbox"
+            aria-label="Inbox"
             data-testid="comment-panel-inbox-link"
             className="text-slate-400 hover:text-indigo-600"
           >
@@ -331,6 +333,7 @@ export const CommentPanel: React.FC<Props> = ({
           <Link
             to="/activity"
             title="Activity"
+            aria-label="Activity"
             data-testid="comment-panel-activity-link"
             className="text-slate-400 hover:text-indigo-600"
           >

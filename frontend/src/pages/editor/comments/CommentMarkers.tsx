@@ -96,6 +96,11 @@ export const CommentMarkers: React.FC<Props> = ({
           data-testid="comment-marker"
           data-thread-id={position.threadId}
           title={position.resolved ? "Resolved thread" : "Open thread"}
+          aria-label={
+            position.resolved
+              ? `Resolved thread, ${position.count} comment${position.count === 1 ? "" : "s"}`
+              : `Open thread, ${position.count} comment${position.count === 1 ? "" : "s"}`
+          }
           style={{
             position: "absolute",
             left: position.left,
