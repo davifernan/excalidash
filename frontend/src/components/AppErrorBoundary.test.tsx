@@ -86,6 +86,55 @@ describe("AppErrorBoundary", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("stays dark for a stored dark preference, even on a cold crash", () => {
+    // The class ThemeProvider would add never got applied: it comes from an
+    // effect, and this crash happens before that effect ever runs.
+    localStorage.setItem("theme", "dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    render(
+      <AppErrorBoundary>
+        <Boom />
+      </AppErrorBoundary>,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveAttribute("data-theme", "dark");
+    // The class must sit on an ancestor, not on the styled element itself:
+    // Tailwind's variant is a descendant selector, so a class on the same
+    // element gives light text on a light background.
+    expect(alert.parentElement).toHaveClass("dark");
+    expect(alert).not.toHaveClass("dark");
+    localStorage.removeItem("theme");
+  });
+
+  it("stays light when nothing is stored, the way ThemeContext defaults", () => {
+    render(
+      <AppErrorBoundary>
+        <Boom />
+      </AppErrorBoundary>,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveAttribute("data-theme", "light");
+    expect(alert.parentElement).not.toHaveClass("dark");
+  });
+
+  it("falls back to light when storage cannot be read at all", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
+
+    render(
+      <AppErrorBoundary>
+        <Boom />
+      </AppErrorBoundary>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveAttribute("data-theme", "light");
+    getItem.mockRestore();
+  });
+
   it("leaves a handled failure state alone", () => {
     render(
       <AppErrorBoundary>

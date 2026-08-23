@@ -202,6 +202,9 @@ Beispiele:
 
 ### Meldbarkeit
 
+Noch nicht gebaut. Dieser Abschnitt beschreibt wie der Rest des Dokuments den Zielzustand;
+umgesetzt wird er in NIL-333 (Vertrag) und NIL-335 (Fundament).
+
 `CapabilityResult` ist ein Rueckgabewert, keine Ausnahme. Das ist gewollt: ein Fallback ist ein
 erwartetes Ergebnis, kein Ausnahmefall. Es hat aber eine Konsequenz, die ausgesprochen werden
 muss: **ein nicht-`ok`-Ergebnis wirft nie, also sieht es ausserhalb des Aufrufers niemand.**
@@ -222,9 +225,11 @@ Deshalb gehoert zum Vertrag eine Senke:
 - Eine Meldung enthaelt keine Boardinhalte, keine Elementtexte und keine Nutzerkennung.
 
 Ein Absturz im Renderbaum ist der Fall, den diese Senke nicht abdeckt: er wirft, statt ein
-Ergebnis zurueckzugeben. Dafuer traegt `ExcalidrawHost` einen eigenen ErrorBoundary, damit ein
-Fehler aus dem Editor den Canvasbereich kostet und nicht die Anwendung. Das aeussere Netz um
-den gesamten Routenbaum liegt ausserhalb dieser Schicht und ist nicht ihre Aufgabe.
+Ergebnis zurueckzugeben. `ExcalidrawHost` erhaelt dafuer einen eigenen ErrorBoundary, damit ein
+Fehler aus dem Editor den Canvasbereich kostet und nicht die Anwendung — Bestandteil von
+NIL-335, gemeinsam mit dem Host selbst. Bis dahin faengt ein solcher Fehler erst das aeussere
+Netz um den gesamten Routenbaum ab, das ausserhalb dieser Schicht liegt und nicht ihre Aufgabe
+ist.
 
 ## `customData`-Vertrag
 

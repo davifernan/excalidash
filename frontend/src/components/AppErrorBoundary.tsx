@@ -8,6 +8,7 @@ interface AppErrorBoundaryProps {
 interface AppErrorBoundaryState {
   hasError: boolean;
   errorId: string | null;
+  isDark: boolean;
 }
 
 /**
@@ -22,6 +23,12 @@ interface AppErrorBoundaryState {
  * Deliberately plain: the visual language of the shell belongs to M2 (NIL-343).
  * Deliberately outside the router: it has to survive a provider that throws,
  * which is why the way back is a location change rather than a navigation.
+ *
+ * Sitting outside ThemeProvider also means the `dark` class may never have
+ * been applied: ThemeContext adds it from an effect, and a crash on the very
+ * first render happens before that effect runs. So the fallback resolves the
+ * preference itself and carries the class on its own wrapper, using the same
+ * rule and the same storage key as ThemeContext.
  */
 const newErrorId = (): string => {
   const uuid = globalThis.crypto?.randomUUID?.();
@@ -29,11 +36,19 @@ const newErrorId = (): string => {
   return Math.random().toString(16).slice(2, 10);
 };
 
+const prefersDark = (): boolean => {
+  try {
+    return localStorage.getItem("theme") === "dark";
+  } catch {
+    return false;
+  }
+};
+
 export class AppErrorBoundary extends React.Component<
   AppErrorBoundaryProps,
   AppErrorBoundaryState
 > {
-  state: AppErrorBoundaryState = { hasError: false, errorId: null };
+  state: AppErrorBoundaryState = { hasError: false, errorId: null, isDark: false };
 
   static getDerivedStateFromError(): Partial<AppErrorBoundaryState> {
     return { hasError: true };
@@ -41,12 +56,12 @@ export class AppErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     const errorId = newErrorId();
-    this.setState({ errorId });
+    this.setState({ errorId, isDark: prefersDark() });
     console.error(`[crash ${errorId}]`, error, errorInfo.componentStack);
   }
 
   private handleRetry = (): void => {
-    this.setState({ hasError: false, errorId: null });
+    this.setState({ hasError: false, errorId: null, isDark: false });
   };
 
   private handleGoHome = (): void => {
@@ -57,43 +72,52 @@ export class AppErrorBoundary extends React.Component<
     if (!this.state.hasError) return this.props.children;
 
     return (
-      <div
-        role="alert"
-        className="min-h-screen bg-slate-50 dark:bg-neutral-950 flex items-center justify-center p-6"
-      >
-        <div className="max-w-md w-full text-center">
-          <AlertTriangle className="w-10 h-10 mx-auto text-amber-500" aria-hidden="true" />
-          <h1 className="mt-4 text-xl font-semibold text-slate-900 dark:text-neutral-100">
-            Something broke on this screen
-          </h1>
-          <p className="mt-2 text-sm text-slate-600 dark:text-neutral-400">
-            Your drawings are safe. This is the interface failing, not your data.
-          </p>
-          <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-center">
-            <button
-              type="button"
-              onClick={this.handleRetry}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
-            >
-              Try again
-            </button>
-            <button
-              type="button"
-              onClick={this.handleGoHome}
-              className="px-4 py-2 rounded-lg border border-slate-300 dark:border-neutral-700 text-sm font-medium text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-900"
-            >
-              Back to drawings
-            </button>
-          </div>
-          {this.state.errorId && (
-            <p className="mt-6 text-xs text-slate-500 dark:text-neutral-500">
-              Reference{" "}
-              <code className="font-mono text-slate-700 dark:text-neutral-300">
-                {this.state.errorId}
-              </code>{" "}
-              — include it when reporting this.
+      /*
+       * The `dark` class has to sit on an ANCESTOR: Tailwind compiles the
+       * variant to `.dark .dark\:bg-neutral-950`, a descendant selector, so a
+       * class on the same element styles its children but not itself — which
+       * renders light text on a light background.
+       */
+      <div className={this.state.isDark ? "dark" : undefined}>
+        <div
+          role="alert"
+          data-theme={this.state.isDark ? "dark" : "light"}
+          className="min-h-screen bg-slate-50 dark:bg-neutral-950 flex items-center justify-center p-6"
+        >
+          <div className="max-w-md w-full text-center">
+            <AlertTriangle className="w-10 h-10 mx-auto text-amber-500" aria-hidden="true" />
+            <h1 className="mt-4 text-xl font-semibold text-slate-900 dark:text-neutral-100">
+              Something broke on this screen
+            </h1>
+            <p className="mt-2 text-sm text-slate-600 dark:text-neutral-400">
+              Your drawings are safe. This is the interface failing, not your data.
             </p>
-          )}
+            <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-center">
+              <button
+                type="button"
+                onClick={this.handleRetry}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={this.handleGoHome}
+                className="px-4 py-2 rounded-lg border border-slate-300 dark:border-neutral-700 text-sm font-medium text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-900"
+              >
+                Back to drawings
+              </button>
+            </div>
+            {this.state.errorId && (
+              <p className="mt-6 text-xs text-slate-500 dark:text-neutral-500">
+                Reference{" "}
+                <code className="font-mono text-slate-700 dark:text-neutral-300">
+                  {this.state.errorId}
+                </code>{" "}
+                — include it when reporting this.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     );
