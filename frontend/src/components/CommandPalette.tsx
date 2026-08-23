@@ -185,6 +185,20 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
     }
   };
 
+  // Screen-reader-only announcement: the visible list already shows this,
+  // but nothing else here is an ARIA live region, so a result count or error
+  // arriving after a keystroke would otherwise never be spoken.
+  const searchStatusMessage =
+    mode !== "list"
+      ? ""
+      : boardsStatus === "loading"
+        ? "Searching…"
+        : boardsStatus === "error"
+          ? "Couldn't search boards."
+          : query.trim()
+            ? `${boards.length} board${boards.length === 1 ? "" : "s"} found`
+            : "";
+
   const activateHighlighted = () => {
     const item = items[highlightedIndex];
     if (!item) return;
@@ -193,6 +207,29 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
+    // Options are `tabIndex={-1}` (a virtual cursor via
+    // `aria-activedescendant`/arrow keys, not a real tab stop each), so the
+    // only real stops left are the input and, when visible, the error
+    // retry button or the new-collection back button -- cycle between
+    // whichever of those actually exist rather than letting Tab walk out
+    // into the blurred page behind the backdrop (same pattern as
+    // ConfirmModal.tsx).
+    if (event.key === "Tab") {
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'input:not(:disabled), button:not([tabindex="-1"]):not(:disabled)',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     if (event.key === "Escape") {
       event.stopPropagation();
       event.preventDefault();
@@ -241,16 +278,20 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
         <h2 id={titleId} className="sr-only">
           {mode === "new-collection" ? "Name the new collection" : "Search boards and commands"}
         </h2>
+        <div aria-live="polite" className="sr-only">
+          {searchStatusMessage}
+        </div>
 
         {mode === "new-collection" ? (
           <div className="flex items-center gap-2 border-b-2 border-black dark:border-neutral-700 px-4 py-3">
             <button
               type="button"
+              tabIndex={-1}
               onClick={() => {
                 setMode("list");
                 window.setTimeout(() => inputRef.current?.focus(), 0);
               }}
-              aria-label="Back to search"
+              aria-label="Back to search (Escape does the same)"
               className="shrink-0 text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
             >
               <ArrowLeft size={18} aria-hidden="true" />
@@ -295,6 +336,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
           <div
             id={`${titleId}-listbox`}
             role="listbox"
+            aria-label="Boards and commands"
             className="max-h-[50vh] overflow-y-auto py-2"
           >
             {boardsStatus === "error" && (
@@ -325,6 +367,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
                         role="option"
                         aria-selected={isHighlighted}
                         type="button"
+                        tabIndex={-1}
                         onMouseEnter={() => setHighlightedIndex(index)}
                         onClick={() => runAction(action)}
                         disabled={action.id === "new-board" && isCreatingBoard}
@@ -359,6 +402,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
                         role="option"
                         aria-selected={isHighlighted}
                         type="button"
+                        tabIndex={-1}
                         onMouseEnter={() => setHighlightedIndex(index)}
                         onClick={() => openBoard(board)}
                         className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${

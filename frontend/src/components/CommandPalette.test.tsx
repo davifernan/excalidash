@@ -111,7 +111,7 @@ describe("CommandPalette", () => {
     fireEvent.change(screen.getByPlaceholderText(/search boards/i), {
       target: { value: "road" },
     });
-    expect(await screen.findByText("Couldn't search boards.")).toBeInTheDocument();
+    expect((await screen.findAllByText("Couldn't search boards.")).length).toBeGreaterThan(0);
 
     getDrawings.mockResolvedValue({ drawings: [board()], totalCount: 1 });
     fireEvent.click(screen.getByText("Try again"));
@@ -216,6 +216,50 @@ describe("CommandPalette", () => {
     render(<CommandPalette isOpen onClose={onClose} />);
     fireEvent.click(screen.getByTestId("command-palette-backdrop"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces search status to screen readers via a live region (NIL-323/NIL-346)", async () => {
+    getDrawings.mockResolvedValue({
+      drawings: [board(), board({ id: "b2", name: "Retro" })],
+      totalCount: 2,
+    });
+    render(<CommandPalette isOpen onClose={vi.fn()} />);
+    const liveRegion = document.querySelector('[aria-live="polite"]')!;
+    expect(liveRegion).toHaveTextContent("");
+
+    fireEvent.change(screen.getByPlaceholderText(/search boards/i), {
+      target: { value: "r" },
+    });
+    await waitFor(() => expect(liveRegion).toHaveTextContent("2 boards found"));
+  });
+
+  it("wraps Tab focus at the dialog boundary instead of leaking out to the page behind it (NIL-323/NIL-346)", async () => {
+    // jsdom does not implement native Tab traversal (no @testing-library/
+    // user-event here) -- this exercises the two boundary-wrap branches the
+    // handler actually implements; a real browser's own default handling
+    // covers ordinary forward/backward moves between stops in between.
+    getDrawings.mockRejectedValue(new Error("network down"));
+    render(<CommandPalette isOpen onClose={vi.fn()} />);
+    const input = screen.getByPlaceholderText(/search boards/i);
+    fireEvent.change(input, { target: { value: "road" } });
+    const retryButton = await screen.findByText("Try again");
+
+    // Tab forward from the last stop wraps to the first.
+    retryButton.focus();
+    fireEvent.keyDown(retryButton, { key: "Tab" });
+    expect(document.activeElement).toBe(input);
+
+    // Shift+Tab backward from the first stop wraps to the last.
+    input.focus();
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(retryButton);
+  });
+
+  it("option rows are not real tab stops -- arrow-key virtual cursor only", () => {
+    render(<CommandPalette isOpen onClose={vi.fn()} />);
+    for (const button of screen.getAllByRole("option")) {
+      expect(button).toHaveAttribute("tabindex", "-1");
+    }
   });
 
   it("resets query, mode and highlight each time it reopens", () => {
