@@ -117,6 +117,41 @@ Ein Upstream-Change ist erst integriert, wenn:
 - Diff und Konfliktentscheidungen unabhaengig reviewt wurden
 - Multica-Issue und relevante Dokumentation aktualisiert sind
 
+## Was GitHub erzwingt und was Konvention bleibt
+
+Gesetzt ueber `ops/repository-rules.sh apply` (Stand 2026-08-23):
+
+| Regel | Wirkung |
+|---|---|
+| `allow_squash_merge: false` | Squash ueber die Oberflaeche schreibt den Commit dem zusammenfuehrenden Konto zu und zerstoert die Nilo-Autorschaft. Den lokalen Mergeweg beruehrt die Einstellung nicht. |
+| `non_fast_forward` auf `main` | Kein Force-Push. Ein umgeschriebener `main` wuerde jeden Worktree und jede offene PR-Basis entwurzeln. |
+| `deletion` auf `main` | `main` laesst sich nicht loeschen. |
+
+**Bewusst nicht gesetzt, und warum.** Beides wurde am 23.08.2026 an einem Wegwerf-Branch
+ausgeloest, nicht abgeleitet:
+
+- **`required_status_checks`** ist mit dem Liefermodell unvereinbar. Ein Ruleset mit
+  Pflichtcheck lehnt einen Direct-Push ab
+  (`GH013 ... Required status check "Backend Tests" is expected`), weil ein frisch gepushter
+  Commit noch keine Check-Runs traegt. Der lokale Merge pusht immer einen **neuen**
+  Merge-Commit, also traefe die Regel jede einzelne Lieferung. Ohne die Regel ging derselbe
+  Push unveraendert durch — die Ablehnung kam nachweislich von ihr und von nichts anderem.
+- **`pull_request` („Require a pull request before merging")** blockiert genau den lokalen
+  Nilo-Merge, der das Liefermodell ist. Siehe NIL-391 (geparkt).
+
+Damit bleibt Konvention: dass ein PR geoeffnet wird, dass Hans ihn reviewt, dass Checks gruen
+sind, bevor gemergt wird, und dass die Merge-Reihenfolge eingehalten wird. Das haelt genau so
+lange, wie jeder Beteiligte die Regel kennt und befolgt. Es ist eine offene Luecke, aber eine
+benannte.
+
+**Fallstrick bei Pflichtchecks**, falls die Frage wieder aufkommt: `required_status_checks`
+matcht **Job**-Namen (`Backend Tests`, `Dead Code`, ...), nicht Workflow-Namen. Einen Check
+namens `Tests` gibt es nicht — der ist der Workflow. Ein Pflichtcheck, den kein Workflow
+erzeugt, blockiert dauerhaft jeden Push; aus demselben Grund darf der abgeschaltete
+`PR Overseer Events` in keiner solchen Liste auftauchen.
+
+Rueckgaengig machen: `ops/repository-rules.sh revert`.
+
 ## Git-Identitaet
 
 Vor jedem Commit oder Merge:

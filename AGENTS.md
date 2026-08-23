@@ -197,6 +197,11 @@ Review focus: <what an independent reviewer should attack>
 - Do not add repository-local `user.name` or `user.email` overrides; the server-global Git
   identity is authoritative.
 - Do not use a GitHub squash merge that attributes the resulting commit to another account.
+  This is now enforced on the repository (`allow_squash_merge: false`), together with
+  force-push and deletion protection on `main`. What GitHub enforces, what stays convention,
+  and why required status checks are incompatible with the local merge path is documented in
+  `docs/architecture/UPSTREAM_MAINTENANCE.md`; apply or revert it with
+  `ops/repository-rules.sh`.
 
 ## Helpers (Operations)
 
