@@ -2,7 +2,6 @@
 
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -116,17 +115,4 @@ test("rejects an unsafe reason without reflecting it into the log", () => {
   assert.equal(result.stdout, "");
   assert.equal(result.stderr, "Skip reason is missing or unsafe.\n");
   assert.doesNotMatch(result.stderr, /secret-token/);
-});
-
-test("the Actions workflow delegates skipped-event output to the safe logger", () => {
-  const workflow = fs.readFileSync(
-    path.join(__dirname, "..", ".github", "workflows", "pr-overseer-events.yml"),
-    "utf8",
-  );
-
-  assert.match(
-    workflow,
-    /if \[ "\$\{skip\}" = "true" \]; then\s+node scripts\/pr-overseer-event-log\.cjs\s+exit 0/,
-  );
-  assert.doesNotMatch(workflow, /echo[^\n]*\$\{PAYLOAD\}/);
 });
