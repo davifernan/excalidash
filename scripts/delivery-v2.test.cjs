@@ -407,12 +407,12 @@ test("a normal integration below the checkpoint does not create release QA", () 
   assert.deepEqual(result.reasons, []);
 });
 
-test("Hans is not retriggered on finding-fix pushes", () => {
+test("admission reruns after corrections while Hans remains one-shot", () => {
   const workflow = fs.readFileSync(
     path.join(__dirname, "..", ".github", "workflows", "hans-friedrich.yml"),
     "utf8",
   );
 
-  assert.match(workflow, /types: \[opened, ready_for_review\]/);
-  assert.doesNotMatch(workflow, /types: \[[^\]]*synchronize/);
+  assert.match(workflow, /types: \[opened, ready_for_review, synchronize, edited, reopened\]/);
+  assert.match(workflow, /name: Ask Multica for a review\n\s+if: >-\n\s+github\.event\.action == 'opened' \|\|\n\s+github\.event\.action == 'ready_for_review'/);
 });

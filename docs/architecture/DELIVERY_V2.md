@@ -146,10 +146,15 @@ A UI-consumed backend contract may receive a narrow smoke test by explicit risk 
 
 ## Review state
 
-Hans-Friedrich is requested only on `opened` or `ready_for_review`, never on `synchronize`.
+Admission runs on `opened`, `ready_for_review`, `synchronize`, `edited`, and `reopened`, so a
+corrected PR can prove its delivery contract without a draft-toggle workaround. The expensive
+Hans-Friedrich request in that workflow runs only on `opened` or `ready_for_review`. If initial
+admission failed, the pipeline sentinel requests the first review after the corrected head is
+stable; once any valid Hans review exists, it never requests a second full review automatically.
 The ready head is frozen while the general review runs. If a finding fix changes the head, the
 old review remains the single full review and `hans_sha..fix_sha` receives a machine-readable
-fix-verification record. A new or unrelated push cannot inherit that evidence.
+fix-verification record. A new or unrelated push cannot inherit that evidence and requires
+explicit re-admission rather than an automatic second full review.
 
 ## Release QA anchor
 

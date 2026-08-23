@@ -6,11 +6,13 @@
 # agent has the repository, the CLI, and the Multica issue tracker at hand —
 # none of which a runner has.
 #
-# Only when a pull request becomes ready, not on every push: a review per
-# force-push costs tokens and repeats itself. Finding fixes are checked by the
-# narrow delta verifier, not by running Hans over the whole PR again.
+# Admission is cheap and deterministic, so it runs again after pushes and body
+# edits. The expensive review request remains one-shot on the ready transition.
+# Finding fixes are checked by the narrow delta verifier, not by running Hans
+# over the whole PR again. If initial admission failed, the pipeline sentinel
+# requests the first review after the corrected head remains stable.
 #
-# Both event types are needed. `opened` covers a pull request that starts ready;
+# The ready event types are needed. `opened` covers a pull request that starts ready;
 # `ready_for_review` covers one that starts as a draft and is finished later —
 # GitHub does not re-send `opened` for that transition, so the draft guard below
 # would otherwise be the end of it.
@@ -18,7 +20,7 @@ name: Hans-Friedrich
 
 on:
   pull_request:
-    types: [opened, ready_for_review]
+    types: [opened, ready_for_review, synchronize, edited, reopened]
 
 permissions:
   contents: read
@@ -62,6 +64,9 @@ jobs:
         run: node scripts/delivery-contracts.cjs commits
 
       - name: Ask Multica for a review
+        if: >-
+          github.event.action == 'opened' ||
+          github.event.action == 'ready_for_review'
         env:
           # Repository secret. The token in the URL is the calling credential —
           # rotate it in Multica (Autopilot -> Trigger -> Rotate URL) and update
