@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import type { Prisma, PrismaClient } from "../generated/client";
 import { revokeUserCredentials } from "./userCredentialRevocation";
+import { reassignGrantAuthorshipOps } from "../authz/grants";
+import { transferOwnedBoards } from "../authz/boards";
 
 export const COMPANY_ARCHIVE_USER_EMAIL = "deleted-boards@placeholder.excalidash.invalid";
 const COMPANY_ARCHIVE_USER_NAME = "Deleted user boards";
@@ -101,9 +103,10 @@ export const offboardUserAndTransferBoards = async (params: {
 
     // Collections are personal organization. Boards are retained, detached
     // from those collections, and assigned to the chosen company custodian.
-    const transferred = await tx.drawing.updateMany({
-      where: { userId: params.userId },
-      data: { userId: successorUserId, collectionId: null },
+    const transferredCount = await transferOwnedBoards({
+      db: tx,
+      fromUserId: params.userId,
+      toUserId: successorUserId,
     });
     const auditIdentifiers = [params.userId, target.email, target.username].filter(
       (value): value is string => Boolean(value),
@@ -130,17 +133,10 @@ export const offboardUserAndTransferBoards = async (params: {
       }),
       // Creator ids are strings rather than relations, so cascades cannot
       // remove their link to the departing person.
-      tx.drawingPermission.updateMany({
-        where: { createdByUserId: params.userId },
-        data: { createdByUserId: successorUserId },
-      }),
-      tx.drawingLinkShare.updateMany({
-        where: { createdByUserId: params.userId },
-        data: { createdByUserId: successorUserId },
-      }),
-      tx.collectionShare.updateMany({
-        where: { createdByUserId: params.userId },
-        data: { createdByUserId: successorUserId },
+      ...reassignGrantAuthorshipOps({
+        db: tx,
+        fromUserId: params.userId,
+        toUserId: successorUserId,
       }),
       tx.library.deleteMany({ where: { id: `user_${params.userId}` } }),
       tx.auditLog.deleteMany({
@@ -154,7 +150,7 @@ export const offboardUserAndTransferBoards = async (params: {
 
     return {
       successorUserId,
-      transferredDrawings: transferred.count,
+      transferredDrawings: transferredCount,
       revokedApiKeyIds,
     };
   });

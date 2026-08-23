@@ -1,11 +1,15 @@
 import express from "express";
-import {
-  buildShareLinkToken,
-  hashShareLinkToken,
-  normalizeDrawingPermission,
-} from "../../authz/sharing";
+import { normalizeDrawingPermission } from "../../authz/sharing";
 import { controlsDrawing } from "../../authz/membership";
 import type { DrawingRouteContext } from "./drawingRouteContext";
+import {
+  grantDrawingPermission,
+  issueDrawingLinkShare,
+  listDrawingLinkShares,
+  listDrawingPermissions,
+  revokeDrawingLinkShare,
+  revokeDrawingPermission,
+} from "../../authz/grants";
 
 export const registerDrawingSharingRoutes = (
   app: express.Express,
@@ -68,31 +72,8 @@ export const registerDrawingSharingRoutes = (
       }
 
       const [permissions, linkShares] = await Promise.all([
-        prisma.drawingPermission.findMany({
-          where: { drawingId: id },
-          select: {
-            id: true,
-            granteeUserId: true,
-            permission: true,
-            createdAt: true,
-            updatedAt: true,
-            granteeUser: { select: { id: true, name: true, email: true } },
-          },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.drawingLinkShare.findMany({
-          where: { drawingId: id },
-          select: {
-            id: true,
-            permission: true,
-            expiresAt: true,
-            revokedAt: true,
-            createdAt: true,
-            updatedAt: true,
-            lastUsedAt: true,
-          },
-          orderBy: { createdAt: "desc" },
-        }),
+        listDrawingPermissions({ db: prisma, drawingId: id }),
+        listDrawingLinkShares({ db: prisma, drawingId: id }),
       ]);
 
       return res.json({ permissions, linkShares });
@@ -134,25 +115,12 @@ export const registerDrawingSharingRoutes = (
         return res.status(404).json({ error: "User not found" });
       }
 
-      const saved = await prisma.drawingPermission.upsert({
-        where: {
-          drawingId_granteeUserId: { drawingId: id, granteeUserId },
-        },
-        update: { permission, createdByUserId: req.user.id },
-        create: {
-          drawingId: id,
-          granteeUserId,
-          permission,
-          createdByUserId: req.user.id,
-        },
-        select: {
-          id: true,
-          granteeUserId: true,
-          permission: true,
-          createdAt: true,
-          updatedAt: true,
-          granteeUser: { select: { id: true, name: true, email: true } },
-        },
+      const saved = await grantDrawingPermission({
+        db: prisma,
+        drawingId: id,
+        granteeUserId,
+        permission,
+        grantedByUserId: req.user.id,
       });
 
       invalidateDrawingsCache();
@@ -183,16 +151,14 @@ export const registerDrawingSharingRoutes = (
         return res.status(404).json({ error: "Drawing not found" });
       }
 
-      const permission = await prisma.drawingPermission.findFirst({
-        where: { id: permId, drawingId: id },
-        select: { granteeUserId: true },
-      });
-      const deleted = await prisma.drawingPermission.deleteMany({
-        where: { id: permId, drawingId: id },
+      const { revoked, granteeUserId: revokedFrom } = await revokeDrawingPermission({
+        db: prisma,
+        drawingId: id,
+        permissionId: permId,
       });
       invalidateDrawingsCache();
-      if (deleted.count > 0 && permission) {
-        await collaborationAccess.recheckDrawingAccess(id, permission.granteeUserId);
+      if (revoked && revokedFrom) {
+        await collaborationAccess.recheckDrawingAccess(id, revokedFrom);
       }
 
       if (config.enableAuditLogging) {
@@ -266,36 +232,19 @@ export const registerDrawingSharingRoutes = (
         }
       }
 
-      // Passphrase support is currently disabled. We keep passphraseHash nullable for backwards compatibility.
-      const passphraseHashValue: string | null = null;
-
-      // A new activation always revokes the previous secret. This makes a
-      // reissued link independent from every URL that was shared before it.
-      const token = buildShareLinkToken();
-      const tokenHash = hashShareLinkToken(token);
-      const created = await prisma.$transaction(async (tx) => {
-        await tx.drawingLinkShare.updateMany({
-          where: { drawingId: id, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-        return tx.drawingLinkShare.create({
-          data: {
-            drawingId: id,
-            permission,
-            tokenHash,
-            passphraseHash: passphraseHashValue,
-            expiresAt,
-            createdByUserId: req.user.id,
-          },
-          select: {
-            id: true,
-            permission: true,
-            expiresAt: true,
-            revokedAt: true,
-            createdAt: true,
-          },
-        });
-      });
+      // A new activation always revokes the previous secret, in one
+      // transaction. This makes a reissued link independent from every URL
+      // that was shared before it, and leaves no window in which two secrets
+      // are live at once.
+      const { token, share: created } = await prisma.$transaction((tx) =>
+        issueDrawingLinkShare({
+          db: tx,
+          drawingId: id,
+          permission,
+          expiresAt,
+          createdByUserId: req.user!.id,
+        }),
+      );
       await collaborationAccess.recheckDrawingAccess(id);
 
       if (config.enableAuditLogging) {
@@ -328,11 +277,8 @@ export const registerDrawingSharingRoutes = (
         return res.status(404).json({ error: "Drawing not found" });
       }
 
-      const revoked = await prisma.drawingLinkShare.updateMany({
-        where: { id: shareId, drawingId: id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      if (revoked.count > 0) {
+      const revoked = await revokeDrawingLinkShare({ db: prisma, drawingId: id, shareId });
+      if (revoked) {
         await collaborationAccess.recheckDrawingAccess(id);
       }
 

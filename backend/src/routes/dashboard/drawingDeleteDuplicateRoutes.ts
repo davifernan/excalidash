@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { rewritePreviewForS3 } from "../../fileProcessing";
 import { getUserTrashCollectionId, isTrashCollectionId, toPublicTrashCollectionId } from "./trash";
 import type { DrawingRouteContext } from "./drawingRouteContext";
+import { deleteOwnedBoard, getOwnedBoard } from "../../authz/boards";
 
 export const registerDrawingDeleteDuplicateRoutes = (
   app: express.Express,
@@ -28,15 +29,11 @@ export const registerDrawingDeleteDuplicateRoutes = (
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id } = req.params;
 
-      const drawing = await prisma.drawing.findFirst({
-        where: { id, userId: req.user.id },
-      });
+      const drawing = await getOwnedBoard({ db: prisma, userId: req.user.id, boardId: id });
       if (!drawing) return res.status(404).json({ error: "Drawing not found" });
 
-      const deleteResult = await prisma.drawing.deleteMany({
-        where: { id, userId: req.user.id },
-      });
-      if (deleteResult.count === 0) {
+      const deletedCount = await deleteOwnedBoard({ db: prisma, userId: req.user.id, boardId: id });
+      if (deletedCount === 0) {
         return res.status(404).json({ error: "Drawing not found" });
       }
       await collaborationAccess.recheckDrawingAccess(id);
@@ -69,9 +66,7 @@ export const registerDrawingDeleteDuplicateRoutes = (
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
       const { id } = req.params;
-      const original = await prisma.drawing.findFirst({
-        where: { id, userId: req.user.id },
-      });
+      const original = await getOwnedBoard({ db: prisma, userId: req.user.id, boardId: id });
       if (!original) return res.status(404).json({ error: "Original drawing not found" });
       let duplicatedCollectionId = original.collectionId;
       if (isTrashCollectionId(original.collectionId, req.user.id)) {

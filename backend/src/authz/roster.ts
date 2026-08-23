@@ -1,5 +1,5 @@
 import type { PrismaClient } from "../generated/client";
-import { normalizeDrawingPermission } from "./sharing";
+import { ACCESS_RANK, normalizeDrawingPermission } from "./sharing";
 import type { MembershipLevel } from "./membership";
 
 /**
@@ -19,7 +19,8 @@ export type RosterMember = {
   via: "drawing" | "collection";
 };
 
-const LEVEL_RANK: Record<MembershipLevel, number> = { view: 1, edit: 2, owner: 3 };
+/** The contract's ordering, not a second copy of it. See ACCESS_RANK in sharing.ts. */
+const LEVEL_RANK = ACCESS_RANK;
 
 type Claim = { level: MembershipLevel; via: "drawing" | "collection" };
 

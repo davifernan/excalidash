@@ -18,6 +18,8 @@ import {
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
 import { publishDrawingName } from "../../server/socketDrawingName";
+import { getCollectionShareLevel, getOwnedCollection } from "../../authz/collections";
+import { isCollectionCreator } from "../../authz/boards";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -87,16 +89,19 @@ export const registerDrawingCreateUpdateRoutes = (
         });
         if (!collection) return res.status(404).json({ error: "Collection not found" });
 
-        // If the collection belongs to someone else, check the user has editor access
-        if (collection.userId !== req.user.id) {
-          const share = await prisma.collectionShare.findFirst({
-            where: {
-              collectionId: targetCollectionId,
-              granteeUserId: req.user.id,
-              role: "edit",
-            },
+        // If the collection belongs to someone else, check the user has editor access.
+        // Asked as a level rather than matched against the string "edit": a
+        // hand-written match reads a "comment" grant as no grant at all, which
+        // is right today only because nothing issues one yet.
+        if (!isCollectionCreator(collection, req.user.id)) {
+          const level = await getCollectionShareLevel({
+            db: prisma,
+            userId: req.user.id,
+            collectionId: targetCollectionId,
           });
-          if (!share) return res.status(403).json({ error: "No edit access to this collection" });
+          if (!level || !canEditDrawing(level)) {
+            return res.status(403).json({ error: "No edit access to this collection" });
+          }
           ownerUserId = collection.userId;
         }
       } else if (targetCollectionIdRaw === "trash") {
@@ -238,8 +243,10 @@ export const registerDrawingCreateUpdateRoutes = (
           await ensureTrashCollection(prisma, ownerUserId);
           (data as Prisma.DrawingUncheckedUpdateInput).collectionId = trashCollectionId;
         } else if (payload.collectionId) {
-          const collection = await prisma.collection.findFirst({
-            where: { id: payload.collectionId, userId: ownerUserId },
+          const collection = await getOwnedCollection({
+            db: prisma,
+            userId: ownerUserId,
+            collectionId: payload.collectionId,
           });
           if (!collection) return res.status(404).json({ error: "Collection not found" });
           (data as Prisma.DrawingUncheckedUpdateInput).collectionId = payload.collectionId;

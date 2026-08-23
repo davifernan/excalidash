@@ -27,6 +27,7 @@ import {
   validateManifestReferences,
   verifyEntrySha256,
 } from "./excalidashImportSupport";
+import { claimOnBoard, claimOnCollection } from "../../authz/boards";
 
 export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) => {
   const { app, prisma, requireAuth, asyncHandler, upload, uploadDir } = deps;
@@ -134,14 +135,14 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
 
         const finalDrawingIdMap = new Map<string, string>();
         for (const prepared of preparedDrawings) {
-          const existing = await prisma.drawing.findUnique({
-            where: { id: prepared.id },
-            select: { userId: true },
+          // An id that belongs to somebody else is re-keyed, never overwritten.
+          // "absent" and "owned" both keep the id; only a foreign claim moves it.
+          const claim = await claimOnBoard({
+            db: prisma,
+            userId: req.user.id,
+            boardId: prepared.id,
           });
-          finalDrawingIdMap.set(
-            prepared.id,
-            existing && existing.userId !== req.user.id ? uuidv4() : prepared.id,
-          );
+          finalDrawingIdMap.set(prepared.id, claim === "foreign" ? uuidv4() : prepared.id);
         }
 
         const assetIdMap = new Map<string, string>();
@@ -267,15 +268,19 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               collectionIdMap.set("trash", trashCollectionId);
               continue;
             }
-            const existing = await tx.collection.findUnique({ where: { id: collection.id } });
+            const claim = await claimOnCollection({
+              db: tx,
+              userId: req.user!.id,
+              collectionId: collection.id,
+            });
             const name = deps.sanitizeText(collection.name, 100) || "Collection";
-            if (!existing) {
+            if (claim === "absent") {
               await tx.collection.create({
                 data: { id: collection.id, name, userId: req.user!.id },
               });
               collectionIdMap.set(collection.id, collection.id);
               collectionsCreated += 1;
-            } else if (existing.userId === req.user!.id) {
+            } else if (claim === "owned") {
               await tx.collection.update({ where: { id: collection.id }, data: { name } });
               collectionIdMap.set(collection.id, collection.id);
               collectionsUpdated += 1;
@@ -294,7 +299,11 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
           };
 
           for (const prepared of preparedDrawings) {
-            const existing = await tx.drawing.findUnique({ where: { id: prepared.id } });
+            const boardClaim = await claimOnBoard({
+              db: tx,
+              userId: req.user!.id,
+              boardId: prepared.id,
+            });
             const finalId = finalDrawingIdMap.get(prepared.id)!;
             const data = {
               name: prepared.name,
@@ -305,10 +314,10 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               version: prepared.version ?? 1,
               collectionId: resolveCollectionId(prepared.collectionId),
             };
-            if (!existing || existing.userId !== req.user!.id) {
+            if (boardClaim !== "owned") {
               await tx.drawing.create({ data: { id: finalId, ...data, userId: req.user!.id } });
               drawingsCreated += 1;
-              if (existing) drawingIdConflicts += 1;
+              if (boardClaim === "foreign") drawingIdConflicts += 1;
             } else {
               await tx.drawing.update({ where: { id: prepared.id }, data });
               await tx.drawingAsset.deleteMany({ where: { drawingId: prepared.id } });

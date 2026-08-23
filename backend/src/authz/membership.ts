@@ -1,5 +1,5 @@
 import type { PrismaClient } from "../generated/client";
-import { normalizeDrawingPermission, type DrawingPermission } from "./sharing";
+import { ACCESS_RANK, normalizeDrawingPermission, type DrawingPermission } from "./sharing";
 
 /**
  * Membership is deliberately narrower than access.
@@ -25,7 +25,8 @@ export type DrawingMembership = {
   sources: MembershipSource[];
 };
 
-const LEVEL_RANK: Record<MembershipLevel, number> = { view: 1, edit: 2, owner: 3 };
+/** The contract's ordering, not a second copy of it. See ACCESS_RANK in sharing.ts. */
+const LEVEL_RANK = ACCESS_RANK;
 
 const addClaim = (
   memberships: Map<string, DrawingMembership>,
