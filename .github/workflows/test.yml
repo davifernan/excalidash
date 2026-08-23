@@ -49,6 +49,16 @@ jobs:
       - name: Typecheck frontend
         run: npm run typecheck --prefix frontend
 
+      # Deliberately inside an already-required context rather than a new job.
+      # A new check would not be in the branch ruleset, so it could go red
+      # without blocking anything -- and a gate nobody has to pass teaches
+      # people to walk past red.
+      - name: Check the Excalidraw adapter boundary
+        run: node scripts/adapter-boundary.cjs
+
+      - name: Prove the boundary check rejects what it claims to
+        run: node scripts/adapter-boundary.test.cjs
+
   frontend-format:
     name: Frontend Format
     runs-on: ubuntu-latest
