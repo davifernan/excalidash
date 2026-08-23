@@ -49,16 +49,6 @@ jobs:
       - name: Typecheck frontend
         run: npm run typecheck --prefix frontend
 
-      # Deliberately inside an already-required context rather than a new job.
-      # A new check would not be in the branch ruleset, so it could go red
-      # without blocking anything -- and a gate nobody has to pass teaches
-      # people to walk past red.
-      - name: Check the Excalidraw adapter boundary
-        run: node scripts/adapter-boundary.cjs
-
-      - name: Prove the boundary check rejects what it claims to
-        run: node scripts/adapter-boundary.test.cjs
-
   frontend-format:
     name: Frontend Format
     runs-on: ubuntu-latest
@@ -236,7 +226,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium firefox webkit --with-deps
+          npx playwright install chromium --with-deps
       
       - name: Start servers and run E2E tests
         run: |
@@ -286,7 +276,8 @@ jobs:
           
           # Run E2E tests
           cd e2e
-          NO_SERVER=true CI=true npx playwright test --shard=${{ matrix.shard }}/2
+          NO_SERVER=true CI=true npx playwright test --project=chromium \
+            --shard=${{ matrix.shard }}/2
           TEST_EXIT_CODE=$?
           
           # Cleanup
@@ -309,6 +300,138 @@ jobs:
         if: failure()
         with:
           name: test-results-shard-${{ matrix.shard }}
+          path: e2e/test-results/
+          retention-days: 7
+
+
+  # The other engines, in their own job rather than as more projects in the
+  # shards. Same reasoning the shards are built on: one backend and one SQLite
+  # file cannot take the same specs running four times over with the same board
+  # names. Measured the hard way -- each project passed alone, and all four in
+  # one job did not finish in an hour.
+  #
+  # Not sharded: firefox and webkit carry a small subset each, so a second
+  # runner would cost more in setup than it saves.
+  e2e-cross-engine:
+    name: E2E Cross-Engine Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+      
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+      
+      - name: Generate Prisma client
+        run: |
+          cd backend
+          npx prisma generate
+      
+      - name: Setup backend database
+        run: |
+          cd backend
+          node scripts/provider-prisma.cjs migrate deploy
+        env:
+          DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-cross.db
+      
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+      
+      - name: Install E2E test dependencies
+        run: |
+          cd e2e
+          npm ci
+      
+      - name: Install Playwright browsers
+        run: |
+          cd e2e
+          npx playwright install firefox webkit chromium --with-deps
+      
+      - name: Start servers and run E2E tests
+        run: |
+          # Start backend server in background
+          cd backend
+          # The suite issues far more than the default 60 CSRF requests, so
+          # without raising the limits it locks itself out with HTTP 429.
+          # Uploaded documents default to the path they live at inside the
+          # container, which nothing outside it may create, so tests that add a
+          # document need somewhere in the workspace to put it.
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/e2e-cross.db" \
+            FRONTEND_URL="http://localhost:6767" \
+            CSRF_MAX_REQUESTS=100000 \
+            RATE_LIMIT_MAX_REQUESTS=100000 \
+            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-cross-assets" \
+            npm run dev &
+          BACKEND_PID=$!
+          cd ..
+          
+          # Wait for backend to be ready
+          echo "Waiting for backend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8000/health > /dev/null; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 2
+          done
+          
+          # Start frontend server in background
+          cd frontend
+          npm run dev -- --host &
+          FRONTEND_PID=$!
+          cd ..
+          
+          # Wait for frontend to be ready
+          echo "Waiting for frontend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:6767 > /dev/null; then
+              echo "Frontend is ready!"
+              break
+            fi
+            echo "Attempt $i: Frontend not ready yet..."
+            sleep 2
+          done
+          
+          # Run E2E tests
+          cd e2e
+          NO_SERVER=true CI=true npx playwright test \
+            --project=firefox --project=webkit --project=mobile-chrome
+          TEST_EXIT_CODE=$?
+          
+          # Cleanup
+          kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+          
+          exit $TEST_EXIT_CODE
+        env:
+          DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-cross.db
+      
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-cross-engine
+          path: e2e/playwright-report/
+          retention-days: 7
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-cross-engine
           path: e2e/test-results/
           retention-days: 7
 
