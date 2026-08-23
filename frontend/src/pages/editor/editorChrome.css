@@ -1,0 +1,141 @@
+/**
+ * Cross-cutting canvas chrome rules -- NIL-376.
+ *
+ * Every selector below that starts with an Excalidraw class name (not one of
+ * ours) is a known, visible dependency on markup Excalidraw does not promise,
+ * in the same spirit domBridge.ts already takes on for zen mode and the
+ * mobile breakpoint: if a future Excalidraw upgrade renames one of these, the
+ * effect is visible (a duplicate reappears, or a merge seam shows) rather
+ * than silent. Measured against @excalidraw/excalidraw 0.18.1.
+ */
+
+/* --- The header control group ------------------------------------------- */
+
+/**
+ * `.layer-ui__wrapper__top-right` is Excalidraw's own wrapper around
+ * `renderTopRightUI`'s output (EditorTopRight.tsx) *and* its own collaborator
+ * avatars and Library trigger, in that DOM order. Giving the wrapper itself
+ * the shared grey-pill treatment and stripping it back off the nested pieces
+ * turns three separate boxes into one flush bar without touching how
+ * Excalidraw lays any of them out.
+ */
+.layer-ui__wrapper__top-right {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.25rem;
+  height: 2.25rem;
+  border-radius: var(--border-radius-lg, 0.5rem);
+  background: var(--island-bg-color, #fff);
+  box-shadow: var(--shadow-island, 0 1px 4px rgba(0, 0, 0, 0.15));
+}
+
+.layer-ui__wrapper__top-right .editor-header-controls {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  height: auto;
+}
+
+/* Excalidraw's own Library trigger renders its own Island box; drop it so
+   the shared wrapper's background shows through as one continuous bar. */
+.layer-ui__wrapper__top-right .sidebar-trigger.default-sidebar-trigger {
+  background: transparent;
+  box-shadow: none;
+}
+
+.editor-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.editor-header-controls__notice {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  margin-inline-end: 0.15rem;
+  border-radius: 999px;
+  background: var(--color-primary-light, #e3e2fe);
+  color: var(--color-primary-darker, #4a47b1);
+  white-space: nowrap;
+  /* A display name may be long; this column is narrow, and the avatars are
+     what lose when it overflows. */
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-header-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: var(--border-radius-md, 0.375rem);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.editor-header-control__badge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  margin-inline-start: 0.15rem;
+}
+
+/* --- The floating "?" -- removed, NIL-374 ------------------------------- */
+
+/**
+ * Excalidraw's default Footer always renders this in its own footer-right,
+ * independently of whatever `<Footer>` children this application supplies
+ * (they land in the *centre* tunnel). It duplicates
+ * `MainMenu.DefaultItems.Help`, now the last hamburger entry
+ * (chromeSlots.tsx) -- that is the one remaining route to it.
+ */
+.help-icon {
+  /* !important: Excalidraw's own stylesheet sets `display` on this element
+     too, and loads after this file in the cascade. */
+  display: none !important;
+}
+
+/* --- The laser pointer -- one control, not two, NIL-374 ----------------- */
+
+/**
+ * Excalidraw's "extra tools" flyout (the triangle icon shared with Frame and
+ * Embeddable) always includes a laser entry, regardless of collaboration
+ * state -- the duplicate. `toolbar-laser` (lowercase) names this one only;
+ * the control this application keeps is `toolbar-LaserPointer` below.
+ */
+[data-testid="toolbar-laser"] {
+  /* !important: same cascade-order reason as `.help-icon` above. */
+  display: none !important;
+}
+
+/**
+ * The control that stays: Excalidraw's own standalone laser toggle, normally
+ * shown only while `isCollaborating` is true. EditorView.tsx now passes that
+ * prop as a constant `true` so this exists in every state, including alone on
+ * a board -- see EditorView.tsx's comment on that prop for the full
+ * reasoning. `toolBar.laser`'s own tooltip already carries a shortcut on the
+ * flyout copy; this one has none, so NIL-374's "K" hint is added here.
+ */
+.ToolIcon__LaserPointer {
+  position: relative;
+}
+
+.ToolIcon__LaserPointer::after {
+  content: "K";
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 1px 2px;
+  border-radius: 3px;
+  background: var(--island-bg-color, #fff);
+  color: var(--text-primary-color, #1b1b1f);
+  pointer-events: none;
+}
