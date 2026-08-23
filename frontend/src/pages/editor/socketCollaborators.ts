@@ -17,6 +17,33 @@ export interface Peer {
   isActive: boolean;
 }
 
+/**
+ * Inactive is not gone.
+ *
+ * NIL-372's root cause, read straight off this file before the fix: a tab
+ * losing focus set `isActive: false`, and this file treated that exactly like
+ * a real departure -- `collaboration.removeCollaborators`. Excalidraw drops
+ * `userToFollow` the moment the person it names leaves the collaborator map,
+ * so following someone ended on the first click into a second window, which
+ * is the only way to use two browsers on one screen. `presenceRegistry.ts`
+ * already got this right server-side: `setActive` only flips a flag and clears
+ * the stale selection, `leave` is the only thing that actually removes an
+ * entry. This file is the one place that still conflated the two.
+ *
+ * The suffix a name carries while away is delayed by a grace window so an
+ * ordinary alt-tab does not flicker it on and off, and applying no patch at
+ * all while inactive is what leaves the cursor frozen at its last position
+ * instead of jumping or vanishing -- there is nothing here that would move it.
+ */
+const AWAY_SUFFIX = " · away";
+const AWAY_GRACE_MS = 4_000;
+
+export const withAwayStatus = (name: unknown, away: boolean): string => {
+  const current = typeof name === "string" && name ? name : "Participant";
+  const base = current.endsWith(AWAY_SUFFIX) ? current.slice(0, -AWAY_SUFFIX.length) : current;
+  return away ? `${base}${AWAY_SUFFIX}` : base;
+};
+
 export const bindSocketCollaborators = ({
   socket,
   collaboration,
@@ -40,6 +67,38 @@ export const bindSocketCollaborators = ({
   let knownPresenceIds = new Set<string>();
   const cursorBuffer = new Map<string, any>();
   let animationFrameId = 0;
+  const awayTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const awayPresenceIds = new Set<string>();
+
+  const clearAwayTimer = (presenceId: string) => {
+    const timer = awayTimers.get(presenceId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      awayTimers.delete(presenceId);
+    }
+  };
+
+  const forgetAway = (presenceId: string) => {
+    clearAwayTimer(presenceId);
+    awayPresenceIds.delete(presenceId);
+  };
+
+  /** Mark a peer away only after they have stayed inactive for the grace window. */
+  const scheduleAway = (presenceId: string) => {
+    if (awayTimers.has(presenceId) || awayPresenceIds.has(presenceId)) return;
+    awayTimers.set(
+      presenceId,
+      setTimeout(() => {
+        awayTimers.delete(presenceId);
+        const peers = currentPeers();
+        const peer = peers?.get(presenceId);
+        // Gone, or active again, in the time the grace window bought them.
+        if (!peer) return;
+        awayPresenceIds.add(presenceId);
+        write([{ socketId: presenceId as SocketId, name: withAwayStatus(peer.name, true) }]);
+      }, AWAY_GRACE_MS),
+    );
+  };
 
   /**
    * The room as the editor currently holds it, keyed the way this file thinks.
@@ -110,19 +169,48 @@ export const bindSocketCollaborators = ({
     );
 
     // Leaving is a removal, not a patch: a patch would merge an empty record
-    // back in and leave a nameless cursor sitting on the board.
+    // back in and leave a nameless cursor sitting on the board. Only real
+    // absence from this snapshot counts as leaving -- `isActive: false` is a
+    // tab that lost focus, not a connection that closed, and presenceRegistry
+    // keeps that entry right up until it truly disconnects (see this file's
+    // "Inactive is not gone" comment).
     const gone: SocketId[] = [];
     knownPresenceIds.forEach((presenceId) => {
-      if (!nextPresenceIds.has(presenceId)) gone.push(presenceId as SocketId);
-    });
-    users.forEach((user) => {
-      if (user.presenceId !== selfId && !user.isActive) gone.push(user.presenceId as SocketId);
+      if (!nextPresenceIds.has(presenceId)) {
+        gone.push(presenceId as SocketId);
+        forgetAway(presenceId);
+      }
     });
     if (gone.length > 0) collaboration.removeCollaborators(gone);
 
     const patches: CollaboratorPatch[] = [];
     users.forEach((user) => {
-      if (user.presenceId === selfId || !user.isActive) return;
+      if (user.presenceId === selfId) return;
+      if (!user.isActive) {
+        const existing = peers.get(user.presenceId);
+        if (!existing) {
+          // Never patched before in this session: give them a name and
+          // colour immediately rather than leaving them absent from the
+          // avatar list until they happen to become active. No grace delay
+          // here -- there is no "was active a moment ago" to protect against
+          // flicker for someone who has not been seen active at all yet.
+          awayPresenceIds.add(user.presenceId);
+          patches.push({
+            socketId: user.presenceId as SocketId,
+            name: withAwayStatus(decorateName(user.name, user.presenceId), true),
+            color: user.color,
+            isSelf: false,
+            selectedIds: [],
+          });
+        } else {
+          scheduleAway(user.presenceId);
+        }
+        // Otherwise: no patch at all. The pointer, colour and name this peer
+        // last had while active simply stay put -- a frozen cursor, not a
+        // moving or vanishing one.
+        return;
+      }
+      forgetAway(user.presenceId);
       const existing = peers.get(user.presenceId);
       patches.push({
         socketId: user.presenceId as SocketId,
@@ -156,11 +244,18 @@ export const bindSocketCollaborators = ({
   socket.on("presence-update", onPresence);
   socket.on("cursor-move", onCursor);
 
+  const clearAllAwayTimers = () => {
+    awayTimers.forEach((timer) => clearTimeout(timer));
+    awayTimers.clear();
+    awayPresenceIds.clear();
+  };
+
   const reset = () => {
     selfPresenceId = null;
     lastPresenceUsers = null;
     knownPresenceIds.clear();
     cursorBuffer.clear();
+    clearAllAwayTimers();
     onPeersChange([]);
     const peers = currentPeers();
     if (peers && peers.size > 0) {
@@ -190,6 +285,7 @@ export const bindSocketCollaborators = ({
       socket.off("presence-update", onPresence);
       socket.off("cursor-move", onCursor);
       cancelAnimationFrame(animationFrameId);
+      clearAllAwayTimers();
     },
   };
 };

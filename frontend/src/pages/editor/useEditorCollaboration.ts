@@ -178,6 +178,7 @@ export const useEditorCollaboration = ({
       viewport,
       onInvitationChange: setViewportInvitation,
       onStatusChange: setInviteHereStatus,
+      onAlreadyThere: () => toast.info("You're already looking at this area."),
     });
     inviteHereRef.current = inviteHereController;
     selectionPublisherRef.current = remoteSelection.publish;

@@ -24,6 +24,12 @@ export const getFollowInterruptionMessage = (reason: string): string => {
       return "Follow mode ended because access changed.";
     case "rate-limited":
       return "Follow command was rate-limited; the server state was restored.";
+    case "cycle-detected":
+      return "You can't follow someone who is already following you.";
+    case "self-follow":
+      return "You can't follow yourself.";
+    case "queue-full":
+      return "Too many follow commands at once; try again in a moment.";
     default:
       return "Follow mode ended on the server.";
   }

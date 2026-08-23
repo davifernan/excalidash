@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bindSocketCollaborators } from "./socketCollaborators";
+import { bindSocketCollaborators, withAwayStatus } from "./socketCollaborators";
 
 class FakeSocket {
   id = "self";
@@ -132,5 +132,147 @@ describe("socket collaborators", () => {
     ]);
 
     expect(peers.get("peer")?.name).toBe("Peer · large selection");
+  });
+
+  it("withAwayStatus appends or strips exactly one suffix, idempotently", () => {
+    expect(withAwayStatus("Peer", true)).toBe("Peer · away");
+    expect(withAwayStatus("Peer · away", true)).toBe("Peer · away");
+    expect(withAwayStatus("Peer · away", false)).toBe("Peer");
+    expect(withAwayStatus("Peer", false)).toBe("Peer");
+  });
+
+  it("NIL-372: does not delete a collaborator merely because a tab lost focus", () => {
+    // This is the root-cause regression test: before the fix, `isActive: false`
+    // went straight into the `gone` list and `collaboration.removeCollaborators`
+    // ran, which is exactly what made following someone end the moment their
+    // browser tab lost focus -- the only way to drive two browsers on one
+    // screen. Run against the unpatched file (git stash the production change)
+    // and this fails with `peers.has("peer")` false; that failure, with the
+    // stashed diff restored afterwards, is this test's red probe.
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const socket = new FakeSocket();
+    const { peers, capability } = fakeCollaboration();
+    bindSocketCollaborators({
+      socket: socket as any,
+      collaboration: capability,
+      onPeersChange: vi.fn(),
+    });
+
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: true },
+    ]);
+    expect(peers.has("peer")).toBe(true);
+
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: false },
+    ]);
+    expect(peers.has("peer")).toBe(true);
+    expect(capability.removeCollaborators).not.toHaveBeenCalled();
+    // Frozen, not moved: no patch at all was written for the now-inactive
+    // peer, so whatever pointer/name they had while active simply stands.
+    expect(peers.get("peer")?.name).toBe("Peer");
+  });
+
+  it("marks a peer away only after the grace window, and never if they return sooner", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const socket = new FakeSocket();
+    const { peers, capability } = fakeCollaboration();
+    bindSocketCollaborators({
+      socket: socket as any,
+      collaboration: capability,
+      onPeersChange: vi.fn(),
+    });
+
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: true },
+    ]);
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: false },
+    ]);
+    expect(peers.get("peer")?.name).toBe("Peer");
+
+    // An ordinary alt-tab, well inside the grace window: no visible change.
+    vi.advanceTimersByTime(1_000);
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: true },
+    ]);
+    expect(peers.get("peer")?.name).toBe("Peer");
+    vi.advanceTimersByTime(10_000);
+    expect(peers.get("peer")?.name).toBe("Peer");
+
+    // Genuinely away past the grace window: now it shows.
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: false },
+    ]);
+    vi.advanceTimersByTime(4_000);
+    expect(peers.get("peer")?.name).toBe("Peer · away");
+
+    // Returning clears it immediately, without a second grace window.
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: true },
+    ]);
+    expect(peers.get("peer")?.name).toBe("Peer");
+
+    vi.useRealTimers();
+  });
+
+  it("gives a peer who has never been seen active a name immediately, already marked away", () => {
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const socket = new FakeSocket();
+    const { peers, capability } = fakeCollaboration();
+    bindSocketCollaborators({
+      socket: socket as any,
+      collaboration: capability,
+      onPeersChange: vi.fn(),
+    });
+
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: false },
+    ]);
+    expect(peers.get("peer")?.name).toBe("Peer · away");
+    expect(capability.removeCollaborators).not.toHaveBeenCalled();
+  });
+
+  it("a real departure still removes the collaborator even while marked away", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const socket = new FakeSocket();
+    const { peers, capability } = fakeCollaboration();
+    bindSocketCollaborators({
+      socket: socket as any,
+      collaboration: capability,
+      onPeersChange: vi.fn(),
+    });
+
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: true },
+    ]);
+    socket.trigger("presence-update", [
+      { presenceId: "peer", name: "Peer", color: "#123456", isActive: false },
+    ]);
+    vi.advanceTimersByTime(4_000);
+    expect(peers.get("peer")?.name).toBe("Peer · away");
+
+    socket.trigger("presence-update", []);
+    expect(peers.has("peer")).toBe(false);
+
+    vi.useRealTimers();
   });
 });
