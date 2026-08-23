@@ -30,7 +30,8 @@ export interface Collection {
   name: string;
   createdAt: number;
   sharedRole?: "view" | "edit" | null;
-  isOwner?: boolean;
+  /** Whether this account owns the collection. The backend sets this on every entry it returns -- never absent, never ambiguous. */
+  isOwner: boolean;
   isShared?: boolean;
   /** Only sent for collections someone else shared with you. */
   ownerName?: string | null;

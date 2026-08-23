@@ -79,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const collection = collections.find((c) => c.id === id);
-    if (!collection?.isOwner && collection?.isOwner !== undefined) return;
+    if (collection && !collection.isOwner) return;
     setContextMenu({ x: e.clientX, y: e.clientY, type: "item", id });
   };
   const handleBackgroundContextMenu = (e: React.MouseEvent) => {
@@ -90,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // A collection stops being a folder and starts being a place the moment more
   // than one person can reach it.
   const isTeamCollection = (collection: Collection) =>
-    collection.isOwner === false || collection.isShared === true;
+    !collection.isOwner || collection.isShared === true;
   const teamCollections = visibleCollections.filter(isTeamCollection);
   const personalCollections = visibleCollections.filter((c) => !isTeamCollection(c));
   const renderCollection = (collection: Collection) => (
@@ -120,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       extraAction={
         <div className="flex items-center gap-1">
           {/* Shared indicator — only for owned collections that have been shared */}
-          {collection.isOwner !== false && collection.isShared && (
+          {collection.isOwner && collection.isShared && (
             <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
               Shared
             </span>
@@ -128,18 +128,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Role badge. Owning something you already shared is
                           implied by the Shared badge; two of them only squeeze
                           the name. */}
-          {!(collection.isOwner !== false && collection.isShared) && (
+          {!(collection.isOwner && collection.isShared) && (
             <span
               className={clsx(
                 "text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0",
-                collection.isOwner === false
+                !collection.isOwner
                   ? collection.sharedRole === "edit"
                     ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
                     : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800"
                   : "bg-slate-100 dark:bg-neutral-800 text-slate-400 dark:text-neutral-500 border-slate-200 dark:border-neutral-700",
               )}
             >
-              {collection.isOwner === false
+              {!collection.isOwner
                 ? collection.sharedRole === "edit"
                   ? "Editor"
                   : "Viewer"

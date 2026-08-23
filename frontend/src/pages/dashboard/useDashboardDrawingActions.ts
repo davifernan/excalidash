@@ -76,7 +76,7 @@ export const useDashboardDrawingActions = ({
   const currentCollection = collections.find(
     (collection) => collection.id === selectedCollectionId,
   );
-  const isSharedCollection = !!(currentCollection && currentCollection.isOwner === false);
+  const isSharedCollection = !!(currentCollection && !currentCollection.isOwner);
 
   const handleViewerActionError = (message: string) =>
     showTemporaryViewerError(message, setViewerActionError);

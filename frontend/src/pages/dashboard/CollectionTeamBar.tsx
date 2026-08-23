@@ -11,7 +11,7 @@ type CollectionTeamBarProps = {
 };
 
 const roleLabel = (collection: Collection): string => {
-  if (collection.isOwner !== false) return "You own this collection";
+  if (collection.isOwner) return "You own this collection";
   if (collection.sharedRole === "edit") return "You can edit";
   return "You can view";
 };
@@ -28,7 +28,7 @@ export const CollectionTeamBar: React.FC<CollectionTeamBarProps> = ({
   const [totalCount, setTotalCount] = useState(0);
   const [isSharing, setIsSharing] = useState(false);
   const collectionId = collection?.id;
-  const isOwner = collection?.isOwner !== false;
+  const isOwner = collection?.isOwner ?? true;
 
   useEffect(() => {
     if (!collectionId) {

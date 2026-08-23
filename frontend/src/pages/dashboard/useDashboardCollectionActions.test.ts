@@ -17,8 +17,8 @@ vi.mock("sonner", () => ({
 }));
 
 const initialCollections: Collection[] = [
-  { id: "one", name: "Original", createdAt: 1 },
-  { id: "two", name: "Second", createdAt: 2 },
+  { id: "one", name: "Original", createdAt: 1, isOwner: true },
+  { id: "two", name: "Second", createdAt: 2, isOwner: true },
 ];
 
 const renderActions = (selectedCollectionId: string | null | undefined = "one") => {
