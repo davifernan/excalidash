@@ -158,6 +158,9 @@ jobs:
       - name: Check frontend dead code
         run: npm run check:dead-code --prefix frontend
 
+      - name: Prove dead-code detection in both directions
+        run: node scripts/dead-code-counterprobe.cjs
+
   e2e-tests:
     name: E2E Browser Tests
     runs-on: ubuntu-latest
