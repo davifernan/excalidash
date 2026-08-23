@@ -145,12 +145,23 @@ const finishResponsivenessProbe = (page: Page) =>
  * its p95 stayed under 50 ms like everywhere else. So typical responsiveness
  * holds on Safari's engine and one block does not.
  *
+ * The bound was 1000 at first, set from those three numbers. The next run on
+ * main measured 1039 and went red on the first attempt: three samples were not
+ * enough to see the spread, and a bound with no headroom turns a slow runner
+ * into a red build -- which is how a check earns the habit of being re-run
+ * rather than read.
+ *
+ * 1250 is twenty per cent above the highest of the four samples. It was briefly
+ * 1500, which the review rightly questioned: a doubling of the block to ~1400 ms
+ * would have passed here while failing on every other engine. At 1250 a doubling
+ * fails, and so does 1400.
+ *
  * Bounded at 1000 there rather than skipped: a real assertion that would catch a
  * regression is worth more than no assertion, and raising the bound until it
  * passes everywhere would have abolished the one that works. Closing the gap is
  * its own issue; it is not adapter work.
  */
-const MAX_BLOCK_MS: Record<string, number> = { webkit: 1000 };
+const MAX_BLOCK_MS: Record<string, number> = { webkit: 1250 };
 const DEFAULT_MAX_BLOCK_MS = 500;
 
 test("a collaborator stays responsive while a pathological 2 MiB document is paginated", async ({
