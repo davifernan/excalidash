@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { toast } from "sonner";
 import { splitFilesIntoUpdatePayloads, type ElementUpdatePayload } from "./elementUpdateDelivery";
 import { boardSettingsSignature, getFilesDelta, shouldSaveBoardSettings } from "./shared";
+import { createExcalidrawAdapter } from "../../integrations/excalidraw";
 
 const ELEMENT_ORDER_BYTE_LIMIT = 8 * 1024 * 1024;
 const ELEMENT_UPDATE_ACK_TIMEOUT_MS = 3_000;
@@ -114,6 +115,15 @@ export const useEditorBroadcast = ({
   >(() => false);
   const lastRunAtRef = useRef(0);
   const trailingArgsRef = useRef<[readonly any[], Record<string, any> | undefined] | null>(null);
+  const adapter = useMemo(
+    () =>
+      createExcalidrawAdapter({
+        api: () => excalidrawAPI.current,
+        container: () => null,
+        canEdit: () => true,
+      }),
+    [excalidrawAPI],
+  );
 
   const deliverPackets = useCallback(
     (packets: readonly DeliveryPacket[], onFinished: (delivered: boolean) => void) => {
@@ -189,7 +199,15 @@ export const useEditorBroadcast = ({
   const queueUpdate = useCallback(
     (elements: readonly any[], currentFiles?: Record<string, any>, filesOnly = false): boolean => {
       if (!socketRef.current || !drawingId) return false;
-      const nextFiles = currentFiles || excalidrawAPI.current?.getFiles() || {};
+      let nextFiles = currentFiles;
+      if (!nextFiles) {
+        const files = adapter.files.read();
+        if (!files.ok) {
+          toast.error("Live collaboration could not read editor files.");
+          return false;
+        }
+        nextFiles = files.value;
+      }
       const rawFilesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles);
       const shouldSyncFiles = Object.keys(rawFilesDelta).length > 0;
       if (Object.keys(nextFiles).length > 0) latestFilesRef.current = nextFiles;
@@ -327,11 +345,11 @@ export const useEditorBroadcast = ({
     },
     [
       computeElementOrderSig,
+      adapter,
       debouncedSave,
       debouncedSavePreview,
       deliverPackets,
       drawingId,
-      excalidrawAPI,
       hasElementChanged,
       lastLocalChangeAtRef,
       lastPersistedAppStateSigRef,

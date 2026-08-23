@@ -1,15 +1,17 @@
 import type { Socket } from "socket.io-client";
-import { buildRemoteSceneUpdate } from "./shared";
+import type { CollaborationCapability } from "../../integrations/excalidraw/capabilities";
+import type { CapabilityFailure, CapabilityResult } from "../../integrations/excalidraw/errors";
+import type {
+  CollaboratorInfo,
+  CollaboratorPatch,
+  ElementId,
+  SocketId,
+} from "../../integrations/excalidraw/types";
 
 // This mirrors the server's transport budget so an oversized selection becomes
 // the same compact marker before it reaches the socket.
 export const REMOTE_SELECTION_LIMITS = { payloadBytes: 256 * 1024 } as const;
 const SELECTION_THROTTLE_MS = 50;
-
-type ExcalidrawApi = {
-  getAppState: () => any;
-  updateScene: (scene: any) => void;
-};
 
 type RemoteSelection = { selectedElementIds: string[] } | { allSelected: true };
 
@@ -25,20 +27,14 @@ export const withLargeSelectionStatus = (username: unknown, active: boolean): st
   return active ? `${base}${LARGE_SELECTION_SUFFIX}` : base;
 };
 
-const parseRemoteSelectedElementIds = (value: unknown): Record<string, true> | null => {
+const parseRemoteSelectedElementIds = (value: unknown): ElementId[] | null => {
   if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id.length > 0)) {
     return null;
   }
-  return Object.fromEntries(value.map((id) => [id, true])) as Record<string, true>;
+  return value as ElementId[];
 };
 
-const selectedIdsFromAppState = (appState: any): string[] =>
-  Object.entries(appState?.selectedElementIds || {})
-    .filter(([id, selected]) => selected === true && id.length > 0)
-    .map(([id]) => id)
-    .sort();
-
-const selectionForWire = (drawingId: string, ids: string[]): RemoteSelection => {
+const selectionForWire = (drawingId: string, ids: readonly string[]): RemoteSelection => {
   const selectedElementIds: string[] = [];
   const encoder = new TextEncoder();
   let payloadBytes = encoder.encode(JSON.stringify({ drawingId, selectedElementIds })).byteLength;
@@ -57,12 +53,14 @@ const selectionForWire = (drawingId: string, ids: string[]): RemoteSelection => 
 export const bindRemoteSelection = ({
   socket,
   drawingId,
-  api,
+  collaboration,
+  onCapabilityFailure,
   throttleMs = SELECTION_THROTTLE_MS,
 }: {
   socket: Socket;
   drawingId: string;
-  api: ExcalidrawApi;
+  collaboration: CollaborationCapability;
+  onCapabilityFailure: (failure: CapabilityFailure) => void;
   throttleMs?: number;
 }) => {
   let lastSentAt = Number.NEGATIVE_INFINITY;
@@ -81,8 +79,14 @@ export const bindRemoteSelection = ({
     sendTimer = null;
   };
 
-  const publish = (appState: any) => {
-    const selection = selectionForWire(drawingId, selectedIdsFromAppState(appState));
+  const handle = <T>(result: CapabilityResult<T>): result is { ok: true; value: T } => {
+    if (result.ok) return true;
+    onCapabilityFailure(result);
+    return false;
+  };
+
+  const publish = (selectedIds: readonly string[]) => {
+    const selection = selectionForWire(drawingId, [...selectedIds].sort());
     const signature = JSON.stringify(selection);
     if (signature === lastSentSignature) {
       pendingSelection = null;
@@ -106,38 +110,67 @@ export const bindRemoteSelection = ({
     }, remaining);
   };
 
-  const applySelection = (collaborators: Map<string, any>, payload: any) => {
-    if (payload?.drawingId !== drawingId || typeof payload?.presenceId !== "string") return;
-    const existing = collaborators.get(payload.presenceId) || { id: payload.presenceId };
+  const patchForSelection = (
+    existing: CollaboratorInfo | undefined,
+    payload: any,
+  ): CollaboratorPatch | null => {
+    if (payload?.drawingId !== drawingId || typeof payload?.presenceId !== "string") return null;
     const allSelected = payload.allSelected === true && payload.selectedElementIds === undefined;
     const selectedElementIds = allSelected
-      ? {}
+      ? []
       : parseRemoteSelectedElementIds(payload.selectedElementIds);
-    if (!selectedElementIds) return;
-    const { selectionAllSelected: _previousMarker, ...rest } = existing;
-    collaborators.set(payload.presenceId, {
-      ...rest,
-      username: withLargeSelectionStatus(existing.username, allSelected),
-      selectedElementIds,
-      ...(allSelected ? { selectionAllSelected: true } : {}),
-    });
+    if (!selectedElementIds) return null;
+    return {
+      socketId: payload.presenceId as SocketId,
+      name: withLargeSelectionStatus(existing?.name, allSelected),
+      selectedIds: selectedElementIds,
+      selectionAllSelected: allSelected,
+    };
+  };
+
+  const currentCollaborators = (): Map<string, CollaboratorInfo> | null => {
+    const result = collaboration.readCollaborators();
+    if (!handle(result)) return null;
+    return new Map(
+      result.value.map((collaborator) => [String(collaborator.socketId), collaborator]),
+    );
+  };
+
+  const applyPatches = (patches: readonly CollaboratorPatch[]) => {
+    if (patches.length === 0) return;
+    handle(collaboration.patchCollaborators(patches));
   };
 
   const onSelection = (payload: any) => {
-    const collaborators = new Map<string, any>(api.getAppState().collaborators || []);
-    applySelection(collaborators, payload);
-    const { sceneUpdate } = buildRemoteSceneUpdate({ collaborators });
-    if (sceneUpdate) api.updateScene(sceneUpdate);
+    const collaborators = currentCollaborators();
+    if (!collaborators) return;
+    const patch = patchForSelection(collaborators.get(payload?.presenceId), payload);
+    if (patch) applyPatches([patch]);
   };
 
   const onSnapshot = (payload: any) => {
     if (payload?.drawingId !== drawingId || !Array.isArray(payload?.selections)) return;
-    const collaborators = new Map<string, any>(api.getAppState().collaborators || []);
+    const collaborators = currentCollaborators();
+    if (!collaborators) return;
+    const patches: CollaboratorPatch[] = [];
     for (const selection of payload.selections) {
-      applySelection(collaborators, { drawingId, ...selection });
+      const patch = patchForSelection(collaborators.get(selection?.presenceId), {
+        drawingId,
+        ...selection,
+      });
+      if (!patch) continue;
+      patches.push(patch);
+      const previous = collaborators.get(String(patch.socketId));
+      collaborators.set(String(patch.socketId), {
+        socketId: patch.socketId,
+        name: patch.name ?? previous?.name ?? null,
+        avatarUrl: previous?.avatarUrl ?? null,
+        pointer: previous?.pointer ?? null,
+        selectedIds: patch.selectedIds ?? previous?.selectedIds ?? [],
+        selectionAllSelected: patch.selectionAllSelected ?? previous?.selectionAllSelected ?? false,
+      });
     }
-    const { sceneUpdate } = buildRemoteSceneUpdate({ collaborators });
-    if (sceneUpdate) api.updateScene(sceneUpdate);
+    applyPatches(patches);
   };
 
   const reset = () => {

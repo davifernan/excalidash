@@ -1,13 +1,46 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MutableRefObject } from "react";
+import { toast } from "sonner";
 import { useEditorBroadcast } from "./useEditorBroadcast";
 import { boardSettingsSignature } from "./shared";
 import { computeElementOrderSig } from "./useEditorElementTracking";
 
 const ref = <T>(value: T) => ({ current: value }) as MutableRefObject<T>;
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("editor broadcast delivery tracking", () => {
+  it("reports a file capability failure instead of treating missing files as an empty read", () => {
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        excalidrawAPI: ref<any>(null),
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>({ emit: vi.fn() }),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => false,
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion: vi.fn(),
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => result.current.broadcastChanges([]));
+
+    expect(error).toHaveBeenCalledWith("Live collaboration could not read editor files.");
+  });
+
   it("does not mark element versions or ordering as sent until the server acknowledges them", () => {
     let acknowledge: ((value: any) => void) | undefined;
     const emit = vi.fn((_event: string, _payload: unknown, ack?: (value: any) => void) => {
