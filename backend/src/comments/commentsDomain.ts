@@ -69,11 +69,7 @@ const toDTO = (row: RawComment): CommentDTO => ({
 export class CommentDomainError extends Error {
   constructor(
     public readonly code:
-      | "not-found"
-      | "not-a-root"
-      | "forbidden"
-      | "invalid-body"
-      | "invalid-anchor",
+      "not-found" | "not-a-root" | "forbidden" | "invalid-body" | "invalid-anchor",
     message: string,
   ) {
     super(message);
@@ -106,7 +102,10 @@ export const listComments = async (params: {
   return rows.map(toDTO);
 };
 
-const validateAnchor = (anchorX: unknown, anchorY: unknown): { x: number | null; y: number | null } => {
+const validateAnchor = (
+  anchorX: unknown,
+  anchorY: unknown,
+): { x: number | null; y: number | null } => {
   const hasX = anchorX !== undefined && anchorX !== null;
   const hasY = anchorY !== undefined && anchorY !== null;
   if (!hasX && !hasY) return { x: null, y: null };
@@ -118,7 +117,10 @@ const validateAnchor = (anchorX: unknown, anchorY: unknown): { x: number | null;
     !Number.isFinite(anchorX) ||
     !Number.isFinite(anchorY)
   ) {
-    throw new CommentDomainError("invalid-anchor", "anchorX and anchorY must both be finite numbers");
+    throw new CommentDomainError(
+      "invalid-anchor",
+      "anchorX and anchorY must both be finite numbers",
+    );
   }
   return { x: anchorX, y: anchorY };
 };
@@ -165,12 +167,18 @@ export const createComment = async (params: {
       throw new CommentDomainError("not-found", "Thread not found on this board");
     }
     if (candidate.rootId !== null) {
-      throw new CommentDomainError("not-a-root", "Replies must target a thread root, not another reply");
+      throw new CommentDomainError(
+        "not-a-root",
+        "Replies must target a thread root, not another reply",
+      );
     }
     root = candidate;
   }
 
-  const roster = await listMentionCandidates({ prisma: params.prisma, drawingId: params.drawingId });
+  const roster = await listMentionCandidates({
+    prisma: params.prisma,
+    drawingId: params.drawingId,
+  });
   const rosterIds = new Set(roster.map((member) => member.userId));
   const mentionedUserIds = extractMentionedUserIds(body).filter(
     (id) => rosterIds.has(id) && id !== params.authorUserId,
@@ -239,9 +247,16 @@ export const createComment = async (params: {
     for (const recipient of recipients) {
       await tx.notification.upsert({
         where: {
-          recipientUserId_activityEventId: { recipientUserId: recipient.userId, activityEventId: event.id },
+          recipientUserId_activityEventId: {
+            recipientUserId: recipient.userId,
+            activityEventId: event.id,
+          },
         },
-        create: { recipientUserId: recipient.userId, activityEventId: event.id, kind: recipient.kind },
+        create: {
+          recipientUserId: recipient.userId,
+          activityEventId: event.id,
+          kind: recipient.kind,
+        },
         update: {},
       });
     }
@@ -289,7 +304,10 @@ export const editComment = async (params: {
   const body = sanitizeText(params.rawBody, COMMENT_BODY_MAX_LENGTH).trim();
   if (!body) throw new CommentDomainError("invalid-body", "Comment body must not be empty");
 
-  const roster = await listMentionCandidates({ prisma: params.prisma, drawingId: params.drawingId });
+  const roster = await listMentionCandidates({
+    prisma: params.prisma,
+    drawingId: params.drawingId,
+  });
   const rosterIds = new Set(roster.map((member) => member.userId));
   const mentionedUserIds = extractMentionedUserIds(body).filter(
     (id) => rosterIds.has(id) && id !== params.actorUserId,
@@ -334,7 +352,9 @@ export const editComment = async (params: {
       activityEventId = event.id;
       for (const userId of newlyMentioned) {
         await tx.notification.upsert({
-          where: { recipientUserId_activityEventId: { recipientUserId: userId, activityEventId: event.id } },
+          where: {
+            recipientUserId_activityEventId: { recipientUserId: userId, activityEventId: event.id },
+          },
           create: { recipientUserId: userId, activityEventId: event.id, kind: "mention" as const },
           update: {},
         });
@@ -448,7 +468,9 @@ const setResolution = async (params: {
     });
     for (const userId of recipients) {
       await tx.notification.upsert({
-        where: { recipientUserId_activityEventId: { recipientUserId: userId, activityEventId: event.id } },
+        where: {
+          recipientUserId_activityEventId: { recipientUserId: userId, activityEventId: event.id },
+        },
         create: {
           recipientUserId: userId,
           activityEventId: event.id,

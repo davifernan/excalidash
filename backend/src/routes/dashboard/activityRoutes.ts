@@ -13,8 +13,15 @@ import type { DrawingRouteContext } from "./drawingRouteContext";
  * as the Inbox: it is not part of NIL-323's Team Home rebuild in this wave.
  */
 export const registerActivityRoutes = (app: express.Express, context: DrawingRouteContext) => {
-  const { prisma, requireAuth, optionalAuth, asyncHandler, getRequestPrincipal, getShareToken, respondWithAuthErrorIfPresent } =
-    context;
+  const {
+    prisma,
+    requireAuth,
+    optionalAuth,
+    asyncHandler,
+    getRequestPrincipal,
+    getShareToken,
+    respondWithAuthErrorIfPresent,
+  } = context;
 
   app.get(
     "/activity",
@@ -34,7 +41,12 @@ export const registerActivityRoutes = (app: express.Express, context: DrawingRou
     asyncHandler(async (req, res) => {
       const principal = await getRequestPrincipal(req);
       const { id } = req.params;
-      const access = await getDrawingAccess({ prisma, principal, drawingId: id, shareToken: getShareToken(req) });
+      const access = await getDrawingAccess({
+        prisma,
+        principal,
+        drawingId: id,
+        shareToken: getShareToken(req),
+      });
       if (!canViewDrawing(access)) {
         if (respondWithAuthErrorIfPresent(req, res)) return;
         return res.status(404).json({ error: "Drawing not found" });
@@ -43,7 +55,9 @@ export const registerActivityRoutes = (app: express.Express, context: DrawingRou
       const before = typeof req.query.before === "string" ? req.query.before : null;
       const [events, lastVisitedAt] = await Promise.all([
         listDrawingActivity({ prisma, drawingId: id, limit, before }),
-        principal?.kind === "user" ? getDrawingVisit({ prisma, userId: principal.userId, drawingId: id }) : null,
+        principal?.kind === "user"
+          ? getDrawingVisit({ prisma, userId: principal.userId, drawingId: id })
+          : null,
       ]);
       return res.json({ events, lastVisitedAt });
     }),
@@ -55,7 +69,11 @@ export const registerActivityRoutes = (app: express.Express, context: DrawingRou
     asyncHandler(async (req, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id } = req.params;
-      const access = await getDrawingAccess({ prisma, principal: { kind: "user", userId: req.user.id }, drawingId: id });
+      const access = await getDrawingAccess({
+        prisma,
+        principal: await getRequestPrincipal(req),
+        drawingId: id,
+      });
       if (!canViewDrawing(access)) return res.status(404).json({ error: "Drawing not found" });
       await recordDrawingVisit({ prisma, userId: req.user.id, drawingId: id });
       return res.json({ success: true });

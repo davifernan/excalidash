@@ -36,7 +36,11 @@ describe("Comments, mentions, activity and inbox", () => {
 
   const tokenFor = (user: { id: string; email: string }) => {
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
-    return jwt.sign({ userId: user.id, email: user.email, type: "access" }, config.jwtSecret, signOptions);
+    return jwt.sign(
+      { userId: user.id, email: user.email, type: "access" },
+      config.jwtSecret,
+      signOptions,
+    );
   };
 
   /**
@@ -51,10 +55,13 @@ describe("Comments, mentions, activity and inbox", () => {
     const csrfHeaderName = csrfRes.body.header;
     const csrfToken = csrfRes.body.token;
     const auth = `Bearer ${tokenFor(user)}`;
-    const withCsrf = (req: request.Test) => req.set("Authorization", auth).set(csrfHeaderName, csrfToken);
+    const withCsrf = (req: request.Test) =>
+      req.set("Authorization", auth).set(csrfHeaderName, csrfToken);
     return {
       get: (url: string, query?: Record<string, string>) =>
-        query ? agent.get(url).query(query).set("Authorization", auth) : agent.get(url).set("Authorization", auth),
+        query
+          ? agent.get(url).query(query).set("Authorization", auth)
+          : agent.get(url).set("Authorization", auth),
       post: (url: string, body?: object) => withCsrf(agent.post(url)).send(body ?? {}),
       patch: (url: string, body?: object) => withCsrf(agent.patch(url)).send(body ?? {}),
       delete: (url: string) => withCsrf(agent.delete(url)),
@@ -124,6 +131,18 @@ describe("Comments, mentions, activity and inbox", () => {
     expect(reply.status).toBe(201);
     expect(reply.body.comment.rootId).toBe(created.body.comment.id);
 
+    // A reply's activity event carries the THREAD's root id for deep-linking,
+    // not the reply's own id -- CommentMarkers/useComments key a thread by
+    // its root, so a mention-in-a-reply notification has to resolve there.
+    const activity = await ownerClient.get(`/drawings/${drawing.id}/activity`);
+    expect(activity.status).toBe(200);
+    const rootEvent = activity.body.events.find(
+      (e: any) => e.commentId === created.body.comment.id,
+    );
+    const replyEvent = activity.body.events.find((e: any) => e.commentId === reply.body.comment.id);
+    expect(rootEvent.threadRootId).toBe(created.body.comment.id);
+    expect(replyEvent.threadRootId).toBe(created.body.comment.id);
+
     // A reply must target an actual root, not another reply.
     const badNesting = await ownerClient.post(`/drawings/${drawing.id}/comments`, {
       body: "Nested reply",
@@ -168,7 +187,9 @@ describe("Comments, mentions, activity and inbox", () => {
     // The outsider was never a board member: no notification, and the
     // Mention row itself was never created for them (RED PROBE: without the
     // roster re-validation in createComment, this count would be 1).
-    const outsiderMentionRows = await prisma.mention.count({ where: { mentionedUserId: outsider.id } });
+    const outsiderMentionRows = await prisma.mention.count({
+      where: { mentionedUserId: outsider.id },
+    });
     expect(outsiderMentionRows).toBe(0);
     const outsiderInbox = await outsiderClient.get("/inbox");
     expect(outsiderInbox.body.unreadCount).toBe(0);
@@ -244,7 +265,10 @@ describe("Comments, mentions, activity and inbox", () => {
     expect(reopen.body.comment.resolvedAt).toBeNull();
 
     // A reply cannot itself be resolved -- only its root.
-    const reply = await ownerClient.post(`/drawings/${drawing.id}/comments`, { body: "reply", rootId });
+    const reply = await ownerClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "reply",
+      rootId,
+    });
     const resolveReply = await ownerClient.post(
       `/drawings/${drawing.id}/comments/${reply.body.comment.id}/resolve`,
     );
@@ -264,7 +288,9 @@ describe("Comments, mentions, activity and inbox", () => {
     const commenterClient = await clientFor(commenter);
     const otherClient = await clientFor(otherCommenter);
 
-    const created = await commenterClient.post(`/drawings/${drawing.id}/comments`, { body: "original text" });
+    const created = await commenterClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "original text",
+    });
     const commentId = created.body.comment.id;
 
     const editByOther = await otherClient.patch(`/drawings/${drawing.id}/comments/${commentId}`, {
@@ -272,28 +298,70 @@ describe("Comments, mentions, activity and inbox", () => {
     });
     expect(editByOther.status).toBe(403);
 
-    const editByAuthor = await commenterClient.patch(`/drawings/${drawing.id}/comments/${commentId}`, {
-      body: "edited text",
-    });
+    const editByAuthor = await commenterClient.patch(
+      `/drawings/${drawing.id}/comments/${commentId}`,
+      {
+        body: "edited text",
+      },
+    );
     expect(editByAuthor.status).toBe(200);
     expect(editByAuthor.body.comment.body).toBe("edited text");
     expect(editByAuthor.body.comment.editedAt).not.toBeNull();
 
     // A comment-level (non-editor) peer may not delete someone else's comment.
-    const deleteByPeerDenied = await otherClient.delete(`/drawings/${drawing.id}/comments/${commentId}`);
+    const deleteByPeerDenied = await otherClient.delete(
+      `/drawings/${drawing.id}/comments/${commentId}`,
+    );
     expect(deleteByPeerDenied.status).toBe(403);
 
     // The board owner (edit-level) may delete it for moderation.
     const deleteByOwner = await ownerClient.delete(`/drawings/${drawing.id}/comments/${commentId}`);
     expect(deleteByOwner.status).toBe(200);
 
-    const afterDelete = await ownerClient.get(`/drawings/${drawing.id}/comments`, { includeResolved: "true" });
+    const afterDelete = await ownerClient.get(`/drawings/${drawing.id}/comments`, {
+      includeResolved: "true",
+    });
     const tombstone = afterDelete.body.comments.find((c: any) => c.id === commentId);
     expect(tombstone.deletedAt).not.toBeNull();
     // Body is redacted, but authorship stays visible -- that is the point of
     // a tombstone rather than a hard delete.
     expect(tombstone.body).toBeNull();
     expect(tombstone.authorName).toBe("Commenter Five");
+  });
+
+  it("stops an author from editing or deleting their own comment once their board access is revoked", async () => {
+    const owner = await makeUser("owner-5b@test.local", "Owner Five B");
+    const commenter = await makeUser("commenter-5b@test.local", "Commenter Five B");
+    const drawing = await makeDrawing(owner.id, "Board 5b");
+    const grantRow = await grant(drawing.id, commenter.id, "comment", owner.id);
+
+    const commenterClient = await clientFor(commenter);
+    const created = await commenterClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "before revoke",
+    });
+    const commentId = created.body.comment.id;
+
+    // Authorship alone must not stay a standing right after the grant is gone
+    // -- otherwise an offboarded or downgraded account keeps a write path into
+    // a board it can no longer even open.
+    await prisma.drawingPermission.delete({ where: { id: grantRow.id } });
+
+    const editAfterRevoke = await commenterClient.patch(
+      `/drawings/${drawing.id}/comments/${commentId}`,
+      {
+        body: "still editable?",
+      },
+    );
+    expect(editAfterRevoke.status).toBe(404);
+
+    const deleteAfterRevoke = await commenterClient.delete(
+      `/drawings/${drawing.id}/comments/${commentId}`,
+    );
+    expect(deleteAfterRevoke.status).toBe(404);
+
+    const stillThere = await prisma.comment.findUniqueOrThrow({ where: { id: commentId } });
+    expect(stillThere.body).toBe("before revoke");
+    expect(stillThere.deletedAt).toBeNull();
   });
 
   it("shows team activity only for boards the viewer actually belongs to", async () => {
@@ -308,8 +376,12 @@ describe("Comments, mentions, activity and inbox", () => {
     const memberClient = await clientFor(member);
     const outsiderClient = await clientFor(outsider);
 
-    await ownerClient.post(`/drawings/${memberBoard.id}/comments`, { body: "activity on the shared board" });
-    await ownerClient.post(`/drawings/${privateBoard.id}/comments`, { body: "activity on the private board" });
+    await ownerClient.post(`/drawings/${memberBoard.id}/comments`, {
+      body: "activity on the shared board",
+    });
+    await ownerClient.post(`/drawings/${privateBoard.id}/comments`, {
+      body: "activity on the private board",
+    });
 
     const memberFeed = await memberClient.get("/activity");
     expect(memberFeed.status).toBe(200);
@@ -349,5 +421,68 @@ describe("Comments, mentions, activity and inbox", () => {
       .set(csrfRes.body.header, csrfRes.body.token)
       .send({ body: "anonymous edit-link guest" });
     expect(anonymous.status).toBe(401);
+  });
+
+  it("lets the no-auth bootstrap identity comment, edit, resolve and visit on its own board", async () => {
+    // This instance's auth-enabled flag is cached in-process for up to 5s
+    // (authMode.ts authEnabledTtlMs) -- flipping the DB row alone is not
+    // enough to prove the route saw it. Waiting out the TTL is the only way
+    // to observe a real, uncached read for a route under test, not a
+    // deliberately-shortened one that would not exist in production.
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { authEnabled: false },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5200));
+
+    try {
+      const BOOTSTRAP_USER_ID = "bootstrap-admin";
+      // Same upsert authModeService.getBootstrapActingUser() performs --
+      // isActive: false is the point, see commentRoutes.ts's top-of-file
+      // comment on why a hand-built principal misreads this as "none" access.
+      await prisma.user.upsert({
+        where: { id: BOOTSTRAP_USER_ID },
+        update: {},
+        create: {
+          id: BOOTSTRAP_USER_ID,
+          email: "bootstrap@excalidash.local",
+          username: null,
+          passwordHash: "",
+          name: "Bootstrap Admin",
+          role: "ADMIN",
+          mustResetPassword: true,
+          isActive: false,
+        },
+      });
+      const drawing = await makeDrawing(BOOTSTRAP_USER_ID, "Bootstrap Board");
+
+      // No Authorization header at all -- requireAuth's no-auth branch is
+      // what is meant to populate req.user here, exactly like a real
+      // self-hosted instance that never turned auth on.
+      const bootstrapAgent = request.agent(app);
+      const csrfRes = await bootstrapAgent.get("/csrf-token");
+      const withCsrf = (req: request.Test) => req.set(csrfRes.body.header, csrfRes.body.token);
+
+      const created = await withCsrf(bootstrapAgent.post(`/drawings/${drawing.id}/comments`)).send({
+        body: "bootstrap identity can comment on its own board",
+      });
+      expect(created.status).toBe(201);
+      expect(created.body.comment.authorUserId).toBe(BOOTSTRAP_USER_ID);
+
+      const commentId = created.body.comment.id;
+      const resolved = await withCsrf(
+        bootstrapAgent.post(`/drawings/${drawing.id}/comments/${commentId}/resolve`),
+      ).send({});
+      expect(resolved.status).toBe(200);
+
+      const visited = await withCsrf(bootstrapAgent.post(`/drawings/${drawing.id}/visit`)).send({});
+      expect(visited.status).toBe(200);
+    } finally {
+      await prisma.systemConfig.update({
+        where: { id: "default" },
+        data: { authEnabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5200));
+    }
   });
 });

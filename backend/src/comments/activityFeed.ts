@@ -9,6 +9,14 @@ export type ActivityEventDTO = {
   actorName: string;
   verb: string;
   commentId: string | null;
+  /**
+   * The thread this event belongs to, for deep-linking -- NOT the same as
+   * `commentId` for a reply event. `useComments`/`CommentMarkers` key a
+   * thread by its root id; a "comment.replied" event's `commentId` is the
+   * reply's own row. Without this a mention-in-a-reply notification would
+   * deep-link to an id `activeThreadId` can never match.
+   */
+  threadRootId: string | null;
   elementId: string | null;
   anchorX: number | null;
   anchorY: number | null;
@@ -24,6 +32,7 @@ const EVENT_SELECT = {
   actor: { select: { name: true } },
   verb: true,
   commentId: true,
+  comment: { select: { rootId: true } },
   elementId: true,
   anchorX: true,
   anchorY: true,
@@ -41,6 +50,7 @@ const toEventDTO = (row: RawEvent): ActivityEventDTO => ({
   actorName: row.actor.name,
   verb: row.verb,
   commentId: row.commentId,
+  threadRootId: row.comment ? (row.comment.rootId ?? row.commentId) : null,
   elementId: row.elementId,
   anchorX: row.anchorX,
   anchorY: row.anchorY,
@@ -177,14 +187,21 @@ export const markNotificationRead = async (params: {
   return result.count > 0;
 };
 
-export const markAllNotificationsRead = async (params: { prisma: PrismaClient; userId: string }) => {
+export const markAllNotificationsRead = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+}) => {
   await params.prisma.notification.updateMany({
     where: { recipientUserId: params.userId, readAt: null },
     data: { readAt: new Date() },
   });
 };
 
-export const recordDrawingVisit = (params: { prisma: PrismaClient; userId: string; drawingId: string }) =>
+export const recordDrawingVisit = (params: {
+  prisma: PrismaClient;
+  userId: string;
+  drawingId: string;
+}) =>
   params.prisma.drawingVisit.upsert({
     where: { userId_drawingId: { userId: params.userId, drawingId: params.drawingId } },
     create: { userId: params.userId, drawingId: params.drawingId },

@@ -1,5 +1,10 @@
 import express from "express";
-import { canCommentDrawing, canEditDrawing, canViewDrawing, getDrawingAccess } from "../../authz/sharing";
+import {
+  canCommentDrawing,
+  canEditDrawing,
+  canViewDrawing,
+  getDrawingAccess,
+} from "../../authz/sharing";
 import {
   CommentDomainError,
   createComment,
@@ -12,6 +17,18 @@ import {
 } from "../../comments/commentsDomain";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
+/**
+ * Every write route below resolves its principal through
+ * `context.getRequestPrincipal(req)`, never `{ kind: "user", userId: req.user.id }`
+ * by hand. The bootstrap identity (`req.user.authCredentialType === "bootstrap"`,
+ * used when this instance has auth disabled entirely) needs `allowInactive: true`
+ * on the principal, because `getDrawingAccess` otherwise looks up a `User` row
+ * that does not exist for it and reads back "none" -- every comment write 404ing
+ * on an otherwise-working, owner-accessible board. `getRequestPrincipal` already
+ * carries this special case (see drawingRouteContext.ts and its three other
+ * users: routes/files.ts, assets/assetRoutes.ts, linkPreviews/routes.ts); a
+ * hand-built principal silently drops it.
+ */
 const domainErrorStatus: Record<CommentDomainError["code"], number> = {
   "not-found": 404,
   "not-a-root": 400,
@@ -43,7 +60,10 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
   // inside the drawing room. Every authenticated socket joins its own
   // `user_<id>` room on connect (see socket.ts); this is the only writer
   // into that room's events.
-  const notifyRecipients = (recipients: { userId: string; kind: string }[], activityEventId: string) => {
+  const notifyRecipients = (
+    recipients: { userId: string; kind: string }[],
+    activityEventId: string,
+  ) => {
     for (const recipient of recipients) {
       io.to(`user_${recipient.userId}`).emit("notification-created", {
         activityEventId,
@@ -73,7 +93,10 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
       }
       const includeResolved = req.query.includeResolved === "true";
       const comments = await listComments({ prisma, drawingId: id, includeResolved });
-      return res.json({ comments, canComment: canCommentDrawing(access) && principal?.kind === "user" });
+      return res.json({
+        comments,
+        canComment: canCommentDrawing(access) && principal?.kind === "user",
+      });
     }),
   );
 
@@ -83,7 +106,11 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
     asyncHandler(async (req, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id } = req.params;
-      const access = await getDrawingAccess({ prisma, principal: { kind: "user", userId: req.user.id }, drawingId: id });
+      const access = await getDrawingAccess({
+        prisma,
+        principal: await getRequestPrincipal(req),
+        drawingId: id,
+      });
       if (!canViewDrawing(access)) return res.status(404).json({ error: "Drawing not found" });
       const roster = await listMentionCandidates({ prisma, drawingId: id });
       return res.json({
@@ -108,7 +135,11 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
     asyncHandler(async (req, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id } = req.params;
-      const access = await getDrawingAccess({ prisma, principal: { kind: "user", userId: req.user.id }, drawingId: id });
+      const access = await getDrawingAccess({
+        prisma,
+        principal: await getRequestPrincipal(req),
+        drawingId: id,
+      });
       if (!canCommentDrawing(access)) {
         return res.status(canViewDrawing(access) ? 403 : 404).json({
           error: canViewDrawing(access) ? "Forbidden" : "Drawing not found",
@@ -144,6 +175,24 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
     asyncHandler(async (req, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id, commentId } = req.params;
+      // Authorship is necessary but not sufficient: a comment written while
+      // the account still had comment-level access must not stay editable
+      // after that access is revoked (share removed, role changed, offboarded).
+      // Without this an ex-member could keep rewriting their old words on a
+      // board they can no longer even open.
+      const access = await getDrawingAccess({
+        prisma,
+        principal: await getRequestPrincipal(req),
+        drawingId: id,
+      });
+      if (!canCommentDrawing(access)) {
+        return res.status(canViewDrawing(access) ? 403 : 404).json({
+          error: canViewDrawing(access) ? "Forbidden" : "Drawing not found",
+          message: canViewDrawing(access)
+            ? "This board does not allow comments from your access level"
+            : "Drawing not found",
+        });
+      }
       try {
         const { comment, activityEventId, recipients } = await editComment({
           prisma,
@@ -168,7 +217,25 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
     asyncHandler(async (req, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id, commentId } = req.params;
-      const access = await getDrawingAccess({ prisma, principal: { kind: "user", userId: req.user.id }, drawingId: id });
+      const access = await getDrawingAccess({
+        prisma,
+        principal: await getRequestPrincipal(req),
+        drawingId: id,
+      });
+      // Same reasoning as edit: deleting your own comment still requires
+      // currently holding comment-level+ access, not just having held it once.
+      // canEditDrawing(access) is strictly stronger than canCommentDrawing(access)
+      // (edit/owner both satisfy "comment"), so this one check also covers the
+      // moderation path -- an editor with revoked access is "none" here too,
+      // and deleteComment below authorizes the moderation branch independently.
+      if (!canCommentDrawing(access)) {
+        return res.status(canViewDrawing(access) ? 403 : 404).json({
+          error: canViewDrawing(access) ? "Forbidden" : "Drawing not found",
+          message: canViewDrawing(access)
+            ? "This board does not allow comments from your access level"
+            : "Drawing not found",
+        });
+      }
       try {
         await deleteComment({
           prisma,
@@ -192,7 +259,11 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
     asyncHandler(async (req, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id, commentId } = req.params;
-      const access = await getDrawingAccess({ prisma, principal: { kind: "user", userId: req.user.id }, drawingId: id });
+      const access = await getDrawingAccess({
+        prisma,
+        principal: await getRequestPrincipal(req),
+        drawingId: id,
+      });
       if (!canCommentDrawing(access)) {
         return res.status(canViewDrawing(access) ? 403 : 404).json({ error: "Forbidden" });
       }
@@ -219,7 +290,11 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
     asyncHandler(async (req, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { id, commentId } = req.params;
-      const access = await getDrawingAccess({ prisma, principal: { kind: "user", userId: req.user.id }, drawingId: id });
+      const access = await getDrawingAccess({
+        prisma,
+        principal: await getRequestPrincipal(req),
+        drawingId: id,
+      });
       if (!canCommentDrawing(access)) {
         return res.status(canViewDrawing(access) ? 403 : 404).json({ error: "Forbidden" });
       }
