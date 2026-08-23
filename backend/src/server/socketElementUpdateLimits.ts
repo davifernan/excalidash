@@ -63,8 +63,13 @@ export const hasPlausibleElementFields = (value: unknown): value is Record<strin
   }
   for (const field of ELEMENT_STRING_FIELDS) {
     const candidate = value[field];
-    if (candidate !== undefined && candidate !== null && typeof candidate !== "string") {
-      return false;
+    if (candidate !== undefined && candidate !== null) {
+      if (
+        typeof candidate !== "string" ||
+        candidate.length > SOCKET_LIMITS.elementStringFieldLength
+      ) {
+        return false;
+      }
     }
   }
   if (
@@ -116,15 +121,6 @@ const hasPlausibleFileMetadata = (
   return true;
 };
 
-export const hasPlausibleFileFields = (fileId: string, value: unknown): boolean => {
-  if (!hasPlausibleFileMetadata(fileId, value)) return false;
-  if (typeof value.dataURL === "string" && value.dataURL.length > SOCKET_LIMITS.fileDataUrlLength) {
-    return false;
-  }
-  const bytes = serializedByteLength(value);
-  return bytes !== null && bytes <= SOCKET_LIMITS.fileBytes;
-};
-
 const hasPlausibleDrawingId = (value: unknown): boolean =>
   typeof value === "string" &&
   value.trim().length > 0 &&
@@ -173,45 +169,77 @@ export type ElementUpdateLimitError = {
   message: string;
 };
 
-export const elementUpdateLimitError = (value: unknown): ElementUpdateLimitError | null => {
+export type ElementUpdateShapeResult =
+  | {
+      value: Record<string, unknown> & { elements: unknown[] };
+      serializedBytes: number;
+      error?: undefined;
+    }
+  | { value?: undefined; serializedBytes?: undefined; error: ElementUpdateLimitError | null };
+
+/**
+ * The single traversal behind both the parser and the standalone classifier
+ * below. Shape and size were previously checked by two independent
+ * implementations -- one to accept the payload, one only to explain a
+ * rejection -- which meant `JSON.stringify`-ing every element and file twice
+ * on the same rejected event. This walks the payload once and returns either
+ * the shape-narrowed value (for the caller to finish extracting) or the
+ * precise reason it was refused.
+ */
+export const parseElementUpdateShape = (value: unknown): ElementUpdateShapeResult => {
   // A malformed packet remains a hard failure even when it also crosses a
   // declared ceiling. Otherwise clients could add invalid fields to turn the
   // disconnect policy into an unlimited stream of ordinary size refusals.
-  if (!hasPlausibleElementUpdateShape(value)) return null;
+  if (!hasPlausibleElementUpdateShape(value)) return { error: null };
   const serializedBytes = serializedByteLength(value);
-  if (serializedBytes !== null && serializedBytes > SOCKET_LIMITS.elementUpdateBytes) {
+  if (serializedBytes === null) return { error: null };
+  if (serializedBytes > SOCKET_LIMITS.elementUpdateBytes) {
     return {
-      code: "payload-too-large",
-      message: "element-update exceeds the per-event byte limit",
+      error: {
+        code: "payload-too-large",
+        message: "element-update exceeds the per-event byte limit",
+      },
     };
   }
   if (value.elements.length > SOCKET_LIMITS.elementsPerUpdate) {
-    return { code: "too-many-elements", message: "element-update contains too many elements" };
+    return {
+      error: { code: "too-many-elements", message: "element-update contains too many elements" },
+    };
   }
   for (const element of value.elements) {
     const elementBytes = serializedByteLength(element);
     if (elementBytes !== null && elementBytes > SOCKET_LIMITS.elementBytes) {
       return {
-        code: "element-too-large",
-        message: "element-update contains an oversized element",
+        error: {
+          code: "element-too-large",
+          message: "element-update contains an oversized element",
+        },
       };
     }
   }
   if (isPlainRecord(value.files)) {
     if (Object.keys(value.files).length > SOCKET_LIMITS.filesPerUpdate) {
-      return { code: "too-many-files", message: "element-update contains too many files" };
+      return {
+        error: { code: "too-many-files", message: "element-update contains too many files" },
+      };
     }
     for (const file of Object.values(value.files)) {
-      if (!isPlainRecord(file)) return null;
+      // Already guaranteed a plausible file record by the shape check above.
+      const dataURL = isPlainRecord(file) ? file.dataURL : undefined;
       const fileBytes = serializedByteLength(file);
       if (
-        (typeof file.dataURL === "string" &&
-          file.dataURL.length > SOCKET_LIMITS.fileDataUrlLength) ||
+        (typeof dataURL === "string" && dataURL.length > SOCKET_LIMITS.fileDataUrlLength) ||
         (fileBytes !== null && fileBytes > SOCKET_LIMITS.fileBytes)
       ) {
-        return { code: "file-too-large", message: "element-update contains an oversized file" };
+        return {
+          error: { code: "file-too-large", message: "element-update contains an oversized file" },
+        };
       }
     }
   }
-  return null;
+  return { value, serializedBytes };
 };
+
+/** Standalone classifier kept for direct testing; delegates to the single shared pass. */
+export const elementUpdateLimitError = (value: unknown): ElementUpdateLimitError | null =>
+  parseElementUpdateShape(value).error ?? null;

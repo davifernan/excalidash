@@ -11,6 +11,11 @@ export const SOCKET_LIMITS = {
   drawingIdLength: 200,
   coordinateAbs: 1_000_000_000,
   viewportSpan: 100_000_000,
+  // Colors, style enums, the fractional index, and fileId are all short
+  // values in real scenes (a hex color, an enum, a nanoid). This is generous
+  // headroom over any legitimate value while still bounding a per-field
+  // payload that today only fails once the *whole* element crosses elementBytes.
+  elementStringFieldLength: 256,
   elementsPerUpdate: 10_000,
   filesPerUpdate: 1_000,
   elementOrderBytes: 8 * MEBIBYTE,

@@ -146,6 +146,22 @@ describe("element-update transport limits", () => {
     ).toBeNull();
   });
 
+  it("rejects a string field far past any realistic value, even under the whole-element budget", () => {
+    // Comfortably below elementBytes, so only a per-field cap catches this.
+    expect(
+      parseElementUpdatePayload({
+        drawingId,
+        elements: [{ ...fullRectangle(0), strokeColor: "x".repeat(1_000) }],
+      }),
+    ).toBeNull();
+  });
+
+  it("accepts an ordinary element-update with realistic field values", () => {
+    const parsed = parseElementUpdatePayload({ drawingId, elements: [fullRectangle(0)] });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.elements).toEqual([fullRectangle(0)]);
+  });
+
   it("rejects updates above the element-count ceiling", () => {
     const elements = Array.from({ length: SOCKET_LIMITS.elementsPerUpdate + 1 }, (_, index) => ({
       id: `element-${index}`,
