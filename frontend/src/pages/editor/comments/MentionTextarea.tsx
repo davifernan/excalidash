@@ -10,6 +10,15 @@ type Props = {
   autoFocus?: boolean;
   onSubmit?: () => void;
   disabled?: boolean;
+  /** Visible textarea rows. Defaults to 3 (the top-level compose box); a
+   * reply row passes 1 to stay compact next to its own thread. */
+  rows?: number;
+  /** Plain Enter (no modifier) also submits, same as before this component
+   * had a mention picker at all. Off by default -- a multi-line compose box
+   * needs Enter free for a literal newline, so it submits on Ctrl/Cmd+Enter
+   * only. A single-row reply has no newline to protect and a caller may ask
+   * for the quicker, more familiar "Enter sends" behavior instead. */
+  submitOnEnter?: boolean;
   "data-testid"?: string;
 };
 
@@ -26,6 +35,8 @@ export const MentionTextarea: React.FC<Props> = ({
   autoFocus,
   onSubmit,
   disabled,
+  rows = 3,
+  submitOnEnter = false,
   "data-testid": testId,
 }) => {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -98,7 +109,11 @@ export const MentionTextarea: React.FC<Props> = ({
       setTriggerStart(null);
       return;
     }
-    if (triggerStart === null && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    if (
+      triggerStart === null &&
+      event.key === "Enter" &&
+      (event.metaKey || event.ctrlKey || (submitOnEnter && !event.shiftKey))
+    ) {
       event.preventDefault();
       onSubmit?.();
     }
@@ -117,7 +132,7 @@ export const MentionTextarea: React.FC<Props> = ({
         placeholder={placeholder}
         autoFocus={autoFocus}
         disabled={disabled}
-        rows={3}
+        rows={rows}
         maxLength={4000}
         data-testid={testId}
         role="combobox"

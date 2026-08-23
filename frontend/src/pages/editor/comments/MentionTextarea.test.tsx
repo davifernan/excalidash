@@ -116,4 +116,85 @@ describe("MentionTextarea", () => {
     fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
     expect(submitted).toBe(1);
   });
+
+  it("plain Enter does NOT submit unless submitOnEnter is set (the compose box's own default)", () => {
+    let submitted = 0;
+    const Controlled: React.FC = () => {
+      const [value, setValue] = useState("hello");
+      return (
+        <MentionTextarea
+          value={value}
+          onChange={setValue}
+          candidates={CANDIDATES}
+          onSubmit={() => {
+            submitted += 1;
+          }}
+          data-testid="mt"
+        />
+      );
+    };
+    render(<Controlled />);
+    fireEvent.keyDown(screen.getByTestId("mt"), { key: "Enter" });
+    expect(submitted).toBe(0);
+  });
+
+  /**
+   * RED PROBE evidence (see PR HANDOFF): submitOnEnter is what a reply row
+   * (CommentPanel's ThreadCard) opts into to keep its pre-mention-picker
+   * "type and hit Enter" behavior once it started reusing this component
+   * instead of a plain <input>. Without it, replies would have silently
+   * required Ctrl/Cmd+Enter like the top-level compose box, an unannounced
+   * behavior change for existing users of a feature already in main.
+   */
+  it("submitOnEnter: plain Enter submits, Shift+Enter still inserts a newline instead", () => {
+    let submitted = 0;
+    const Controlled: React.FC = () => {
+      const [value, setValue] = useState("hello");
+      return (
+        <MentionTextarea
+          value={value}
+          onChange={setValue}
+          candidates={CANDIDATES}
+          submitOnEnter
+          onSubmit={() => {
+            submitted += 1;
+          }}
+          data-testid="mt"
+        />
+      );
+    };
+    render(<Controlled />);
+    const textarea = screen.getByTestId("mt");
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    expect(submitted).toBe(0);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(submitted).toBe(1);
+  });
+
+  it("submitOnEnter still lets Enter accept a mention suggestion instead of submitting while one is open", () => {
+    let submitted = 0;
+    const Controlled: React.FC = () => {
+      const [value, setValue] = useState("");
+      return (
+        <MentionTextarea
+          value={value}
+          onChange={setValue}
+          candidates={CANDIDATES}
+          submitOnEnter
+          onSubmit={() => {
+            submitted += 1;
+          }}
+          data-testid="mt"
+        />
+      );
+    };
+    render(<Controlled />);
+    const textarea = screen.getByTestId("mt") as HTMLTextAreaElement;
+    // The trigger only arms on an actual change event, same as every other
+    // test here -- setting an initial `value` prop is not one.
+    fireEvent.change(textarea, { target: { value: "hey @an" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(submitted).toBe(0);
+    expect(textarea.value).toBe("hey @[Anna](u-anna) ");
+  });
 });

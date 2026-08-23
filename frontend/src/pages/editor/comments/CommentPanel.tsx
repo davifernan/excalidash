@@ -8,6 +8,7 @@ import {
   MessageCircle,
   Pencil,
   Rss,
+  Send,
   Trash2,
   X,
 } from "lucide-react";
@@ -172,6 +173,7 @@ const ThreadCard: React.FC<{
   currentUserId: string | null;
   canComment: boolean;
   canModerate: boolean;
+  candidates: MentionCandidate[];
   onReply: (rootId: string, body: string) => Promise<unknown>;
   onEdit: (commentId: string, body: string) => Promise<unknown>;
   onDelete: (commentId: string) => Promise<unknown>;
@@ -183,6 +185,7 @@ const ThreadCard: React.FC<{
   currentUserId,
   canComment,
   canModerate,
+  candidates,
   onReply,
   onEdit,
   onDelete,
@@ -190,6 +193,12 @@ const ThreadCard: React.FC<{
   onReopen,
 }) => {
   const [replyDraft, setReplyDraft] = useState("");
+  const submitReply = async () => {
+    const body = replyDraft.trim();
+    if (!body) return;
+    await onReply(thread.root.id, body);
+    setReplyDraft("");
+  };
   const isResolved = Boolean(thread.root.resolvedAt);
 
   return (
@@ -246,20 +255,30 @@ const ThreadCard: React.FC<{
         </div>
       ) : null}
       {canComment && !isResolved ? (
-        <div className="mt-1.5 flex gap-1.5">
-          <input
-            value={replyDraft}
-            onChange={(event) => setReplyDraft(event.target.value)}
-            onKeyDown={async (event) => {
-              if (event.key === "Enter" && replyDraft.trim()) {
-                await onReply(thread.root.id, replyDraft.trim());
-                setReplyDraft("");
-              }
-            }}
-            placeholder="Reply..."
-            data-testid="thread-reply-input"
-            className="flex-1 min-w-0 rounded-lg border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 text-xs"
-          />
+        <div className="mt-1.5 flex items-end gap-1.5">
+          <div className="flex-1 min-w-0">
+            <MentionTextarea
+              value={replyDraft}
+              onChange={setReplyDraft}
+              candidates={candidates}
+              rows={1}
+              submitOnEnter
+              placeholder="Reply... (@ to mention)"
+              onSubmit={submitReply}
+              data-testid="thread-reply-input"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={submitReply}
+            disabled={!replyDraft.trim()}
+            title="Send reply"
+            aria-label="Send reply"
+            data-testid="thread-reply-submit"
+            className="shrink-0 flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 text-white disabled:opacity-40"
+          >
+            <Send size={12} strokeWidth={2.5} />
+          </button>
         </div>
       ) : null}
     </div>
@@ -388,6 +407,7 @@ export const CommentPanel: React.FC<Props> = ({
               currentUserId={currentUserId}
               canComment={canComment}
               canModerate={canModerate}
+              candidates={candidates}
               onReply={onReply}
               onEdit={onEdit}
               onDelete={onDelete}
