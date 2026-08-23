@@ -6,25 +6,26 @@
  * worst that a renamed hint element can do is leave the hint showing, which is
  * where it started.
  */
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
+import { createExcalidrawAdapter, type ExcalidrawAdapter } from "../integrations/excalidraw";
 import { isStickyNote } from "./stickyNote";
 import "./stickyHint.css";
 
 /** True when the only thing selected, or being typed into, is a note. */
-function stickyIsTheSelection(api: any): boolean {
-  const appState = api?.getAppState?.();
-  if (!appState) return false;
+function stickyIsTheSelection(adapter: ExcalidrawAdapter): boolean {
+  const interaction = adapter.interaction.read();
+  if (!interaction.ok) return false;
 
-  const elements = api.getSceneElements();
-  const byId = (id: string) => elements.find((element: any) => element.id === id);
+  const editingId = interaction.value.editingTextContainerId;
+  if (editingId) {
+    const editing = adapter.scene.summaryById(editingId);
+    return editing.ok && isStickyNote(editing.value);
+  }
 
-  const editing = appState.editingTextElement;
-  if (editing?.containerId) return isStickyNote(byId(editing.containerId));
-
-  const selected = Object.entries(appState.selectedElementIds ?? {})
-    .filter(([, on]) => on)
-    .map(([id]) => id);
-  return selected.length === 1 && isStickyNote(byId(selected[0]));
+  const selection = adapter.selection.read();
+  if (!selection.ok || selection.value.selectedIds.length !== 1) return false;
+  const selected = adapter.scene.summaryById(selection.value.selectedIds[0]);
+  return selected.ok && isStickyNote(selected.value);
 }
 
 export function useStickyHint({
@@ -45,22 +46,32 @@ export function useStickyHint({
    */
   ready: boolean;
 }) {
+  const getAdapter = useCallback(
+    () =>
+      createExcalidrawAdapter({
+        api: () => excalidrawAPI.current,
+        container: () => containerRef.current,
+        canEdit: () => canEdit,
+      }),
+    [canEdit, containerRef, excalidrawAPI],
+  );
+
   useEffect(() => {
+    const adapter = getAdapter();
     const container = containerRef.current;
-    const api = excalidrawAPI.current;
-    if (!ready || !container || !api?.onChange || !canEdit) return;
+    if (!ready || !container || !canEdit) return;
 
     const update = () => {
-      const on = stickyIsTheSelection(excalidrawAPI.current);
+      const on = stickyIsTheSelection(adapter);
       if (on) container.dataset.stickySelection = "true";
       else delete container.dataset.stickySelection;
     };
 
     update();
-    const stop = api.onChange(update);
+    const stop = adapter.scene.subscribe(update);
     return () => {
       stop?.();
       delete container.dataset.stickySelection;
     };
-  }, [canEdit, containerRef, excalidrawAPI, ready]);
+  }, [canEdit, containerRef, getAdapter, ready]);
 }

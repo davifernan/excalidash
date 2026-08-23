@@ -8,7 +8,8 @@
  * Excalidraw is still telling us about the last one is how integrations
  * deadlock themselves.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { createExcalidrawAdapter } from "../integrations/excalidraw";
 import { normaliseStickyNotes } from "./stickyNormalise";
 
 /** Matches CaptureUpdateAction.NEVER — an automatic tidy is not an undo step. */
@@ -25,6 +26,15 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
   const queued = useRef(false);
   const watchingEditor = useRef(false);
   const alive = useRef(true);
+  const adapter = useMemo(
+    () =>
+      createExcalidrawAdapter({
+        api: () => excalidrawAPI.current,
+        container: () => null,
+        canEdit: () => canEdit,
+      }),
+    [canEdit, excalidrawAPI],
+  );
 
   // Set on the way in as well as cleared on the way out. React mounts an effect
   // twice in development, and a flag only ever cleared would stay cleared after
@@ -62,6 +72,9 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
       }) => {
         const api = excalidrawAPI.current;
         if (!api) return;
+        // Contract gap (NIL-322): scene.relayout and every text capability are
+        // still unsupported, and relayout cannot receive the just-resized and
+        // currently-editing sets that preserve the upkeep's existing rules.
         const next = normaliseStickyNotes(api.getSceneElementsIncludingDeleted(), options);
         if (!next) return;
         api.updateScene({ elements: next, captureUpdate: CAPTURE_UPDATE_NEVER });
@@ -83,12 +96,12 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
         if (watchingEditor.current) return;
         watchingEditor.current = true;
         const step = () => {
-          const state = alive.current ? excalidrawAPI.current?.getAppState?.() : null;
-          if (!state) {
+          const interaction = alive.current ? adapter.interaction.read() : null;
+          if (!interaction?.ok) {
             watchingEditor.current = false;
             return;
           }
-          if (state.editingTextElement) {
+          if (interaction.value.editingTextElementId) {
             requestAnimationFrame(step);
             return;
           }
@@ -96,7 +109,7 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
           // A drag that started the instant the editor closed gets the same
           // courtesy as anywhere else: measuring mid-gesture settles on a size
           // that is wrong a frame later.
-          if (state.resizingElement || state.newElement) return;
+          if (interaction.value.resizingElementId || interaction.value.creatingElementId) return;
           apply({ resized: null, editing: null });
         };
         requestAnimationFrame(step);
@@ -113,7 +126,7 @@ export function useStickyUpkeep({ excalidrawAPI, canEdit }: Options) {
         if (editingId) watchForEditorClosing();
       });
     },
-    [canEdit, excalidrawAPI],
+    [adapter, canEdit, excalidrawAPI],
   );
 
   return { onSceneChange };

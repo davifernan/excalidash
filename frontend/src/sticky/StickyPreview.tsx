@@ -11,7 +11,8 @@
  * a re-render on every mouse position would be the same mistake that once
  * drove the editor into an infinite loop, only quieter.
  */
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
+import { createExcalidrawAdapter } from "../integrations/excalidraw";
 import { STICKY_SIZE, type StickyColor } from "./stickyNote";
 
 /**
@@ -28,14 +29,27 @@ type Props = {
 
 export const StickyPreview: React.FC<Props> = ({ excalidrawAPI, containerRef, color }) => {
   const ghost = useRef<HTMLDivElement>(null);
+  const getAdapter = useCallback(
+    () =>
+      createExcalidrawAdapter({
+        api: () => excalidrawAPI.current,
+        container: () => containerRef.current,
+        canEdit: () => true,
+      }),
+    [containerRef, excalidrawAPI],
+  );
 
   useEffect(() => {
+    const adapter = getAdapter();
     const container = containerRef.current;
     const node = ghost.current;
     if (!container || !node) return;
 
     const place = (event: PointerEvent) => {
-      const zoom = excalidrawAPI.current?.getAppState?.()?.zoom?.value ?? 1;
+      const viewport = adapter.viewport.read();
+      // Before the editor attaches, the preview has always used an unzoomed
+      // note. Keep that harmless fallback while the capability reports why.
+      const zoom = viewport.ok ? viewport.value.zoom : 1;
       const rect = container.getBoundingClientRect();
       // Scaled with the canvas, so the ghost is the size the note will be —
       // which is the whole point of showing it.
@@ -60,7 +74,7 @@ export const StickyPreview: React.FC<Props> = ({ excalidrawAPI, containerRef, co
       container.removeEventListener("pointermove", place);
       container.removeEventListener("pointerleave", hide);
     };
-  }, [containerRef, excalidrawAPI]);
+  }, [containerRef, getAdapter]);
 
   return (
     <div

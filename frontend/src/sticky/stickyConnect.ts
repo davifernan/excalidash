@@ -1,5 +1,6 @@
 import { beginCanvasDrag } from "../integrations/excalidraw/domBridge";
-import { createInteractionCapability } from "../integrations/excalidraw/interaction";
+import { createExcalidrawAdapter } from "../integrations/excalidraw";
+import { toast } from "sonner";
 
 /**
  * Dragging an arrow out of a note.
@@ -110,8 +111,16 @@ export type DragOrigin = {
  */
 export function beginArrowDrag(api: any, container: HTMLElement | null, origin: DragOrigin): void {
   if (!api) return;
-  const interaction = createInteractionCapability(() => api);
-  const armed = interaction.setActiveTool({ type: "builtin", name: "arrow" });
-  if (!armed.ok) return;
+  const adapter = createExcalidrawAdapter({
+    api: () => api,
+    container: () => container,
+    canEdit: () => true,
+  });
+  const { setActiveTool } = adapter.interaction;
+  const armed = setActiveTool({ type: "builtin", name: "arrow" });
+  if (!armed.ok) {
+    toast.error("Couldn't start the arrow. Please try again.");
+    return;
+  }
   void beginCanvasDrag(container, origin);
 }

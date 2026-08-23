@@ -10,7 +10,8 @@
  * mean reaching into a private text editor and would break the first time that
  * editor changed. Escape, then Tab.
  */
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
+import { createExcalidrawAdapter, type ExcalidrawAdapter } from "../integrations/excalidraw";
 import { STICKY_GAP, insertStickyNote } from "./stickyPlacement";
 import { createStickyNote, stickyColorById, stickyDataOf } from "./stickyNote";
 
@@ -21,17 +22,15 @@ type Options = {
 };
 
 /** The single selected note, if that is what is selected. */
-function selectedNote(api: any): any | null {
-  const appState = api?.getAppState?.();
-  if (!appState || appState.editingTextElement) return null;
+function selectedNote(adapter: ExcalidrawAdapter): any | null {
+  const interaction = adapter.interaction.read();
+  if (!interaction.ok || interaction.value.editingTextElementId) return null;
 
-  const ids = Object.entries(appState.selectedElementIds ?? {})
-    .filter(([, selected]) => selected)
-    .map(([id]) => id);
-  if (ids.length !== 1) return null;
+  const selection = adapter.selection.read();
+  if (!selection.ok || selection.value.selectedIds.length !== 1) return null;
 
-  const note = api.getSceneElements().find((element: any) => element.id === ids[0]);
-  return stickyDataOf(note) ? note : null;
+  const note = adapter.scene.summaryById(selection.value.selectedIds[0]);
+  return note.ok && stickyDataOf(note.value) ? note.value : null;
 }
 
 /** Where the next note goes, centred like every other note. */
@@ -49,8 +48,19 @@ export function nextNoteCentre(
 }
 
 export function useStickyKeys({ excalidrawAPI, containerRef, canEdit }: Options) {
+  const getAdapter = useCallback(
+    () =>
+      createExcalidrawAdapter({
+        api: () => excalidrawAPI.current,
+        container: () => containerRef.current,
+        canEdit: () => canEdit,
+      }),
+    [canEdit, containerRef, excalidrawAPI],
+  );
+
   useEffect(() => {
     if (!canEdit) return;
+    const adapter = getAdapter();
 
     const onKeyDown = (event: KeyboardEvent) => {
       const api = excalidrawAPI.current;
@@ -58,7 +68,7 @@ export function useStickyKeys({ excalidrawAPI, containerRef, canEdit }: Options)
       const wantsBelow = event.key === "Enter" && (event.ctrlKey || event.metaKey);
       if (!wantsSideways && !wantsBelow) return;
 
-      const note = selectedNote(api);
+      const note = selectedNote(adapter);
       if (!note) return;
 
       // Only now, once we know the key was meant for us — Tab still has to
@@ -82,5 +92,5 @@ export function useStickyKeys({ excalidrawAPI, containerRef, canEdit }: Options)
     if (!target) return;
     target.addEventListener("keydown", onKeyDown);
     return () => target.removeEventListener("keydown", onKeyDown);
-  }, [canEdit, containerRef, excalidrawAPI]);
+  }, [canEdit, containerRef, excalidrawAPI, getAdapter]);
 }
