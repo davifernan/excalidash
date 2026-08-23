@@ -28,7 +28,11 @@ Konfigurationen oder Datenformen fuer unbekannte fremde Installationen kompatibe
 
 ## Branch-Modell
 
-- `origin/main`: unveraenderte Referenz auf ExcaliDash-Upstream
+- `origin/main`: unveraenderte Referenz auf ExcaliDash-Upstream -- steht seit dem Fork still.
+  Die tatsaechliche Upstream-Entwicklung laeuft auf `origin/alpha` (Stand 23.08.: 9 Commits,
+  244 Dateien seit der gemeinsamen Basis `294097c`; Bewertung und Kostenuebersicht in NIL-378,
+  Rehearsal-Befund in [UPSTREAM_SYNC_LOG.md](./UPSTREAM_SYNC_LOG.md)). "Upstream synchronisieren"
+  heisst hier: mit `alpha` abgleichen, nicht mit `main`.
 - `fork/main`: kanonischer, veroeffentlichter Integrationsstand und Basis aller Package-PR-Branches
 - `upstream-sync/YYYY-MM-DD`: kurzlebiger Branch fuer ExcaliDash-Merge
 - `upgrade/excalidraw-X.Y.Z`: kurzlebiger Branch fuer Paketupgrade
@@ -39,6 +43,44 @@ kanonischer Owner und ein langlebiger Package-Worktree; serielle PRs erhalten da
 einen frischen Branch aus aktuellem `fork/main`. Acceptance Slices erhalten weder Agentenlauf
 noch Worktree oder Branch. Der PR Overseer besitzt die Merge-Reihenfolge und integriert lokal
 in `fork/main`; es existiert kein zweiter dauerhafter Integrationsbranch.
+
+## `nilo/live` vs. `main`
+
+`nilo/live` ist **kein** dritter Aktualisierungskanal und **nicht** die Grundlage der laufenden
+Produktion. Stand 23.08.2026:
+
+- Rein lokaler Branch, nie auf `own` gepusht (`git ls-remote own nilo/live` liefert nichts).
+- Letzter Commit `536f659` vom 22.08. 13:48 Uhr -- **211 Commits hinter `fork/main`**, 0 Commits
+  voraus. Er ist kein Vorgriff auf `main`, sondern ein alter Stand, der stehen geblieben ist.
+- Der Worktree `excalidash-live` führt darauf `npm run dev`-Prozesse aus (Frontend via Vite auf
+  Port 6767, Backend via `nodemon` auf einem separat gewählten Port). Das ist exakt der in
+  `AGENTS.md` dokumentierte lokale Dev-Weg (`make dev`, Standardport 6767) -- nur manuell
+  gestartet und seit Tagen nicht neu geladen.
+- **Diese Prozesse bedienen draw.nilo.live nicht.** Die aktive Nginx-Config
+  (`/etc/nginx/sites-enabled/draw.nilo.live`) leitet ausschließlich auf `127.0.0.1:6770` --
+  den Frontend-Container aus `docker-compose.yml`/`docker-compose.prod.yml` in
+  `/home/claude/excalidash` (GHCR-Image, aktuell `sha-21545d7`, siehe `docker ps`). Die
+  Referenzdatei `nginx-draw.nilo.live` im selben Verzeichnis nennt noch Port 6767 -- das ist
+  eine dokumentierte Drift zwischen eingecheckter Referenz und tatsächlich deployter Config,
+  keine Anleitung zum aktuellen Zustand.
+
+**Konsequenz:** `nilo/live` ist ein verwaister, lokal weiterlaufender Vorschau-/Dev-Stand aus der
+Zeit vor dem heutigen dockerisierten Produktions-Deploy (Backup-Zeitstempel
+`excalidash-20260812-095535-vor-nilo-live` datiert seine Entstehung grob auf den 12.08.). Er ist
+weder Referenz noch Staging für irgendetwas, das aktuell bedient wird.
+
+**Wie man ihn aktualisiert, ohne die Fork-Historie zu verbiegen -- falls er weiter gebraucht
+wird:** ein echter Fast-Forward oder Merge von `fork/main` in `nilo/live`, kein Rebase (der
+Branch ist lokal, ein Rebase wäre zwar risikofrei fürs Remote, aber unnötig, wenn ein einfacher
+Fast-Forward ausreicht, weil `nilo/live` keine eigenen unveröffentlichten Commits trägt). Die
+laufenden `npm run dev`-Prozesse müssten danach neu gestartet werden, um den neuen Stand
+tatsächlich zu servieren.
+
+**Empfehlung statt Aktualisierung:** Da nichts ihn erreicht und die Maschine schon einmal an
+RAM-Erschöpfung gestorben ist, ist Stilllegen (Dev-Prozesse stoppen, Worktree als reine
+Git-Referenz behalten oder entfernen) wahrscheinlicher richtig als Nachziehen. Das ist eine
+Betriebsentscheidung, keine Aufräum-Entscheidung -- sie gehört Davi oder wer auch immer
+`nilo/live` ursprünglich für seinen jetzigen Zweck gestartet hat, nicht diesem Package.
 
 ## ExcaliDash-Upstream synchronisieren
 
@@ -90,6 +132,21 @@ upstream angeboten.
 
 Wird ein lokaler Change upstream uebernommen, wird sein lokaler Sonderpfad beim naechsten
 Sync entfernt. Es bleiben keine doppelten Implementierungen "zur Sicherheit" bestehen.
+
+### Vorbereitete Kandidaten (NIL-301/302/303), Stand 23.08.2026
+
+Geprüft mit einem Trocken-Cherry-Pick jedes Kandidaten-Commits auf `origin/main` (die
+ExcaliDash-Upstream-Spitze), Ergebnis danach verworfen -- **nichts davon ist gepusht oder als PR
+eröffnet**, das bleibt an Davis ausdrückliche Freigabe gebunden.
+
+| Kandidat | Branch (lokal, ungepusht) | Cherry-Pick auf `origin/main` | Bewertung |
+|---|---|---|---|
+| **NIL-301** Snapshot-Kompression | `feat/snapshot-compression` (`5d672b9`, `304e518`) | sauber, keine Konflikte | bereit. Generischer Perf-Fix an der Versions-Historie (Brotli-Kompression, Rückgabe freier Seiten), hängt an keinem ExcaliDash-Produktmodell |
+| **NIL-302** Resend-Mailversand | `feat/resend-email` (`8baaf15`, `23feee1`) | Auto-Merge in `backend/.env.example` und `backend/src/config.ts`, keine echten Konflikte | bereit nach kurzer manueller Durchsicht der zwei Auto-Merges. SMTP-alongside-Resend für Passwort-Reset-Mails, generisch nutzbar für jede Selbst-Hosting-Instanz |
+| **NIL-303** Sticky-Notes-Toolbar-Button | `feat/sticky-toolbar`, konkret `6e75494` | **8 Konflikte, davon 5× `modify/delete`** auf `frontend/src/sticky/*` -- diese Dateien existieren auf `origin/main` in dieser Form nicht | **nicht bereit.** Der Fork hat die Sticky-Notes-Implementierung strukturell vom Upstream-Stand entkoppelt (eigene `frontend/src/sticky/`-Struktur). Der Commit ist kein kleiner generischer Patch mehr, sondern setzt die Fork-eigene Architektur voraus. Um das upstream-tauglich zu machen, müsste die Idee ("Werkzeug im Toolbar portalen, Taste N") gegen den tatsächlichen aktuellen `origin/main`-Stand der Sticky-Notes neu gebaut werden, nicht per Cherry-Pick übernommen |
+
+NIL-303 braucht vor jedem PR-Versuch eine Neubewertung des Umfangs -- das ist kein
+Vorbereitungsschritt mehr, sondern eigene Implementierungsarbeit gegen einen fremden Codestand.
 
 ## Konflikt- und Integrationsprotokoll
 
