@@ -18,6 +18,7 @@ import { createAsset } from "./assetService";
 import { contentDisposition, registerAssetRoutes } from "./assetRoutes";
 import type { AssetRouteDeps } from "./assetRoutes";
 import { resolveStoragePath } from "./assetStorage";
+import { PdfRejectedError } from "./pdfRenderer";
 import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
 
 describe("document routes", () => {
@@ -31,6 +32,7 @@ describe("document routes", () => {
   let assetId: string;
   let actAs: string | null;
   let optimizeUpload: AssetRouteDeps["optimizeUpload"];
+  let getPageCalls: Array<{ assetId: string; page: number }>;
 
   const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
     Promise.resolve(fn(req, res, next)).catch(next);
@@ -66,6 +68,7 @@ describe("document routes", () => {
     });
     drawingId = drawing.id;
     optimizeUpload = undefined;
+    getPageCalls = [];
 
     const created = await createAsset(
       { prisma, storageDir, maxUploadBytes: 1_000_000, maxPerUserBytes: 10_000_000 },
@@ -106,11 +109,21 @@ describe("document routes", () => {
       storageDir,
       maxUploadBytes: 10_000_000,
       maxPerUserBytes: 10_000_000,
-      getPage: async (_asset: any, page: number) => ({
-        body: Buffer.from(`<svg>page ${page}</svg>`),
-        mimeType: "image/svg+xml",
-        contentEncoding: null,
-      }),
+      // Records every call so tests can prove the renderer was never reached,
+      // and mimics what a real Poppler render would do with a non-PDF source
+      // (reject it) so a regression that lets a wrong kind through surfaces
+      // as a 422 from "the renderer ran", not a silent pass.
+      getPage: async (asset: any, page: number) => {
+        getPageCalls.push({ assetId: asset.id, page });
+        if (asset.kind !== "PDF") {
+          throw new PdfRejectedError("Not a PDF");
+        }
+        return {
+          body: Buffer.from(`<svg>page ${page}</svg>`),
+          mimeType: "image/svg+xml",
+          contentEncoding: null,
+        };
+      },
       describeUpload: async (asset: any) => {
         // Guards the wiring, not just the shape: this needs the bytes to look
         // at, and the created row does not carry them by itself.
@@ -124,6 +137,11 @@ describe("document routes", () => {
   });
 
   const url = (suffix = "") => `/drawings/${drawingId}/assets/${assetId}${suffix}`;
+  const upload = (body: Buffer | string, type = "application/pdf", name = "neu.pdf") =>
+    request(app)
+      .post(`/drawings/${drawingId}/assets?name=${encodeURIComponent(name)}`)
+      .set("Content-Type", type)
+      .send(body as any);
 
   describe("who may read a document", () => {
     it("lets the owner read it", async () => {
@@ -328,15 +346,53 @@ describe("document routes", () => {
       expect(res.headers["content-security-policy"]).toContain("default-src 'none'");
       expect(res.headers["x-content-type-options"]).toBe("nosniff");
     });
+
+    it("still renders every page of a PDF up to its real count, and 404s past it", async () => {
+      // Green half of the kind-guard counterproof: a PDF must keep working
+      // exactly as before, on every in-range page, not just page 1.
+      await request(app).get(url("/pages/1")).buffer(true).expect(200);
+      await request(app).get(url("/pages/3")).buffer(true).expect(200);
+      await request(app).get(url("/pages/4")).expect(404);
+      expect(getPageCalls.filter((c) => c.assetId === assetId)).toHaveLength(2);
+    });
+
+    it("refuses to render a page of a text document without ever reaching the renderer", async () => {
+      // Red half of the kind-guard counterproof. If the guard were instead
+      // "reject at upload" (pageCount stuck at null), this asset would never
+      // exist to ask for a page from; here it exists, has a real pageCount
+      // (used by the widget's own pagination), and the block is still at the
+      // page-render route. A regression that removes the kind check would
+      // make getPage run and throw PdfRejectedError, turning this 404 into a
+      // 422 — the mock is wired so "it rendered" is observable, not silent.
+      const created = await upload("plain prose, no markup", "text/plain", "notes.txt").expect(
+        201,
+      );
+      expect(created.body.pageCount).toBeGreaterThan(0);
+
+      const res = await request(app)
+        .get(`/drawings/${drawingId}/assets/${created.body.id}/pages/1`)
+        .expect(404);
+
+      expect(res.body.error).toBe("Document not found");
+      expect(getPageCalls.filter((c) => c.assetId === created.body.id)).toHaveLength(0);
+    });
+
+    it("refuses to render a page of a markdown document without ever reaching the renderer", async () => {
+      const created = await upload("# heading\n\nbody text", "text/markdown", "notes.md").expect(
+        201,
+      );
+      expect(created.body.pageCount).toBeGreaterThan(0);
+
+      const res = await request(app)
+        .get(`/drawings/${drawingId}/assets/${created.body.id}/pages/1`)
+        .expect(404);
+
+      expect(res.body.error).toBe("Document not found");
+      expect(getPageCalls.filter((c) => c.assetId === created.body.id)).toHaveLength(0);
+    });
   });
 
   describe("uploading", () => {
-    const upload = (body: Buffer | string, type = "application/pdf", name = "neu.pdf") =>
-      request(app)
-        .post(`/drawings/${drawingId}/assets?name=${encodeURIComponent(name)}`)
-        .set("Content-Type", type)
-        .send(body as any);
-
     it("accepts a PDF and reports its page count", async () => {
       const res = await upload(Buffer.from("%PDF-1.4 more")).expect(201);
       expect(res.body.pageCount).toBe(7);
