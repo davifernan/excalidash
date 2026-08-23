@@ -12,6 +12,8 @@ import { disconnectApiKeySockets, recheckActiveUserSockets } from "../server/soc
 import { COMPANY_ARCHIVE_USER_EMAIL } from "./userOffboarding";
 import { revokeUserCredentials } from "./userCredentialRevocation";
 import { registerAdminUserOffboardingRoutes } from "./adminUserOffboardingRoutes";
+import { transferOwnedBoards, transferOwnedCollections } from "../authz/boards";
+import { reassignGrantAuthorshipOps } from "../authz/grants";
 
 const INVITE_VALID_DAYS = 7;
 export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
@@ -424,6 +426,8 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
           },
         });
       let revokedApiKeyIds: string[] = [];
+      let transferredDrawings = 0;
+      let transferredCollections = 0;
       const canRevokeStoredCredentials =
         typeof prisma.$transaction === "function" &&
         Boolean(prisma.refreshToken) &&
@@ -433,6 +437,34 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
           ? await prisma.$transaction(async (tx) => {
               const saved = await updateUser(tx);
               revokedApiKeyIds = await revokeUserCredentials(tx, userId, new Date());
+              // A deactivated account cannot log in to administer what it
+              // owns. Reassigning to the acting admin -- who is by
+              // definition an active team member right now -- keeps every
+              // board and collection reachable instead of leaving it locked
+              // behind a member who just left (NIL-323/NIL-341: "Austritt
+              // eines Mitglieds hinterlaesst kein ownerloses oder
+              // unzugaengliches Teamboard"). Boards keep their place in
+              // collections here (unlike full offboarding): the collections
+              // themselves are reassigned, not deleted. The departing
+              // member's own trash is excluded from both transfers -- it is
+              // scoped to their account, not team organization, and handing
+              // it to the admin would resurface already-deleted boards as a
+              // plain "Trash"-named collection in the admin's own lists.
+              transferredDrawings = await transferOwnedBoards({
+                db: tx,
+                fromUserId: userId,
+                toUserId: req.user.id,
+                detachFromCollection: false,
+                excludeTrash: true,
+              });
+              transferredCollections = await transferOwnedCollections({
+                db: tx,
+                fromUserId: userId,
+                toUserId: req.user.id,
+              });
+              await Promise.all(
+                reassignGrantAuthorshipOps({ db: tx, fromUserId: userId, toUserId: req.user.id }),
+              );
               return saved;
             })
           : await updateUser(prisma);
@@ -451,10 +483,21 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
           resource: `user:${updated.id}`,
           ipAddress: req.ip || req.connection.remoteAddress || undefined,
           userAgent: req.headers["user-agent"] || undefined,
-          details: { updatedUserId: updated.id, fields: Object.keys(data) },
+          details: {
+            updatedUserId: updated.id,
+            fields: Object.keys(data),
+            ...(transferredDrawings || transferredCollections
+              ? { transferredDrawings, transferredCollections }
+              : {}),
+          },
         });
       }
-      res.json({ user: updated });
+      res.json({
+        user: updated,
+        ...(transferredDrawings || transferredCollections
+          ? { transferredDrawings, transferredCollections }
+          : {}),
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         return res.status(409).json({

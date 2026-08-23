@@ -1,5 +1,6 @@
 import type { Prisma } from "../generated/client";
 import type { AuthzDb } from "./client";
+import { getUserTrashCollectionId } from "../routes/dashboard/trash";
 
 /**
  * Who owns a board, as a question rather than a column.
@@ -149,26 +150,99 @@ export const isCollectionCreator = (
 ): boolean => !!userId && collection.userId === userId;
 
 /**
- * Hand every board this account owns to a successor, detached from collections.
+ * Hand every board this account owns to a successor.
  *
- * Offboarding, and the one place ownership changes in bulk. It is here rather
- * than in the offboarding routine because it is the same claim NIL-323
- * redefines: after that rework, "the boards this account owns" is no longer a
- * column match, and a transfer written as one would silently move the wrong
- * set -- or none.
+ * Offboarding, and one of two places ownership changes in bulk (the other is
+ * `transferOwnedCollections`, just below). It is here rather than in the
+ * offboarding routine because it is the same claim NIL-323 redefines: after
+ * that rework, "the boards this account owns" is no longer a column match,
+ * and a transfer written as one would silently move the wrong set -- or none.
  *
- * Collections are personal organization and do not survive the handover.
+ * `detachFromCollection` defaults to `true`: full account deletion
+ * (`userOffboarding.ts`) cascades away the departing account's collections in
+ * the same transaction, so a board left pointing at a collection about to
+ * disappear would dangle. Plain deactivation does not delete the account or
+ * its collections -- `transferOwnedCollections` moves those instead -- so
+ * that caller passes `false` and boards keep their place in the (now
+ * reassigned) collection.
+ *
+ * `excludeTrash` defaults to `false`, preserving `userOffboarding.ts`'s
+ * existing (unreviewed-by-this-change) behavior. The deactivation path
+ * passes `true`: a board's `trash:<userId>` collection id is scoped to the
+ * account that trashed it (`routes/dashboard/trash.ts`), not to whoever
+ * later comes to own the board. Reassigning a trashed board's ownership
+ * without excluding it would resurface it in the new owner's "All Drawings"
+ * -- that listing's trash exclusion matches only the *requester's own*
+ * trash id (`drawingListRoutes.ts`), so a board still carrying someone
+ * else's trash id reads as a live, organized board again.
+ *
  * Returns how many boards moved.
  */
 export const transferOwnedBoards = async (params: {
   db: AuthzDb;
   fromUserId: string;
   toUserId: string;
+  detachFromCollection?: boolean;
+  excludeTrash?: boolean;
 }): Promise<number> =>
   (
     await params.db.drawing.updateMany({
-      where: ownedBoardsWhere(params.fromUserId),
-      data: { userId: params.toUserId, collectionId: null },
+      where: {
+        ...ownedBoardsWhere(params.fromUserId),
+        // Prisma's `not` on a nullable column excludes NULL rows too (SQL's
+        // three-valued `<>` logic) -- an unorganized board would otherwise
+        // silently stop being reassigned. Verified empirically against both
+        // sqlite and this exact filter before relying on it.
+        ...(params.excludeTrash
+          ? {
+              OR: [
+                { collectionId: null },
+                { collectionId: { not: getUserTrashCollectionId(params.fromUserId) } },
+              ],
+            }
+          : {}),
+      },
+      data: {
+        userId: params.toUserId,
+        ...(params.detachFromCollection === false ? {} : { collectionId: null }),
+      },
+    })
+  ).count;
+
+/**
+ * Hand every collection this account owns to a successor, boards and all --
+ * except the account's own trash.
+ *
+ * A collection is organization, not a grant: moving who administers it does
+ * not change who owns the boards inside, so unlike `transferOwnedBoards` this
+ * never touches `Drawing.userId`. Used when a member leaves (deactivation)
+ * so their folders keep an administrator instead of becoming permanently
+ * unmanageable -- nobody could rename, delete, or reshare them, since only
+ * the (now inactive) owner and `authz/collections.ts` decide that.
+ *
+ * `ownedCollectionsWhere` matches every collection by `userId`, including
+ * the departing account's `trash:<userId>` row (`routes/dashboard/trash.ts`)
+ * -- that id is only ever recognized as "the" trash collection for its own
+ * account (`GET /collections` remaps it to the public id `"trash"` solely
+ * for the requester it belongs to). Transferred as-is, it stops being
+ * anyone's trash and starts being a plain, visible collection literally
+ * named "Trash" in the new owner's list and "move to" menus, holding
+ * whatever the departing member had already deleted. Excluded here instead.
+ *
+ * Returns how many collections moved.
+ */
+export const transferOwnedCollections = async (params: {
+  db: AuthzDb;
+  fromUserId: string;
+  toUserId: string;
+}): Promise<number> =>
+  (
+    await params.db.collection.updateMany({
+      where: {
+        ...ownedCollectionsWhere(params.fromUserId),
+        id: { not: getUserTrashCollectionId(params.fromUserId) },
+      },
+      data: { userId: params.toUserId },
     })
   ).count;
 

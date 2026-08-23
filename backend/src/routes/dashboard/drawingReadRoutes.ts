@@ -75,7 +75,12 @@ export const registerDrawingReadRoutes = (app: express.Express, context: Drawing
       // access to a board they never drew, and widening the test here would
       // disclose the creator's account id to them. Same answer as before,
       // asked through the contract so NIL-323 moves it in one place.
-      const isOwner = isBoardCreator(drawing, principal?.userId);
+      //
+      // Named `isCreator`, not `isOwner`: this codebase carries "isOwner" as
+      // three different answers across drawingReadRoutes, collections.ts and
+      // Sidebar.tsx (NIL-323/NIL-489), and this route answers the creator
+      // question specifically -- see the comment above.
+      const isCreator = isBoardCreator(drawing, principal?.userId);
       return res.json({
         id: drawing.id,
         name: drawing.name,
@@ -87,11 +92,11 @@ export const registerDrawingReadRoutes = (app: express.Express, context: Drawing
         // goes for the owner as well: this route answers anonymous share-link
         // visitors, and an account id handed to one of them identifies the same
         // person on every other board they are ever linked to.
-        ...(isOwner ? { userId: drawing.userId } : {}),
+        ...(isCreator ? { userId: drawing.userId } : {}),
         creatorName: drawing.createdBy?.name ?? null,
         // Collections (and trash mapping) are owner-scoped. For shared/public access, avoid leaking
         // owner collection ids like `trash:<ownerId>` and avoid implying the viewer can organize it.
-        collectionId: isOwner
+        collectionId: isCreator
           ? toPublicTrashCollectionId(drawing.collectionId, drawing.userId)
           : null,
         elements: parseJsonField(drawing.elements, []),
