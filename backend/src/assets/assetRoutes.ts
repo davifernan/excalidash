@@ -388,6 +388,11 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
     asyncHandler(async (req: Request, res: Response) => {
       const found = await authorizedAsset(deps, req);
       if (!found) return res.status(404).json({ error: "Document not found" });
+      // Only a PDF has anything for the renderer to produce. TEXT and
+      // MARKDOWN documents keep a pageCount for their own widget pagination
+      // (see socketDocumentPages.ts), but that number does not mean there is
+      // a rendered image behind it.
+      if (found.asset.kind !== "PDF") return res.status(404).json({ error: "Document not found" });
 
       const page = Number(req.params.page);
       const total = found.asset.pageCount ?? 0;
