@@ -168,6 +168,11 @@ export const bindRemoteSelection = ({
         pointer: previous?.pointer ?? null,
         selectedIds: patch.selectedIds ?? previous?.selectedIds ?? [],
         selectionAllSelected: patch.selectionAllSelected ?? previous?.selectionAllSelected ?? false,
+        // Carried, not decided: this path only writes the selection. Colour,
+        // button and the self-flag belong to whoever set them.
+        color: previous?.color ?? null,
+        pointerButton: previous?.pointerButton ?? null,
+        isSelf: previous?.isSelf ?? false,
       });
     }
     applyPatches(patches);

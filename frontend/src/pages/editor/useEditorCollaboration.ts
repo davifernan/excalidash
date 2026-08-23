@@ -148,7 +148,7 @@ export const useEditorCollaboration = ({
 
     collaborators = bindSocketCollaborators({
       socket,
-      api: excalidrawAPI.current,
+      collaboration,
       onPeersChange: (nextPeers) => {
         chat.prunePeers(nextPeers);
         setPeers(nextPeers);

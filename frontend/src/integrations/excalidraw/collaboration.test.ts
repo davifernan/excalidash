@@ -85,6 +85,12 @@ describe("reading a collaborator", () => {
       pointer: { x: 1, y: 2 },
       selectedIds: ["e1"],
       selectionAllSelected: true,
+      // Named by the contract since the presence path needed to set them; a
+      // projection that drops them is how socketCollaborators stayed on the
+      // raw handle.
+      color: "#f00",
+      pointerButton: null,
+      isSelf: false,
     });
   });
 

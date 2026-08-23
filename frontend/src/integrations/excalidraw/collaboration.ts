@@ -57,6 +57,14 @@ export const readCollaborator = (id: string, raw: RawCollaborator): Collaborator
   pointer: point(raw.pointer),
   selectedIds: idsOf(raw.selectedElementIds),
   selectionAllSelected: raw.selectionAllSelected === true,
+  // The editor stores the colour as `{background, stroke}`; both halves always
+  // carry the same value here, so the contract names one colour.
+  color:
+    raw.color && typeof raw.color === "object" && typeof (raw.color as any).background === "string"
+      ? ((raw.color as any).background as string)
+      : null,
+  pointerButton: raw.button === "down" ? "down" : raw.button === "up" ? "up" : null,
+  isSelf: raw.isCurrentUser === true,
 });
 
 /**
@@ -83,6 +91,13 @@ export const applyPatch = (
     if (patch.selectionAllSelected) next.selectionAllSelected = true;
     else delete next.selectionAllSelected;
   }
+  if (patch.color !== undefined) {
+    next.color = patch.color === null ? undefined : { background: patch.color, stroke: patch.color };
+  }
+  if (patch.pointerButton !== undefined) {
+    next.button = patch.pointerButton ?? undefined;
+  }
+  if (patch.isSelf !== undefined) next.isCurrentUser = patch.isSelf;
   return next;
 };
 

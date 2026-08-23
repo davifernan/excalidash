@@ -1,6 +1,7 @@
 import type { Socket } from "socket.io-client";
-import { buildRemoteSceneUpdate } from "./shared";
 import { withLargeSelectionStatus } from "./remoteSelection";
+import type { CollaborationCapability } from "../../integrations/excalidraw/capabilities";
+import type { CollaboratorInfo, CollaboratorPatch, SocketId } from "../../integrations/excalidraw/types";
 
 export interface Peer {
   presenceId: string;
@@ -12,19 +13,14 @@ export interface Peer {
   isActive: boolean;
 }
 
-type ExcalidrawApi = {
-  getAppState: () => any;
-  updateScene: (scene: any) => void;
-};
-
 export const bindSocketCollaborators = ({
   socket,
-  api,
+  collaboration,
   onPeersChange,
   decorateName = (name) => name,
 }: {
   socket: Socket;
-  api: ExcalidrawApi;
+  collaboration: CollaborationCapability;
   onPeersChange: (peers: Peer[]) => void;
   /**
    * A last say over the name Excalidraw paints beside each cursor.
@@ -41,9 +37,21 @@ export const bindSocketCollaborators = ({
   const cursorBuffer = new Map<string, any>();
   let animationFrameId = 0;
 
-  const updateCollaborators = (collaborators: Map<string, any>) => {
-    const { sceneUpdate } = buildRemoteSceneUpdate({ collaborators });
-    if (sceneUpdate) api.updateScene(sceneUpdate);
+  /**
+   * The room as the editor currently holds it, keyed the way this file thinks.
+   *
+   * A failed read is not silently an empty room: an empty map here would look
+   * like "everybody left" and delete every cursor on the board.
+   */
+  const currentPeers = (): Map<string, CollaboratorInfo> | null => {
+    const read = collaboration.readCollaborators();
+    if (!read.ok) return null;
+    return new Map(read.value.map((peer) => [String(peer.socketId), peer]));
+  };
+
+  const write = (patches: readonly CollaboratorPatch[]) => {
+    if (patches.length === 0) return;
+    collaboration.patchCollaborators(patches);
   };
 
   /**
@@ -56,20 +64,27 @@ export const bindSocketCollaborators = ({
   const renderCursors = () => {
     animationFrameId = 0;
     if (cursorBuffer.size > 0) {
-      const collaborators = new Map<string, any>(api.getAppState().collaborators || []);
+      const peers = currentPeers();
+      if (!peers) {
+        cursorBuffer.clear();
+        return;
+      }
+      const patches: CollaboratorPatch[] = [];
       cursorBuffer.forEach((data, presenceId) => {
-        const existing = collaborators.get(presenceId) || {};
-        collaborators.set(presenceId, {
-          ...existing,
-          ...data,
-          username: withLargeSelectionStatus(
+        const existing = peers.get(presenceId);
+        patches.push({
+          socketId: presenceId as SocketId,
+          pointer: data.pointer ?? null,
+          pointerButton: data.button === "down" ? "down" : "up",
+          color: data.color ?? null,
+          name: withLargeSelectionStatus(
             decorateName(data.username, presenceId),
-            existing.selectionAllSelected === true,
+            existing?.selectionAllSelected === true,
           ),
         });
       });
       cursorBuffer.clear();
-      updateCollaborators(collaborators);
+      write(patches);
       // One more frame, in case cursors arrived while this one was drawing.
       animationFrameId = requestAnimationFrame(renderCursors);
     }
@@ -84,34 +99,42 @@ export const bindSocketCollaborators = ({
     lastPresenceUsers = users;
     const selfId = selfPresenceId || socket.id;
     onPeersChange(users.filter((user) => user.presenceId !== selfId));
-    const collaborators = new Map<string, any>(api.getAppState().collaborators || []);
+    const peers = currentPeers();
+    if (!peers) return;
     const nextPresenceIds = new Set(
       users.filter((user) => user.presenceId !== selfId).map((user) => user.presenceId),
     );
+
+    // Leaving is a removal, not a patch: a patch would merge an empty record
+    // back in and leave a nameless cursor sitting on the board.
+    const gone: SocketId[] = [];
     knownPresenceIds.forEach((presenceId) => {
-      if (!nextPresenceIds.has(presenceId)) collaborators.delete(presenceId);
+      if (!nextPresenceIds.has(presenceId)) gone.push(presenceId as SocketId);
     });
     users.forEach((user) => {
-      if (user.presenceId === selfId) return;
-      if (!user.isActive) {
-        collaborators.delete(user.presenceId);
-        return;
-      }
-      const existing = collaborators.get(user.presenceId) || {};
-      collaborators.set(user.presenceId, {
-        ...existing,
-        id: user.presenceId,
-        username: withLargeSelectionStatus(
+      if (user.presenceId !== selfId && !user.isActive) gone.push(user.presenceId as SocketId);
+    });
+    if (gone.length > 0) collaboration.removeCollaborators(gone);
+
+    const patches: CollaboratorPatch[] = [];
+    users.forEach((user) => {
+      if (user.presenceId === selfId || !user.isActive) return;
+      const existing = peers.get(user.presenceId);
+      patches.push({
+        socketId: user.presenceId as SocketId,
+        name: withLargeSelectionStatus(
           decorateName(user.name, user.presenceId),
-          existing.selectionAllSelected === true,
+          existing?.selectionAllSelected === true,
         ),
-        color: { background: user.color, stroke: user.color },
-        isCurrentUser: false,
-        selectedElementIds: existing.selectedElementIds || {},
+        color: user.color,
+        isSelf: false,
+        // Only when the peer is new. Naming it on every presence update would
+        // wipe a selection that arrived between two updates.
+        ...(existing ? {} : { selectedIds: [] }),
       });
     });
     knownPresenceIds = nextPresenceIds;
-    updateCollaborators(collaborators);
+    write(patches);
   };
 
   const onCursor = (data: any) => {
@@ -135,7 +158,10 @@ export const bindSocketCollaborators = ({
     knownPresenceIds.clear();
     cursorBuffer.clear();
     onPeersChange([]);
-    updateCollaborators(new Map());
+    const peers = currentPeers();
+    if (peers && peers.size > 0) {
+      collaboration.removeCollaborators([...peers.keys()] as SocketId[]);
+    }
   };
 
   /**
