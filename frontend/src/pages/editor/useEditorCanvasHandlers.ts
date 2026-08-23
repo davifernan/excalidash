@@ -1,10 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { MutableRefObject } from "react";
-import {
-  CaptureUpdateAction,
-  convertToExcalidrawElements,
-  viewportCoordsToSceneCoords,
-} from "@excalidraw/excalidraw";
+import { buildElements, HISTORY } from "../../integrations/excalidraw/elements";
+import { readViewport, unprojectPoint } from "../../integrations/excalidraw/viewport";
 import { toast } from "sonner";
 import { getDroppedImageFiles, loadDroppedImageData, MULTI_IMAGE_DROP_GAP } from "./droppedImages";
 import { addDroppedDocumentWidgets, getDocumentDropFiles } from "./documentDrop";
@@ -167,9 +164,9 @@ export const useEditorCanvasHandlers = ({
         if (!drawingId || !excalidrawAPIRef.current) return;
         const appState = excalidrawAPIRef.current.getAppState?.();
         if (!appState) return;
-        const dropPoint = viewportCoordsToSceneCoords(
-          { clientX: event.clientX, clientY: event.clientY },
-          appState,
+        const dropPoint = unprojectPoint(
+          { x: event.clientX, y: event.clientY },
+          readViewport(appState),
         );
         await addDroppedDocumentWidgets({
           canvasApi: excalidrawAPIRef.current,
@@ -189,9 +186,9 @@ export const useEditorCanvasHandlers = ({
       const appState = excalidrawAPIRef.current.getAppState?.();
       if (!appState) return;
       try {
-        const dropPoint = viewportCoordsToSceneCoords(
-          { clientX: event.clientX, clientY: event.clientY },
-          appState,
+        const dropPoint = unprojectPoint(
+          { x: event.clientX, y: event.clientY },
+          readViewport(appState),
         );
         const loadedImages = await Promise.all(droppedImages.map(loadDroppedImageData));
         if (loadedImages.length === 0) return;
@@ -204,7 +201,7 @@ export const useEditorCanvasHandlers = ({
           })),
         );
         let nextY = dropPoint.y;
-        const imageElements = convertToExcalidrawElements(
+        const imageElements = buildElements(
           loadedImages.map((image, index) => {
             const y = index === 0 ? dropPoint.y - image.height / 2 : nextY;
             nextY = y + image.height + MULTI_IMAGE_DROP_GAP;
@@ -230,7 +227,7 @@ export const useEditorCanvasHandlers = ({
               imageElements.map((element: any) => [element.id, true]),
             ),
           },
-          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          captureUpdate: HISTORY.immediate,
         });
       } catch (err) {
         console.error("[Editor] Failed to import dropped images", err);

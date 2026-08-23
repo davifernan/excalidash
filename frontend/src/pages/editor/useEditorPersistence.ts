@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
-import { exportToSvg } from "@excalidraw/excalidraw";
+import { createFileCapability, createSceneCapability } from "../../integrations/excalidraw/adapter";
+import { renderStoredSceneToSvg } from "../../integrations/excalidraw/export";
 import debounce from "lodash/debounce";
 import { toast } from "sonner";
 import * as api from "../../api";
 import { compressExcalidrawFiles } from "../../utils/imageCompression";
 import { reconcileElements } from "../../utils/sync";
 import {
-  CAPTURE_UPDATE_NEVER,
   getFilesDelta,
   heldElementIds,
   getPersistedAppState,
@@ -128,7 +128,11 @@ export const useEditorPersistence = ({
         ) {
           refs.isSyncing.current = true;
           try {
-            refs.excalidrawAPI.current.addFiles(Object.values(persistableFiles));
+            const files = createFileCapability(() => refs.excalidrawAPI.current);
+            const added = files.add(Object.values(persistableFiles) as never);
+            if (!added.ok) {
+              console.error("Failed to hand files to the editor", added.code, added.detail);
+            }
           } finally {
             refs.isSyncing.current = false;
           }
@@ -165,10 +169,17 @@ export const useEditorPersistence = ({
         const mergedFiles = filesToSave ? { ...(latest?.files || {}), ...filesToSave } : undefined;
 
         refs.currentDrawingVersion.current = latestVersion;
-        refs.excalidrawAPI.current?.updateScene({
-          elements: mergedElements,
-          captureUpdate: CAPTURE_UPDATE_NEVER,
-        });
+        // Through the scene capability, with the history flag it speaks rather
+        // than the editor's constant: a rebase is not an undo step somebody
+        // should have to press past to reach their own last action.
+        const scene = createSceneCapability(() => refs.excalidrawAPI.current);
+        const replaced = scene.apply(
+          [{ kind: "replaceElements", elements: mergedElements as never }],
+          { capture: "never" },
+        );
+        if (!replaced.ok) {
+          console.error("Failed to apply the rebased scene", replaced.code, replaced.detail);
+        }
         refs.latestElements.current = mergedElements;
 
         return { elements: mergedElements, files: mergedFiles };
@@ -301,7 +312,9 @@ export const useEditorPersistence = ({
           fallbackElementCount: currentSnapshot.length,
         });
       }
-      const svg = await exportToSvg({
+      // Through the layer, so the board's own thumbnail shows its documents
+      // rather than empty boxes -- the same substitution the export uses.
+      const rendered = await renderStoredSceneToSvg({
         elements: normalizedSnapshot,
         appState: {
           ...appState,
@@ -310,7 +323,15 @@ export const useEditorPersistence = ({
         },
         files: currentFiles,
       });
-      await api.updateDrawing(drawingId, { preview: svg.outerHTML });
+      if (!rendered.ok) {
+        // Reported rather than returned quietly. The capability catches the
+        // throw that used to reach the catch below, and nothing in this tree
+        // subscribes to the diagnostics sink yet -- so without this line a
+        // failed render leaves a stale preview and says nothing to anybody.
+        console.error("Failed to save preview", rendered.code, rendered.detail);
+        return;
+      }
+      await api.updateDrawing(drawingId, { preview: rendered.value.outerHTML });
     } catch (err) {
       console.error("Failed to save preview", err);
     }

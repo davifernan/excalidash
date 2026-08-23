@@ -13,6 +13,7 @@ vi.mock("@excalidraw/excalidraw", () => ({
   zoomToFitBounds: excalidrawMocks.zoomToFitBounds,
 }));
 
+import { createViewportCapability } from "../../integrations/excalidraw/viewport";
 import { bindInviteHere } from "./inviteHere";
 
 const setup = () => {
@@ -30,13 +31,20 @@ const setup = () => {
     zoom: { value: 1 },
     userToFollow: null,
   };
-  const api = { getAppState: () => state, updateScene: vi.fn() };
+  const api = {
+    getAppState: () => state,
+    updateScene: vi.fn(),
+    getSceneElements: () => [],
+  };
+  // The real viewport capability over a stand-in editor, rather than a stand-in
+  // capability: a mock here would prove only that the mock was called.
+  const viewport = createViewportCapability(() => api);
   const onInvitationChange = vi.fn();
   const onStatusChange = vi.fn();
   const controller = bindInviteHere({
     socket: socket as any,
     drawingId: "drawing-1",
-    api,
+    viewport,
     onInvitationChange,
     onStatusChange,
   });

@@ -1,3 +1,6 @@
+import { beginCanvasDrag } from "../integrations/excalidraw/domBridge";
+import { createInteractionCapability } from "../integrations/excalidraw/interaction";
+
 /**
  * Dragging an arrow out of a note.
  *
@@ -97,28 +100,18 @@ export type DragOrigin = {
   pointerType: string;
 };
 
+/**
+ * Arm the arrow tool and start the drag the editor would have received.
+ *
+ * Both halves go through the layer now: the tool through the interaction
+ * capability, the drag through the DOM bridge. The frame between them is the
+ * bridge's business -- the tool is set through React state, and a pointer event
+ * that lands before that commits is read as a selection drag instead.
+ */
 export function beginArrowDrag(api: any, container: HTMLElement | null, origin: DragOrigin): void {
-  const canvas = container?.querySelector<HTMLCanvasElement>(
-    "canvas.excalidraw__canvas.interactive",
-  );
-  if (!api || !canvas) return;
-
-  api.setActiveTool({ type: "arrow" });
-
-  requestAnimationFrame(() => {
-    canvas.dispatchEvent(
-      new PointerEvent("pointerdown", {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        clientX: origin.clientX,
-        clientY: origin.clientY,
-        pointerId: origin.pointerId,
-        pointerType: origin.pointerType || "mouse",
-        button: 0,
-        buttons: 1,
-        isPrimary: true,
-      }),
-    );
-  });
+  if (!api) return;
+  const interaction = createInteractionCapability(() => api);
+  const armed = interaction.setActiveTool({ type: "builtin", name: "arrow" });
+  if (!armed.ok) return;
+  void beginCanvasDrag(container, origin);
 }

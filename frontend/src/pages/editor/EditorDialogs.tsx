@@ -1,5 +1,5 @@
 import React from "react";
-import { CaptureUpdateAction } from "@excalidraw/excalidraw";
+import { HISTORY } from "../../integrations/excalidraw/elements";
 import { ShareModal } from "../../components/ShareModal";
 import { HistoryPanel } from "../../components/HistoryPanel";
 
@@ -69,7 +69,7 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
                 ...snapshot.appState,
                 collaborators: undefined,
               },
-              captureUpdate: CaptureUpdateAction.NEVER,
+              captureUpdate: HISTORY.never,
             });
             return;
           }
@@ -77,7 +77,7 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
             excalidrawAPI.updateScene({
               elements: previewBackupRef.current.elements as any[],
               appState: previewBackupRef.current.appState,
-              captureUpdate: CaptureUpdateAction.NEVER,
+              captureUpdate: HISTORY.never,
             });
             if (previewBackupRef.current.files) {
               excalidrawAPI.addFiles(Object.values(previewBackupRef.current.files));

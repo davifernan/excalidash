@@ -267,6 +267,14 @@ export type SceneOp =
     }
   | { readonly kind: "patch"; readonly id: ElementId; readonly changes: ElementPatch }
   | { readonly kind: "remove"; readonly ids: readonly ElementId[] }
+  /**
+   * Replace the element list wholesale.
+   *
+   * Distinct from replaceDocument: the caller holds elements it produced
+   * itself -- a reconcile against the server, say -- rather than a document
+   * this adapter handed out.
+   */
+  | { readonly kind: "replaceElements"; readonly elements: readonly unknown[] }
   /** Replace the whole scene with a document obtained from this adapter. */
   | { readonly kind: "replaceDocument"; readonly document: SceneDocument }
   | { readonly kind: "select"; readonly ids: readonly ElementId[] }

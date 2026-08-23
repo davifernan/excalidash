@@ -7,6 +7,8 @@
  * the canvas and changes shape on a narrow screen.
  */
 import React, { useEffect, useState } from "react";
+
+import { findToolbarIsland } from "../integrations/excalidraw/domBridge";
 import { createPortal } from "react-dom";
 import { STICKY_COLORS, type StickyColor } from "./stickyNote";
 
@@ -28,7 +30,8 @@ function useAnchor(toolbar: HTMLElement | null) {
     const measure = () => {
       // Measured from the toolbar's outer box so the colours clear the whole
       // island rather than overlapping its lower edge.
-      const island = toolbar.closest(".App-toolbar") ?? toolbar;
+      const found = findToolbarIsland(toolbar);
+      const island = found.ok ? found.value : toolbar;
       const rect = island.getBoundingClientRect();
       const parent = (toolbar.offsetParent as HTMLElement | null)?.getBoundingClientRect();
       setBox({

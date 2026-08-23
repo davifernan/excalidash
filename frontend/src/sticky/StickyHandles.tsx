@@ -14,7 +14,7 @@
  * before it is stored so a change that moves nothing costs nothing.
  */
 import React, { useEffect, useState } from "react";
-import { sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
+import { projectPoint, readViewport } from "../integrations/excalidraw/viewport";
 import {
   HANDLE_SIDES,
   beginArrowDrag,
@@ -73,7 +73,7 @@ function layoutFor(api: any, hoveredId: string | null): Layout | null {
     noteId: note.id,
     dots: HANDLE_SIDES.map((side) => {
       const scene = handlePoint(note, side);
-      const { x, y } = sceneCoordsToViewportCoords({ sceneX: scene.x, sceneY: scene.y }, appState);
+      const { x, y } = projectPoint({ x: scene.x, y: scene.y }, readViewport(appState));
       return { side, x, y };
     }),
   };
@@ -156,9 +156,9 @@ export const StickyHandles: React.FC<Props> = ({ excalidrawAPI, containerRef, ca
             if (!api || !note || !container) return;
 
             const from = startPoint(note, dot.side);
-            const viewport = sceneCoordsToViewportCoords(
-              { sceneX: from.x, sceneY: from.y },
-              api.getAppState(),
+            const viewport = projectPoint(
+              { x: from.x, y: from.y },
+              readViewport(api.getAppState()),
             );
             const rect = container.getBoundingClientRect();
             beginArrowDrag(api, container, {

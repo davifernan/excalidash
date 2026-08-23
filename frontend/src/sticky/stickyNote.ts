@@ -13,7 +13,7 @@
  * bound text element that has no text in it, so anything stored on the label
  * would disappear the first time somebody emptied a note.
  */
-import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
+import { buildElements } from "../integrations/excalidraw/elements";
 
 import {
   readSticky,
@@ -83,7 +83,7 @@ export function createStickyNote(
   y: number,
   color: StickyColor = DEFAULT_STICKY_COLOR,
 ): any {
-  const [rectangle] = convertToExcalidrawElements(
+  const [rectangle] = buildElements(
     [
       {
         type: "rectangle",

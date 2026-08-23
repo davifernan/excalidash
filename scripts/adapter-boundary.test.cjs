@@ -77,6 +77,33 @@ const probes = [
     'export const probe = (el: HTMLElement) =>\n  el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));\n',
   ],
   [
+    // Re-export reaches the package as surely as import, and the first version
+    // of the rule saw only `import`.
+    "package re-export",
+    "reExport.ts",
+    'export { exportToSvg } from "@excalidraw/excalidraw";\n',
+  ],
+  [
+    // An assignment is a write. Only the object-literal form was matched.
+    "customData assignment",
+    "customDataAssign.ts",
+    "export const probe = (element: { customData?: unknown }) => {\n  element.customData = { excalidash: {} };\n};\n",
+  ],
+  [
+    // The interactive canvas, which domBridge.ts lists as an internal selector
+    // and which the word-boundary pattern did not match.
+    "interactive canvas selector",
+    "interactiveCanvas.ts",
+    'export const probe = (el: HTMLElement) =>\n  el.querySelector("canvas.excalidraw__canvas.interactive");\n',
+  ],
+  [
+    // The largest half of the seam: a consumer does not have to name the
+    // package to depend on it -- the handle is passed in.
+    "raw imperative API call",
+    "rawApiCall.ts",
+    "export const probe = (api: { getAppState: () => unknown }) => api.getAppState();\n",
+  ],
+  [
     "direct customData write",
     "customDataWrite.ts",
     "export const probe = (element: { customData?: unknown }) => ({\n  ...element,\n  customData: { excalidash: { schemaVersion: 2 } },\n});\n",
@@ -86,16 +113,15 @@ const probes = [
 const assertStaleExceptionCaught = () => {
   const patched = path.join(root, "scripts", ".adapter-boundary.stale-probe.cjs");
   const source = fs.readFileSync(CHECK, "utf8");
-  const marker = '  "frontend/src/utils/importHelpers.ts",\n]);';
+  // Anchored on the structure, not on a particular entry. The list shrinks as
+  // consumers migrate, and an anchor that is one of its members stops matching
+  // the moment that file is done -- which it did, loudly, on the first batch.
+  const marker = "const PACKAGE_IMPORT_EXCEPTIONS = new Set([";
   if (!source.includes(marker)) {
     throw new Error("Stale probe anchor missing; adapter-boundary.cjs changed shape.");
   }
   const bogus = "frontend/src/utils/never-imported-excalidraw.ts";
-  fs.writeFileSync(
-    patched,
-    source.replace(marker, `  "frontend/src/utils/importHelpers.ts",\n  "${bogus}",\n]);`),
-    "utf8",
-  );
+  fs.writeFileSync(patched, source.replace(marker, `${marker}\n  "${bogus}",`), "utf8");
   try {
     const result = run(patched);
     const output = outputOf(result);

@@ -6,6 +6,8 @@
  * crossing the mobile breakpoint — so anything anchored to it has to be told.
  */
 import { useEffect, useState } from "react";
+
+import { findToolbarSlot, observeStructure } from "../integrations/excalidraw/domBridge";
 import type React from "react";
 
 /**
@@ -22,20 +24,15 @@ export function useToolbarElement(containerRef: React.RefObject<HTMLElement>): H
     if (!container) return;
 
     const find = () => {
-      // The row of tools, not the toolbar's outer box: the outer box stacks its
-      // children vertically, so a button appended there lands on a second row
-      // underneath the tools rather than beside them.
-      const toolbar = container.querySelector<HTMLElement>(".App-toolbar");
-      const found = toolbar?.querySelector<HTMLElement>(".Stack_horizontal") ?? toolbar ?? null;
+      const result = findToolbarSlot(container);
+      const found = result.ok ? result.value : null;
       setToolbar((current) => (current === found ? current : found));
     };
 
     find();
     // The toolbar is unmounted and rebuilt on things like entering zen mode or
     // crossing the mobile breakpoint, and the portal has to follow it.
-    const observer = new MutationObserver(find);
-    observer.observe(container, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return observeStructure(container, find);
   }, [containerRef]);
 
   return toolbar;

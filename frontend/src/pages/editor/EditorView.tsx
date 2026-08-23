@@ -1,5 +1,8 @@
 import React from "react";
-import { Footer, MainMenu } from "@excalidraw/excalidraw";
+import {
+  EditorFooter as Footer,
+  EditorMenu as MainMenu,
+} from "../../integrations/excalidraw/slots";
 import { ArrowLeft, Download, History, LocateFixed, Share2 } from "lucide-react";
 import { Toaster } from "sonner";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";

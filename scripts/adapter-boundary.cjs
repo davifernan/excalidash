@@ -27,44 +27,27 @@ const CUSTOM_DATA_HELPER = path.join(LAYER, "customData.ts");
 /**
  * Files that still import the package directly.
  *
- * Measured on main 85c3919. Sixteen entries; the list is emptied by the
- * consumer migration (NIL-336 to NIL-340), not extended.
+ * Empty. Every consumer goes through a capability, and the layer itself is the
+ * only place that names @excalidraw/excalidraw. All four rules are now closed,
+ * which means an upgrade has one directory to check rather than a repository.
  */
-const PACKAGE_IMPORT_EXCEPTIONS = new Set([
-  "frontend/src/components/LanguageSelector.tsx",
-  "frontend/src/components/drawing-card/useDrawingPreview.ts",
-  "frontend/src/main.tsx",
-  "frontend/src/pages/editor/EditorDialogs.tsx",
-  "frontend/src/pages/editor/EditorView.tsx",
-  "frontend/src/pages/editor/documentDrop.ts",
-  "frontend/src/pages/editor/followMode.ts",
-  "frontend/src/pages/editor/inviteHere.ts",
-  "frontend/src/pages/editor/pdfWidgetElements.ts",
-  "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
-  "frontend/src/pages/editor/useEditorPersistence.ts",
-  "frontend/src/sticky/StickyHandles.tsx",
-  "frontend/src/sticky/stickyFit.ts",
-  "frontend/src/sticky/stickyNormalise.ts",
-  "frontend/src/sticky/stickyNote.ts",
-  "frontend/src/utils/importHelpers.ts",
-]);
+const PACKAGE_IMPORT_EXCEPTIONS = new Set([]);
 
 /** Files that still reach into the editor's own DOM. */
-const DOM_INTERNAL_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/useExcalidrawRoot.ts",
-  "frontend/src/pages/editor/useExcalidrawUiState.ts",
-  "frontend/src/pages/editor/wheelZoom.ts",
-  "frontend/src/sticky/StickyPalette.tsx",
-  "frontend/src/sticky/stickyPlacement.ts",
-  "frontend/src/sticky/useToolbarElement.ts",
-]);
+/**
+ * Files that still reach into the editor's own DOM.
+ *
+ * Empty: every reach now goes through domBridge.ts. This rule is closed.
+ */
+const DOM_INTERNAL_EXCEPTIONS = new Set([]);
 
 /** Files that still synthesise input events. */
-const SYNTHETIC_EVENT_EXCEPTIONS = new Set([
-  "frontend/src/pages/editor/wheelZoom.ts",
-  "frontend/src/sticky/stickyConnect.ts",
-  "frontend/src/sticky/stickyPlacement.ts",
-]);
+/**
+ * Files that still synthesise input events.
+ *
+ * Empty: the Enter, the pointerdown and the wheel all live in domBridge.ts now.
+ */
+const SYNTHETIC_EVENT_EXCEPTIONS = new Set([]);
 
 /**
  * Files that still write customData without the central helper.
@@ -73,6 +56,57 @@ const SYNTHETIC_EVENT_EXCEPTIONS = new Set([
  * the schema, and their old shapes went with them. This rule is closed.
  */
 const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
+
+/**
+ * Files that still call the editor's imperative API directly.
+ *
+ * The fifth rule, and the one the first four missed. They forbid *naming* the
+ * package -- an import, a class, an event, a customData write -- and every one
+ * of them is now closed. But a consumer does not have to name the package to
+ * depend on it: the host hands the imperative handle down as a prop, and the
+ * consumer calls getAppState, updateScene, getSceneElements and the rest on it.
+ *
+ * That is the largest part of the seam by count. The inventory in NIL-331
+ * measured 74 such call sites, and the check reported "0 named exceptions
+ * remaining" while every one of them sat outside the layer. A guard that
+ * reports clean over the biggest hole is worse than no guard, because people
+ * believe it.
+ *
+ * Named, like the others, and emptied by the consumer migration.
+ */
+const RAW_API_EXCEPTIONS = new Set([
+  "frontend/src/pages/editor/EditorDialogs.tsx",
+  "frontend/src/pages/editor/documentDrop.ts",
+  "frontend/src/pages/editor/remoteSelection.ts",
+  "frontend/src/pages/editor/socketCollaborators.ts",
+  "frontend/src/pages/editor/useEditorBroadcast.ts",
+  "frontend/src/pages/editor/useEditorCanvasHandlers.ts",
+  "frontend/src/pages/editor/useEditorCollaboration.ts",
+  "frontend/src/pages/editor/useEditorCommands.ts",
+  "frontend/src/pages/editor/useLibraryImportFromUrl.ts",
+  "frontend/src/sticky/StickyHandles.tsx",
+  "frontend/src/sticky/stickyConnect.ts",
+  "frontend/src/sticky/useStickyHint.ts",
+  "frontend/src/sticky/useStickyKeys.ts",
+  "frontend/src/sticky/useStickyNotes.ts",
+  "frontend/src/sticky/useStickyUpkeep.ts",
+]);
+
+/**
+ * The imperative handle's methods, as measured on the pinned version.
+ *
+ * `updateLibrary` is deliberately absent. This application's own REST client is
+ * also called `api` and also has an updateLibrary, so matching the bare method
+ * name flags a server call as an editor call. A rule that goes red on correct
+ * code trains people to ignore it exactly as surely as one that stays green on
+ * wrong code, and the library seam is covered by the import rule anyway.
+ */
+const RAW_API_PATTERNS = [
+  {
+    name: "raw editor API call",
+    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)\s*\(/,
+  },
+];
 
 /**
  * Both import forms.
@@ -84,6 +118,9 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  */
 const PACKAGE_PATTERNS = [
   { name: "static import", re: /(?:^|\n)\s*import\s[^;]*?from\s*["']@excalidraw\//s },
+  // Re-exporting reaches the package just as surely as importing it, and the
+  // first version of this rule did not see it.
+  { name: "re-export", re: /(?:^|\n)\s*export\s[^;]*?from\s*["']@excalidraw\//s },
   { name: "dynamic import", re: /\bimport\s*\(\s*["']@excalidraw\//s },
   { name: "require", re: /\brequire\s*\(\s*["']@excalidraw\// },
   { name: "side-effect import", re: /(?:^|\n)\s*import\s*["']@excalidraw\// },
@@ -99,6 +136,10 @@ const DOM_INTERNAL_PATTERNS = [
   /\.excalidraw-hyperlinkContainer\b/,
   /\.disable-zen-mode--visible\b/,
   /querySelector[^\n]*["'`][^"'`]*\.excalidraw\b/,
+  // The interactive canvas, which domBridge.ts itself lists as an internal
+  // selector -- and which the word-boundary in the pattern above does not
+  // match, because the class name continues with an underscore.
+  /excalidraw__canvas/,
 ];
 
 const SYNTHETIC_EVENT_PATTERNS = [
@@ -116,7 +157,13 @@ const SYNTHETIC_EVENT_PATTERNS = [
  * `customData:` would flag the correct call as loudly as the wrong one, and a
  * rule that cannot tell them apart teaches people to ignore it.
  */
-const CUSTOM_DATA_WRITE_PATTERNS = [/customData\s*:\s*\{/];
+const CUSTOM_DATA_WRITE_PATTERNS = [
+  /customData\s*:\s*\{/,
+  // An assignment is a write too. Only the object-literal form was matched, so
+  // `element.customData = {...}` walked straight past the rule that exists to
+  // stop exactly that.
+  /\.customData\s*=\s*[^=]/,
+];
 
 /**
  * Keys the stored customData shape used to have.
@@ -191,6 +238,15 @@ const RULES = [
     exceptions: SYNTHETIC_EVENT_EXCEPTIONS,
     allow: (relative) => relative === DOM_BRIDGE.split(path.sep).join("/"),
     message: "synthesises an input event. Those belong in domBridge.ts.",
+  },
+  {
+    id: "raw-api-call",
+    patterns: RAW_API_PATTERNS,
+    exceptions: RAW_API_EXCEPTIONS,
+    allow: (relative) => relative.startsWith(`${LAYER.split(path.sep).join("/")}/`),
+    message:
+      "calls the editor's imperative API directly. Go through a capability from " +
+      "frontend/src/integrations/excalidraw.",
   },
   {
     id: "custom-data-write",

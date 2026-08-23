@@ -1,4 +1,4 @@
-import { exportToSvg } from "@excalidraw/excalidraw";
+import { renderStoredSceneToSvg } from "../integrations/excalidraw/export";
 import { api } from "../api";
 
 type ExcalidrawLikeData = {
@@ -80,12 +80,19 @@ export const extractDrawingData = (
   return { elements, appState, files };
 };
 
+/**
+ * A preview of a scene that came from a file rather than from the editor.
+ *
+ * Through the integration layer, so document widgets are swapped for something
+ * a picture can show instead of exporting as an empty box with a URL (NIL-277).
+ * Returns null when the render fails; the capability has already reported why.
+ */
 export const makeSvgPreview = async (
   elements: any[],
   appState: Record<string, any>,
   files: Record<string, any>,
-) => {
-  return exportToSvg({
+): Promise<SVGSVGElement> => {
+  const rendered = await renderStoredSceneToSvg({
     elements,
     appState: {
       ...appState,
@@ -93,8 +100,15 @@ export const makeSvgPreview = async (
       viewBackgroundColor: appState.viewBackgroundColor || "#ffffff",
     },
     files: files || {},
-    exportPadding: 10,
   });
+  if (!rendered.ok) {
+    // Throws, as this did before going through the layer. Every caller counts
+    // a drawing as imported inside a try/catch, so swallowing the failure here
+    // would import it with an empty preview and report success -- a worse
+    // outcome than the honest failure, because nobody goes looking.
+    throw new Error(`Preview render failed: ${rendered.code} ${rendered.detail ?? ""}`.trim());
+  }
+  return rendered.value;
 };
 
 export const createCollectionResolver = () => {

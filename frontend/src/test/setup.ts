@@ -14,6 +14,42 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
+/**
+ * jsdom has no FontFace, and Excalidraw registers its own fonts as soon as
+ * anything builds an element carrying a label. Without this the export
+ * substitute -- the one thing that has to go through that path to become real
+ * text rather than a decorative property -- cannot be tested at all.
+ *
+ * A stub rather than a polyfill: nothing here measures text, and a stub that
+ * pretends to load makes the registration a no-op instead of a crash.
+ */
+class StubFontFace {
+  family: string;
+  status = "loaded";
+  constructor(family: string) {
+    this.family = family;
+  }
+  load() {
+    return Promise.resolve(this);
+  }
+}
+(globalThis as Record<string, unknown>).FontFace ??= StubFontFace;
+if (typeof document !== "undefined" && !document.fonts) {
+  // configurable, so a test that wants its own font stub can still install one.
+  // Without it this stub locks the property and the follow integration test
+  // fails on redefining it -- a helper that blocks the thing it was helping.
+  Object.defineProperty(document, "fonts", {
+    writable: true,
+    configurable: true,
+    value: {
+      add: vi.fn(),
+      delete: vi.fn(),
+      load: vi.fn(() => Promise.resolve([])),
+      ready: Promise.resolve(),
+    },
+  });
+}
+
 URL.createObjectURL = vi.fn(() => "blob:mock-url");
 URL.revokeObjectURL = vi.fn();
 

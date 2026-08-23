@@ -1,11 +1,13 @@
+import { createCollaborationCapability } from "../../integrations/excalidraw/collaboration";
 import {
-  getVisibleSceneBounds,
-  sceneCoordsToViewportCoords,
-  zoomToFitBounds,
-} from "@excalidraw/excalidraw";
+  createViewportCapability,
+  projectPoint,
+  readViewport,
+} from "../../integrations/excalidraw/viewport";
 import type { Socket } from "socket.io-client";
 
-export type FollowSceneBounds = Parameters<typeof zoomToFitBounds>[0]["bounds"];
+/** Four scene coordinates: minX, minY, maxX, maxY. */
+export type FollowSceneBounds = readonly [number, number, number, number];
 
 export type Follower = {
   presenceId: string;
@@ -50,27 +52,72 @@ export const parseFollowSceneBounds = (value: unknown): FollowSceneBounds | null
   return [x1, y1, x2, y2] as FollowSceneBounds;
 };
 
+/**
+ * Show these bounds, and report what actually happened.
+ *
+ * Through the viewport capability: it applies the fit, hands back the viewport
+ * that resulted, and says whether the zoom was clamped -- which it measures
+ * before the fit, because afterwards the applied zoom is always inside the
+ * limits and the clamp is invisible.
+ */
+/** What a given viewport can see, in scene coordinates. */
+const visibleBoundsOfState = (appState: any) => {
+  const viewport = createViewportCapability(() => ({
+    getAppState: () => appState,
+    updateScene: () => {},
+    getSceneElements: () => [],
+  }));
+  const bounds = viewport.visibleBounds();
+  return bounds.ok ? bounds.value : null;
+};
+
+/** What this person can currently see, in scene coordinates. */
+const visibleBoundsOf = (api: Pick<ExcalidrawApi, "getAppState" | "updateScene">) => {
+  const viewport = createViewportCapability(() => ({
+    getAppState: api.getAppState,
+    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
+    getSceneElements: () => [],
+  }));
+  const bounds = viewport.visibleBounds();
+  return bounds.ok ? bounds.value : null;
+};
+
 export const fitFollowedBounds = (
   api: Pick<ExcalidrawApi, "getAppState" | "updateScene">,
   bounds: FollowSceneBounds,
 ) => {
-  const appState = api.getAppState();
-  const fittedAppState = zoomToFitBounds({
-    appState,
-    bounds,
-    fitToViewport: true,
-    viewportZoomFactor: 1,
-  }).appState;
-  api.updateScene({
-    appState: fittedAppState,
-  });
-  const desiredZoom = Math.min(
-    appState.width / (bounds[2] - bounds[0]),
-    appState.height / (bounds[3] - bounds[1]),
-  );
+  const viewport = createViewportCapability(() => ({
+    getAppState: api.getAppState,
+    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
+    getSceneElements: () => [],
+  }));
+  // Read through the capability, not the handle: this is the state before the
+  // write, and it has to come from the same reading the capability uses.
+  const read = viewport.read();
+  const before = read.ok ? read.value : null;
+  const applied = viewport.showBounds(bounds as never);
+  if (!applied.ok || !before) {
+    return { appState: {}, zoomClamped: false };
+  }
+  // The viewport the capability computed, merged over the state we read before
+  // the write -- NOT a fresh getAppState(). Excalidraw's updateScene goes
+  // through setState on a React 18 class component, so the state read straight
+  // afterwards is still the pre-fit one. Reading it back would show the
+  // follower's indicator at the old rectangle and, worse, store the old bounds
+  // as "last applied", which defeats the echo guard: the next real scroll event
+  // would not match, and the bounds just received would be sent back out.
+  const { viewport: fitted } = applied.value;
   return {
-    appState: { ...appState, ...fittedAppState },
-    zoomClamped: desiredZoom < 0.1 || desiredZoom > 30,
+    appState: {
+      scrollX: fitted.scrollX,
+      scrollY: fitted.scrollY,
+      zoom: { value: fitted.zoom },
+      width: fitted.width,
+      height: fitted.height,
+      offsetLeft: fitted.offsetLeft,
+      offsetTop: fitted.offsetTop,
+    },
+    zoomClamped: applied.value.zoomClamped,
   };
 };
 
@@ -108,21 +155,11 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
 
   return {
     show(bounds: FollowSceneBounds, appState: any, zoomClamped: boolean) {
-      const coordinateState = {
-        zoom: appState.zoom,
-        scrollX: appState.scrollX,
-        scrollY: appState.scrollY,
-        offsetLeft: Number.isFinite(appState.offsetLeft) ? appState.offsetLeft : 0,
-        offsetTop: Number.isFinite(appState.offsetTop) ? appState.offsetTop : 0,
-      };
-      const topLeft = sceneCoordsToViewportCoords(
-        { sceneX: bounds[0], sceneY: bounds[1] },
-        coordinateState,
-      );
-      const bottomRight = sceneCoordsToViewportCoords(
-        { sceneX: bounds[2], sceneY: bounds[3] },
-        coordinateState,
-      );
+      // The viewport that was just computed, not necessarily the one on
+      // screen: the indicator draws where the followed person is looking.
+      const viewport = readViewport(appState);
+      const topLeft = projectPoint({ x: bounds[0], y: bounds[1] }, viewport);
+      const bottomRight = projectPoint({ x: bounds[2], y: bounds[3] }, viewport);
       const containerRect = container.getBoundingClientRect();
       Object.assign(frame.style, {
         display: "block",
@@ -144,6 +181,21 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
   };
 };
 
+/** The capabilities this feature needs, built once per binding. */
+const capabilitiesFor = (api: ExcalidrawApi) => {
+  const handle = () => ({
+    getAppState: api.getAppState,
+    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
+    getSceneElements: () => [],
+    onScrollChange: api.onScrollChange,
+    onUserFollow: api.onUserFollow,
+  });
+  return {
+    viewport: createViewportCapability(handle),
+    collaboration: createCollaborationCapability(handle),
+  };
+};
+
 export const bindFollowMode = ({
   socket,
   drawingId,
@@ -159,6 +211,7 @@ export const bindFollowMode = ({
   onFollowersChange: (followers: Follower[]) => void;
   onFollowInterrupted?: (reason: string) => void;
 }) => {
+  const { collaboration, viewport } = capabilitiesFor(api);
   let followers = new Map<string, Follower>();
   const lastViewportSequence = new Map<string, number>();
   let sendTimer: ReturnType<typeof setTimeout> | null = null;
@@ -199,14 +252,14 @@ export const bindFollowMode = ({
     if (followers.size === 0) return;
     socket.emit("viewport-bounds", {
       drawingId,
-      sceneBounds: getVisibleSceneBounds(api.getAppState()),
+      sceneBounds: visibleBoundsOf(api),
     });
   };
   const scheduleBounds = () => {
     if (applyingIncomingBounds || sendTimer !== null || followers.size === 0) {
       return;
     }
-    const visibleBounds = parseFollowSceneBounds(getVisibleSceneBounds(api.getAppState()));
+    const visibleBounds = parseFollowSceneBounds(visibleBoundsOf(api));
     if (
       visibleBounds &&
       lastAppliedVisibleBounds &&
@@ -222,19 +275,20 @@ export const bindFollowMode = ({
 
   const applyReceivedBounds = () => {
     if (!lastReceivedBounds || !lastReceivedPresenceId) return;
-    if (api.getAppState().userToFollow?.socketId !== lastReceivedPresenceId) return;
+    const following = collaboration.readFollowState();
+    if (!following.ok || following.value.followingSocketId !== lastReceivedPresenceId) return;
     applyingIncomingBounds = true;
     try {
       const fitted = fitFollowedBounds(api, lastReceivedBounds);
-      lastAppliedVisibleBounds = parseFollowSceneBounds(getVisibleSceneBounds(fitted.appState));
+      lastAppliedVisibleBounds = parseFollowSceneBounds(visibleBoundsOfState(fitted.appState));
       viewportIndicator?.show(lastReceivedBounds, fitted.appState, fitted.zoomClamped);
     } finally {
       applyingIncomingBounds = false;
     }
   };
 
-  const unsubscribeFollow = api.onUserFollow((payload) => {
-    const targetPresenceId = payload.userToFollow?.socketId || null;
+  const unsubscribeFollow = collaboration.onFollowIntent((payload) => {
+    const targetPresenceId = payload.targetSocketId;
     const suppressedIndex = suppressedServerActions.findIndex(
       (action) => action.action === payload.action && action.targetPresenceId === targetPresenceId,
     );
@@ -253,11 +307,11 @@ export const bindFollowMode = ({
     viewportIndicator?.hide();
     socket.emit("follow-user", {
       drawingId,
-      targetPresenceId: payload.userToFollow?.socketId,
+      targetPresenceId: payload.targetSocketId ?? undefined,
       action: payload.action,
     });
   });
-  const unsubscribeScroll = api.onScrollChange(scheduleBounds);
+  const unsubscribeScroll = viewport.subscribeScroll(scheduleBounds);
 
   const onFollowedBy = (payload: any) => {
     if (payload?.drawingId !== drawingId || !Array.isArray(payload.followers)) {
@@ -274,9 +328,7 @@ export const bindFollowMode = ({
     }
     followers = next;
     onFollowersChange(Array.from(next.values()));
-    api.updateScene({
-      appState: { followedBy: new Set(next.keys()) },
-    });
+    collaboration.setFollowedBy([...next.keys()] as never);
     if (followers.size > 0) sendBounds();
   };
 
@@ -284,12 +336,13 @@ export const bindFollowMode = ({
     if (payload?.drawingId !== drawingId) return;
     const targetPresenceId =
       typeof payload.followingPresenceId === "string" ? payload.followingPresenceId : null;
-    const appState = api.getAppState();
+    const state = collaboration.readFollowState();
+    const currentTargetId = state.ok ? state.value.followingSocketId : null;
     if (typeof payload.reason === "string") {
       onFollowInterrupted?.(payload.reason);
     }
-    if (appState.userToFollow?.socketId === targetPresenceId) return;
-    const previousTargetId = appState.userToFollow?.socketId || null;
+    if (currentTargetId === targetPresenceId) return;
+    const previousTargetId = currentTargetId;
     suppressServerFeedback(previousTargetId, targetPresenceId);
     lastViewportSequence.clear();
     if (!targetPresenceId) {
@@ -297,16 +350,11 @@ export const bindFollowMode = ({
       lastReceivedPresenceId = null;
       lastAppliedVisibleBounds = null;
       viewportIndicator?.hide();
-      if (appState.userToFollow) {
-        api.updateScene({ appState: { userToFollow: null } });
+      if (currentTargetId) {
+        collaboration.follow(null);
       }
     } else {
-      const collaborator = appState.collaborators?.get?.(targetPresenceId) || {};
-      api.updateScene({
-        appState: {
-          userToFollow: { ...collaborator, socketId: targetPresenceId },
-        },
-      });
+      collaboration.follow(targetPresenceId as never);
     }
   };
 
@@ -318,9 +366,12 @@ export const bindFollowMode = ({
     if ((lastViewportSequence.get(payload.presenceId) || 0) >= payload.sequence) {
       return;
     }
-    const appState = api.getAppState();
-    if (appState.userToFollow?.socketId !== payload.presenceId) return;
-    if (appState.followedBy?.has?.(payload.presenceId)) return;
+    const state = collaboration.readFollowState();
+    if (!state.ok) return;
+    if (state.value.followingSocketId !== payload.presenceId) return;
+    // Somebody following me does not get to move my view: that would be a loop
+    // between two people each following the other.
+    if (state.value.followedBySocketIds.includes(payload.presenceId as never)) return;
     lastViewportSequence.clear();
     lastViewportSequence.set(payload.presenceId, payload.sequence);
     lastReceivedBounds = bounds;
@@ -353,7 +404,7 @@ export const bindFollowMode = ({
     suppressionTimer = null;
     sendTimer = null;
     onFollowersChange([]);
-    api.updateScene({ appState: { followedBy: new Set() } });
+    collaboration.setFollowedBy([]);
   };
 
   const cleanup = () => {
