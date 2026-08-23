@@ -22,7 +22,13 @@ const baseCtx: ChromeSlotContext = {
   newName: "",
   peers: [],
   followers: [],
-  inviteHere: { invitation: null, status: null, invite: vi.fn(), accept: vi.fn(), decline: vi.fn() },
+  inviteHere: {
+    invitation: null,
+    status: null,
+    invite: vi.fn(),
+    accept: vi.fn(),
+    decline: vi.fn(),
+  },
   langCode: "en",
   onBackClick: vi.fn(),
   onNewNameChange: vi.fn(),
@@ -111,7 +117,9 @@ describe("HEADER_CONTROL_ENTRIES", () => {
 describe("renderHeaderControlEntries", () => {
   it("renders nothing when neither control applies", () => {
     const alone: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
-    const output = React.Children.toArray(renderHeaderControlEntries(alone)) as React.ReactElement[];
+    const output = React.Children.toArray(
+      renderHeaderControlEntries(alone),
+    ) as React.ReactElement[];
     expect(output.every((el) => el.props.children == null)).toBe(true);
   });
 });

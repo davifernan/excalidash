@@ -43,10 +43,7 @@ export const DEFAULT_TIMER_POSITION: TimerPosition = {
  * dimension (a portrait rotate, a docked sidebar) does not snap the widget to
  * a corner it was nowhere near.
  */
-export const clampTimerPosition = (
-  position: TimerPosition,
-  bounds: TimerBounds,
-): TimerPosition => {
+export const clampTimerPosition = (position: TimerPosition, bounds: TimerBounds): TimerPosition => {
   const maxRight = Math.max(0, bounds.containerWidth - bounds.widgetWidth);
   const maxBottom = Math.max(0, bounds.containerHeight - bounds.widgetHeight);
   return {

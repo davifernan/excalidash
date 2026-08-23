@@ -267,14 +267,14 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
 export const FOOTER_ENTRIES: FooterSlotEntry[] = [];
 
 export const renderMainMenuEntries = (ctx: ChromeSlotContext): React.ReactNode =>
-  [...MAIN_MENU_ENTRIES].sort(byOrder).map((entry) => (
-    <React.Fragment key={entry.id}>{entry.render(ctx)}</React.Fragment>
-  ));
+  [...MAIN_MENU_ENTRIES]
+    .sort(byOrder)
+    .map((entry) => <React.Fragment key={entry.id}>{entry.render(ctx)}</React.Fragment>);
 
 export const renderHeaderControlEntries = (ctx: ChromeSlotContext): React.ReactNode =>
-  [...HEADER_CONTROL_ENTRIES].sort(byOrder).map((entry) => (
-    <React.Fragment key={entry.id}>{entry.render(ctx)}</React.Fragment>
-  ));
+  [...HEADER_CONTROL_ENTRIES]
+    .sort(byOrder)
+    .map((entry) => <React.Fragment key={entry.id}>{entry.render(ctx)}</React.Fragment>);
 
 export const renderFooterEntries = (ctx: ChromeSlotContext): React.ReactNode => {
   if (FOOTER_ENTRIES.length === 0) return null;
