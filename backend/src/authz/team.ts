@@ -23,6 +23,15 @@ import type { AuthzDb } from "./client";
  * `countActiveAdmins`) -- that authority IS what "team owner" means, so
  * `TeamRole` names it instead of introducing a second, independently
  * assignable role that the two would need to be kept in sync by hand.
+ *
+ * Open contract gap, deliberately not filled here: this module has no
+ * single-member lookup (a `getTeamMember(userId)`) and no `isTeamOwnerRole`
+ * predicate -- an earlier version had both, but neither had a caller
+ * anywhere outside this file's own tests (Hans-Friedrich, PR #58). Adding
+ * them back requires a real consumer, not a guess at one; the first package
+ * that needs "is this specific account a team owner" (a per-member role
+ * badge, a gate on a team-management action) should add it here, next to
+ * `listTeamMembers`, not build its own copy.
  */
 
 export const TEAM_ID = "default";
@@ -38,8 +47,6 @@ export type TeamMember = {
 
 export const teamRoleFromUserRole = (userRole: string): TeamRole =>
   userRole === "ADMIN" ? "owner" : "member";
-
-export const isTeamOwnerRole = (role: TeamRole): boolean => role === "owner";
 
 /** The team row. Always present -- seeded by the migration that created the table. */
 export const getTeam = async (db: AuthzDb): Promise<{ id: string; name: string } | null> =>
@@ -62,19 +69,4 @@ export const listTeamMembers = async (db: AuthzDb): Promise<TeamMember[]> => {
     if (a.role === b.role) return a.name.localeCompare(b.name);
     return a.role === "owner" ? -1 : 1;
   });
-};
-
-/** One member's current standing, or null if they are not an active team member. */
-export const getTeamMember = async (db: AuthzDb, userId: string): Promise<TeamMember | null> => {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true, email: true, role: true, isActive: true },
-  });
-  if (!user || !user.isActive) return null;
-  return {
-    userId: user.id,
-    name: user.name,
-    email: user.email,
-    role: teamRoleFromUserRole(user.role),
-  };
 };
