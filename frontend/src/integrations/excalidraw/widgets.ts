@@ -1,0 +1,121 @@
+/**
+ * Widgets: ExcaliDash documents living on an Excalidraw board.
+ *
+ * A widget is an ordinary embeddable element carrying our own record in
+ * customData. Identification goes through the schema helper, so there is one
+ * answer to "is this ours" rather than one per consumer.
+ */
+
+import { reportFailure } from "./compatibility/diagnostics";
+import type { WidgetCapability, WidgetDescriptor } from "./capabilities";
+import { readWidget, withExcalidashData } from "./customData";
+import { fail, ok, type CapabilityFailure, type CapabilityResult } from "./errors";
+import type { ElementId, ElementSummary, NewElement, SceneOp, ScenePoint } from "./types";
+import { packageVersion } from "./version";
+
+export const WIDGET_LINK = "excalidash://asset-widget";
+
+/** Sizes the editor gives a new widget. Kept here, not at the call site. */
+const SIZES: Record<WidgetDescriptor["kind"], { width: number; height: number }> = {
+  pdf: { width: 480, height: 680 },
+  markdown: { width: 520, height: 560 },
+  text: { width: 520, height: 560 },
+};
+
+export type WidgetApi = {
+  getAppState: () => Record<string, unknown>;
+  /** Whether this viewer may edit at all, as the host was told. */
+  canEdit: () => boolean;
+};
+
+/**
+ * A replacement element for export.
+ *
+ * NIL-277: an embeddable exports as an empty box with its URL, because the
+ * export renders the scene rather than the React tree the widget lives in. The
+ * substitute is a plain rectangle carrying a readable label, which is the same
+ * shape the reader would have seen, minus the interactivity that a static image
+ * could not have had anyway.
+ */
+export const exportSubstitute = (
+  element: ElementSummary,
+  descriptor: WidgetDescriptor,
+): Record<string, unknown> => ({
+  id: `${element.id}-export`,
+  type: "rectangle",
+  x: element.x,
+  y: element.y,
+  width: element.width,
+  height: element.height,
+  angle: element.angle,
+  strokeColor: "#1e1e1e",
+  backgroundColor: "#f5f5f5",
+  fillStyle: "solid",
+  roughness: 0,
+  label: {
+    text: `${descriptor.kind.toUpperCase()} document`,
+    fontSize: 20,
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
+});
+
+export const createWidgetCapability = (getApi: () => WidgetApi | null): WidgetCapability => {
+  const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
+    if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());
+    return result;
+  };
+
+  return {
+    identify(element) {
+      if (element.type !== "embeddable" || element.link !== WIDGET_LINK) return ok(null);
+      const widget = readWidget({ customData: element.customData });
+      if (!widget) return ok(null);
+      return ok({ kind: widget.kind, schemaVersion: 2, assetId: widget.assetId });
+    },
+
+    describe(descriptor, at: ScenePoint) {
+      const size = SIZES[descriptor.kind];
+      if (!size) {
+        return report(fail("invalid-state", "widgets.describe", { detail: "unknown widget kind" }));
+      }
+      const element: NewElement = {
+        id: crypto.randomUUID() as ElementId,
+        type: "embeddable",
+        x: at.x - size.width / 2,
+        y: at.y - size.height / 2,
+        width: size.width,
+        height: size.height,
+        link: WIDGET_LINK,
+        customData: withExcalidashData(
+          {},
+          { widget: { kind: descriptor.kind, assetId: descriptor.assetId } },
+        ),
+      };
+      return ok({ kind: "insert", elements: [element] } satisfies SceneOp);
+    },
+
+    /**
+     * NIL-311, answered by measurement rather than assumption.
+     *
+     * Excalidraw activates an embeddable only after a double click, and that
+     * code path is guarded by `!viewModeEnabled`. The host sets
+     * `viewModeEnabled={!canEdit}`. A read-only visitor therefore cannot
+     * activate the element at all, and its page controls are unreachable --
+     * so the widget must render a static view rather than buttons that do
+     * nothing when pressed.
+     */
+    interactionMode() {
+      const api = getApi();
+      if (!api) {
+        return report(
+          fail("not-ready", "widgets.interactionMode", {
+            detail: "the editor handle is not attached",
+            fallback: "static-widget",
+          }),
+        );
+      }
+      return ok(api.canEdit() ? "interactive" : "read-only");
+    },
+  };
+};
