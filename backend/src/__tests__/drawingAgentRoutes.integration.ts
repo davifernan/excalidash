@@ -1,0 +1,233 @@
+/**
+ * NIL-382: the narrow agent operations surface (`GET .../agent/summary`,
+ * `GET .../agent/elements`, `POST .../agent/ops`) end to end through the
+ * real Express app, a real database, and a real minted agent token -- not
+ * just the auth-layer route gate (auth.agentToken.test.ts, mocked) or the
+ * pure op-application function (agent/applyOps.test.ts, no HTTP/DB at all).
+ */
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import request from "supertest";
+import bcrypt from "bcrypt";
+import jwt, { SignOptions } from "jsonwebtoken";
+import { StringValue } from "ms";
+import { PrismaClient } from "../generated/client";
+import { config } from "../config";
+import { getTestPrisma, setupTestDb } from "./testUtils";
+
+describe("Agent operations routes (NIL-382)", () => {
+  const userAgent = "vitest-agent-ops-routes";
+  let prisma: PrismaClient;
+  let app: any;
+
+  let owner: { id: string; email: string };
+  let ownerToken: string;
+  let ownerAgent: any;
+  let ownerCsrfHeaderName: string;
+  let ownerCsrfToken: string;
+
+  let drawingId: string;
+  let agentToken: string;
+  let readOnlyAgentToken: string;
+
+  const signAccessToken = (user: { id: string; email: string }) => {
+    const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
+    return jwt.sign({ userId: user.id, email: user.email, type: "access" }, config.jwtSecret, signOptions);
+  };
+
+  const mintAgentToken = async (scopes?: string[]) => {
+    const res = await ownerAgent
+      .post("/auth/api-keys")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken)
+      .send({ name: "Agent", drawingId, ...(scopes ? { scopes } : {}) });
+    expect(res.status).toBe(201);
+    return res.body.token as string;
+  };
+
+  beforeAll(async () => {
+    setupTestDb();
+    prisma = getTestPrisma();
+    ({ app } = await import("../index"));
+
+    await prisma.systemConfig.upsert({
+      where: { id: "default" },
+      update: { authEnabled: true, registrationEnabled: false },
+      create: { id: "default", authEnabled: true, registrationEnabled: false },
+    });
+
+    const passwordHash = await bcrypt.hash("password123", 10);
+    owner = await prisma.user.create({
+      data: { email: "agent-ops-owner@test.local", passwordHash, name: "Owner", role: "USER", isActive: true },
+      select: { id: true, email: true },
+    });
+    ownerToken = signAccessToken(owner);
+
+    ownerAgent = request.agent(app);
+    const csrfRes = await ownerAgent.get("/csrf-token").set("User-Agent", userAgent);
+    ownerCsrfHeaderName = csrfRes.body.header;
+    ownerCsrfToken = csrfRes.body.token;
+
+    const drawing = await prisma.drawing.create({
+      data: {
+        name: "Agent Board",
+        elements: JSON.stringify([{ id: "el-1", type: "rectangle", x: 0, y: 0, isDeleted: false }]),
+        appState: "{}",
+        files: "{}",
+        userId: owner.id,
+      },
+      select: { id: true },
+    });
+    drawingId = drawing.id;
+
+    agentToken = await mintAgentToken();
+    readOnlyAgentToken = await mintAgentToken(["drawing:read"]);
+  }, 120000);
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("GET .../agent/summary counts live elements by type, excluding isDeleted", async () => {
+    const res = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.elementCount).toBe(1);
+    expect(res.body.elementCountsByType).toEqual({ rectangle: 1 });
+    expect(typeof res.body.version).toBe("number");
+  });
+
+  it("GET .../agent/elements returns the full lossless element list", async () => {
+    const res = await request(app).get(`/drawings/${drawingId}/agent/elements`).set("Authorization", `Bearer ${agentToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.elements).toHaveLength(1);
+    expect(res.body.elements[0].id).toBe("el-1");
+  });
+
+  it("a read-only agent token (drawing:read only) can read but not apply ops", async () => {
+    const summary = await request(app)
+      .get(`/drawings/${drawingId}/agent/summary`)
+      .set("Authorization", `Bearer ${readOnlyAgentToken}`);
+    expect(summary.status).toBe(200);
+
+    const version = summary.body.version as number;
+    const ops = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${readOnlyAgentToken}`)
+      .send({ version, ops: [{ op: "create", element: { type: "ellipse", x: 1, y: 1 } }] });
+    // These routes use optionalAuth: a request that fails
+    // isApiKeyRequestAuthorized() gets req.authError set and never attaches a
+    // principal, so the route's own access check sees "no principal" and
+    // respondWithAuthErrorIfPresent answers 401 -- the same "invalid token"
+    // shape every other optionalAuth route in this codebase uses for a
+    // rejected API key, not a 403.
+    expect(ops.status).toBe(401);
+  });
+
+  it("REAL ATTACK: an agent token bound to this board is refused on a different board's agent routes", async () => {
+    const other = await prisma.drawing.create({
+      data: { name: "Someone else's board", elements: "[]", appState: "{}", files: "{}", userId: owner.id },
+      select: { id: true },
+    });
+    const res = await request(app)
+      .get(`/drawings/${other.id}/agent/summary`)
+      .set("Authorization", `Bearer ${agentToken}`);
+    expect(res.status).toBe(401);
+  });
+
+  it("REAL ATTACK: an agent token is refused on the full-scene PUT for its own board -- the agent surface is the three agent routes, not the whole board", async () => {
+    const res = await request(app)
+      .put(`/drawings/${drawingId}`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .send({ version: 1, elements: [], appState: {} });
+    expect(res.status).toBe(401);
+  });
+
+  it("POST .../agent/ops applies create/update/delete atomically and bumps the version", async () => {
+    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const version = before.body.version as number;
+
+    const res = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .send({
+        version,
+        ops: [
+          { op: "create", element: { type: "ellipse", x: 5, y: 5 } },
+          { op: "update", id: "el-1", patch: { x: 10 } },
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.version).toBe(version + 1);
+    const live = res.body.elements.filter((element: any) => !element.isDeleted);
+    expect(live).toHaveLength(2);
+    const updatedRect = res.body.elements.find((element: any) => element.id === "el-1");
+    expect(updatedRect.x).toBe(10);
+    // Seeded with no `version` field at all -- applyOperations treats a
+    // missing version as 0, so its first update lands at 1, not 2.
+    expect(updatedRect.version).toBe(1);
+
+    const created = res.body.elements.find((element: any) => element.type === "ellipse");
+    expect(created.id).not.toBe("el-1");
+    expect(created.version).toBe(1);
+  });
+
+  it("rejects a batch that references an unknown element id, discarding the WHOLE batch -- not the valid ops within it", async () => {
+    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const version = before.body.version as number;
+
+    const res = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .send({
+        version,
+        ops: [
+          { op: "create", element: { type: "diamond", x: 0, y: 0 } },
+          { op: "update", id: "does-not-exist", patch: { x: 1 } },
+        ],
+      });
+    expect(res.status).toBe(400);
+
+    const after = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    // Version unchanged, and no "diamond" element appeared -- the valid op in
+    // the same batch as the failing one was NOT applied on its own.
+    expect(after.body.version).toBe(version);
+    expect(after.body.elementCountsByType.diamond).toBeUndefined();
+  });
+
+  it("rejects a batch computed against a stale version (VERSION_CONFLICT), same optimistic-concurrency contract as the full-scene PUT", async () => {
+    const res = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      // A large-but-valid version, not -1: opsBatchSchema's version field is
+      // z.number().int().nonnegative(), so a negative number fails Zod
+      // validation (400) before ever reaching the semantic version-conflict
+      // check this test means to exercise.
+      .send({ version: 999999, ops: [{ op: "create", element: { type: "text", x: 0, y: 0 } }] });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("VERSION_CONFLICT");
+  });
+
+  it("rejects a batch that tries to set server-assigned fields (id/version/versionNonce)", async () => {
+    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const res = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .send({
+        version: before.body.version,
+        ops: [{ op: "create", element: { type: "text", x: 0, y: 0, version: 999 } }],
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a batch over the MAX_OPS_PER_BATCH limit", async () => {
+    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const res = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .send({
+        version: before.body.version,
+        ops: Array.from({ length: 51 }, () => ({ op: "create", element: { type: "text", x: 0, y: 0 } })),
+      });
+    expect(res.status).toBe(400);
+  });
+});
