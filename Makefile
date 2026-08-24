@@ -166,6 +166,9 @@ test-watch: ## Run tests in watch mode
 		(cd backend && npm run test:watch) & \
 		wait
 
+excalidraw-canary: ## Check whether a different @excalidraw/excalidraw version breaks our adapter (VERSION=x, default: npm "latest")
+	node scripts/excalidraw-canary-check.cjs $(VERSION)
+
 docker-build: ## Build Docker images locally
 	@echo "Building Docker images..."
 	docker compose build
