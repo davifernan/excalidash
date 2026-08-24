@@ -11,6 +11,7 @@ import {
   ImportValidationError,
   RegisterImportExportDeps,
   getUserTrashCollectionId,
+  groupDrawingFileIdsByDrawing,
   resolveSafeUploadedFilePath,
 } from "./shared";
 import {
@@ -48,7 +49,7 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
         };
         const manifest = await parseManifest(archive, budget, deps.MAX_IMPORT_MANIFEST_BYTES);
         validateManifestReferences(archive, manifest, deps);
-        if (manifest.formatVersion === 2) {
+        if (manifest.formatVersion !== 1) {
           for (const blob of manifest.blobs) {
             await verifyEntrySha256(
               archive,
@@ -65,7 +66,8 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
           excalidashBackendVersion: manifest.excalidashBackendVersion || null,
           collections: manifest.collections.length,
           drawings: manifest.drawings.length,
-          documents: manifest.formatVersion === 2 ? manifest.assets.length : 0,
+          documents: manifest.formatVersion === 1 ? 0 : manifest.assets.length,
+          boardImages: manifest.formatVersion === 3 ? manifest.drawingFiles.length : 0,
         });
       } catch (error) {
         if (error instanceof ImportValidationError) {
@@ -118,7 +120,7 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
         }
 
         const preparedSnapshots: PreparedSnapshot[] = [];
-        if (manifest.formatVersion === 2) {
+        if (manifest.formatVersion !== 1) {
           for (const snapshot of manifest.snapshots) {
             const raw = await archive.readBuffer(
               requireEntry(archive, snapshot.filePath),
@@ -134,8 +136,12 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
 
         const finalDrawingIdMap = new Map<string, string>();
         for (const prepared of preparedDrawings) {
-          // An id that belongs to somebody else is re-keyed, never overwritten.
-          // "absent" and "owned" both keep the id; only a foreign claim moves it.
+          // V3 restores are always copies, so every board gets a new identity.
+          // Older formats keep an absent/owned id and only re-key a foreign claim.
+          if (manifest.formatVersion === 3) {
+            finalDrawingIdMap.set(prepared.id, uuidv4());
+            continue;
+          }
           const claim = await claimOnBoard({
             db: prisma,
             userId: req.user.id,
@@ -148,7 +154,10 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
         const blobIdMap = new Map<string, string>();
         const newBlobRows = new Map<string, any>();
         const repairedBlobRows = new Map<string, any>();
-        if (manifest.formatVersion === 2) {
+        const imageBlobIds = new Set(
+          manifest.formatVersion === 3 ? manifest.drawingFiles.map((file) => file.blobId) : [],
+        );
+        if (manifest.formatVersion !== 1) {
           for (const asset of manifest.assets) assetIdMap.set(asset.id, randomUUID());
           for (const prepared of preparedDrawings)
             remapAssetIds(prepared.sanitized.elements, assetIdMap);
@@ -199,9 +208,34 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               throw new ImportValidationError(`Document sha256 mismatch: ${blob.filePath}`);
             }
             blobIdMap.set(blob.id, finalBlobId);
-            newBlobRows.set(finalBlobId, stored);
+            newBlobRows.set(finalBlobId, {
+              ...stored,
+              purpose: imageBlobIds.has(blob.id) ? "IMAGE" : "ASSET",
+            });
           }
         }
+
+        const drawingFileIdsByDrawing = groupDrawingFileIdsByDrawing(
+          manifest.formatVersion === 3 ? manifest.drawingFiles : [],
+        );
+        const pointFilesAtImportedDrawing = (
+          sourceDrawingId: string,
+          files: Record<string, any>,
+        ): Record<string, any> => {
+          if (manifest.formatVersion !== 3) return files;
+          const finalDrawingId = finalDrawingIdMap.get(sourceDrawingId)!;
+          const linkedFileIds = drawingFileIdsByDrawing.get(sourceDrawingId) ?? new Set<string>();
+          const remapped = { ...files };
+          for (const fileId of linkedFileIds) {
+            const file = remapped[fileId];
+            if (!file || typeof file !== "object" || Array.isArray(file)) continue;
+            remapped[fileId] = {
+              ...file,
+              dataURL: `/api/files/${finalDrawingId}/${fileId}`,
+            };
+          }
+          return remapped;
+        };
 
         const processedFilesMap = new Map<string, Record<string, any>>();
         const concurrency = 8;
@@ -211,7 +245,7 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
             .map(async (prepared) => ({
               id: prepared.id,
               files: await processEmbeddedImages(
-                prepared.sanitized.files || {},
+                pointFilesAtImportedDrawing(prepared.id, prepared.sanitized.files || {}),
                 req.user!.id,
                 finalDrawingIdMap.get(prepared.id)!,
               ),
@@ -230,6 +264,7 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
                 storedBytes: stored.storedBytes,
                 contentEncoding: stored.contentEncoding,
                 storageKey: stored.storageKey,
+                purpose: stored.purpose,
                 state: "READY",
               },
             });
@@ -297,11 +332,6 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
           };
 
           for (const prepared of preparedDrawings) {
-            const boardClaim = await claimOnBoard({
-              db: tx,
-              userId: req.user!.id,
-              boardId: prepared.id,
-            });
             const finalId = finalDrawingIdMap.get(prepared.id)!;
             const data = {
               name: prepared.name,
@@ -312,6 +342,16 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               version: prepared.version ?? 1,
               collectionId: resolveCollectionId(prepared.collectionId),
             };
+            if (manifest.formatVersion === 3) {
+              await tx.drawing.create({ data: { id: finalId, ...data, userId: req.user!.id } });
+              drawingsCreated += 1;
+              continue;
+            }
+            const boardClaim = await claimOnBoard({
+              db: tx,
+              userId: req.user!.id,
+              boardId: prepared.id,
+            });
             if (boardClaim !== "owned") {
               await tx.drawing.create({ data: { id: finalId, ...data, userId: req.user!.id } });
               drawingsCreated += 1;
@@ -323,7 +363,7 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
             }
           }
 
-          if (manifest.formatVersion === 2) {
+          if (manifest.formatVersion !== 1) {
             for (const asset of manifest.assets) {
               await tx.asset.create({
                 data: {
@@ -351,6 +391,19 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
                 },
               });
             }
+            if (manifest.formatVersion === 3) {
+              for (const link of manifest.drawingFiles) {
+                await tx.drawingFile.create({
+                  data: {
+                    drawingId: finalDrawingIdMap.get(link.drawingId)!,
+                    fileId: link.fileId,
+                    blobId: blobIdMap.get(link.blobId)!,
+                    ownerUserId: req.user!.id,
+                    mimeType: link.mimeType,
+                  },
+                });
+              }
+            }
             for (const snapshot of preparedSnapshots) {
               const snapshotId = randomUUID();
               await tx.drawingSnapshot.create({
@@ -360,7 +413,9 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
                   version: snapshot.version,
                   elements: JSON.stringify(snapshot.sanitized.elements),
                   appState: JSON.stringify(snapshot.sanitized.appState),
-                  files: JSON.stringify(snapshot.sanitized.files || {}),
+                  files: JSON.stringify(
+                    pointFilesAtImportedDrawing(snapshot.drawingId, snapshot.sanitized.files || {}),
+                  ),
                   createdAt: snapshot.createdAt ? new Date(snapshot.createdAt) : undefined,
                 },
               });
@@ -382,7 +437,8 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               updated: drawingsUpdated,
               idConflicts: drawingIdConflicts,
             },
-            documents: manifest.formatVersion === 2 ? manifest.assets.length : 0,
+            documents: manifest.formatVersion === 1 ? 0 : manifest.assets.length,
+            boardImages: manifest.formatVersion === 3 ? manifest.drawingFiles.length : 0,
           };
         });
         committed = true;

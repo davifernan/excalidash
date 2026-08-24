@@ -5,13 +5,14 @@ import { PassThrough, Readable } from "node:stream";
 import express from "express";
 import JSZip from "jszip";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../../generated/client";
 import { createAsset } from "../../assets/assetService";
 import { registerAssetRoutes } from "../../assets/assetRoutes";
 import { resolveStoragePath } from "../../assets/assetStorage";
 import { createSqliteBackup } from "../../backups/scheduler";
 import { createTestUser, getTestPrisma, setupTestDb } from "../../__tests__/testUtils";
+import { registerFileRoutes } from "../files";
 import { sanitizeText, validateImportedDrawing } from "../../security";
 import { encodeSnapshotField } from "../../snapshots/snapshotCodec";
 import { registerExcalidashImportRoutes } from "./excalidashImportRoutes";
@@ -31,8 +32,9 @@ describe("document backup and export round trip", () => {
     await prisma.drawingAsset.deleteMany({});
     await prisma.drawingSnapshot.deleteMany({});
     await prisma.asset.deleteMany({});
-    await prisma.storedBlob.deleteMany({});
+    await prisma.drawingFile.deleteMany({});
     await prisma.drawing.deleteMany({});
+    await prisma.storedBlob.deleteMany({});
     await prisma.collection.deleteMany({});
     await prisma.user.deleteMany({});
   };
@@ -139,6 +141,25 @@ describe("document backup and export round trip", () => {
     return Buffer.concat(chunks);
   };
 
+  const fileRouteApp = (userId: string) => {
+    const app = express();
+    const auth = (req: any, _res: any, next: any) => {
+      req.user = { id: userId };
+      next();
+    };
+    registerFileRoutes(app, {
+      prisma,
+      requireAuth: auth,
+      optionalAuth: auth,
+      asyncHandler: (handler: any) => (req: any, res: any, next: any) =>
+        Promise.resolve(handler(req, res, next)).catch(next),
+      storageDir: assetStorageDir,
+      maxImageUploadBytes: MIB,
+      maxPerUserBytes: 5 * MIB,
+    });
+    return app;
+  };
+
   it("imports its own export after upload optimization changes the PDF hash", async () => {
     const user = await createTestUser(prisma, "roundtrip@example.com");
     const drawing = await prisma.drawing.create({
@@ -224,7 +245,7 @@ describe("document backup and export round trip", () => {
     const manifest = JSON.parse(
       await parsedArchive.file("excalidash.manifest.json")!.async("string"),
     );
-    expect(manifest.formatVersion).toBe(2);
+    expect(manifest.formatVersion).toBe(3);
     expect(manifest.blobs[0].sha256).toBe(created.blob.sha256);
     expect(await parsedArchive.file(manifest.blobs[0].filePath)!.async("nodebuffer")).toEqual(
       optimizedPdf,
@@ -251,11 +272,12 @@ describe("document backup and export round trip", () => {
     await importHandler({ user: { id: user.id }, file: { filename: stagedFilename } }, response);
     expect(response.statusCode, JSON.stringify(response.body)).toBe(200);
 
-    const restoredDrawing = await prisma.drawing.findUnique({ where: { id: drawing.id } });
+    const restoredDrawing = await prisma.drawing.findFirst({ where: { userId: user.id } });
     const restoredAsset = await prisma.asset.findFirst({
       include: { blob: true, drawings: true, snapshots: true },
     });
     expect(restoredDrawing).toBeTruthy();
+    expect(restoredDrawing!.id).not.toBe(drawing.id);
     expect(restoredAsset?.originalName).toBe("proof.pdf");
     expect(restoredAsset?.drawings).toHaveLength(1);
     expect(restoredAsset?.snapshots).toHaveLength(1);
@@ -266,6 +288,106 @@ describe("document backup and export round trip", () => {
       resolveStoragePath(assetStorageDir, restoredAsset!.blob.storageKey),
     );
     expect(restoredBytes).toEqual(optimizedPdf);
+  });
+
+  it("restores an uploaded board image on an empty instance with new drawing and blob ids", async () => {
+    const sourceUser = await createTestUser(prisma, "image-source@example.com");
+    const sourceDrawing = await prisma.drawing.create({
+      data: {
+        name: "Portable image board",
+        elements: JSON.stringify([{ id: "image-element", type: "image", fileId: "image-file" }]),
+        appState: "{}",
+        userId: sourceUser.id,
+      },
+    });
+    const imageBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/58BAwAI/AL+hc2rNAAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    await request(fileRouteApp(sourceUser.id))
+      .put(`/files/${sourceDrawing.id}/image-file`)
+      .set("Content-Type", "image/png")
+      .send(imageBytes)
+      .expect(200);
+    await prisma.drawing.update({
+      where: { id: sourceDrawing.id },
+      data: {
+        files: JSON.stringify({
+          "image-file": {
+            id: "image-file",
+            mimeType: "image/png",
+            dataURL: `/api/files/${sourceDrawing.id}/image-file`,
+          },
+        }),
+      },
+    });
+    const sourceFile = await prisma.drawingFile.findUnique({
+      where: {
+        drawingId_fileId: { drawingId: sourceDrawing.id, fileId: "image-file" },
+      },
+    });
+    expect(sourceFile).toBeTruthy();
+
+    const { exportHandler, importHandler } = routeHarness();
+    const archive = await exportArchive(exportHandler, sourceUser.id);
+
+    // The target is a genuinely empty instance: no source account, drawing,
+    // blob row, or original bytes survive outside the downloaded archive.
+    await clearDatabase();
+    await fs.rm(assetStorageDir, { recursive: true, force: true });
+    await fs.mkdir(assetStorageDir, { recursive: true });
+    const targetUser = await createTestUser(prisma, "image-target@example.com");
+    const drawingLookup = vi.spyOn(prisma.drawing, "findUnique");
+    const stagedFilename = "c".repeat(32);
+    await fs.writeFile(join(uploadDir, stagedFilename), archive);
+    const response: any = {
+      statusCode: 200,
+      status(code: number) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body: unknown) {
+        this.body = body;
+        return this;
+      },
+    };
+    await importHandler(
+      { user: { id: targetUser.id }, file: { filename: stagedFilename } },
+      response,
+    );
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(200);
+    expect(drawingLookup).not.toHaveBeenCalled();
+    drawingLookup.mockRestore();
+
+    const restoredDrawing = await prisma.drawing.findFirst({ where: { userId: targetUser.id } });
+    const restoredFile = restoredDrawing
+      ? await prisma.drawingFile.findUnique({
+          where: {
+            drawingId_fileId: {
+              drawingId: restoredDrawing.id,
+              fileId: "image-file",
+            },
+          },
+          include: { blob: true },
+        })
+      : null;
+    if (!restoredDrawing || !restoredFile) {
+      throw new Error(
+        "DATA LOSS: the fresh-instance restore lost the board image DrawingFile mapping",
+      );
+    }
+
+    expect(restoredDrawing.id).not.toBe(sourceDrawing.id);
+    expect(restoredFile.blobId).not.toBe(sourceFile!.blobId);
+    expect(restoredFile.blob.purpose).toBe("IMAGE");
+    expect(JSON.parse(restoredDrawing.files)["image-file"].dataURL).toBe(
+      `/api/files/${restoredDrawing.id}/image-file`,
+    );
+    const downloaded = await request(fileRouteApp(targetUser.id))
+      .get(`/files/${restoredDrawing.id}/image-file`)
+      .expect(200)
+      .expect("Content-Type", /image\/png/);
+    expect(Buffer.from(downloaded.body)).toEqual(imageBytes);
   });
 
   it("scheduled backup stores SQLite and originals but excludes the render cache", async () => {
@@ -286,6 +408,19 @@ describe("document backup and export round trip", () => {
         source: Readable.from([bytes]),
       },
     );
+    const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    await request(fileRouteApp(user.id))
+      .put(`/files/${drawing.id}/scheduled-image`)
+      .set("Content-Type", "image/png")
+      .send(imageBytes)
+      .expect(200);
+    const imageFile = await prisma.drawingFile.findUnique({
+      where: {
+        drawingId_fileId: { drawingId: drawing.id, fileId: "scheduled-image" },
+      },
+      include: { blob: true },
+    });
+    expect(imageFile?.blob.purpose).toBe("IMAGE");
     const cachePath = resolveStoragePath(assetStorageDir, "cache/asset/page.svg");
     await fs.mkdir(join(assetStorageDir, "cache/asset"), { recursive: true });
     await fs.writeFile(cachePath, "recomputable");
@@ -303,6 +438,9 @@ describe("document backup and export round trip", () => {
     expect(archive.file("database.sqlite")).toBeTruthy();
     expect(await archive.file(`assets/${created.blob.storageKey}`)!.async("nodebuffer")).toEqual(
       bytes,
+    );
+    expect(await archive.file(`assets/${imageFile!.blob.storageKey}`)!.async("nodebuffer")).toEqual(
+      imageBytes,
     );
     expect(Object.keys(archive.files).some((name) => name.includes("/cache/"))).toBe(false);
   });

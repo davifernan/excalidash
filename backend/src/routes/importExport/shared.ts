@@ -96,12 +96,45 @@ const excalidashManifestSchemaV2 = z.object({
   ),
 });
 
+const excalidashManifestSchemaV3 = excalidashManifestSchemaV2.extend({
+  formatVersion: z.literal(3),
+  drawingFiles: z.array(
+    z.object({
+      drawingId: z.string().min(1),
+      fileId: z.string().regex(/^[\w-]{1,200}$/),
+      blobId: z.string().min(1),
+      mimeType: z.enum([
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/avif",
+        "image/bmp",
+        "image/svg+xml",
+      ]),
+    }),
+  ),
+});
+
 export const excalidashManifestSchema = z.discriminatedUnion("formatVersion", [
   excalidashManifestSchemaV1,
   excalidashManifestSchemaV2,
+  excalidashManifestSchemaV3,
 ]);
 
 export type ExcalidashManifest = z.infer<typeof excalidashManifestSchema>;
+
+export const groupDrawingFileIdsByDrawing = (
+  drawingFiles: readonly { drawingId: string; fileId: string }[],
+): Map<string, Set<string>> => {
+  const fileIdsByDrawing = new Map<string, Set<string>>();
+  for (const file of drawingFiles) {
+    const fileIds = fileIdsByDrawing.get(file.drawingId) ?? new Set<string>();
+    fileIds.add(file.fileId);
+    fileIdsByDrawing.set(file.drawingId, fileIds);
+  }
+  return fileIdsByDrawing;
+};
 
 export type RegisterImportExportDeps = {
   app: express.Express;

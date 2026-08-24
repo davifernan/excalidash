@@ -81,6 +81,7 @@ describe("ExcaliDash backup round trip", () => {
         findFirst: async () => null,
       },
       drawingAsset: { findMany: async () => [] },
+      drawingFile: { findMany: async () => [] },
       drawingSnapshot: { findMany: async () => [] },
       storedBlob: { findUnique: async () => null },
       s3File: {},

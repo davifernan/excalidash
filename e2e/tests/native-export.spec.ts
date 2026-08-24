@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { createDrawing, deleteDrawing } from "./helpers/api";
-import { openEditor } from "./helpers/editor";
+import { createHash } from "node:crypto";
+import { createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
+import { injectNoiseImage, openEditor } from "./helpers/editor";
 
 /**
  * NIL-340 -- the "Export" half of M1's Pflichtpfad "Widgets/Read-only/Export".
@@ -69,9 +70,7 @@ test("Export drawing downloads a .excalidraw file carrying the current scene", a
     }, rect);
     await expect
       .poll(async () =>
-        page.evaluate(
-          () => (window as any).__EXCALIDASH_TEST__.getSceneElements().length,
-        ),
+        page.evaluate(() => (window as any).__EXCALIDASH_TEST__.getSceneElements().length),
       )
       .toBe(1);
 
@@ -93,6 +92,44 @@ test("Export drawing downloads a .excalidraw file carrying the current scene", a
     expect(contents.elements).toHaveLength(1);
     expect(contents.elements[0].id).toBe(rect.id);
     expect(contents.elements[0].type).toBe("rectangle");
+  } finally {
+    await deleteDrawing(request, drawing.id);
+  }
+});
+
+test("Export drawing bundles a stored board image instead of its source-instance URL", async ({
+  page,
+  request,
+}) => {
+  const drawing = await createDrawing(request, {
+    name: `NIL547_PortableNativeExport_${Date.now()}`,
+    elements: [],
+  });
+
+  try {
+    await openEditor(page, drawing.id);
+    const inserted = await injectNoiseImage(page, {
+      targetBytes: 12_000,
+      elementId: "nil547-native-image",
+      withHash: true,
+    });
+    await expect
+      .poll(async () => (await getDrawing(request, drawing.id)).files?.[inserted.fileId]?.dataURL)
+      .toBe(`/api/files/${drawing.id}/${inserted.fileId}`);
+
+    await openMenu(page);
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByText("Export drawing").click(),
+    ]);
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    const contents = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+    const exportedDataUrl = contents.files[inserted.fileId].dataURL as string;
+    expect(exportedDataUrl).toMatch(/^data:image\/png;base64,/);
+    const exportedBytes = Buffer.from(exportedDataUrl.split(",", 2)[1], "base64");
+    expect(createHash("sha1").update(exportedBytes).digest("hex")).toBe(inserted.fileId);
   } finally {
     await deleteDrawing(request, drawing.id);
   }
