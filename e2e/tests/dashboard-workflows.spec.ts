@@ -161,36 +161,28 @@ test.describe("Dashboard Workflows", () => {
       return results.length;
     }, { timeout: 15000 }).toBe(4);
 
-    await applyDashboardSearch(page, prefix);
     await expect(page.locator("[id^='drawing-card-']")).toHaveCount(4);
 
-    // Select All and the click that follows it are retried *as one unit*: a
-    // list re-render (the search refetch settling) drops the selection, and
-    // then "Move to Trash" stays disabled forever -- asserting enabled once
-    // and clicking afterwards is exactly the gap that made this flake. The
-    // observed failure was 112 click retries against a button that never
-    // became enabled again, burning the whole 60s test budget (NIL-508/511).
-    // Every wait here is bounded so a stuck state fails in seconds with a
-    // readable message instead of eating the budget.
-    const bulkMoveToTrash = async () => {
-      await expect(async () => {
-        await page.getByTitle("Select All").click();
-        await expect(page.getByTitle("Move to Trash")).toBeEnabled({ timeout: 2_000 });
-        await page.getByTitle("Move to Trash").click({ timeout: 3_000 });
-      }).toPass({ timeout: 20_000 });
-    };
+    await page.getByTitle("Select All").click();
+    await expect(page.getByTitle("Move to Trash")).toBeEnabled();
 
-    await bulkMoveToTrash();
-
-    for (let i = 0; i < 2; i++) {
-      const remaining = await listDrawings(request, { search: prefix });
-      if (remaining.length === 0) break;
-      await applyDashboardSearch(page, prefix);
-      await page.waitForTimeout(400);
-      const visibleCount = await page.locator("[id^='drawing-card-']").count();
-      if (visibleCount === 0) continue;
-      await bulkMoveToTrash();
-    }
+    // Sorting fetches the same four IDs in a different order. A background
+    // list refresh must preserve those valid selections rather than silently
+    // disabling the bulk toolbar between the assertion and the click.
+    await Promise.all([
+      page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname.endsWith("/api/drawings") && url.searchParams.get("sortDirection") === "asc"
+        );
+      }),
+      page.getByTitle("Sort Descending").click(),
+    ]);
+    await expect(page.locator("[data-testid^='select-drawing-'][aria-pressed='true']")).toHaveCount(
+      4,
+    );
+    await expect(page.getByTitle("Move to Trash")).toBeEnabled();
+    await page.getByTitle("Move to Trash").click();
 
     await expect.poll(async () => {
       const trashed = await listDrawings(request, { search: prefix, collectionId: "trash" });

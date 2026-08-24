@@ -8,6 +8,15 @@ type UseDashboardSelectionParams = {
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 };
 
+export const retainPresentSelectedIds = (
+  selectedIds: Set<string>,
+  drawings: DrawingSummary[],
+): Set<string> => {
+  const presentIds = new Set(drawings.map((drawing) => drawing.id));
+  const retainedIds = new Set([...selectedIds].filter((id) => presentIds.has(id)));
+  return retainedIds.size === selectedIds.size ? selectedIds : retainedIds;
+};
+
 export const useDashboardSelection = ({
   drawings,
   selectedIds,
