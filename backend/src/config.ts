@@ -141,6 +141,11 @@ export interface AssetConfig {
   storageDir: string;
   fileBaseUrl: string | null;
   maxUploadBytes: number;
+  /// Own limit for a board image (NIL-381), smaller than a document upload's
+  /// default -- a canvas image is not expected to approach 30 MB, and a
+  /// separate ceiling means a misconfigured client cannot spend a whole
+  /// board's images against the document upload budget by accident.
+  maxImageUploadBytes: number;
   maxPerUserBytes: number;
   cacheBudgetBytes: number;
   minFreeDiskPercent: number;
@@ -560,6 +565,9 @@ export const config: Config = {
     // Miro refuses uploads past 30 MB; matching that keeps expectations sane
     // and keeps a single document from filling a small VPS.
     maxUploadBytes: getRequiredEnvNumber("ASSET_MAX_UPLOAD_MB", 30) * 1024 * 1024,
+    // A canvas image is not a 30 MB document; 15 MB comfortably covers even a
+    // large pasted screenshot without lending the whole document budget to it.
+    maxImageUploadBytes: getRequiredEnvNumber("ASSET_MAX_IMAGE_UPLOAD_MB", 15) * 1024 * 1024,
     maxPerUserBytes: getRequiredEnvNumber("ASSET_MAX_PER_USER_MB", 2048) * 1024 * 1024,
     // Page previews are recomputable, so this is a ceiling to evict against,
     // not a quota to respect.

@@ -593,7 +593,15 @@ registerDashboardRoutes(app, {
   processFilesForS3: (files, userId, drawingId) =>
     processFilesForS3WithPrisma(files, userId, drawingId, prisma),
 });
-registerFileRoutes(app, { prisma, requireAuth, optionalAuth, asyncHandler });
+registerFileRoutes(app, {
+  prisma,
+  requireAuth,
+  optionalAuth,
+  asyncHandler,
+  storageDir: config.assets.storageDir,
+  maxImageUploadBytes: config.assets.maxImageUploadBytes,
+  maxPerUserBytes: config.assets.maxPerUserBytes,
+});
 registerStorageRoutes(app, {
   prisma,
   requireAuth,
