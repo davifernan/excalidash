@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../../api";
+import { log } from "../../logging";
 
 /** The server accepts no more; asking about more boards than fit a screen is
  * not a thing the dashboard needs to do. */
@@ -78,9 +79,10 @@ export const useDashboardPresence = (drawingIds: readonly string[]): PresenceByD
     // confirmed empty instead of unwatched. See `presenceKeysFor`.
     if (truncated && !warnedRef.current) {
       warnedRef.current = true;
-      console.warn(
-        `useDashboardPresence: watching only the first ${MAX_WATCHED} of ${drawingIds.length} boards; presence for the rest is unknown, not "nobody online".`,
-      );
+      log.warn("useDashboardPresence: watch limit truncated the board list", {
+        watched: MAX_WATCHED,
+        total: drawingIds.length,
+      });
     }
   }, [truncated, drawingIds.length]);
 
@@ -208,9 +210,10 @@ export const useTeamPresence = (drawingIds: readonly string[]): TeamPresenceByMe
     // that warning was the same bug one layer up, just quieter.
     if (truncated && !warnedRef.current) {
       warnedRef.current = true;
-      console.warn(
-        `useTeamPresence: watching only the first ${MAX_WATCHED} of ${drawingIds.length} boards; a team member on one of the rest reads as unknown, not "nowhere".`,
-      );
+      log.warn("useTeamPresence: watch limit truncated the board list", {
+        watched: MAX_WATCHED,
+        total: drawingIds.length,
+      });
     }
   }, [truncated, drawingIds.length]);
 

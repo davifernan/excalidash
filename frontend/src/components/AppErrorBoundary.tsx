@@ -1,5 +1,6 @@
 import React from "react";
 import { AlertTriangle } from "lucide-react";
+import { log } from "../logging";
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -57,7 +58,14 @@ export class AppErrorBoundary extends React.Component<
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     const errorId = newErrorId();
     this.setState({ errorId, isDark: prefersDark() });
-    console.error(`[crash ${errorId}]`, error, errorInfo.componentStack);
+    // notify: false -- this fallback UI (below), not a toast, is this crash's
+    // reader: the Toaster instance lives inside the tree this boundary just
+    // replaced, so a toast raised here would have nowhere to render into.
+    log.error(
+      `[crash ${errorId}]`,
+      { error, componentStack: errorInfo.componentStack },
+      { notify: false },
+    );
   }
 
   private handleRetry = (): void => {

@@ -10,6 +10,7 @@ import {
   authRegister,
   isAxiosError,
 } from "../api";
+import { log } from "../logging";
 
 interface User {
   id: string;
@@ -175,7 +176,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
     } catch (error) {
-      console.error("Failed to load user:", error);
+      log.error("Failed to load user", { error }, { notify: false });
       setAuthStatusError(
         "Unable to initialize authentication state. Check backend/API connectivity and refresh.",
       );

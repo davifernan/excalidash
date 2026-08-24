@@ -6,6 +6,7 @@ import type {
   HistoryCapability,
   PreviewTransaction,
 } from "../../integrations/excalidraw/capabilities";
+import { log } from "../../logging";
 
 type EditorDialogsProps = {
   drawingId?: string;
@@ -50,7 +51,7 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
             if (previewTransactionRef.current) {
               const restored = await previewTransactionRef.current.restore();
               if (!restored.ok) {
-                console.error("[Editor] Failed to restore history preview", restored);
+                log.error("[Editor] Failed to restore history preview", { result: restored });
                 isHistoryPreviewingRef.current = false;
                 return;
               }
@@ -67,7 +68,7 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
               }),
             );
             if (!preview.ok) {
-              console.error("[Editor] Failed to begin history preview", preview);
+              log.error("[Editor] Failed to begin history preview", { result: preview });
               isHistoryPreviewingRef.current = false;
               return;
             }
@@ -77,7 +78,7 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
           if (previewTransactionRef.current) {
             const restored = await previewTransactionRef.current.restore();
             if (!restored.ok) {
-              console.error("[Editor] Failed to restore history preview", restored);
+              log.error("[Editor] Failed to restore history preview", { result: restored });
             }
             previewTransactionRef.current = null;
           }

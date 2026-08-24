@@ -18,6 +18,7 @@ import type {
   SceneCapability,
 } from "../integrations/excalidraw/capabilities";
 import { pressEnterToEditLabel } from "../integrations/excalidraw/domBridge";
+import { log } from "../logging";
 
 /** Space between a note and the one spawned next to it. */
 export const STICKY_GAP = 24;
@@ -111,7 +112,7 @@ export function insertStickyNote(
   // The capability answers instead, and an unread answer means the note silently
   // never lands while the label editor is still asked to open on it.
   if (!inserted.ok) {
-    console.error("[Sticky] Failed to insert note", inserted);
+    log.error("[Sticky] Failed to insert note", { result: inserted });
     return;
   }
 

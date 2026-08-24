@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 import { importDrawings } from "../utils/importUtils";
 import { uuidv4 } from "../utils/uuid";
+import { log } from "../logging";
 
 export type UploadStatus = "pending" | "uploading" | "processing" | "success" | "error";
 
@@ -99,7 +100,7 @@ export const UploadProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         if (supportedFiles.length === 0) return;
         await importDrawings(supportedFiles, targetCollectionId, undefined, handleProgress);
       } catch (e) {
-        console.error("Global upload error", e);
+        log.error("Global upload error", { error: e }, { notify: false });
         newTasks.forEach((t) => {
           if (t.status !== "error") {
             updateTask(t.id, { status: "error", error: "Upload failed unexpectedly" });

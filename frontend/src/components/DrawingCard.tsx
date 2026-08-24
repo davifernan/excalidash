@@ -20,6 +20,7 @@ import { DrawingCardContextMenu } from "./drawing-card/DrawingCardContextMenu";
 import { useDrawingPreview } from "./drawing-card/useDrawingPreview";
 import { MemberStack } from "./MemberAvatar";
 import * as api from "../api";
+import { log } from "../logging";
 
 interface DrawingCardProps {
   drawing: DrawingSummary;
@@ -106,7 +107,7 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
       setExportError(null);
       exportDrawingToFile(await buildExportDrawing());
     } catch (error) {
-      console.error("Failed to export drawing", error);
+      log.error("Failed to export drawing", { error }, { notify: false });
       setExportError("Failed to export drawing. Please try again.");
       setTimeout(() => setExportError(null), 3000);
     } finally {

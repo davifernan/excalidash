@@ -92,6 +92,15 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/adapter-boundary.test.cjs
 
+      # Same "already-required job, not a new one" reasoning as the adapter
+      # boundary above -- the frontend logging boundary (NIL-510/NIL-513)
+      # lives here for the identical reason as logging-boundary.cjs living in
+      # backend-tests.
+      - name: Check the frontend logging boundary
+        run: node scripts/frontend-logging-boundary.cjs
+
+      - name: Prove the frontend logging boundary check rejects what it claims to
+        run: node scripts/frontend-logging-boundary.test.cjs
   backend-typecheck:
     name: Backend Typecheck
     runs-on: ubuntu-latest
