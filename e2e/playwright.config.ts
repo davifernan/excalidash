@@ -23,6 +23,26 @@ const CROSS_ENGINE_SPECS = [
   "**/invite-here.spec.ts",
   "**/small-windows.spec.ts",
   "**/document-pages.spec.ts",
+  // NIL-340: the M1 close-out's own Pflichtpfade list names Follow/Viewport
+  // and UI-Fallbacks as required cross-browser paths. Both were chromium-only
+  // until now -- follow-mode.spec.ts drives viewport-follow geometry
+  // (definitively engine-decided, the same reason sticky-notes and
+  // sticky-connect are already here), and canvas-chrome.spec.ts is the one
+  // spec covering the chrome-slot fallback layout a canary upgrade could
+  // silently break without any of the collaboration specs noticing.
+  "**/follow-mode.spec.ts",
+  "**/canvas-chrome.spec.ts",
+  // NIL-340: Excalidraw's own native export dialog -- see
+  // native-export.spec.ts's own header for why this had no E2E coverage on
+  // any engine before this package. View-only share-link rendering is the
+  // other half of this Pflichtpfad and is NOT covered here: it needs a real
+  // authenticated owner to create the link-share (drawingSharingRoutes.ts's
+  // `POST /drawings/:id/link-shares` is `requireAuth`), which puts it in the
+  // same isolated-real-auth-project category as comments-two-account.spec.ts
+  // and discovery-permission-matrix.spec.ts rather than something to fold
+  // into this list. Left as a named gap, not a silent one -- see this
+  // package's HANDOFF.
+  "**/native-export.spec.ts",
 ];
 
 /** Specs that carry the mobile contract. */
@@ -56,6 +76,34 @@ const MOBILE_SPECS = ["**/sticky-notes.spec.ts", "**/small-windows.spec.ts"];
 const COMMENTS_TWO_ACCOUNT_SPECS = ["**/comments-two-account.spec.ts"];
 const DISCOVERY_PERMISSION_MATRIX_SPECS = ["**/discovery-permission-matrix.spec.ts"];
 const REAL_AUTH_SPECS = [...COMMENTS_TWO_ACCOUNT_SPECS, ...DISCOVERY_PERMISSION_MATRIX_SPECS];
+
+/**
+ * NIL-330's Team-Readiness-Baseline-Lauf: an operator-triggered multi-hour,
+ * multi-context, multi-engine soak, not a per-PR gate. Isolated the same way
+ * REAL_AUTH_SPECS is (own project, excluded from chromium/firefox/webkit's
+ * default matches) but for a different reason -- there is no toggled backend
+ * state to race here, just a runtime budget no ordinary CI run should ever
+ * pay by accident. Only ever invoked explicitly
+ * (`--project=soak team-readiness`); see e2e/tests/team-readiness.spec.ts's
+ * own header for the full runbook.
+ */
+const SOAK_SPECS = ["**/team-readiness.spec.ts"];
+
+/**
+ * team-acceptance.spec.ts (NIL-330's integrated M0 acceptance test) is
+ * deliberately one long test (~2.5 minutes alone) rather than several short
+ * ones -- see its own header for why. That single fact makes it a poor fit
+ * for a chromium shard budgeted to clear 48-65 short tests inside a 720s
+ * wall-clock window: PR #76's own CI hit exactly this, shard 2 timing out
+ * (SIGKILL after the 30s SIGINT grace period, `playwright-report/` lost,
+ * NIL-488's failure mode) with team-acceptance.spec.ts queued to start right
+ * as the clock ran out. two-account and permission-matrix already get their
+ * own job for a different reason (a real-auth toggle that would poison
+ * whatever shard runs beside them); this gets one for a budget reason -- an
+ * integration test long enough to matter is long enough to need a job whose
+ * timeout is sized for it alone, not shared with everything else in a shard.
+ */
+const TEAM_ACCEPTANCE_SPECS = ["**/team-acceptance.spec.ts"];
 
 /**
  * Playwright configuration for E2E browser testing
@@ -141,7 +189,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
       },
-      testIgnore: REAL_AUTH_SPECS,
+      testIgnore: [...REAL_AUTH_SPECS, ...SOAK_SPECS, ...TEAM_ACCEPTANCE_SPECS],
     },
     {
       // Isolated on purpose: see REAL_AUTH_SPECS above. Only ever invoked
@@ -168,6 +216,17 @@ export default defineConfig({
       testMatch: DISCOVERY_PERMISSION_MATRIX_SPECS,
     },
     {
+      // Isolated on purpose: see TEAM_ACCEPTANCE_SPECS above. Only ever
+      // invoked explicitly (`--project=team-acceptance`) against a
+      // backend/frontend this project's caller stood up itself.
+      name: "team-acceptance",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: TEAM_ACCEPTANCE_SPECS,
+    },
+    {
       name: "firefox",
       use: {
         ...devices["Desktop Firefox"],
@@ -191,6 +250,17 @@ export default defineConfig({
       name: "mobile-chrome",
       use: { ...devices["Pixel 7"] },
       testMatch: MOBILE_SPECS,
+    },
+    {
+      // Isolated on purpose: see SOAK_SPECS above. Only ever invoked
+      // explicitly (`--project=soak`). The spec launches its own browsers
+      // across engines directly rather than through this project's `use`,
+      // so this entry exists only to keep the soak spec off every other
+      // project's radar.
+      name: "soak",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: SOAK_SPECS,
+      timeout: 0,
     },
   ],
 

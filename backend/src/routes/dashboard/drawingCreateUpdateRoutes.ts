@@ -295,43 +295,54 @@ export const registerDrawingCreateUpdateRoutes = (
 
       try {
         if (isSceneUpdate) {
-          updatedDrawing = await prisma.$transaction(async (tx) => {
-            const compress = config.enableSnapshotCompression;
-            const snapshot = await tx.drawingSnapshot.create({
-              data: {
-                drawingId: id,
-                version: existingDrawing.version,
-                elements: encodeSnapshotField(existingDrawing.elements, compress),
-                appState: encodeSnapshotField(existingDrawing.appState, compress),
-                files: encodeSnapshotField(existingDrawing.files, compress),
-              },
-            });
+          // Prisma's 5s default interactive-transaction timeout: this
+          // transaction snapshots and rewrites the whole scene, files
+          // included, and SQLite is a single writer -- several
+          // near-simultaneous large-image saves (NIL-330's integrated
+          // acceptance run reproduced it with three overlapping ~15-40MB
+          // PUTs) queue on the writer lock long enough to expire it,
+          // failing an otherwise-legitimate save with a 500 rather than a
+          // client-caused conflict.
+          updatedDrawing = await prisma.$transaction(
+            async (tx) => {
+              const compress = config.enableSnapshotCompression;
+              const snapshot = await tx.drawingSnapshot.create({
+                data: {
+                  drawingId: id,
+                  version: existingDrawing.version,
+                  elements: encodeSnapshotField(existingDrawing.elements, compress),
+                  appState: encodeSnapshotField(existingDrawing.appState, compress),
+                  files: encodeSnapshotField(existingDrawing.files, compress),
+                },
+              });
 
-            const updateResult = await tx.drawing.updateMany({
-              where: updateWhere,
-              data,
-            });
-            if (updateResult.count === 0) {
-              throw versionConflictError;
-            }
+              const updateResult = await tx.drawing.updateMany({
+                where: updateWhere,
+                data,
+              });
+              if (updateResult.count === 0) {
+                throw versionConflictError;
+              }
 
-            // The version being replaced keeps whatever documents it used, so
-            // restoring it later still finds them.
-            await captureSnapshotAssets(tx, snapshot.id, id);
+              // The version being replaced keeps whatever documents it used, so
+              // restoring it later still finds them.
+              await captureSnapshotAssets(tx, snapshot.id, id);
 
-            // And the board now claims exactly the documents its elements name.
-            // Inside the transaction, so a board and its document list can
-            // never disagree; ids this board never had are refused rather than
-            // ignored, because a client naming someone else's document is not
-            // a mistake to paper over.
-            if (payload.elements !== undefined) {
-              await syncDrawingDocumentState(tx, id, payload.elements);
-            }
+              // And the board now claims exactly the documents its elements name.
+              // Inside the transaction, so a board and its document list can
+              // never disagree; ids this board never had are refused rather than
+              // ignored, because a client naming someone else's document is not
+              // a mistake to paper over.
+              if (payload.elements !== undefined) {
+                await syncDrawingDocumentState(tx, id, payload.elements);
+              }
 
-            await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
+              await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
 
-            return tx.drawing.findFirst({ where: { id } });
-          });
+              return tx.drawing.findFirst({ where: { id } });
+            },
+            { timeout: 15_000 },
+          );
         } else {
           const updateResult = await prisma.drawing.updateMany({
             where: updateWhere,

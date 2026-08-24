@@ -1,5 +1,5 @@
 import React from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { UIOptions } from "./shared";
 import { AssetWidget } from "./AssetWidget";
@@ -240,7 +240,19 @@ export const EditorView: React.FC<EditorViewProps> = ({
                     elementId: element.id,
                     sharedPage: documentPages.pages[element.id]?.page,
                     canControl: canEdit,
-                    onRequestPage: documentPages.requestPage,
+                    // The server answers every request with an ack, including a
+                    // refusal (the widget's server row is gone, the page no
+                    // longer exists). useSharedDocumentPage only reads the
+                    // promise to clear its own pending flag -- a `{ok: false}`
+                    // resolution otherwise reaches nobody, and the click that
+                    // caused it just does nothing. Surfacing it here is the
+                    // same pattern reportCapabilityFailure uses elsewhere in
+                    // this editor for a result that would otherwise go unread.
+                    onRequestPage: (elementId, page) =>
+                      documentPages.requestPage(elementId, page).then((result) => {
+                        if (!result.ok) toast.error(result.error.message);
+                        return result;
+                      }),
                   }}
                 />
               ) : null;
