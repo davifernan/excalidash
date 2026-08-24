@@ -75,7 +75,12 @@ const MOBILE_SPECS = ["**/sticky-notes.spec.ts", "**/small-windows.spec.ts"];
  */
 const COMMENTS_TWO_ACCOUNT_SPECS = ["**/comments-two-account.spec.ts"];
 const DISCOVERY_PERMISSION_MATRIX_SPECS = ["**/discovery-permission-matrix.spec.ts"];
-const REAL_AUTH_SPECS = [...COMMENTS_TWO_ACCOUNT_SPECS, ...DISCOVERY_PERMISSION_MATRIX_SPECS];
+const PRESENCE_TWO_ACCOUNT_SPECS = ["**/presence-two-account.spec.ts"];
+const REAL_AUTH_SPECS = [
+  ...COMMENTS_TWO_ACCOUNT_SPECS,
+  ...DISCOVERY_PERMISSION_MATRIX_SPECS,
+  ...PRESENCE_TWO_ACCOUNT_SPECS,
+];
 
 /**
  * NIL-330's Team-Readiness-Baseline-Lauf: an operator-triggered multi-hour,
@@ -218,6 +223,16 @@ export default defineConfig({
         viewport: { width: 1280, height: 720 },
       },
       testMatch: DISCOVERY_PERMISSION_MATRIX_SPECS,
+    },
+    {
+      // Isolated on purpose: presence must identify two real accounts, and
+      // the auth switch used to create them is backend-wide.
+      name: "presence-two-account",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: PRESENCE_TWO_ACCOUNT_SPECS,
     },
     {
       // Isolated on purpose: see TEAM_ACCEPTANCE_SPECS above. Only ever

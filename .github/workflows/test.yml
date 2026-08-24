@@ -1033,6 +1033,138 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # presence-two-account.spec.ts (NIL-523) needs two distinct authenticated
+  # accounts because presence is a claim one user sees about another. It uses
+  # the backend-wide auth toggle, so it owns a separate database and ports.
+  e2e-presence-two-account:
+    name: E2E Presence Two-Account (NIL-523)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma client
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: Setup backend database
+        run: |
+          cd backend
+          node scripts/provider-prisma.cjs migrate deploy
+        env:
+          DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-presence-two-account.db
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Install E2E test dependencies
+        run: |
+          cd e2e
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          cd e2e
+          npx playwright install chromium --with-deps
+
+      - name: Start servers and run E2E tests
+        run: |
+          BACKEND_LOG="${{ github.workspace }}/backend-presence-two-account.log"
+
+          cd backend
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/e2e-presence-two-account.db" \
+            PORT=8863 \
+            FRONTEND_URL="http://localhost:6863" \
+            CSRF_SECRET="e2e-presence-two-account-csrf" \
+            CSRF_MAX_REQUESTS=100000 \
+            RATE_LIMIT_MAX_REQUESTS=100000 \
+            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-presence-two-account-assets" \
+            npm run dev > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          cd ..
+
+          FRONTEND_PID=""
+          cleanup() {
+            echo "Cleanup: stopping backend/frontend servers"
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          echo "Waiting for backend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8863/health > /dev/null; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 2
+          done
+
+          cd frontend
+          VITE_DEV_BACKEND_URL="http://localhost:8863" npm run dev -- --host --port 6863 &
+          FRONTEND_PID=$!
+          cd ..
+
+          echo "Waiting for frontend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:6863 > /dev/null; then
+              echo "Frontend is ready!"
+              break
+            fi
+            echo "Attempt $i: Frontend not ready yet..."
+            sleep 2
+          done
+
+          cd e2e
+          TEST_EXIT_CODE=0
+          NO_SERVER=true CI=true \
+            API_URL="http://localhost:8863" \
+            BASE_URL="http://localhost:6863" \
+            E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
+            timeout --signal=INT --kill-after=30s --preserve-status 720 \
+            npx playwright test --project=presence-two-account \
+            || TEST_EXIT_CODE=$?
+          cd ..
+
+          exit "$TEST_EXIT_CODE"
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-presence-two-account
+          path: e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-presence-two-account
+          path: e2e/test-results/
+          retention-days: 7
+          if-no-files-found: error
+
   # Carries the name the branch ruleset requires. The shards run under their
   # own names, so without this the required context 'E2E Browser Tests' would
   # never report again and every pull request would block forever.
@@ -1046,7 +1178,7 @@ jobs:
     name: E2E Browser Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [e2e-shards, e2e-two-account, e2e-permission-matrix]
+    needs: [e2e-shards, e2e-two-account, e2e-permission-matrix, e2e-presence-two-account]
     if: always()
 
     steps:
@@ -1055,10 +1187,12 @@ jobs:
           shards="${{ needs.e2e-shards.result }}"
           two_account="${{ needs.e2e-two-account.result }}"
           permission_matrix="${{ needs.e2e-permission-matrix.result }}"
+          presence_two_account="${{ needs.e2e-presence-two-account.result }}"
           echo "Shard results: ${shards}"
           echo "Two-account result: ${two_account}"
           echo "Permission-matrix result: ${permission_matrix}"
-          if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ] || [ "${permission_matrix}" != "success" ]; then
+          echo "Presence two-account result: ${presence_two_account}"
+          if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ] || [ "${permission_matrix}" != "success" ] || [ "${presence_two_account}" != "success" ]; then
             echo "At least one E2E shard or an isolated suite did not pass."
             exit 1
           fi

@@ -8,12 +8,10 @@ import { API_URL, getCsrfHeaders } from "./api";
  * whole rest of this suite (and global-setup.ts) depends on.
  *
  * This is deliberately NOT the general-purpose pattern for this suite --
- * every other spec runs anonymously. Only comments-two-account.spec.ts (the
- * NIL-356 comments/mentions/notifications scenario, which requires real,
- * distinct authenticated accounts by product design -- see
- * docs/product/COMMENTS_GUEST_POLICY.md) needs it, and that spec is
- * responsible for reverting `authEnabled` back to `false` in its own
- * `afterAll`, the same way global-setup.ts left it.
+ * every ordinary spec runs anonymously. The small set of specs that require
+ * real, distinct accounts is registered in playwright.config.ts's
+ * REAL_AUTH_SPECS, and each owns an isolated backend/database plus the
+ * responsibility for reverting `authEnabled` in its own `afterAll`.
  */
 
 // -- Bootstrap setup code -----------------------------------------------
@@ -60,7 +58,7 @@ export const readLatestBootstrapSetupCode = async (params: {
   const logFile = process.env.E2E_BACKEND_LOG_FILE;
   if (!logFile) {
     throw new Error(
-      "E2E_BACKEND_LOG_FILE is not set. comments-two-account.spec.ts needs the backend's own " +
+      "E2E_BACKEND_LOG_FILE is not set. This real-auth spec needs the backend's own " +
         "stdout: the bootstrap setup code is only ever printed there (see " +
         "backend/src/auth/bootstrapSetupCode.ts), never returned over HTTP. Start the backend " +
         "with stdout redirected to a file and export E2E_BACKEND_LOG_FILE=<that file> before " +
@@ -164,6 +162,15 @@ export const registerBootstrapAdmin = async (
     await postJson(request, "/auth/register", params),
     "Bootstrap admin registration",
   );
+  return body.user;
+};
+
+/** Log a setup API context in while preserving its cookie jar for later setup calls. */
+export const loginViaApi = async (
+  request: APIRequestContext,
+  params: { email: string; password: string },
+): Promise<{ id: string; email: string; name: string; role: string }> => {
+  const body = await okOrThrow(await postJson(request, "/auth/login", params), "API login");
   return body.user;
 };
 
