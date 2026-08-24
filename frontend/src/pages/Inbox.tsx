@@ -32,6 +32,11 @@ const kindText: Record<string, string> = {
   reopen: "reopened a thread in",
 };
 
+// Matches the backend's own default (`inboxRoutes.ts`'s `limit ?? "30"") --
+// a full page back is the signal there may be more; a short page is the
+// signal there is not, without the backend needing to say so explicitly.
+const PAGE_SIZE = 30;
+
 export const Inbox: React.FC = () => {
   const navigate = useNavigate();
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -39,6 +44,8 @@ export const Inbox: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
     api
@@ -53,6 +60,7 @@ export const Inbox: React.FC = () => {
       const data = await api.getInbox({ unreadOnly });
       setNotifications(data.notifications);
       setUnreadCount(data.unreadCount);
+      setHasMore(data.notifications.length >= PAGE_SIZE);
     } finally {
       setLoading(false);
     }
@@ -61,6 +69,19 @@ export const Inbox: React.FC = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const loadMore = async () => {
+    const oldest = notifications[notifications.length - 1];
+    if (!oldest || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const data = await api.getInbox({ unreadOnly, before: oldest.createdAt });
+      setNotifications((prev) => [...prev, ...data.notifications]);
+      setHasMore(data.notifications.length >= PAGE_SIZE);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const openNotification = async (notification: NotificationDTO) => {
     if (!notification.readAt) {
@@ -217,6 +238,17 @@ export const Inbox: React.FC = () => {
               </div>
             </button>
           ))}
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={() => void loadMore()}
+              disabled={loadingMore}
+              data-testid="inbox-load-more"
+              className="w-full mt-2 px-4 py-2.5 rounded-xl border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-900 text-xs font-black uppercase tracking-wide text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-neutral-800 disabled:opacity-50"
+            >
+              {loadingMore ? "Loading..." : "Load more"}
+            </button>
+          ) : null}
         </div>
       )}
     </Layout>

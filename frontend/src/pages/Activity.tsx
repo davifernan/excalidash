@@ -33,12 +33,17 @@ const verbText: Record<string, string> = {
   "comment.reopened": "reopened a thread on",
 };
 
+// Matches the backend's own default (`activityRoutes.ts`'s `limit ?? "30"`).
+const PAGE_SIZE = 30;
+
 export const Activity: React.FC = () => {
   const navigate = useNavigate();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [events, setEvents] = useState<ActivityEventDTO[]>([]);
   const [lastSeenAt, setLastSeenAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
     api
@@ -59,6 +64,7 @@ export const Activity: React.FC = () => {
         if (cancelled) return;
         setLastSeenAt(inbox.lastSeenAt);
         setEvents(fetched);
+        setHasMore(fetched.length >= PAGE_SIZE);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -68,6 +74,19 @@ export const Activity: React.FC = () => {
       cancelled = true;
     };
   }, []);
+
+  const loadMore = async () => {
+    const oldest = events[events.length - 1];
+    if (!oldest || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const { events: fetched } = await api.getTeamActivity({ before: oldest.createdAt });
+      setEvents((prev) => [...prev, ...fetched]);
+      setHasMore(fetched.length >= PAGE_SIZE);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const openEvent = (event: ActivityEventDTO) => {
     navigate(
@@ -173,6 +192,17 @@ export const Activity: React.FC = () => {
               </button>
             );
           })}
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={() => void loadMore()}
+              disabled={loadingMore}
+              data-testid="activity-load-more"
+              className="w-full mt-2 px-4 py-2.5 rounded-xl border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-900 text-xs font-black uppercase tracking-wide text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-neutral-800 disabled:opacity-50"
+            >
+              {loadingMore ? "Loading..." : "Load more"}
+            </button>
+          ) : null}
         </div>
       )}
     </Layout>
