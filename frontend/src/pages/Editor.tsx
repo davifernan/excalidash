@@ -339,7 +339,7 @@ export const Editor: React.FC = () => {
     normalizeImageElementStatus,
     resolveSafeSnapshot,
   });
-  useEditorFileUploads({ drawingId: id, fileCapability: adapter.files });
+  // useEditorFileUploads({ drawingId: id, fileCapability: adapter.files });
   const markSceneChangedSinceLoad = useCallback(() => {
     hasSceneChangesSinceLoadRef.current = true;
   }, []);
