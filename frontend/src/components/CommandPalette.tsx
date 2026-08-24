@@ -42,10 +42,14 @@ type ListItem = { type: "action"; action: StaticAction } | { type: "board"; boar
  * Sidebar's own inline-input UI -- one API call is not worth threading a
  * shared component/context through both places for).
  *
- * Board search calls the same permission-filtered `GET /drawings?search=`
- * endpoint Dashboard and Team Home already use, so results are scoped to
- * what the signed-in user can access without the palette re-deriving that
- * itself.
+ * Board search (NIL-326) calls the same merged, permission-aware
+ * `GET /search` endpoint the dedicated Search page uses -- previously this
+ * called `GET /drawings?search=`, which only covers boards this account
+ * owns directly or through an owned collection, missing anything reached
+ * through a direct share or a shared collection (NIL-298's own correction:
+ * "in 'Mit mir geteilt' findet man nur geteilte Boards, sonst nur eigene").
+ * Results are scoped to what the signed-in user can access without the
+ * palette re-deriving that itself.
  */
 export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> = ({
   isOpen,
@@ -97,10 +101,23 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
     const requestId = ++requestIdRef.current;
     setBoardsStatus("loading");
     api
-      .getDrawings(trimmed, undefined, { limit: 8 })
+      .search({ q: trimmed, limit: 8 })
       .then((result) => {
         if (requestIdRef.current !== requestId) return;
-        setBoards(result.drawings);
+        setBoards(
+          result.results.map(
+            (item): DrawingSummary => ({
+              id: item.id,
+              name: item.name,
+              collectionId: item.collectionId,
+              updatedAt: item.updatedAt,
+              createdAt: item.createdAt,
+              version: item.version,
+              creatorName: item.creatorName,
+              accessLevel: item.accessLevel ?? undefined,
+            }),
+          ),
+        );
         setBoardsStatus("idle");
       })
       .catch((err) => {
