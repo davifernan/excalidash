@@ -478,6 +478,138 @@ jobs:
           retention-days: 7
 
 
+  # comments-two-account.spec.ts (NIL-356) toggles real auth on for whatever
+  # backend it runs against, which every other spec's no-auth "bootstrap
+  # identity" mode depends on staying off (see playwright.config.ts's
+  # REAL_AUTH_SPECS and the spec's own header comment). Running it inside
+  # e2e-shards against that shared backend broke every other spec drawn into
+  # the same shard the moment it ran -- a real incident, not a hypothetical:
+  # 401s from `readLatestBootstrapSetupCode` failing (no E2E_BACKEND_LOG_FILE
+  # on the shared backend) after the toggle already went through, with no
+  # session left able to turn it back off. Its own backend, database, and
+  # ports here, same as e2e-cross-engine, so nothing else can share the
+  # blast radius.
+  e2e-two-account:
+    name: E2E Two-Account (NIL-356)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma client
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: Setup backend database
+        run: |
+          cd backend
+          node scripts/provider-prisma.cjs migrate deploy
+        env:
+          DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-two-account.db
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Install E2E test dependencies
+        run: |
+          cd e2e
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          cd e2e
+          npx playwright install chromium --with-deps
+
+      - name: Start servers and run E2E tests
+        run: |
+          # Own ports so this never collides with a shard's or the
+          # cross-engine job's 8000/6767 if runners ever share a host.
+          BACKEND_LOG="${{ github.workspace }}/backend-two-account.log"
+
+          cd backend
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/e2e-two-account.db" \
+            PORT=8842 \
+            FRONTEND_URL="http://localhost:6842" \
+            CSRF_SECRET="e2e-two-account-csrf" \
+            CSRF_MAX_REQUESTS=100000 \
+            RATE_LIMIT_MAX_REQUESTS=100000 \
+            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-two-account-assets" \
+            npm run dev > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          cd ..
+
+          echo "Waiting for backend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8842/health > /dev/null; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 2
+          done
+
+          cd frontend
+          VITE_DEV_BACKEND_URL="http://localhost:8842" npm run dev -- --host --port 6842 &
+          FRONTEND_PID=$!
+          cd ..
+
+          echo "Waiting for frontend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:6842 > /dev/null; then
+              echo "Frontend is ready!"
+              break
+            fi
+            echo "Attempt $i: Frontend not ready yet..."
+            sleep 2
+          done
+
+          cd e2e
+          NO_SERVER=true CI=true \
+            API_URL="http://localhost:8842" \
+            BASE_URL="http://localhost:6842" \
+            E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
+            npx playwright test --project=two-account
+          TEST_EXIT_CODE=$?
+
+          kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+
+          exit $TEST_EXIT_CODE
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-two-account
+          path: e2e/playwright-report/
+          retention-days: 7
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-two-account
+          path: e2e/test-results/
+          retention-days: 7
+
+
   # Carries the name the branch ruleset requires. The shards run under their
   # own names, so without this the required context 'E2E Browser Tests' would
   # never report again and every pull request would block forever.
@@ -488,16 +620,18 @@ jobs:
     name: E2E Browser Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: e2e-shards
+    needs: [e2e-shards, e2e-two-account]
     if: always()
 
     steps:
-      - name: Require every shard to have passed
+      - name: Require every shard and the two-account suite to have passed
         run: |
-          result="${{ needs.e2e-shards.result }}"
-          echo "Shard results: ${result}"
-          if [ "${result}" != "success" ]; then
-            echo "At least one E2E shard did not pass."
+          shards="${{ needs.e2e-shards.result }}"
+          two_account="${{ needs.e2e-two-account.result }}"
+          echo "Shard results: ${shards}"
+          echo "Two-account result: ${two_account}"
+          if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ]; then
+            echo "At least one E2E shard or the two-account suite did not pass."
             exit 1
           fi
 

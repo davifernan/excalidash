@@ -29,6 +29,19 @@ const CROSS_ENGINE_SPECS = [
 const MOBILE_SPECS = ["**/sticky-notes.spec.ts", "**/small-windows.spec.ts"];
 
 /**
+ * Specs that toggle real auth on for a backend the rest of the suite shares
+ * in its no-auth "bootstrap identity" mode (see comments-two-account.spec.ts's
+ * own header comment and helpers/authLifecycle.ts). Running one of these
+ * against the shared backend/database every other spec and shard uses breaks
+ * every one of them the moment it runs: the toggle is real and backend-wide,
+ * not scoped to this spec's own session. Each gets its own project so the
+ * default `chromium` project (the one CI's shared shards run) never picks it
+ * up, and CI runs it in a separate job against its own isolated backend,
+ * frontend, and SQLite file instead.
+ */
+const REAL_AUTH_SPECS = ["**/comments-two-account.spec.ts"];
+
+/**
  * Playwright configuration for E2E browser testing
  * 
  * Environment variables:
@@ -99,6 +112,19 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
       },
+      testIgnore: REAL_AUTH_SPECS,
+    },
+    {
+      // Isolated on purpose: see REAL_AUTH_SPECS above. Only ever invoked
+      // explicitly (`--project=two-account`) against a backend/frontend/DB
+      // this project's caller stood up itself, never picked up by a bare
+      // `playwright test` or `--project=chromium` run.
+      name: "two-account",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: REAL_AUTH_SPECS,
     },
     {
       name: "firefox",
