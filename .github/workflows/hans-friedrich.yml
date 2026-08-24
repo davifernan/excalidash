@@ -6,14 +6,14 @@
 # agent has the repository, the CLI, and the Multica issue tracker at hand —
 # none of which a runner has.
 #
-# Only when a pull request becomes ready, not on every push: a review per
-# force-push costs tokens and repeats itself. Finding fixes are checked by the
-# narrow delta verifier, not by running Hans over the whole PR again.
+# A runner now also explains an intentional no-review outcome, but Hans itself
+# is asked only when a pull request becomes ready, not on every push: a review
+# per force-push costs tokens and repeats itself. Finding fixes are checked by
+# the narrow delta verifier, not by running Hans over the whole PR again.
 #
 # Both event types are needed. `opened` covers a pull request that starts ready;
 # `ready_for_review` covers one that starts as a draft and is finished later —
-# GitHub does not re-send `opened` for that transition, so the draft guard below
-# would otherwise be the end of it.
+# GitHub does not re-send `opened` for that transition.
 name: Hans-Friedrich
 
 on:
@@ -22,14 +22,16 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+
+# A rerun waits for the previous signal attempt on the same head. The PR
+# comment also carries a head/kind marker, so a retry cannot post it twice.
+concurrency:
+  group: hans-review-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
 
 jobs:
   request-review:
-    # Drafts are not finished work, and a bot's dependency bump is not worth an
-    # agent. Both are cheap to rule out before a runner even starts.
-    if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -37,7 +39,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Classify review intent
+        id: intent
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          EXTRA_TRUSTED: ""
+        run: |
+          decision=$(jq -cn \
+            --arg body "${PR_BODY}" \
+            --arg draft "${PR_DRAFT}" \
+            --arg authorType "${PR_AUTHOR_TYPE}" \
+            --arg repository "${REPO}" \
+            --arg headRepository "${HEAD_REPO}" \
+            --arg author "${AUTHOR}" \
+            --arg association "${ASSOCIATION}" \
+            --arg extraTrusted "${EXTRA_TRUSTED}" \
+            '{body:$body,draft:($draft == "true"),authorType:$authorType,repository:$repository,headRepository:$headRepository,author:$author,association:$association,extraTrusted:$extraTrusted}' \
+            | node scripts/hans-review-signal.cjs preflight)
+          echo "$decision"
+          echo "action=$(jq -r '.action' <<<"$decision")" >> "$GITHUB_OUTPUT"
+          echo "decision=$(jq -c '.' <<<"$decision")" >> "$GITHUB_OUTPUT"
+
       - name: Build diff-derived impact manifest
+        if: steps.intent.outputs.action == 'admit'
         id: impact
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -48,20 +78,105 @@ jobs:
           echo "manifest=${manifest}" >> "$GITHUB_OUTPUT"
 
       - name: Check review admission
+        if: steps.intent.outputs.action == 'admit'
+        id: admission
+        continue-on-error: true
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           IMPACT_MANIFEST: ${{ steps.impact.outputs.manifest }}
-        run: node scripts/delivery-v2.cjs admission
+        run: |
+          set +e
+          result=$(node scripts/delivery-v2.cjs admission 2>&1)
+          status=$?
+          set -e
+          echo "$result"
+          {
+            echo "result<<ADMISSION_RESULT"
+            echo "$result"
+            echo "ADMISSION_RESULT"
+          } >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Explain review outcome on the PR
+        if: steps.intent.outputs.action == 'skip' || steps.admission.outcome == 'failure'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DECISION: ${{ steps.intent.outputs.decision }}
+          ADMISSION_RESULT: ${{ steps.admission.outputs.result }}
+        with:
+          script: |
+            const signal = require(`${process.env.GITHUB_WORKSPACE}/scripts/hans-review-signal.cjs`);
+            const decision = JSON.parse(process.env.DECISION);
+            let admission = null;
+            let kind = "intentional-skip";
+            if (decision.action !== "skip") {
+              kind = "delivery-contract";
+              try {
+                admission = JSON.parse(process.env.ADMISSION_RESULT);
+              } catch {
+                admission = {
+                  ok: false,
+                  code: "admission-command",
+                  message: process.env.ADMISSION_RESULT || "Review admission failed without output.",
+                };
+              }
+            }
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            if (signal.hasSignalComment(comments, process.env.HEAD_SHA, kind)) {
+              core.notice("The review-outcome comment already exists for this head SHA.");
+              return;
+            }
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: signal.buildSignalComment({
+                  headSha: process.env.HEAD_SHA,
+                  decision,
+                  admission,
+                }),
+              });
+            } catch (error) {
+              // A fork's pull_request token is read-only. Its matching
+              // pull_request_target signal run uses trusted base code and owns
+              // the write; every other comment failure remains a real failure.
+              if (decision.action === "skip" && error.status === 403) {
+                core.notice("Fork token is read-only; the trusted signal workflow will post this explanation.");
+                return;
+              }
+              throw error;
+            }
+
+      - name: Enforce review admission
+        if: always()
+        env:
+          INTENT_ACTION: ${{ steps.intent.outputs.action }}
+          ADMISSION_OUTCOME: ${{ steps.admission.outcome }}
+        run: |
+          jq -cn \
+            --arg intentAction "${INTENT_ACTION}" \
+            --arg admissionOutcome "${ADMISSION_OUTCOME}" \
+            '{intentAction:$intentAction,admissionOutcome:$admissionOutcome}' \
+            | node scripts/hans-review-signal.cjs enforce
 
       - name: Check commit identity and trailer
+        if: steps.admission.outcome == 'success'
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/delivery-contracts.cjs commits
 
       - name: Ask Multica for a review
+        if: steps.admission.outcome == 'success'
         env:
           # Repository secret. The token in the URL is the calling credential —
           # rotate it in Multica (Autopilot -> Trigger -> Rotate URL) and update
@@ -73,45 +188,8 @@ jobs:
           # The real event, not a fixed "opened": Multica trigger filters can
           # match on it, and a draft finished later is not a pull request opened.
           ACTION: ${{ github.event.action }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-          # OWNER, MEMBER or COLLABORATOR — GitHub's own answer to "does this
-          # person have write access here".
-          ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          # Anyone outside the association check who should still get reviews.
-          # Space-separated logins; empty is fine.
-          EXTRA_TRUSTED: ""
         run: |
           set -euo pipefail
-
-          # A `pull_request` run from a fork gets no repository secrets. Say
-          # that, rather than letting the empty secret below report a missing
-          # one and send the reader to the Secrets menu for nothing.
-          if [ "${HEAD_REPO}" != "${REPO}" ]; then
-            echo "::notice::Fork pull request (${HEAD_REPO}) — GitHub withholds secrets here, so no review was requested. Trigger the autopilot by hand if this one needs a look."
-            exit 0
-          fi
-
-          # This repository is public, and a review costs real tokens. Only
-          # people who can already write here get one automatically.
-          #
-          # On a public repo a same-repo pull request implies write access
-          # anyway, so this is a second lock on the same door — deliberately.
-          # It keeps holding if someone later switches the trigger to
-          # `pull_request_target`, which is exactly the change that would
-          # quietly open the first one.
-          trusted=false
-          case "${ASSOCIATION}" in
-            OWNER|MEMBER|COLLABORATOR) trusted=true ;;
-          esac
-          for login in ${EXTRA_TRUSTED}; do
-            [ "${login}" = "${AUTHOR}" ] && trusted=true
-          done
-
-          if [ "${trusted}" != "true" ]; then
-            echo "::notice::${AUTHOR} is ${ASSOCIATION} — no automatic review. Add the login to EXTRA_TRUSTED in this workflow, or fire the autopilot by hand."
-            exit 0
-          fi
 
           if [ -z "${WEBHOOK}" ]; then
             echo "::error::MULTICA_REVIEW_WEBHOOK is not set. Add it under Settings -> Secrets -> Actions."

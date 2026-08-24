@@ -1,0 +1,82 @@
+# Comments on intentional no-review outcomes without exposing secrets or
+# executing pull-request code. `pull_request_target` is required here because
+# GitHub downgrades the token of a fork's `pull_request` workflow to read-only.
+# The checkout is pinned to the trusted base SHA; never change it to the head.
+name: Hans-Friedrich Signal
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: hans-review-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+jobs:
+  explain-intentional-no-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Classify review intent
+        id: intent
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          EXTRA_TRUSTED: ""
+        run: |
+          decision=$(jq -cn \
+            --arg body "${PR_BODY}" \
+            --arg draft "${PR_DRAFT}" \
+            --arg authorType "${PR_AUTHOR_TYPE}" \
+            --arg repository "${REPO}" \
+            --arg headRepository "${HEAD_REPO}" \
+            --arg author "${AUTHOR}" \
+            --arg association "${ASSOCIATION}" \
+            --arg extraTrusted "${EXTRA_TRUSTED}" \
+            '{body:$body,draft:($draft == "true"),authorType:$authorType,repository:$repository,headRepository:$headRepository,author:$author,association:$association,extraTrusted:$extraTrusted}' \
+            | node scripts/hans-review-signal.cjs preflight)
+          echo "$decision"
+          echo "action=$(jq -r '.action' <<<"$decision")" >> "$GITHUB_OUTPUT"
+          echo "decision=$(jq -c '.' <<<"$decision")" >> "$GITHUB_OUTPUT"
+
+      - name: Explain intentional no-review on the PR
+        if: steps.intent.outputs.action == 'skip'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DECISION: ${{ steps.intent.outputs.decision }}
+        with:
+          script: |
+            const signal = require(`${process.env.GITHUB_WORKSPACE}/scripts/hans-review-signal.cjs`);
+            const decision = JSON.parse(process.env.DECISION);
+            const kind = "intentional-skip";
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            if (signal.hasSignalComment(comments, process.env.HEAD_SHA, kind)) {
+              core.notice("The intentional no-review comment already exists for this head SHA.");
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: signal.buildSignalComment({ headSha: process.env.HEAD_SHA, decision }),
+            });
