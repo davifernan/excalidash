@@ -39,13 +39,7 @@ export interface AuditLogResult {
  */
 export const logAuditEvent = async (data: AuditLogData): Promise<void> => {
   try {
-    // Dynamic, not the top-level `config` import: tests set
-    // ENABLE_AUDIT_LOGGING at runtime, after config.ts has already been
-    // imported (and its environment snapshot cached) elsewhere in the module
-    // graph. A fresh `import()` here still resolves to Node's one cached
-    // module instance in production, so this changes nothing outside tests.
-    const { config: liveConfig } = await import("../config");
-    if (!liveConfig.enableAuditLogging) {
+    if (!config.enableAuditLogging) {
       return; // Feature disabled, silently skip
     }
 
@@ -75,8 +69,7 @@ export const getAuditLogs = async (
   limit: number = 100,
 ): Promise<AuditLogResult[]> => {
   try {
-    const { config: liveConfig } = await import("../config");
-    if (!liveConfig.enableAuditLogging) {
+    if (!config.enableAuditLogging) {
       return []; // Feature disabled, return empty array
     }
 

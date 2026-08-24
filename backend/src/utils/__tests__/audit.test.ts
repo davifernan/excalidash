@@ -5,25 +5,36 @@
  * and gracefully degrades when disabled or when tables don't exist.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { getTestPrisma, setupTestDb, initTestDb, createTestUser } from "../../__tests__/testUtils";
 import { logAuditEvent, getAuditLogs, setAuditPrismaProvider, type AuditLogData } from "../audit";
+import { config } from "../../config";
 
 describe("Audit Logging", () => {
   const prisma = getTestPrisma();
   let testUser: { id: string; email: string };
+  // config.ts resolves ENABLE_AUDIT_LOGGING once, the first time anything
+  // imports config.ts -- which can happen well before this file's own
+  // beforeAll runs, via an unrelated static import elsewhere in the module
+  // graph (db/prisma.ts imports config.ts, and audit.ts imports db/prisma.ts).
+  // Setting process.env.ENABLE_AUDIT_LOGGING here would then have no effect:
+  // the value config.ts already cached wins. config is a plain, un-frozen
+  // object shared by reference across every importer, so flipping the field
+  // directly is the reliable way to toggle this in a test, unaffected by
+  // when config.ts happened to load relative to this hook.
+  const originalEnableAuditLogging = config.enableAuditLogging;
 
   beforeAll(async () => {
     setupTestDb();
     testUser = await initTestDb(prisma);
     setAuditPrismaProvider(() => prisma);
-    process.env.ENABLE_AUDIT_LOGGING = "true";
+    config.enableAuditLogging = true;
   });
 
   afterAll(async () => {
     setAuditPrismaProvider(null);
     await prisma.$disconnect();
-    delete process.env.ENABLE_AUDIT_LOGGING;
+    config.enableAuditLogging = originalEnableAuditLogging;
   });
 
   beforeEach(async () => {
@@ -90,30 +101,15 @@ describe("Audit Logging", () => {
     });
 
     it("should gracefully handle when feature is disabled", async () => {
-      const originalEnable = process.env.ENABLE_AUDIT_LOGGING;
-      process.env.ENABLE_AUDIT_LOGGING = "false";
+      config.enableAuditLogging = false;
       try {
-        vi.resetModules();
-        const audit = await import("../audit");
-        audit.setAuditPrismaProvider(() => prisma);
-
-        await expect(
-          audit.logAuditEvent({ action: "should_not_log_disabled" }),
-        ).resolves.not.toThrow();
+        await expect(logAuditEvent({ action: "should_not_log_disabled" })).resolves.not.toThrow();
         const logs = await prisma.auditLog.findMany({
           where: { action: "should_not_log_disabled" },
         });
         expect(logs.length).toBe(0);
       } finally {
-        if (typeof originalEnable === "string") {
-          process.env.ENABLE_AUDIT_LOGGING = originalEnable;
-        } else {
-          delete process.env.ENABLE_AUDIT_LOGGING;
-        }
-        vi.resetModules();
-        const audit = await import("../audit");
-        audit.setAuditPrismaProvider(() => prisma);
-        process.env.ENABLE_AUDIT_LOGGING = "true";
+        config.enableAuditLogging = true;
       }
     });
 
