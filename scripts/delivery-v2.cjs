@@ -250,7 +250,11 @@ function parsePrDeliveryContract(body) {
 
   const sessions = fieldValues(text, "Package-Session");
   if (sessions.length !== 1 || !SESSION_PATTERN.test(sessions[0])) {
-    throw new Error("PR body must contain exactly one real `Package-Session:` UUID.");
+    throw new Error(
+      "PR body must contain exactly one real `Package-Session:` UUID " +
+        "(your session UUID is the filename of your transcript under " +
+        "~/.claude/projects/<project>/<uuid>.jsonl -- not the `session_01H...` display form).",
+    );
   }
 
   const manifestDeclarations = fieldValues(text, "Impact-Manifest");

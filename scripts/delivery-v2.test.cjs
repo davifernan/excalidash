@@ -262,6 +262,17 @@ test("PR admission parses unique Delivery Slices and rejects a second package", 
   );
 });
 
+test("an invalid Package-Session names where the real UUID lives, not just that the ULID form is wrong (NIL-417)", () => {
+  const ulidBody = prBody().replace(OWNER_SESSION, "session_01HLU4ZSv13YSZbKgRLRWNBf");
+  assert.throws(
+    () => parsePrDeliveryContract(ulidBody),
+    /~\/\.claude\/projects\/<project>\/<uuid>\.jsonl/,
+  );
+
+  // A body with a real UUID still passes -- the fix only enriches the message.
+  assert.equal(parsePrDeliveryContract(prBody()).packageSession, OWNER_SESSION);
+});
+
 test("PR admission rejects drafts, bots, placeholders, and incomplete package bodies", () => {
   const manifest = impact([]);
 
