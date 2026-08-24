@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PrismaClient } from "../generated/client";
 import type { AuthModeService } from "../auth/authMode";
+import { logger } from "../logger";
 import {
   canEditDrawing,
   canViewDrawing,
@@ -513,10 +514,11 @@ export const registerSocketHandlers = ({
           .snapshot(drawingId)
           .then((pages) => socket.emit(DOCUMENT_PAGE_EVENT, pages))
           .catch((error) => {
-            console.error(
-              `Document page snapshot failed while joining a board (socket ${socket.id}, drawing ${drawingId}):`,
+            logger.error("Document page snapshot failed while joining a board", {
+              socketId: socket.id,
+              drawingId,
               error,
-            );
+            });
           });
         followManager.invalidateAccess(socket.id);
         ack?.({ ok: true, presence: toPublicPresence(presence) });

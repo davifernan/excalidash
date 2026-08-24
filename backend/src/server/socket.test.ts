@@ -106,21 +106,29 @@ describe("socket collaboration security and follow state", () => {
   it("logs a document page snapshot failure without rejecting the room join", async () => {
     const snapshotError = new Error("database unavailable");
     documentPageFindMany.mockRejectedValueOnce(snapshotError);
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       const socket = await io.connect("socket-page-snapshot-error");
 
       const ack = await join(socket);
 
       expect(ack).toMatchObject({ ok: true });
-      await vi.waitFor(() =>
-        expect(errorLog).toHaveBeenCalledWith(
-          "Document page snapshot failed while joining a board (socket socket-page-snapshot-error, drawing drawing-1):",
-          snapshotError,
-        ),
-      );
+      await vi.waitFor(() => {
+        const call = stderr.mock.calls.find((args) =>
+          (args[0] as string).includes("Document page snapshot failed"),
+        );
+        expect(call).toBeDefined();
+        const line = JSON.parse(call![0] as string);
+        expect(line).toMatchObject({
+          level: "error",
+          message: "Document page snapshot failed while joining a board",
+          socketId: "socket-page-snapshot-error",
+          drawingId: "drawing-1",
+        });
+        expect(line.error).toMatchObject({ message: "database unavailable" });
+      });
     } finally {
-      errorLog.mockRestore();
+      stderr.mockRestore();
     }
   });
 

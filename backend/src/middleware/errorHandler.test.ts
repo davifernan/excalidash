@@ -44,17 +44,18 @@ describe("errorHandler correlation", () => {
     }) as never;
 
   it("logs the failing request under the same key as every other one", () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { response } = respond();
 
     errorHandler(new Error("nope"), request("req-42"), response, vi.fn());
 
-    expect(error.mock.calls[0][1]).toMatchObject({ requestId: "req-42" });
-    error.mockRestore();
+    const line = JSON.parse(stderr.mock.calls[0][0] as string);
+    expect(line).toMatchObject({ level: "error", requestId: "req-42" });
+    stderr.mockRestore();
   });
 
   it("returns the key, so a report and a log line can be matched up", () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { response, json } = respond();
 
     errorHandler(new Error("nope"), request("req-42"), response, vi.fn());
@@ -64,7 +65,7 @@ describe("errorHandler correlation", () => {
   });
 
   it("says unknown rather than inventing a key when the header is missing", () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { response, json } = respond();
 
     errorHandler(new Error("nope"), request(), response, vi.fn());
@@ -74,7 +75,7 @@ describe("errorHandler correlation", () => {
   });
 
   it("still keeps the internals out of a production response", () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { response, json } = respond();
 
     errorHandler(

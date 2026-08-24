@@ -6,10 +6,12 @@ describe("installProcessGuards", () => {
   let target: EventEmitter;
   let exit: ReturnType<typeof vi.fn>;
 
+  let stderr: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     target = new EventEmitter();
     exit = vi.fn();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     installProcessGuards(target, exit);
   });
 
@@ -17,28 +19,31 @@ describe("installProcessGuards", () => {
     vi.restoreAllMocks();
   });
 
+  const lastLine = () => JSON.parse(stderr.mock.calls[0][0] as string);
+
   it("prints an uncaught exception with its stack before ending the process", () => {
     const error = new Error("boom");
 
     target.emit("uncaughtException", error);
 
-    const [, payload] = (console.error as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(payload).toMatchObject({ message: "boom", name: "Error" });
-    expect((payload as { stack?: string }).stack).toContain("boom");
+    const line = lastLine();
+    expect(line).toMatchObject({ level: "error", message: "Uncaught exception, exiting" });
+    expect(line.error).toMatchObject({ message: "boom", name: "Error" });
+    expect(line.error.stack).toContain("boom");
   });
 
   it("prints an unhandled rejection with its stack before ending the process", () => {
     target.emit("unhandledRejection", new Error("rejected"));
 
-    const [, payload] = (console.error as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(payload).toMatchObject({ message: "rejected" });
+    const line = lastLine();
+    expect(line.reason).toMatchObject({ message: "rejected" });
   });
 
   it("still describes a rejection that is not an Error", () => {
     target.emit("unhandledRejection", "just a string");
 
-    const [, payload] = (console.error as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(payload).toBe("just a string");
+    const line = lastLine();
+    expect(line.reason).toBe("just a string");
   });
 
   it("ends the process for both, because listening replaces Node's own exit", () => {

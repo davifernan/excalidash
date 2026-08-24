@@ -10,6 +10,8 @@
  * process that keeps running in an unknown state, which is worse than the
  * silence it set out to fix.
  */
+import { logger } from "./logger";
+
 type ExitFn = (code: number) => void;
 
 const describe = (value: unknown): unknown => {
@@ -24,12 +26,12 @@ export const installProcessGuards = (
   exit: ExitFn = (code) => process.exit(code),
 ): void => {
   target.on("uncaughtException", (error: unknown) => {
-    console.error("Uncaught exception, exiting:", describe(error));
+    logger.error("Uncaught exception, exiting", { error: describe(error) });
     exit(1);
   });
 
   target.on("unhandledRejection", (reason: unknown) => {
-    console.error("Unhandled promise rejection, exiting:", describe(reason));
+    logger.error("Unhandled promise rejection, exiting", { reason: describe(reason) });
     exit(1);
   });
 };

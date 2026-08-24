@@ -4,6 +4,7 @@
  */
 import { Request, Response, NextFunction } from "express";
 import { config } from "../config";
+import { logger } from "../logger";
 
 /**
  * The correlation key is minted per request in index.ts and returned as the
@@ -46,14 +47,12 @@ export const errorHandler = (
   const statusCode = err.statusCode || 500;
   const isDevelopment = config.nodeEnv === "development";
 
-  console.error("Error:", {
-    message: err.message,
+  logger.error(err.message, {
     stack: err.stack,
     statusCode,
     path: req.path,
     method: req.method,
     requestId,
-    timestamp: new Date().toISOString(),
   });
 
   if (!isDevelopment) {

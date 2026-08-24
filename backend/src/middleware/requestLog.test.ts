@@ -12,13 +12,16 @@ const call = (path: string, headers: Record<string, string> = {}) => {
   return next;
 };
 
-const logged = () => (console.log as unknown as ReturnType<typeof vi.fn>).mock.calls;
+const logged = () =>
+  (process.stdout.write as unknown as ReturnType<typeof vi.fn>).mock.calls.map((call) =>
+    JSON.parse(call[0] as string),
+  );
 
 describe("requestLogger", () => {
   const originalLogLevel = config.logLevel;
 
   beforeEach(() => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -55,7 +58,7 @@ describe("requestLogger", () => {
     call("/import", { "content-length": String(20 * 1024 * 1024) });
 
     expect(logged()).toHaveLength(1);
-    expect(logged()[0][0]).toContain("[LARGE REQUEST]");
+    expect(logged()[0]).toMatchObject({ level: "info", message: "large request" });
   });
 
   it("at debug, logs an ordinary request with its correlation key", () => {
@@ -63,8 +66,12 @@ describe("requestLogger", () => {
     const next = call("/drawings", { "x-request-id": "abc-123" });
 
     expect(logged()).toHaveLength(1);
-    expect(logged()[0][0]).toContain("[REQUEST] GET /drawings");
-    expect(logged()[0][0]).toContain("RequestID: abc-123");
+    expect(logged()[0]).toMatchObject({
+      level: "debug",
+      message: "request",
+      path: "/drawings",
+      requestId: "abc-123",
+    });
     expect(next).toHaveBeenCalled();
   });
 
@@ -73,8 +80,8 @@ describe("requestLogger", () => {
     call("/import", { "content-length": String(20 * 1024 * 1024) });
 
     expect(logged()).toHaveLength(2);
-    expect(logged()[0][0]).toContain("[LARGE REQUEST]");
-    expect(logged()[1][0]).toContain("[REQUEST]");
+    expect(logged()[0]).toMatchObject({ level: "info", message: "large request" });
+    expect(logged()[1]).toMatchObject({ level: "debug", message: "request" });
   });
 
   it("at silent, drops even the large-request line", () => {
