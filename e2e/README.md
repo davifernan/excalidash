@@ -80,35 +80,51 @@ Environment variables:
 
 ## Retries
 
-`CI=true` enables two retries. A green check therefore means "passed at least
-once out of up to three attempts", which is a different state from "passed on
-the first attempt" — and without help the two are indistinguishable.
+Retries are `0` (NIL-491). Measured over four red rounds of E2E runs on
+2026-08-23 (PR #54): zero retries recovered a test, twenty retried tests
+failed again, every one deterministically -- five real gaps in the test
+surface and one real regression, not infrastructure flake. A green run costs
+about 5.5 minutes; a red one used to cost about 20, almost all of it retrying
+failures that were never going to pass.
 
-Retries are kept, but never silent. `playwright-retry-summary-reporter.cjs` runs
-as an extra reporter and, whenever a test needed a retry, writes:
+`maxFailures: 5` also comes from NIL-491: a genuinely broken run (a bad
+deploy, a hung server) stops after five failures instead of grinding through
+all thirty specs at one worker each, while still showing enough of a pattern
+to diagnose from. A green run is unaffected either way.
 
-- a line per retried test on stdout,
-- a `::warning` annotation when running under GitHub Actions,
-- a table in the job summary when `GITHUB_STEP_SUMMARY` is set.
+Because retries never fire anymore, `playwright-retry-summary-reporter.cjs`
+and `failOnFlakyTests` (the option NIL-422 was set up to evaluate) lost their
+reason to exist at the same time: the whole point of either was giving a
+*silent* retry a consequence, and with `retries: 0` there is no silent retry
+left to have a consequence -- a test either passes on its only attempt or the
+run is red, full stop. The reporter was removed rather than kept for a
+hypothetical future use (NIL-422's own acceptance criterion for not setting
+`failOnFlakyTests`: name the consequence that applies instead, and who owns
+it -- this paragraph is that).
 
-A run in which nothing was retried produces none of the three.
+If real, non-deterministic infrastructure flake shows up in practice, the
+next step is **one** retry with a visible report, not back to two, and not
+`failOnFlakyTests` layered on top of retries -- that would only reintroduce
+the 2-3x runtime cost this change removed while producing the same red
+outcome `retries: 0` already gives it. Whoever notices repeat infra flake
+owns raising that as its own measured ticket, the way NIL-491 did.
 
-Why not the alternatives: dropping retries to `0` makes every infrastructure
-hiccup red, and this job starts two real servers and shares one SQLite database,
-so the queue would block on flake that is not a product defect. Exempting only
-"guardian" tests needs an explicit list of which tests those are — a second
-source of truth that drifts silently, and in this suite every test is a guardian.
-Reporting keeps the check honest without either cost.
-
+`trace` and `video` moved from `on-first-retry` to `retain-on-failure` in the
+same change (NIL-488): `on-first-retry` only ever produces anything on a
+*second* attempt, which no longer happens with `retries: 0` -- so unchanged,
+it would have silently stopped capturing anything for every red test.
 **Do not pass `--reporter` on the command line.** The CLI flag *replaces* the
-reporter list from the config rather than extending it, which drops this reporter
-without any visible sign. That is why `Dockerfile.playwright` runs a bare
-`npx playwright test`.
+reporter list from the config rather than extending it, which would silently
+drop the html report and the diagnostics NIL-488 depends on. That is why
+`Dockerfile.playwright` runs a bare `npx playwright test`.
 
-`frontend/playwright.config.ts` also carries `retries: process.env.CI ? 2 : 0`,
-but its `testDir` (`frontend/e2e`) does not exist, no workflow invokes it, and it
-has never held a test in this fork's history. It produces no runs, so there is
-nothing there to report; it is deliberately left untouched rather than decorated.
+`retain-on-failure` keeps the trace/video for a test that fails on its one
+attempt and discards it for one that passes.
+
+`frontend/playwright.config.ts` (NIL-418) is gone rather than decorated: its
+`testDir` (`frontend/e2e`) never existed in this fork's history, and nothing
+called it -- see `git log` on this repository before this change for the
+prior note that left it untouched pending this decision.
 
 ## File Structure
 
@@ -119,7 +135,6 @@ e2e/
 ├── fixtures/                 # Test data files
 │   └── small-image.excalidraw
 ├── playwright.config.ts      # Playwright configuration
-├── playwright-retry-summary-reporter.cjs  # Surfaces retries (see "Retries")
 ├── docker-compose.e2e.yml    # Docker setup
 ├── Dockerfile.playwright     # Playwright container
 ├── run-e2e.sh               # Convenience script
