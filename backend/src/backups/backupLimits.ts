@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveStoragePath } from "../assets/assetStorage";
+import { logger } from "../logger";
+import { config } from "../config";
 
 export type BackupLimitOptions = {
   maxCount?: number;
@@ -14,25 +16,10 @@ export type BackupPolicy = {
   minFreeDiskPercent: number;
 };
 
-const DEFAULT_BACKUP_MAX_COUNT = 7;
-const DEFAULT_BACKUP_MAX_TOTAL_BYTES = 30 * 1024 * 1024 * 1024;
-const DEFAULT_BACKUP_MIN_FREE_DISK_PERCENT = 20;
-
-const positiveIntegerEnv = (name: string, fallback: number): number => {
-  const value = Number(process.env[name] ?? fallback);
-  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
-};
-
 const resolvePolicy = (options: BackupLimitOptions): BackupPolicy => ({
-  maxCount: options.maxCount ?? positiveIntegerEnv("BACKUP_MAX_COUNT", DEFAULT_BACKUP_MAX_COUNT),
-  maxTotalBytes:
-    options.maxTotalBytes ??
-    positiveIntegerEnv("BACKUP_MAX_TOTAL_MB", DEFAULT_BACKUP_MAX_TOTAL_BYTES / 1024 / 1024) *
-      1024 *
-      1024,
-  minFreeDiskPercent:
-    options.minFreeDiskPercent ??
-    positiveIntegerEnv("BACKUP_MIN_FREE_DISK_PERCENT", DEFAULT_BACKUP_MIN_FREE_DISK_PERCENT),
+  maxCount: options.maxCount ?? config.backups.maxCount,
+  maxTotalBytes: options.maxTotalBytes ?? config.backups.maxTotalBytes,
+  minFreeDiskPercent: options.minFreeDiskPercent ?? config.backups.minFreeDiskPercent,
 });
 
 type BackupFile = { path: string; bytes: number; mtimeMs: number; name: string };
@@ -69,7 +56,7 @@ export const enforceBackupLimits = async (
     if (!oldest) break;
     await fs.promises.unlink(oldest.path);
     bytes -= oldest.bytes;
-    console.log(`[backup] Pruned ${oldest.name} to enforce count/byte limits.`);
+    logger.info("backup pruned to enforce count/byte limits", { name: oldest.name });
   }
 };
 

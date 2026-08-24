@@ -27,6 +27,7 @@ import { mkdtemp, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { BoundedTaskQueue, QueueCapacityError } from "../utils/boundedTaskQueue";
+import { config } from "../config";
 
 const run = promisify(execFile);
 
@@ -91,8 +92,8 @@ export async function shrinkPdf(path: string, options: ShrinkOptions): Promise<S
   try {
     return await shrinkQueue.run(
       {
-        concurrency: options.concurrency ?? Number(process.env.ASSET_PDF_SHRINK_CONCURRENCY ?? "1"),
-        maxWaiting: options.maxWaiting ?? Number(process.env.ASSET_PDF_SHRINK_QUEUE_LIMIT ?? "2"),
+        concurrency: options.concurrency ?? config.assets.pdfShrinkConcurrency,
+        maxWaiting: options.maxWaiting ?? config.assets.pdfShrinkQueueLimit,
       },
       () => rebuildPdf(path, before, options),
     );

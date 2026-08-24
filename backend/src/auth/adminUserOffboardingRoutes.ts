@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { Prisma } from "../generated/client";
+import { logger } from "../logger";
 import { disconnectApiKeySockets, recheckActiveUserSockets } from "../server/socketRevocation";
 import { logAuditEvent } from "../utils/audit";
 import type { RegisterAdminRoutesDeps } from "./adminRoutes";
@@ -104,7 +105,7 @@ export const registerAdminUserOffboardingRoutes = (deps: RegisterAdminRoutesDeps
           message: "The company archive account could not be reserved",
         });
       }
-      console.error("User offboarding error:", error);
+      logger.error("User offboarding error", { error });
       return res.status(500).json({
         error: "Internal server error",
         message: "Failed to permanently delete user data",

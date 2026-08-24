@@ -1,5 +1,6 @@
 import { config } from "../config";
 import { prisma } from "../db/prisma";
+import { logger } from "../logger";
 import { createSqliteBackup } from "./scheduler";
 
 const main = async () => {
@@ -11,12 +12,12 @@ const main = async () => {
     retentionDays: config.backups.retentionDays,
   });
   if (!target) throw new Error("One-off backups require a SQLite file: DATABASE_URL.");
-  console.log(`[backup] One-off backup completed: ${target}`);
+  logger.info("one-off backup completed", { target });
 };
 
 void main()
   .catch((error) => {
-    console.error("[backup] One-off backup failed:", error);
+    logger.error("one-off backup failed", { error });
     process.exitCode = 1;
   })
   .finally(async () => {

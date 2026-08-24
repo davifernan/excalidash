@@ -4,6 +4,7 @@ import archiver from "archiver";
 import { pipeline } from "node:stream/promises";
 import { resolveStoragePath } from "../assets/assetStorage";
 import type { PrismaClient } from "../generated/client";
+import { logger } from "../logger";
 import { type BackupLimitOptions, enforceBackupLimits, prepareBackupSpace } from "./backupLimits";
 
 const Database = require("better-sqlite3") as any;
@@ -192,9 +193,7 @@ export const createSqliteBackup = async ({
 }: Omit<BackupSchedulerOptions, "schedule">): Promise<string | null> => {
   const databasePath = parseDatabasePath(databaseUrl);
   if (!databasePath) {
-    console.warn(
-      "[backup] Scheduled backups currently support SQLite file: DATABASE_URL values only.",
-    );
+    logger.warn("scheduled backups currently support SQLite file DATABASE_URL values only");
     return null;
   }
 
@@ -310,9 +309,11 @@ export const createSqliteBackup = async ({
     }
     await pruneOldBackups(backupDir, retentionDays);
     await enforceBackupLimits(backupDir, policy.maxCount, policy.maxTotalBytes);
-    console.log(
-      `[backup] Wrote database, ${originals.length} originals, and ${secrets.length} secrets: ${target}`,
-    );
+    logger.info("backup wrote database, originals, and secrets", {
+      originals: originals.length,
+      secrets: secrets.length,
+      target,
+    });
     return target;
   } catch (error) {
     await fs.promises.rm(partialTarget, { force: true });
@@ -363,7 +364,7 @@ export const cleanupExpiredAuthData = async ({
     passwordResetTokens: passwordResetTokens.count,
     auditLogs: auditLogs.count,
   };
-  console.log("[maintenance] Auth retention cleanup completed", counts);
+  logger.info("auth retention cleanup completed", counts);
   return counts;
 };
 
@@ -389,7 +390,7 @@ export const startScheduledMaintenance = (
         running: false,
       });
     } catch (error) {
-      console.error(`[maintenance] Invalid ${name}; job disabled:`, error);
+      logger.error("maintenance job invalid; job disabled", { name, error });
     }
   };
 
@@ -410,7 +411,7 @@ export const startScheduledMaintenance = (
         try {
           await job.run();
         } catch (error) {
-          console.error(`[maintenance] ${job.name} failed:`, error);
+          logger.error("maintenance job failed", { name: job.name, error });
         } finally {
           job.running = false;
         }
@@ -420,6 +421,6 @@ export const startScheduledMaintenance = (
 
   const interval = setInterval(() => void tick(), 1000);
   interval.unref();
-  console.log(`[maintenance] Scheduled jobs enabled: ${jobs.map((job) => job.name).join(", ")}`);
+  logger.info("maintenance scheduled jobs enabled", { jobs: jobs.map((job) => job.name) });
   return () => clearInterval(interval);
 };

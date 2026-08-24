@@ -9,6 +9,7 @@
 import { Readable } from "node:stream";
 import type { PrismaClient } from "./generated/client";
 import { storeDrawingFile, type StoreDrawingFileInput } from "./assets/assetService";
+import { logger } from "./logger";
 
 /**
  * Reject anything that could escape the per-drawing storage prefix. Same
@@ -82,7 +83,7 @@ export const processEmbeddedImages = async (
       // Reject path-traversal candidates rather than silently storing them
       // under a forged key. Drop from output so the bad entry never reaches
       // the database either.
-      console.warn(`[files] Skipping file with invalid id: ${JSON.stringify(fileId)}`);
+      logger.warn("skipping file with invalid id", { fileId });
       delete result[fileId];
       return;
     }
@@ -96,7 +97,7 @@ export const processEmbeddedImages = async (
     const decoded = decodeDataURL(dataURL);
     if (!decoded) return;
     if (!ALLOWED_IMAGE_MIME_TYPES.has(decoded.mimeType)) {
-      console.warn(`[files] Skipping unsupported embedded MIME type: ${decoded.mimeType}`);
+      logger.warn("skipping unsupported embedded MIME type", { mimeType: decoded.mimeType });
       return;
     }
 
@@ -114,7 +115,7 @@ export const processEmbeddedImages = async (
       // Too large or over quota: leave this one entry embedded rather than
       // failing the whole scene save. The client still has a working board;
       // it just did not get the storage benefit for this one image.
-      console.warn(`[files] Could not move embedded image "${fileId}" to storage:`, error);
+      logger.warn("could not move embedded image to storage", { fileId, error });
       return;
     }
 

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
+import { logger } from "../logger";
 import { logAuditEvent } from "../utils/audit";
 import { updateEmailSchema, updateProfileSchema } from "./schemas";
 import { canUseLocalPasswordFlows } from "./localPassword";
@@ -64,7 +65,7 @@ export const registerAccountProfileRoutes = (deps: RegisterAccountRoutesDeps) =>
 
       return res.json({ user: updatedUser });
     } catch (error) {
-      console.error("Update profile error:", error);
+      logger.error("Update profile error", { error });
       return res.status(500).json({
         error: "Internal server error",
         message: "Failed to update profile",
@@ -159,8 +160,8 @@ export const registerAccountProfileRoutes = (deps: RegisterAccountRoutesDeps) =>
               data: { revoked: true },
             });
           } catch {
-            if (process.env.NODE_ENV === "development") {
-              console.debug("Refresh token revocation skipped (feature disabled or table missing)");
+            if (config.nodeEnv === "development") {
+              logger.debug("Refresh token revocation skipped (feature disabled or table missing)");
             }
           }
         }
@@ -178,8 +179,8 @@ export const registerAccountProfileRoutes = (deps: RegisterAccountRoutesDeps) =>
               },
             });
           } catch {
-            if (process.env.NODE_ENV === "development") {
-              console.debug("Refresh token storage skipped (feature disabled or table missing)");
+            if (config.nodeEnv === "development") {
+              logger.debug("Refresh token storage skipped (feature disabled or table missing)");
             }
           }
         }
@@ -196,7 +197,7 @@ export const registerAccountProfileRoutes = (deps: RegisterAccountRoutesDeps) =>
 
         return res.json({ user: updatedUser });
       } catch (error) {
-        console.error("Update email error:", error);
+        logger.error("Update email error", { error });
         return res.status(500).json({
           error: "Internal server error",
           message: "Failed to update email",

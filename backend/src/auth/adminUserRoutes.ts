@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import { Request, Response } from "express";
 import { Prisma } from "../generated/client";
+import { logger } from "../logger";
 import { logAuditEvent } from "../utils/audit";
 import type { RegisterAdminRoutesDeps } from "./adminRoutes";
 import { registerAdminUserPasswordRoutes } from "./adminUserPasswordRoutes";
@@ -89,7 +90,7 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
       });
       res.json({ user: updated });
     } catch (error) {
-      console.error("Admin role update error:", error);
+      logger.error("Admin role update error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to update user role",
@@ -121,7 +122,7 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
       });
       res.json({ apiKeys: keys });
     } catch (error) {
-      console.error("List API keys error:", error);
+      logger.error("List API keys error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to list API keys",
@@ -161,7 +162,7 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
       }
       res.json({ revoked: true });
     } catch (error) {
-      console.error("Revoke API key error:", error);
+      logger.error("Revoke API key error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to revoke API key",
@@ -190,7 +191,7 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
       });
       res.json({ users });
     } catch (error) {
-      console.error("List users error:", error);
+      logger.error("List users error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to list users",
@@ -317,14 +318,15 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
                 invitationError = `The invitation email was not delivered${result.reason ? `: ${result.reason}` : "."}`;
               }
             } catch (error) {
-              console.error(`[mail] Invitation for ${user.email} failed:`, error);
+              logger.error("Invitation failed", { email: user.email, error });
               invitationError = "The invitation could not be prepared or sent.";
             }
           }
           if (invitationError) {
-            console.error(
-              `[mail] Invitation for ${user.email} was not delivered: ${invitationError}`,
-            );
+            logger.error("Invitation was not delivered", {
+              email: user.email,
+              reason: invitationError,
+            });
           }
         }
         if (config.enableAuditLogging) {
@@ -347,7 +349,7 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
           temporaryPassword: sendInvite && !invited ? invitePassword : null,
         });
       } catch (error) {
-        console.error("Create user error:", error);
+        logger.error("Create user error", { error });
         res.status(500).json({
           error: "Internal server error",
           message: "Failed to create user",
@@ -516,7 +518,7 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
           message: "User with this username already exists",
         });
       }
-      console.error("Update user error:", error);
+      logger.error("Update user error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to update user",

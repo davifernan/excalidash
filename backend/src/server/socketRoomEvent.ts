@@ -1,5 +1,6 @@
 import type { Socket } from "socket.io";
 import { createRateLimiter, RoomEventParseFailure, type RoomEventError } from "./socketProtocol";
+import { logger } from "../logger";
 
 export type { RoomEventError };
 export type RoomEventPayload = { drawingId: string };
@@ -225,7 +226,7 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
     // A thrown handler must not poison the tail for everything after it, and
     // an acknowledged command must never be left waiting until client timeout.
     tail = tail.catch((error) => {
-      console.error(`Room event ${event} failed:`, error);
+      logger.error("Room event failed", { event, error });
       feedback.rejected(
         { code: "internal-error", message: `${event} could not be completed` },
         ack,

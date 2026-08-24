@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { logger } from "../../logger";
 import {
   RegisterImportExportDeps,
   ImportValidationError,
@@ -409,10 +410,12 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
               }
               const createId = finalId === d.importedId ? uuidv4() : finalId;
               if (createId !== finalId) {
-                console.warn(
-                  `[import/legacy] race conflict on drawing ${d.importedId}; ` +
-                    `creating under ${createId}; S3 objects keyed under ` +
-                    `${d.importedId} are now orphans`,
+                logger.warn(
+                  "race conflict on drawing import; S3 objects under the imported id are now orphans",
+                  {
+                    importedId: d.importedId,
+                    createId,
+                  },
                 );
               }
               await tx.drawing.create({

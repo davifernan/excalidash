@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { logger } from "../logger";
 import { logAuditEvent } from "../utils/audit";
 import { getEffectiveOidcJitProvisioning } from "./accessPolicy";
 import type { RegisterAdminRoutesDeps } from "./adminRoutes";
@@ -50,7 +51,7 @@ export const registerAdminSettingsRoutes = (deps: RegisterAdminRoutesDeps) => {
       });
       res.json({ registrationEnabled: updated.registrationEnabled });
     } catch (error) {
-      console.error("Registration toggle error:", error);
+      logger.error("Registration toggle error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to update registration setting",
@@ -90,7 +91,7 @@ export const registerAdminSettingsRoutes = (deps: RegisterAdminRoutesDeps) => {
         ),
       });
     } catch (error) {
-      console.error("OIDC JIT provisioning toggle error:", error);
+      logger.error("OIDC JIT provisioning toggle error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to update OIDC provisioning setting",
@@ -105,7 +106,7 @@ export const registerAdminSettingsRoutes = (deps: RegisterAdminRoutesDeps) => {
       const cfg = parseLoginRateLimitConfig(systemConfig);
       res.json({ config: cfg });
     } catch (error) {
-      console.error("Get login rate limit config error:", error);
+      logger.error("Get login rate limit config error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to fetch login rate limit config",
@@ -145,7 +146,7 @@ export const registerAdminSettingsRoutes = (deps: RegisterAdminRoutesDeps) => {
       }
       res.json({ config: nextConfig });
     } catch (error) {
-      console.error("Update login rate limit config error:", error);
+      logger.error("Update login rate limit config error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to update login rate limit config",
@@ -178,7 +179,7 @@ export const registerAdminSettingsRoutes = (deps: RegisterAdminRoutesDeps) => {
       }
       res.json({ ok: true });
     } catch (error) {
-      console.error("Reset login rate limit error:", error);
+      logger.error("Reset login rate limit error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to reset login rate limit",

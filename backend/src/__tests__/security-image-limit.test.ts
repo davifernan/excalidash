@@ -46,7 +46,7 @@ describe("image data URL storage limit", () => {
     const dataURL = dataUrlWithLength(101);
     const input = drawingWithDataUrl(dataURL);
     (input.files.image as Record<string, unknown>).encryptionKey = secretSentinel;
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     expect(Buffer.byteLength(dataURL, "utf8")).toBe(101);
 
@@ -63,7 +63,7 @@ describe("image data URL storage limit", () => {
       maxBytes: 100,
     });
     expect(input.files.image.dataURL).toBe(dataURL);
-    const logged = JSON.stringify(consoleError.mock.calls);
+    const logged = JSON.stringify(stderrWrite.mock.calls);
     expect(logged).not.toContain(secretSentinel);
   });
 

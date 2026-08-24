@@ -22,14 +22,36 @@ import { API_URL, getCsrfHeaders } from "./api";
 // users issues a one-time "bootstrap setup code" that the FIRST real
 // registration must present. The code is intentionally never returned over
 // HTTP: only a SHA-256 hash is stored (backend/src/auth/bootstrapSetupCode.ts)
-// and the plaintext is written once to the backend's own console, the same
-// "[BOOTSTRAP SETUP] ..." line AGENTS.md tells an operator to grep from
+// and the plaintext is written once to the backend's own log, the same
+// "BOOTSTRAP SETUP" line AGENTS.md tells an operator to grep from
 // `docker compose logs backend`. This spec is the operator: it reads the
 // code the same way, from the backend process's own stdout, captured to a
 // file the caller points at via E2E_BACKEND_LOG_FILE. See the spec file's
 // header comment for the exact command that sets this up.
-const BOOTSTRAP_CODE_LINE =
-  /\[BOOTSTRAP SETUP\] One-time admin setup code \(([^)]+)\):\s*(\S+)\s*\(expires/g;
+//
+// The backend logs one structured JSON object per line (backend/src/logger.ts,
+// NIL-411/NIL-502) rather than a hand-formatted string -- parse each line as
+// JSON and read its fields, instead of a regex over a specific text shape
+// that only the log producer controls.
+const BOOTSTRAP_CODE_MESSAGE = "BOOTSTRAP SETUP: one-time admin setup code issued";
+
+const readBootstrapCodeLines = (
+  content: string,
+): { reason: unknown; code: unknown }[] =>
+  content
+    .split("\n")
+    .filter((line) => line.includes(BOOTSTRAP_CODE_MESSAGE))
+    .map((line) => {
+      try {
+        return JSON.parse(line) as { message?: unknown; reason?: unknown; code?: unknown };
+      } catch {
+        return null;
+      }
+    })
+    .filter(
+      (parsed): parsed is { message: unknown; reason: unknown; code: unknown } =>
+        parsed !== null && parsed.message === BOOTSTRAP_CODE_MESSAGE,
+    );
 
 export const readLatestBootstrapSetupCode = async (params: {
   reason: string;
@@ -48,17 +70,17 @@ export const readLatestBootstrapSetupCode = async (params: {
   const deadline = Date.now() + (params.timeoutMs ?? 5000);
   for (;;) {
     const content = fs.existsSync(logFile) ? fs.readFileSync(logFile, "utf8") : "";
-    let match: RegExpExecArray | null;
     let latest: string | null = null;
-    BOOTSTRAP_CODE_LINE.lastIndex = 0;
-    while ((match = BOOTSTRAP_CODE_LINE.exec(content))) {
-      if (match[1] === params.reason) latest = match[2];
+    for (const line of readBootstrapCodeLines(content)) {
+      if (line.reason === params.reason && typeof line.code === "string") {
+        latest = line.code;
+      }
     }
     if (latest) return latest;
     if (Date.now() >= deadline) {
       throw new Error(
-        `Timed out waiting for a "[BOOTSTRAP SETUP] ... (${params.reason})" line in ${logFile}. ` +
-          "Is the backend actually writing to that file?",
+        `Timed out waiting for a "${BOOTSTRAP_CODE_MESSAGE}" line with reason "${params.reason}" ` +
+          `in ${logFile}. Is the backend actually writing to that file?`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
