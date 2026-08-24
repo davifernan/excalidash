@@ -59,24 +59,26 @@ Release tags follow `vX.Y.Z-nilo.N` -- see
 - Run `docker compose -f docker-compose.prod.yml logs backend --tail=200` after rollout and
   verify startup/migration status.
 
-### Recommended upgrade (Docker Hub compose)
+### Recommended upgrade (GHCR compose)
+
+### Pin this release (required)
+
+Both services read the same `EXCALIDASH_IMAGE_TAG` from `.env`. There is no
+per-service `image:` tag to edit in `docker-compose.prod.yml` — and no `:latest`
+fallback if the variable is unset, so compose refuses to start without it.
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+# .env
+EXCALIDASH_IMAGE_TAG=0.7.0
 ```
 
-### Pin images to this release (recommended for reproducible deploys)
-
-Edit `docker-compose.prod.yml` and pin the release tags:
-
-```yaml
-services:
-  backend:
-    image: ghcr.io/davifernan/excalidash-backend:0.7.0
-  frontend:
-    image: ghcr.io/davifernan/excalidash-frontend:0.7.0
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml pull
+docker compose --env-file .env -f docker-compose.prod.yml up -d
 ```
+
+To roll back, put the previous value back into `.env` and repeat the two commands.
+No compose-file edit is involved in either direction.
 
 </details>
 
