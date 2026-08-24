@@ -762,3 +762,142 @@ describe("saving the settings a board keeps", () => {
     expect(debouncedSave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("getDeliveryState", () => {
+  const params = (overrides: Record<string, unknown>) => ({
+    drawingId: "drawing-1",
+    files: { read: () => ({ ok: true, value: {} }) } as any,
+    lastLocalChangeAtRef: ref(0),
+    lastSyncedElementOrderSigRef: ref("same-order"),
+    lastSyncedFilesRef: ref<Record<string, any>>({}),
+    latestAppStateRef: ref(null),
+    latestFilesRef: ref({}),
+    lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+    debouncedSave: vi.fn(),
+    debouncedSavePreview: vi.fn(),
+    computeElementOrderSig: () => "same-order",
+    hasElementChanged: () => true,
+    normalizeImageElementStatus: (elements: readonly any[]) => elements,
+    recordElementVersion: vi.fn(),
+    setHasSceneChangesSinceLoad: vi.fn(),
+    ...overrides,
+  });
+
+  it("reports a file as in flight until the server acks it, then as acknowledged", () => {
+    const acknowledgements: Array<(value: any) => void> = [];
+    const emit = vi.fn((_event: string, _payload: unknown, ack?: (value: any) => void) => {
+      if (ack) acknowledgements.push(ack);
+    });
+    const file = { id: "file-1", dataURL: "data:image/png;base64,abc" };
+    const { result } = renderHook(() =>
+      useEditorBroadcast(params({ socketRef: ref<any>({ emit }) })),
+    );
+
+    expect(result.current.getDeliveryState()).toEqual({
+      inFlight: false,
+      parked: false,
+      retrying: false,
+      acknowledgedFileIds: [],
+      rejectedFileIds: [],
+    });
+
+    act(() => result.current.broadcastFiles({ "file-1": file }));
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: true,
+      acknowledgedFileIds: [],
+    });
+
+    act(() => acknowledgements[0]?.({ ok: true }));
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: false,
+      parked: false,
+      acknowledgedFileIds: ["file-1"],
+    });
+  });
+
+  it("reports queue state while a fresh file passes a timed-out retry", () => {
+    vi.useFakeTimers();
+    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
+    const emit = vi.fn(
+      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
+        acknowledgements.push(ack);
+      },
+    );
+    const socket = { timeout: vi.fn(() => ({ emit })) };
+    const first = { id: "file-1", dataURL: "data:image/png;base64,first" };
+    const second = { id: "file-2", dataURL: "data:image/png;base64,second" };
+    const { result } = renderHook(() =>
+      useEditorBroadcast(params({ socketRef: ref<any>(socket) })),
+    );
+
+    act(() => result.current.broadcastFiles({ "file-1": first }));
+    act(() => result.current.broadcastFiles({ "file-1": first, "file-2": second }));
+    expect(result.current.getDeliveryState()).toMatchObject({ inFlight: true, parked: true });
+
+    act(() => acknowledgements[0]?.(new Error("timeout")));
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: true,
+      parked: false,
+      retrying: true,
+      acknowledgedFileIds: [],
+    });
+
+    // NIL-533's fairness contract: the fresh second file takes the free lane
+    // while the first file waits for its retry delay.
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[1]?.[1]).toMatchObject({ files: { "file-2": second } });
+
+    act(() => acknowledgements[1]?.(null, { ok: true }));
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: false,
+      parked: false,
+      retrying: true,
+      acknowledgedFileIds: ["file-2"],
+    });
+
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(emit).toHaveBeenCalledTimes(3);
+    expect(emit.mock.calls[2]?.[1]).toMatchObject({ files: { "file-1": first } });
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: true,
+      parked: false,
+      retrying: true,
+    });
+
+    act(() => acknowledgements[2]?.(null, { ok: true }));
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: false,
+      parked: false,
+      retrying: false,
+      acknowledgedFileIds: ["file-2", "file-1"],
+    });
+    vi.useRealTimers();
+  });
+
+  it("reports a locally rejected oversized file, and never as acknowledged", () => {
+    const emit = vi.fn();
+    const files = {
+      oversized: {
+        id: "oversized",
+        dataURL: `data:image/png;base64,${"x".repeat(12 * 1024 * 1024)}`,
+      },
+    };
+    const { result } = renderHook(() =>
+      useEditorBroadcast(
+        params({
+          socketRef: ref<any>({ emit }),
+          files: { read: () => ({ ok: true, value: files }) } as any,
+        }),
+      ),
+    );
+
+    act(() => result.current.broadcastFiles(files));
+
+    expect(emit).not.toHaveBeenCalled();
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: false,
+      rejectedFileIds: ["oversized"],
+      acknowledgedFileIds: [],
+    });
+  });
+});
