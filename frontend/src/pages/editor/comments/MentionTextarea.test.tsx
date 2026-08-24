@@ -197,4 +197,61 @@ describe("MentionTextarea", () => {
     expect(submitted).toBe(0);
     expect(textarea.value).toBe("hey @[Anna](u-anna) ");
   });
+
+  /**
+   * RED PROBE evidence (see PR HANDOFF): an active "@" trigger with zero
+   * matching candidates (a typo, an email address typed into the body) used
+   * to fall between the two Enter-handling branches -- the suggestion branch
+   * required `matches.length > 0`, the submit branch required
+   * `triggerStart === null` -- so Enter did nothing at all: no insert, no
+   * submit, just a swallowed keystroke (a stray newline in the plain-Enter
+   * case).
+   */
+  it("Enter still submits when an @ trigger is open but nothing matches it", () => {
+    let submitted = 0;
+    const Controlled: React.FC = () => {
+      const [value, setValue] = useState("");
+      return (
+        <MentionTextarea
+          value={value}
+          onChange={setValue}
+          candidates={CANDIDATES}
+          submitOnEnter
+          onSubmit={() => {
+            submitted += 1;
+          }}
+          data-testid="mt"
+        />
+      );
+    };
+    render(<Controlled />);
+    const textarea = screen.getByTestId("mt") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hey @zzz-no-match" } });
+    expect(screen.queryByTestId("mention-suggestions")).not.toBeInTheDocument();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(submitted).toBe(1);
+  });
+
+  it("Ctrl+Enter still submits when an @ trigger is open but nothing matches it (compose box, no submitOnEnter)", () => {
+    let submitted = 0;
+    const Controlled: React.FC = () => {
+      const [value, setValue] = useState("");
+      return (
+        <MentionTextarea
+          value={value}
+          onChange={setValue}
+          candidates={CANDIDATES}
+          onSubmit={() => {
+            submitted += 1;
+          }}
+          data-testid="mt"
+        />
+      );
+    };
+    render(<Controlled />);
+    const textarea = screen.getByTestId("mt") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hey @zzz-no-match" } });
+    fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+    expect(submitted).toBe(1);
+  });
 });

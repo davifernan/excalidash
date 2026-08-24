@@ -109,8 +109,12 @@ export const MentionTextarea: React.FC<Props> = ({
       setTriggerStart(null);
       return;
     }
+    // An active "@" trigger with no matching candidate (a typo, an email
+    // address) must not swallow Enter/Ctrl+Enter -- there is no suggestion
+    // to accept, so this falls through to a normal submit exactly like an
+    // inactive trigger would.
     if (
-      triggerStart === null &&
+      (triggerStart === null || matches.length === 0) &&
       event.key === "Enter" &&
       (event.metaKey || event.ctrlKey || (submitOnEnter && !event.shiftKey))
     ) {
