@@ -29,8 +29,7 @@ import {
  * readable without losing the shared board/session state between them.
  */
 
-const openEditor = (page: Page, drawingId: string) =>
-  openEditorReady(page, drawingId, { settleMs: 1000 });
+const openEditor = (page: Page, drawingId: string) => openEditorReady(page, drawingId);
 
 const socketConnected = (page: Page) =>
   page.evaluate(() => (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true);
@@ -43,7 +42,33 @@ const waitConnected = (page: Page, label: string) =>
     })
     .toBe(true);
 
+const waitForBrowserOffline = (page: Page, label: string) =>
+  expect
+    .poll(() => page.evaluate(() => navigator.onLine), {
+      timeout: 10_000,
+      message: `${label} never observed the forced offline state`,
+    })
+    .toBe(false);
+
 const errorToasts = (page: Page) => page.locator("[data-sonner-toast][data-type=error]");
+
+// A toast for a specific rejected file, matched by the fileId sonner's own
+// message names (`useEditorBroadcast.ts`'s "File <id> is too large ..."),
+// not by count: sonner auto-dismisses after 4s (TOAST_LIFETIME) and, at
+// least for this rejection path, re-fires a fresh toast for the same file
+// on every later broadcast attempt until its element is removed -- both
+// make a bare toast total a snapshot of something that is still moving, not a
+// reliable signal of whether *this* rejection happened.
+const errorToastFor = (page: Page, fileId: string) => errorToasts(page).filter({ hasText: fileId });
+
+const refusedWidgetToast = (page: Page) =>
+  errorToasts(page).filter({ hasText: "Document widget is not part of this board" });
+
+const documentPageCount = async (page: Page) => {
+  const label = await documentPageLabel(page).textContent();
+  const match = label?.match(/^Page \d+ of (\d+)$/);
+  return match ? Number(match[1]) : 0;
+};
 
 /** Waits for a file to arrive on a peer and returns its content hash. */
 const waitForPeerFile = async (page: Page, fileId: string) => {
@@ -95,13 +120,23 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
 
       await test.step("a paginated document widget is visible to every peer", async () => {
         const markdown = Array.from(
-          { length: 60 },
+          { length: 120 },
           (_, i) => `## Section ${i + 1}\n\n${`Body text for section ${i + 1}. `.repeat(30)}\n`,
         ).join("\n");
         await dropMarkdown(host, markdown);
         await expect(documentPageLabel(host)).toContainText("Page 1 of", { timeout: 30_000 });
         await expect(documentPageLabel(guestA)).toContainText("Page 1 of", { timeout: 30_000 });
         await expect(documentPageLabel(guestB)).toContainText("Page 1 of", { timeout: 30_000 });
+        await Promise.all(
+          [host, guestA, guestB].map((page) =>
+            expect
+              .poll(() => documentPageCount(page), {
+                timeout: 30_000,
+                message: "three forward page turns require at least four document pages",
+              })
+              .toBeGreaterThanOrEqual(4),
+          ),
+        );
         const widgets = await host.evaluate(() =>
           (window as any).__EXCALIDASH_TEST__.getSceneElements(),
         );
@@ -124,18 +159,14 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           ["15 MB", 15 * 1024 * 1024],
           ["above the transport ceiling (20 MB)", 20 * 1024 * 1024],
         ] as const) {
-          const before = await errorToasts(host).count();
           const oversized = await injectNoiseImage(host, {
             withHash: true,
             targetBytes,
             elementId: `nil330_oversized_${label.replace(/\W+/g, "")}`,
           });
-          await expect
-            .poll(() => errorToasts(host).count(), {
-              timeout: 15_000,
-              message: `expected a rejection toast for the ${label} file`,
-            })
-            .toBeGreaterThan(before);
+          await expect(errorToastFor(host, oversized.fileId).first()).toBeVisible({
+            timeout: 15_000,
+          });
           // Refused, not silently dropped mid-flight: the connection stays up
           // and the peers never see a file that was never actually sent.
           await waitConnected(host, `host after ${label} rejection`);
@@ -187,21 +218,81 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         await activateDocumentWidget(host);
         await activateDocumentWidget(guestA);
         await activateDocumentWidget(guestB);
+        const nextPageButtons = [host, guestA, guestB].map((page) =>
+          page.getByRole("button", { name: "Next page" }),
+        );
+        await Promise.all(
+          nextPageButtons.map((button) => expect(button).toBeEnabled({ timeout: 10_000 })),
+        );
         // Not asserting a specific target page: a local click races the
         // round trip of the other two, so which page the room lands on
         // depends on the order the server actually received them in -- that
         // order is exactly what is under test, not a page number picked in
         // advance. What every client must agree on is the *same* page,
         // whichever one the server decided.
-        await Promise.all([
-          host.getByRole("button", { name: "Next page" }).click(),
-          guestA.getByRole("button", { name: "Next page" }).click(),
-          guestB.getByRole("button", { name: "Next page" }).click(),
-        ]);
+        // Arm all three browser contexts before releasing any click. Three
+        // Playwright `locator.click()` calls are not an atomic barrier: one
+        // can still be doing actionability checks when another client's
+        // accepted revision temporarily disables its button. Resolving and
+        // storing every real role-matched DOM button first makes readiness a
+        // two-phase condition rather than a guessed timing window.
+        await Promise.all(
+          nextPageButtons.map((button) =>
+            button.evaluate(
+              (element) => {
+                if (!(element instanceof HTMLButtonElement) || element.disabled) {
+                  throw new Error("Could not arm an enabled Next page button");
+                }
+                (window as any).__NIL546_ARMED_NEXT_PAGE__ = element;
+              },
+              { timeout: 10_000 },
+            ),
+          ),
+        );
+        await Promise.all(
+          [host, guestA, guestB].map((page) =>
+            page.evaluate(() => {
+              const button = (window as any).__NIL546_ARMED_NEXT_PAGE__;
+              delete (window as any).__NIL546_ARMED_NEXT_PAGE__;
+              if (!(button instanceof HTMLButtonElement) || button.disabled) {
+                throw new Error("Next page became disabled before the concurrent release");
+              }
+              button.click();
+            }),
+          ),
+        );
         await expect(documentPageLabel(host)).not.toContainText("Page 1 of", { timeout: 15_000 });
-        const converged = await documentPageLabel(host).textContent();
-        await expect(documentPageLabel(guestA)).toHaveText(converged ?? "", { timeout: 15_000 });
-        await expect(documentPageLabel(guestB)).toHaveText(converged ?? "", { timeout: 15_000 });
+
+        // Comparing guestA/guestB against a snapshot of host's page taken
+        // the instant host first moves races a peer whose own click settles
+        // later (real network/dispatch timing, not a bug): if that peer
+        // observes an earlier broadcast before its own click fires, it
+        // legitimately computes one page further and moves the whole room
+        // again -- and nothing moves it back, so a comparison against the
+        // earlier snapshot never matches again (NIL-526). Wait for all
+        // three to agree with each other instead of with one snapshot. Every
+        // button becoming enabled again is the observable completion signal
+        // for its request promise; only after all three requests have settled
+        // can a matching set of labels be the final server-decided page.
+        await Promise.all(
+          nextPageButtons.map((button) => expect(button).toBeEnabled({ timeout: 15_000 })),
+        );
+        const pageTexts = () =>
+          Promise.all([host, guestA, guestB].map((page) => documentPageLabel(page).textContent()));
+        await expect
+          .poll(
+            async () => {
+              const texts = await pageTexts();
+              return new Set(texts).size === 1 ? texts[0] : null;
+            },
+            { timeout: 20_000, message: "expected all three peers to converge on the same page" },
+          )
+          .not.toBeNull();
+        const settled = await pageTexts();
+        expect(
+          new Set(settled).size,
+          `expected the converged page to hold: ${settled.join(", ")}`,
+        ).toBe(1);
       });
 
       await test.step("a network drop mid-transfer resets unconfirmed state instead of leaving a ghost", async () => {
@@ -215,35 +306,42 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         // when the socket dies get forgotten, not resent from a stale marker
         // and not left half-applied.
         await hostCtx.setOffline(true);
-        await host.waitForTimeout(500);
-        await hostCtx.setOffline(false);
         const probe = await inFlight;
+        await waitForBrowserOffline(host, "host network after forced drop");
+        await hostCtx.setOffline(false);
 
         await waitConnected(host, "host after reconnect");
-        // The reconnect must not have wedged future delivery: a fresh file
-        // sent right after still has to arrive, split-and-confirm bookkeeping
-        // intact.
-        const followUp = await injectNoiseImage(host, {
-          withHash: true,
-          targetBytes: 1 * 1024 * 1024,
-          elementId: "nil330_after_reconnect",
-        });
-        expect(await waitForPeerFile(guestA, followUp.fileId)).toBe(followUp.dataHash);
 
-        // The probe file itself must not have silently vanished either: it
-        // either made it across before the drop or the resend after
-        // reconnect delivered it -- either way, no ghost, no ack mismatch.
+        // useEditorBroadcast.ts serializes outbound updates: a new one parks
+        // behind whatever is still in flight, and a reconnect does not clear
+        // that (NIL-533). Sending the follow-up before the probe's own
+        // transfer has resolved would race that queue instead of testing
+        // "a fresh file lands after reconnect" -- which is what made this
+        // step fail at different points on different runs while chasing
+        // NIL-519. Waiting for the probe here first is not weaker: it is the
+        // same "no ghost, no ack mismatch" check the follow-up assertion
+        // used to run after, just resolved before anything new is sent.
         const arrived = await guestA
           .waitForFunction(
             (id) => Boolean((window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id]),
             probe.fileId,
-            { timeout: 20_000 },
+            { timeout: 90_000 },
           )
           .then(() => true)
           .catch(() => false);
         if (arrived) {
           expect(await waitForPeerFile(guestA, probe.fileId)).toBe(probe.dataHash);
         }
+
+        // The reconnect must not have wedged future delivery: once the
+        // probe's own transfer has resolved (above), a fresh file still has
+        // to arrive, split-and-confirm bookkeeping intact.
+        const followUp = await injectNoiseImage(host, {
+          withHash: true,
+          targetBytes: 1 * 1024 * 1024,
+          elementId: "nil330_after_reconnect",
+        });
+        expect(await waitForPeerFile(guestA, followUp.fileId)).toBe(followUp.dataHash);
       });
 
       await test.step("a widget that stops existing mid-request is refused, not hung, and surfaces to the user", async () => {
@@ -253,6 +351,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         // stale collaborator produces, made deterministic instead of hoping
         // real network timing reproduces it.
         await guestBCtx.setOffline(true);
+        await waitForBrowserOffline(guestB, "guestB network before widget deletion");
 
         const hostElements = await host.evaluate(() =>
           (window as any).__EXCALIDASH_TEST__.getSceneElementsIncludingDeleted(),
@@ -286,35 +385,38 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         // socket.io client queues the request; it is delivered the moment
         // guestB reconnects, against a server that has already committed the
         // deletion.
-        const beforeErrors = await errorToasts(guestB).count();
         // Re-activate: Excalidraw deactivates an embeddable's own controls
         // once the pointer interacts with anything else on the canvas
         // (several other steps above did), the same way it guards an
         // embedded video. Purely local, so this works the same offline.
-        await activateDocumentWidget(guestB).catch(() => {});
-        await guestB
-          .getByRole("button", { name: "Next page" })
-          .click({ timeout: 5_000 })
-          .catch(() => {});
+        await activateDocumentWidget(guestB);
+        await guestB.getByRole("button", { name: "Next page" }).click({ timeout: 5_000 });
 
         await guestBCtx.setOffline(false);
         await waitConnected(guestB, "guestB after reconnect");
 
-        await expect
-          .poll(() => errorToasts(guestB).count(), {
-            timeout: 15_000,
-            message: "expected the refused page request to surface as an error toast on guestB",
-          })
-          .toBeGreaterThan(beforeErrors);
+        const refusalToast = refusedWidgetToast(guestB).first();
+        await expect(refusalToast).toBeVisible({ timeout: 15_000 });
 
         // Visual evidence for this package's HANDOFF: the fix in
         // EditorView.tsx (surfacing a refused document-page request) is a
         // frontend product change, and this is the one point in the run
         // where its effect is actually on screen. sonner mounts the toast
-        // and then animates it in (translateY + opacity); the poll above
-        // resolves the instant the DOM node attaches, mid-animation, so a
-        // screenshot taken immediately after it caught nothing visible.
-        await guestB.waitForTimeout(500);
+        // and then animates it in (translateY + opacity). Playwright's
+        // `toBeVisible` deliberately treats opacity:0 as visible, so wait for
+        // sonner's own mounted state and the computed end opacity instead of
+        // sleeping for an assumed animation duration.
+        await expect
+          .poll(
+            () =>
+              refusalToast.evaluate(
+                (element) =>
+                  element.getAttribute("data-mounted") === "true" &&
+                  Number(getComputedStyle(element).opacity) === 1,
+              ),
+            { timeout: 5_000, message: "expected the refusal toast to finish animating in" },
+          )
+          .toBe(true);
         const screenshotPath = testInfo.outputPath("guestB-refused-page-request-toast.png");
         await guestB.screenshot({ path: screenshotPath });
         await testInfo.attach("guestB-refused-page-request-toast", {
