@@ -145,6 +145,42 @@ test.describe("dragging an arrow out of a note", () => {
     await expect(page.getByTestId("sticky-handle-right")).toHaveCount(0);
   });
 
+  test("stays hidden on a rotated note (NIL-276: guessed points would be worse than none)", async ({
+    page,
+  }) => {
+    // StickyHandles bails out entirely on `note.angle` -- a deliberate choice
+    // (see the file's own comment) because a wrongly rotated point is worse
+    // than no point at all. This locks that suppression in as observed
+    // behaviour rather than leaving it as an untested assumption; it is not a
+    // request to implement rotated points.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    await expect(page.getByTestId("sticky-handle-right")).toBeVisible();
+
+    await page.evaluate(() => {
+      const api = (window as any).__EXCALIDASH_TEST__;
+      const elements = api.getSceneElements();
+      const rotated = elements.map((element: any) =>
+        element.customData?.excalidash?.sticky ? { ...element, angle: Math.PI / 6 } : element,
+      );
+      api.updateScene({ elements: rotated });
+    });
+    await page.waitForTimeout(300);
+    // The hover state itself does not change; only the note's own angle does.
+    // Re-issuing the same pointer position keeps the note "under the pointer"
+    // in case the scene write reset a hover subscription along the way.
+    await page.mouse.move(400, 300);
+    await page.waitForTimeout(300);
+
+    await expect(page.getByTestId("sticky-handle-right")).toHaveCount(0);
+    await expect(page.getByTestId("sticky-handle-left")).toHaveCount(0);
+    await expect(page.getByTestId("sticky-handle-top")).toHaveCount(0);
+    await expect(page.getByTestId("sticky-handle-bottom")).toHaveCount(0);
+  });
+
   test("joins two notes with an arrow bound to both", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 350, y: 300 });
@@ -311,4 +347,83 @@ test.describe("a note dropped into a frame", () => {
     );
     expect(movedTo).toBeGreaterThan(joined.y);
   });
+
+  test("belongs to the innermost frame when frames are nested", async ({ page }) => {
+    // frameAt (frontend/src/sticky/stickyPlacement.ts) picks the last-drawn
+    // frame whose bounds contain the note's centre -- "topmost wins" by draw
+    // order, not a true parent/child relationship read from either frame.
+    // Whether that agrees with what a person actually sees -- the note landing
+    // in the frame drawn on top, the small one nested inside the big one -- was
+    // never watched in a browser (NIL-309, NIL-278).
+    await openEditor(page, drawingId);
+    const canvas = page.locator("canvas.excalidraw__canvas.interactive");
+    const box = (await canvas.boundingBox())!;
+
+    await canvas.click({ position: { x: 950, y: 560 } });
+    await page.keyboard.press("f");
+    await page.mouse.move(box.x + 200, box.y + 100);
+    await page.mouse.down();
+    await page.waitForTimeout(120);
+    await page.mouse.move(box.x + 900, box.y + 520, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(600);
+
+    const outerBox = await page.evaluate(() => {
+      const frame = (window as any).__EXCALIDASH_TEST__
+        .getSceneElements()
+        .find((e: any) => e.type === "frame");
+      return { id: frame.id, x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+    });
+
+    // WebKit only ever shrinks a synthetic drag towards its start point (see
+    // the frame drag above and its sibling test's own comment on this), so a
+    // second drag requested strictly inside the outer frame's *measured*
+    // bounds, with a margin, lands inside it too however much it shrinks.
+    const margin = Math.min(outerBox.width, outerBox.height) / 4;
+    const innerStart = { x: outerBox.x + margin, y: outerBox.y + margin };
+    const innerEnd = {
+      x: outerBox.x + outerBox.width - margin,
+      y: outerBox.y + outerBox.height - margin,
+    };
+
+    await page.keyboard.press("f");
+    await page.mouse.move(box.x + innerStart.x, box.y + innerStart.y);
+    await page.mouse.down();
+    await page.waitForTimeout(120);
+    await page.mouse.move(box.x + innerEnd.x, box.y + innerEnd.y, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(600);
+
+    const frames = await page.evaluate(() =>
+      (window as any).__EXCALIDASH_TEST__
+        .getSceneElements()
+        .filter((e: any) => e.type === "frame")
+        .map((e: any) => ({ id: e.id, x: e.x, y: e.y, width: e.width, height: e.height })),
+    );
+    expect(frames).toHaveLength(2);
+    const outer = frames.find((f: any) => f.id === outerBox.id)!;
+    const inner = frames.find((f: any) => f.id !== outerBox.id)!;
+
+    // Sanity check on the geometry this test built, before it means anything:
+    // the second frame really has to sit inside the first one.
+    expect(inner.x).toBeGreaterThanOrEqual(outer.x);
+    expect(inner.y).toBeGreaterThanOrEqual(outer.y);
+    expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width);
+    expect(inner.y + inner.height).toBeLessThanOrEqual(outer.y + outer.height);
+
+    const innerCentre = { x: inner.x + inner.width / 2, y: inner.y + inner.height / 2 };
+    await placeNote(page, innerCentre);
+    await page.keyboard.press("Escape");
+    await settle(page);
+
+    const membership = await page.evaluate(
+      () =>
+        (window as any).__EXCALIDASH_TEST__
+          .getSceneElements()
+          .find((e: any) => e.customData?.excalidash?.sticky)?.frameId,
+    );
+    expect(membership).toBe(inner.id);
+    expect(membership).not.toBe(outer.id);
+  });
 });
+
