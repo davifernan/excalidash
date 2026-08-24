@@ -105,18 +105,16 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
       .then((result) => {
         if (requestIdRef.current !== requestId) return;
         setBoards(
-          result.results.map(
-            (item): DrawingSummary => ({
-              id: item.id,
-              name: item.name,
-              collectionId: item.collectionId,
-              updatedAt: item.updatedAt,
-              createdAt: item.createdAt,
-              version: item.version,
-              creatorName: item.creatorName,
-              accessLevel: item.accessLevel ?? undefined,
-            }),
-          ),
+          result.results.map((item): DrawingSummary => ({
+            id: item.id,
+            name: item.name,
+            collectionId: item.collectionId,
+            updatedAt: item.updatedAt,
+            createdAt: item.createdAt,
+            version: item.version,
+            creatorName: item.creatorName,
+            accessLevel: item.accessLevel ?? undefined,
+          })),
         );
         setBoardsStatus("idle");
       })

@@ -15,6 +15,10 @@ const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.P
 const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 const Inbox = lazy(() => import("./pages/Inbox").then((m) => ({ default: m.Inbox })));
 const Activity = lazy(() => import("./pages/Activity").then((m) => ({ default: m.Activity })));
+const SearchPage = lazy(() => import("./pages/Search").then((m) => ({ default: m.SearchPage })));
+const TeamLibrary = lazy(() =>
+  import("./pages/TeamLibrary").then((m) => ({ default: m.TeamLibrary })),
+);
 const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
 const Register = lazy(() => import("./pages/Register").then((m) => ({ default: m.Register })));
 const PasswordResetRequest = lazy(() =>
@@ -101,6 +105,22 @@ function App() {
                     element={
                       <ProtectedRoute>
                         <Activity />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/search"
+                    element={
+                      <ProtectedRoute>
+                        <SearchPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/library"
+                    element={
+                      <ProtectedRoute>
+                        <TeamLibrary />
                       </ProtectedRoute>
                     }
                   />

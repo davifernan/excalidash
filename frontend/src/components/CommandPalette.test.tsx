@@ -185,11 +185,11 @@ describe("CommandPalette", () => {
     search.mockImplementation(({ q }: { q: string }) => {
       if (q === "aaa") return stale;
       return Promise.resolve({
-      results: [board({ id: "b2", name: "Fresher" })],
-      totalCount: 1,
-      limit: 8,
-      offset: 0,
-    });
+        results: [board({ id: "b2", name: "Fresher" })],
+        totalCount: 1,
+        limit: 8,
+        offset: 0,
+      });
     });
 
     render(<CommandPalette isOpen onClose={vi.fn()} />);

@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutGrid, Folder, Plus, Archive, FolderOpen, Shield, Users, Home } from "lucide-react";
+import {
+  LayoutGrid,
+  Folder,
+  Plus,
+  Archive,
+  ArchiveRestore,
+  BookMarked,
+  FolderOpen,
+  Search,
+  Shield,
+  Users,
+  Home,
+} from "lucide-react";
 import type { Collection } from "../types";
 import clsx from "clsx";
 import { ConfirmModal } from "./ConfirmModal";
@@ -184,6 +196,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 label="Team Home"
                 isActive={location.pathname === "/team"}
                 onClick={() => navigate("/team")}
+              />
+              <SidebarItem
+                id="search"
+                icon={<Search size={18} />}
+                label="Search"
+                isActive={
+                  location.pathname === "/search" && !location.search.includes("mode=archive")
+                }
+                onClick={() => navigate("/search")}
+              />
+              <SidebarItem
+                id="team-library"
+                icon={<BookMarked size={18} />}
+                label="Team Library"
+                isActive={location.pathname === "/library"}
+                onClick={() => navigate("/library")}
+              />
+              <SidebarItem
+                id="archive"
+                icon={<ArchiveRestore size={18} />}
+                label="Archive"
+                isActive={
+                  location.pathname === "/search" && location.search.includes("mode=archive")
+                }
+                onClick={() => navigate("/search?mode=archive")}
               />
             </div>
           </div>

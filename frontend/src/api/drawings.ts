@@ -234,6 +234,21 @@ export const duplicateDrawing = async (id: string) => {
   return deserializeDrawing(response.data);
 };
 
+/** NIL-365: reversible, controller-only. See archiveRoutes.ts for the rights gate. */
+export const archiveDrawing = async (id: string) => {
+  const response = await api.post<{ id: string; archivedAt: string | null }>(
+    `/drawings/${id}/archive`,
+  );
+  return response.data;
+};
+
+export const restoreDrawing = async (id: string) => {
+  const response = await api.post<{ id: string; archivedAt: string | null }>(
+    `/drawings/${id}/restore`,
+  );
+  return response.data;
+};
+
 export type DrawingSnapshotSummary = { id: string; version: number; createdAt: string };
 
 export type DrawingSnapshotFull = DrawingSnapshotSummary & {
