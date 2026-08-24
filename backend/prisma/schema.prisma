@@ -123,6 +123,10 @@ model Drawing {
   visits          DrawingVisit[]
   favoritedBy     DrawingFavorite[]
   apiKeys         ApiKey[]
+  /// Not named `files` -- the scalar `files` column below is Drawing's own
+  /// JSON blob of embedded Excalidraw file entries, an unrelated field this
+  /// relation would collide with.
+  drawingFiles    DrawingFile[]
   /// Set when the board is archived (NIL-365): excluded from Team Home, the
   /// default drawing lists, and search by default, but not deleted -- an
   /// authorized viewer can still find and restore it from the Archive view.
@@ -516,6 +520,14 @@ model AuthIdentity {
 /// Per-(drawing, fileId) S3 object record. Excalidraw fileIds are content
 /// hashes that legitimately repeat across drawings, so the primary key
 /// includes drawingId to keep each reference accounted for separately.
+///
+/// Superseded by DrawingFile (NIL-381) for every new image: this table stops
+/// gaining rows once the S3-only embed-interception path is retired, but
+/// existing rows keep serving through GET /files/:drawingId/:fileId so a
+/// private-bucket deployment that already has images here does not lose
+/// them. A full backfill/removal is its own follow-up, not a blind SQL
+/// migration -- moving these bytes means real S3 network calls, which do not
+/// belong inside a schema migration.
 model S3File {
   drawingId String
   fileId    String // Excalidraw fileId (same id used in Drawing.files)
@@ -527,6 +539,31 @@ model S3File {
   @@id([drawingId, fileId])
   @@index([userId])
   @@index([drawingId])
+}
+
+/// Per-(drawing, fileId) reference to an embedded image's bytes (NIL-381):
+/// where S3File always meant "in S3", this means "in the shared
+/// content-addressed blob store" (StoredBlob, purpose "IMAGE") -- the same
+/// store, dedup, quota and grace-period-cleanup discipline `assetService.ts`
+/// already built for uploaded documents, reused rather than duplicated.
+/// `ownerUserId` is denormalized here the same way `Asset.ownerUserId` is:
+/// quota is charged to whoever owns the board a file was uploaded to, not
+/// whoever uploaded it, and a quota query needs that without a join through
+/// Drawing on every request.
+model DrawingFile {
+  drawingId   String
+  fileId      String // Excalidraw fileId (same id used in Drawing.files)
+  blobId      String
+  ownerUserId String
+  mimeType    String
+  createdAt   DateTime @default(now())
+
+  drawing Drawing    @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  blob    StoredBlob @relation(fields: [blobId], references: [id], onDelete: Restrict)
+
+  @@id([drawingId, fileId])
+  @@index([blobId])
+  @@index([ownerUserId])
 }
 
 /// Bytes on disk, addressed by their content hash.
@@ -545,7 +582,10 @@ model StoredBlob {
   /// Set when the file is stored compressed and must be served that way.
   contentEncoding     String?
   storageKey          String        @unique
-  /// Origin of the bytes; preview cache blobs remain identifiable after row races.
+  /// Origin of the bytes; preview cache blobs remain identifiable after row
+  /// races. "ASSET" (uploaded documents), "LINK_PREVIEW" (cached preview
+  /// images), or "IMAGE" (NIL-381: images embedded in a board's scene,
+  /// referenced through DrawingFile rather than Asset).
   purpose             String        @default("ASSET")
   /// STAGING while the upload is still running, READY once it is usable,
   /// DELETING once nothing references it any more.
@@ -554,6 +594,7 @@ model StoredBlob {
   /// deleted by mistake and restored from a snapshot still finds its bytes.
   deleteAfter         DateTime?
   assets              Asset[]
+  drawingFiles        DrawingFile[]
   linkPreviewImages   LinkPreview[] @relation("LinkPreviewImage")
   linkPreviewFavicons LinkPreview[] @relation("LinkPreviewFavicon")
   createdAt           DateTime      @default(now())
