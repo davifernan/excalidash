@@ -78,6 +78,18 @@ const DISCOVERY_PERMISSION_MATRIX_SPECS = ["**/discovery-permission-matrix.spec.
 const REAL_AUTH_SPECS = [...COMMENTS_TWO_ACCOUNT_SPECS, ...DISCOVERY_PERMISSION_MATRIX_SPECS];
 
 /**
+ * NIL-330's Team-Readiness-Baseline-Lauf: an operator-triggered multi-hour,
+ * multi-context, multi-engine soak, not a per-PR gate. Isolated the same way
+ * REAL_AUTH_SPECS is (own project, excluded from chromium/firefox/webkit's
+ * default matches) but for a different reason -- there is no toggled backend
+ * state to race here, just a runtime budget no ordinary CI run should ever
+ * pay by accident. Only ever invoked explicitly
+ * (`--project=soak team-readiness`); see e2e/tests/team-readiness.spec.ts's
+ * own header for the full runbook.
+ */
+const SOAK_SPECS = ["**/team-readiness.spec.ts"];
+
+/**
  * Playwright configuration for E2E browser testing
  * 
  * Environment variables:
@@ -161,7 +173,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
       },
-      testIgnore: REAL_AUTH_SPECS,
+      testIgnore: [...REAL_AUTH_SPECS, ...SOAK_SPECS],
     },
     {
       // Isolated on purpose: see REAL_AUTH_SPECS above. Only ever invoked
@@ -211,6 +223,17 @@ export default defineConfig({
       name: "mobile-chrome",
       use: { ...devices["Pixel 7"] },
       testMatch: MOBILE_SPECS,
+    },
+    {
+      // Isolated on purpose: see SOAK_SPECS above. Only ever invoked
+      // explicitly (`--project=soak`). The spec launches its own browsers
+      // across engines directly rather than through this project's `use`,
+      // so this entry exists only to keep the soak spec off every other
+      // project's radar.
+      name: "soak",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: SOAK_SPECS,
+      timeout: 0,
     },
   ],
 
