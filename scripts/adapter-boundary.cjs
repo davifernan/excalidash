@@ -405,7 +405,7 @@ const assertNoExceptions = () => {
   process.exit(1);
 };
 
-module.exports = { RULES, assertNoExceptions, scanForLegacyKeys, walk };
+module.exports = { RULES, assertNoExceptions, scanForLegacyKeys, walk, SRC, LEGACY_SCAN_ROOTS };
 
 if (require.main === module) {
   main();
