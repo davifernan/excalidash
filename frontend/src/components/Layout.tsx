@@ -20,6 +20,8 @@ interface LayoutProps {
   onEditCollection: (id: string, name: string) => void | Promise<void>;
   onDeleteCollection: (id: string) => void | Promise<void>;
   onDrop?: (e: React.DragEvent, collectionId: string | null) => void;
+  /** See `SidebarProps.teamHomeStatus` (NIL-294). Passed straight through. */
+  teamHomeStatus?: string | null;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -31,6 +33,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onEditCollection,
   onDeleteCollection,
   onDrop,
+  teamHomeStatus,
 }) => {
   const location = useLocation();
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -172,6 +175,7 @@ export const Layout: React.FC<LayoutProps> = ({
               onEditCollection={onEditCollection}
               onDeleteCollection={onDeleteCollection}
               onDrop={onDrop}
+              teamHomeStatus={teamHomeStatus}
             />
 
             <div
@@ -198,6 +202,7 @@ export const Layout: React.FC<LayoutProps> = ({
               onEditCollection={onEditCollection}
               onDeleteCollection={onDeleteCollection}
               onDrop={onDrop}
+              teamHomeStatus={teamHomeStatus}
             />
 
             <div
