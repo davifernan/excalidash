@@ -1,6 +1,7 @@
 import express from "express";
 import { compareSemver, parseSemver } from "../../utils/semver";
 import type { SystemRouteDeps } from "./index";
+import { config } from "../../config";
 
 type UpdateChannel = "stable" | "prerelease";
 
@@ -37,16 +38,9 @@ const parseChannel = (raw: unknown): UpdateChannel => {
   return normalized === "prerelease" ? "prerelease" : "stable";
 };
 
-const envOutboundEnabled = (): boolean => {
-  const raw = (process.env.UPDATE_CHECK_OUTBOUND ?? "true").trim().toLowerCase();
-  return raw === "true" || raw === "1" || raw === "yes";
-};
+const envOutboundEnabled = (): boolean => config.updateCheck.outboundEnabled;
 
-const envGithubToken = (): string | null => {
-  const raw = process.env.UPDATE_CHECK_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN ?? "";
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : null;
-};
+const envGithubToken = (): string | null => config.updateCheck.githubToken;
 
 const pickLatestRelease = (
   releases: GithubRelease[],

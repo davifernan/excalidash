@@ -127,7 +127,6 @@ describe("rendering a page once", () => {
   });
 
   it("never starts more than the configured number of render jobs", async () => {
-    vi.stubEnv("ASSET_RENDER_CONCURRENCY", "2");
     let active = 0;
     let maximum = 0;
     const slowRender = vi.fn(async (_path: string, page: number) => {
@@ -144,7 +143,7 @@ describe("rendering a page once", () => {
     await Promise.all(
       Array.from({ length: 8 }, (_, index) =>
         getPage(
-          deps({ render: slowRender }),
+          deps({ render: slowRender, renderConcurrency: 2 }),
           { id: `doc-${index}`, blob: { storageKey: `originals/doc-${index}` } },
           index + 1,
         ),
