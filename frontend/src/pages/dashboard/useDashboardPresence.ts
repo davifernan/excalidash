@@ -43,6 +43,21 @@ export const guestCountFor = (
 };
 
 /**
+ * Whether a board is *confirmed* to have someone on it right now -- true
+ * only when presence has actually answered for it with a non-empty result.
+ * A board presence hasn't answered for yet (unknown) is `false` here, same
+ * as a board confirmed empty -- this answers "should this count as open",
+ * not "do we know". Shared by `CurrentlyOpenStrip` and the dashboard's
+ * "Open now" filter (NIL-292/NIL-293) so both use exactly one definition of
+ * "open".
+ */
+export const isConfirmedOpen = (presence: PresenceByDrawing | null, drawingId: string): boolean => {
+  const keys = presenceKeysFor(presence, drawingId);
+  const guests = guestCountFor(presence, drawingId);
+  return (keys !== null && keys.size > 0) || (guests ?? 0) > 0;
+};
+
+/**
  * Who is on the boards currently listed.
  *
  * Polled rather than pushed: a dashboard does not need to know within a second,

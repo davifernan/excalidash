@@ -9,7 +9,11 @@ import { DragOverlayPortal } from "./dashboard/shared";
 import { DashboardToolbar } from "./dashboard/DashboardToolbar";
 import { CollectionTeamBar } from "./dashboard/CollectionTeamBar";
 import { CurrentlyOpenStrip } from "./dashboard/CurrentlyOpenStrip";
-import { useCollectionPresence, useDashboardPresence } from "./dashboard/useDashboardPresence";
+import {
+  isConfirmedOpen,
+  useCollectionPresence,
+  useDashboardPresence,
+} from "./dashboard/useDashboardPresence";
 import {
   DragPreview,
   DrawingsGrid,
@@ -46,6 +50,8 @@ export const Dashboard: React.FC = () => {
   };
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [openOnly, setOpenOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkMoveMenu, setShowBulkMoveMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -80,6 +86,7 @@ export const Dashboard: React.FC = () => {
     sortField: sortConfig.field,
     sortDirection: sortConfig.direction,
     pageSize: PAGE_SIZE,
+    favoritesOnly,
     onRefreshSuccess: resetSelection,
   });
   useEffect(() => {
@@ -119,8 +126,24 @@ export const Dashboard: React.FC = () => {
     }
   }, []);
   const sortedDrawings = drawings;
+  const presence = useDashboardPresence(
+    React.useMemo(() => sortedDrawings.map((d) => d.id), [sortedDrawings]),
+  );
+  // NIL-292: client-side, over the page already fetched -- presence is not
+  // something a query can join against (see useDashboardPresence.ts). Feeds
+  // both the grid and selection, so "select all" only selects what is
+  // actually shown; CurrentlyOpenStrip below intentionally keeps using the
+  // unfiltered list, since its own purpose (a reminder above the grid)
+  // does not depend on this filter.
+  const visibleDrawings = React.useMemo(
+    () =>
+      openOnly
+        ? sortedDrawings.filter((drawing) => isConfirmedOpen(presence, drawing.id))
+        : sortedDrawings,
+    [openOnly, sortedDrawings, presence],
+  );
   const selection = useDashboardSelection({
-    drawings: sortedDrawings,
+    drawings: visibleDrawings,
     selectedIds,
     setSelectedIds,
   });
@@ -154,9 +177,6 @@ export const Dashboard: React.FC = () => {
     const collection = collections.find((c) => c.id === selectedCollectionId);
     return collection ? collection.name : "Collection";
   }, [selectedCollectionId, collections]);
-  const presence = useDashboardPresence(
-    React.useMemo(() => sortedDrawings.map((d) => d.id), [sortedDrawings]),
-  );
   const collectionPresence = useCollectionPresence(actions.currentCollection?.id);
   const visibleCollections = React.useMemo(
     () => collections.filter((c) => c.id !== "trash"),
@@ -214,7 +234,7 @@ export const Dashboard: React.FC = () => {
         sortOptions={sortOptions}
         currentSortOption={currentSortOption}
         showSortMenu={showSortMenu}
-        sortedDrawingsCount={sortedDrawings.length}
+        sortedDrawingsCount={visibleDrawings.length}
         allSelected={selection.allSelected}
         hasSelection={selection.hasSelection}
         isTrashView={actions.isTrashView}
@@ -236,6 +256,14 @@ export const Dashboard: React.FC = () => {
         onImportDrawings={actions.handleImportDrawings}
         onCreateDrawing={actions.handleCreateDrawing}
         onViewerActionError={actions.handleViewerActionError}
+        favoritesOnly={actions.isTrashView || actions.isSharedView ? undefined : favoritesOnly}
+        onToggleFavoritesOnly={
+          actions.isTrashView || actions.isSharedView
+            ? undefined
+            : () => setFavoritesOnly((v) => !v)
+        }
+        openOnly={actions.isTrashView ? undefined : openOnly}
+        onToggleOpenOnly={actions.isTrashView ? undefined : () => setOpenOnly((v) => !v)}
       />{" "}
       <div
         className="min-h-full select-none relative"
@@ -260,7 +288,7 @@ export const Dashboard: React.FC = () => {
         {" "}
         {isDraggingFile && <FileDropOverlay viewTitle={viewTitle} />}{" "}
         <DrawingsGrid
-          drawings={sortedDrawings}
+          drawings={visibleDrawings}
           collections={collections}
           selectedIds={selectedIds}
           search={search}
@@ -282,6 +310,10 @@ export const Dashboard: React.FC = () => {
           onPreviewGenerated={actions.handlePreviewGenerated}
           presence={presence}
           onToggleFavorite={actions.handleToggleFavorite}
+          favoritesOnly={favoritesOnly}
+          openOnly={openOnly}
+          onClearFavoritesOnly={() => setFavoritesOnly(false)}
+          onClearOpenOnly={() => setOpenOnly(false)}
         />{" "}
         <div ref={loaderRef} className="py-8 flex justify-center items-center h-20">
           {" "}

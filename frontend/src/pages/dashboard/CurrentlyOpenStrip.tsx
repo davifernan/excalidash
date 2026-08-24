@@ -5,6 +5,7 @@ import type { DrawingSummary } from "../../types";
 import { MemberStack } from "../../components/MemberAvatar";
 import {
   guestCountFor,
+  isConfirmedOpen,
   presenceKeysFor,
   type PresenceByDrawing,
 } from "./useDashboardPresence";
@@ -31,11 +32,7 @@ export const CurrentlyOpenStrip: React.FC<CurrentlyOpenStripProps> = ({
   presence,
   onOpenDrawing,
 }) => {
-  const open = drawings.filter((drawing) => {
-    const keys = presenceKeysFor(presence, drawing.id);
-    const guests = guestCountFor(presence, drawing.id);
-    return (keys && keys.size > 0) || (guests ?? 0) > 0;
-  });
+  const open = drawings.filter((drawing) => isConfirmedOpen(presence, drawing.id));
 
   if (open.length === 0) return null;
 

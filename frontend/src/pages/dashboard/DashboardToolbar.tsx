@@ -9,8 +9,10 @@ import {
   Folder,
   Inbox,
   Plus,
+  Radio,
   Search,
   Square,
+  Star,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -53,6 +55,13 @@ type DashboardToolbarProps = {
   onImportDrawings: (files: FileList | null) => void;
   onCreateDrawing: () => void;
   onViewerActionError: (message: string) => void;
+  /** NIL-292. Omitted (not just false) where the filter does not apply -- trash and
+   * "Shared with me" (favoritesOnly is a /drawings-only server filter). */
+  favoritesOnly?: boolean;
+  onToggleFavoritesOnly?: () => void;
+  /** NIL-292/293, client-side over the already-fetched page (see CurrentlyOpenStrip). */
+  openOnly?: boolean;
+  onToggleOpenOnly?: () => void;
 };
 
 export const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
@@ -84,6 +93,10 @@ export const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
   onImportDrawings,
   onCreateDrawing,
   onViewerActionError,
+  favoritesOnly,
+  onToggleFavoritesOnly,
+  openOnly,
+  onToggleOpenOnly,
 }) => {
   const [isCreatingDrawing, setIsCreatingDrawing] = React.useState(false);
   const canModifySelection =
@@ -172,6 +185,40 @@ export const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
           >
             {sortConfig.direction === "asc" ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
           </button>
+          {onToggleFavoritesOnly && (
+            <button
+              onClick={onToggleFavoritesOnly}
+              aria-pressed={!!favoritesOnly}
+              className={clsx(
+                "flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition-all border-2 border-black dark:border-neutral-700 h-[42px]",
+                favoritesOnly
+                  ? "bg-amber-400 dark:bg-amber-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]"
+                  : "bg-white dark:bg-neutral-900 text-slate-700 dark:text-neutral-300 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)] hover:-translate-y-0.5 hover:bg-amber-50 dark:hover:bg-amber-900/20",
+              )}
+              title={favoritesOnly ? "Showing favorites only" : "Show favorites only"}
+              aria-label={favoritesOnly ? "Showing favorites only" : "Show favorites only"}
+            >
+              <Star size={16} fill={favoritesOnly ? "currentColor" : "none"} />
+              <span className="hidden sm:inline">Favorites</span>
+            </button>
+          )}
+          {onToggleOpenOnly && (
+            <button
+              onClick={onToggleOpenOnly}
+              aria-pressed={!!openOnly}
+              className={clsx(
+                "flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition-all border-2 border-black dark:border-neutral-700 h-[42px]",
+                openOnly
+                  ? "bg-emerald-500 dark:bg-emerald-600 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]"
+                  : "bg-white dark:bg-neutral-900 text-slate-700 dark:text-neutral-300 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)] hover:-translate-y-0.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/20",
+              )}
+              title={openOnly ? "Showing boards open right now" : "Show boards open right now"}
+              aria-label={openOnly ? "Showing boards open right now" : "Show boards open right now"}
+            >
+              <Radio size={16} />
+              <span className="hidden sm:inline">Open now</span>
+            </button>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-3 w-full lg:w-auto justify-start lg:justify-end flex-wrap">
