@@ -47,8 +47,9 @@ const SEAM_TEST_FILES = [
 const EXPECTED_FAILURE_TITLE = "reports the version it is running against";
 
 const pinnedVersion = () =>
-  JSON.parse(require("node:fs").readFileSync(path.join(FRONTEND_DIR, "package.json"), "utf8"))
-    .dependencies["@excalidraw/excalidraw"];
+  JSON.parse(fs.readFileSync(path.join(FRONTEND_DIR, "package.json"), "utf8")).dependencies[
+    "@excalidraw/excalidraw"
+  ];
 
 /** No npm CLI subprocess for this -- the registry's own HTTP API needs no auth. */
 const resolveLatestFromRegistry = () =>
@@ -88,21 +89,24 @@ const run = (cmd, args, cwd) =>
 const runSeamSuite = (cwd) => {
   const outputFile = path.join(os.tmpdir(), `excalidraw-canary-${process.pid}.json`);
   try {
-    execFileSync(
-      "npx",
-      ["vitest", "run", "--reporter=json", `--outputFile=${outputFile}`, ...SEAM_TEST_FILES],
-      { cwd, stdio: ["ignore", "ignore", "inherit"], env: process.env },
-    );
-  } catch {
-    // vitest exits non-zero on any test failure; the JSON file is still written.
+    try {
+      execFileSync(
+        "npx",
+        ["vitest", "run", "--reporter=json", `--outputFile=${outputFile}`, ...SEAM_TEST_FILES],
+        { cwd, stdio: ["ignore", "ignore", "inherit"], env: process.env },
+      );
+    } catch {
+      // vitest exits non-zero on any test failure; the JSON file is still written.
+    }
+    const report = JSON.parse(fs.readFileSync(outputFile, "utf8"));
+    const failed = report.testResults
+      .flatMap((suite) => suite.assertionResults)
+      .filter((a) => a.status === "failed")
+      .map((a) => a.title);
+    return failed.filter((title) => title !== EXPECTED_FAILURE_TITLE);
+  } finally {
+    fs.rmSync(outputFile, { force: true });
   }
-  const report = JSON.parse(fs.readFileSync(outputFile, "utf8"));
-  fs.rmSync(outputFile, { force: true });
-  const failed = report.testResults
-    .flatMap((suite) => suite.assertionResults)
-    .filter((a) => a.status === "failed")
-    .map((a) => a.title);
-  return failed.filter((title) => title !== EXPECTED_FAILURE_TITLE);
 };
 
 async function main() {
@@ -118,14 +122,19 @@ async function main() {
     process.exit(0);
   }
 
-  console.log(`\nInstalling @excalidraw/excalidraw@${target} (no lockfile/package.json change)...`);
-  run("npm", ["install", `@excalidraw/excalidraw@${target}`, "--no-save"], FRONTEND_DIR);
+  let realFailures;
+  try {
+    console.log(
+      `\nInstalling @excalidraw/excalidraw@${target} (no lockfile/package.json change)...`,
+    );
+    run("npm", ["install", `@excalidraw/excalidraw@${target}`, "--no-save"], FRONTEND_DIR);
 
-  console.log(`\nRunning the seam suite against the installed ${target}...`);
-  const realFailures = runSeamSuite(FRONTEND_DIR);
-
-  console.log("\nRestoring the pinned install from the lockfile...");
-  run("npm", ["ci", "--no-audit", "--no-fund"], FRONTEND_DIR);
+    console.log(`\nRunning the seam suite against the installed ${target}...`);
+    realFailures = runSeamSuite(FRONTEND_DIR);
+  } finally {
+    console.log("\nRestoring the pinned install from the lockfile...");
+    run("npm", ["ci", "--no-audit", "--no-fund"], FRONTEND_DIR);
+  }
 
   if (realFailures.length === 0) {
     console.log(
