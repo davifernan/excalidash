@@ -77,7 +77,18 @@ export default defineConfig({
 
   forbidOnly: !!process.env.CI,
 
-  retries: process.env.CI ? 2 : 0,
+  // Retries were CI-only and set to 2. Measured over four red rounds on
+  // 2026-08-23 (PR #54): zero retries recovered a test, twenty retried tests
+  // failed again, every one deterministically. A retry that never rescues
+  // anything only triples the cost of every red run -- see NIL-491, and
+  // e2e/README.md's "Retries" section for the fuller record, including why
+  // this also settles NIL-422 (failOnFlakyTests) without setting it.
+  retries: 0,
+
+  // A run gone genuinely wrong (bad deploy, hung server) still shows a
+  // pattern -- five failures -- instead of grinding through all thirty specs
+  // at one worker each before anyone can see why. A green run is unaffected.
+  maxFailures: 5,
 
   workers: 1,
 
@@ -87,11 +98,9 @@ export default defineConfig({
       "html",
       {
         outputFolder: process.env.PLAYWRIGHT_REPORT_DIR || "playwright-report",
+        open: "never",
       },
     ],
-    // Retries stay enabled so infrastructure flake does not block the queue,
-    // but every retry is surfaced instead of being folded into a silent green.
-    ["./playwright-retry-summary-reporter.cjs"],
   ],
 
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results",
@@ -105,11 +114,15 @@ export default defineConfig({
   use: {
     baseURL: FRONTEND_URL,
 
-    trace: "on-first-retry",
+    // "on-first-retry" depended on a retry ever happening. With retries: 0
+    // that is never, so it would have silently stopped capturing anything
+    // for a run that fails on its only attempt -- see NIL-488.
+    // "retain-on-failure" keeps it exactly when there is something to show.
+    trace: "retain-on-failure",
 
     screenshot: "only-on-failure",
 
-    video: "on-first-retry",
+    video: "retain-on-failure",
 
     headless: process.env.HEADED !== "true",
   },
