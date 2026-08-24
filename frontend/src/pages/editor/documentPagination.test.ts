@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_PAGE_CHAR_BUDGET, paginateDocumentSource } from "./documentPagination";
+import {
+  DOCUMENT_PAGE_CHAR_BUDGET,
+  markdownBlocks,
+  paginateDocumentSource,
+} from "./documentPagination";
 
 describe("document source pagination", () => {
   it("never cuts a fenced code block at a page boundary", () => {
@@ -142,15 +146,24 @@ describe("document source pagination", () => {
   // measured) independent of the hard-split fix above, since no individual
   // blank-line block was ever over budget. Batching a blank run into one
   // block, the same way every other block kind is already batched, fixes it.
-  it("bounds pages from a pathological mostly-blank-lines document in linear time", () => {
+  //
+  // Asserted on the block count, not the wall clock (Hans-Friedrich review
+  // on #73): the fixed and unfixed code produce byte-identical PAGES here --
+  // this bug was pure extra work, not incorrect output -- so a timing
+  // threshold is the only assertion on the *page* output that would ever
+  // catch it, and one measured flaky under parallel CI workers (577ms
+  // against a 500ms budget, though the isolated run was 80-100ms). The block
+  // count is what the fix actually changed, so it catches the regression
+  // directly and independent of machine speed or load: ~210 blocks (one
+  // blank run + one "x" line per repeat of the pathological unit) batched,
+  // ~2.1 million unbatched.
+  it("bounds the pagination block count from a pathological mostly-blank-lines document", () => {
     const sparseLineBlock = `${"\n".repeat(19_999)}x`;
     const source = sparseLineBlock.repeat(105).slice(0, 2 * 1024 * 1024);
-    const started = performance.now();
+
+    expect(markdownBlocks(source).length).toBeLessThan(1000);
 
     const pages = paginateDocumentSource(source, "MARKDOWN", DOCUMENT_PAGE_CHAR_BUDGET);
-    const elapsedMs = performance.now() - started;
-
-    expect(elapsedMs).toBeLessThan(500);
     expect(pages.length).toBeGreaterThan(1);
     expect(pages.every((page) => page.length <= DOCUMENT_PAGE_CHAR_BUDGET)).toBe(true);
   });

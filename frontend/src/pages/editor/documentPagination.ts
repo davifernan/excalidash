@@ -145,7 +145,15 @@ const readList = (lines: string[], start: number) => {
   return { block: { kind: "list" as const, items }, end: index };
 };
 
-const markdownBlocks = (source: string): MarkdownBlock[] => {
+/**
+ * Exported for a test that would otherwise have no way to prove a
+ * regression back to one block per blank line without a wall-clock
+ * assertion (NIL-484, Hans-Friedrich review on #73): the block count IS
+ * the mechanism the batching fix changed, so asserting on it directly
+ * catches the regression a timing threshold can only approximate, and does
+ * so independent of how fast or loaded the machine running the test is.
+ */
+export const markdownBlocks = (source: string): MarkdownBlock[] => {
   const lines = splitLines(source);
   const blocks: MarkdownBlock[] = [];
   let index = 0;

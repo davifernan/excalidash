@@ -14,24 +14,22 @@ import { logger } from "./logger";
 
 type ExitFn = (code: number) => void;
 
-const describe = (value: unknown): unknown => {
-  if (value instanceof Error) {
-    return { message: value.message, stack: value.stack, name: value.name };
-  }
-  return value;
-};
-
 export const installProcessGuards = (
   target: NodeJS.EventEmitter = process,
   exit: ExitFn = (code) => process.exit(code),
 ): void => {
+  // No local Error-to-{name,message,stack} conversion here: logger.ts's own
+  // replacer already does this for every caller, for any Error nested
+  // anywhere in a fields object -- not just a top-level one. A second copy
+  // of that logic next to the centralization that exists to replace it
+  // defeats the point (Hans-Friedrich review on #73).
   target.on("uncaughtException", (error: unknown) => {
-    logger.error("Uncaught exception, exiting", { error: describe(error) });
+    logger.error("Uncaught exception, exiting", { error });
     exit(1);
   });
 
   target.on("unhandledRejection", (reason: unknown) => {
-    logger.error("Unhandled promise rejection, exiting", { reason: describe(reason) });
+    logger.error("Unhandled promise rejection, exiting", { reason });
     exit(1);
   });
 };
