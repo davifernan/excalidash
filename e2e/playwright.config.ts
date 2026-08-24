@@ -23,6 +23,26 @@ const CROSS_ENGINE_SPECS = [
   "**/invite-here.spec.ts",
   "**/small-windows.spec.ts",
   "**/document-pages.spec.ts",
+  // NIL-340: the M1 close-out's own Pflichtpfade list names Follow/Viewport
+  // and UI-Fallbacks as required cross-browser paths. Both were chromium-only
+  // until now -- follow-mode.spec.ts drives viewport-follow geometry
+  // (definitively engine-decided, the same reason sticky-notes and
+  // sticky-connect are already here), and canvas-chrome.spec.ts is the one
+  // spec covering the chrome-slot fallback layout a canary upgrade could
+  // silently break without any of the collaboration specs noticing.
+  "**/follow-mode.spec.ts",
+  "**/canvas-chrome.spec.ts",
+  // NIL-340: Excalidraw's own native export dialog -- see
+  // native-export.spec.ts's own header for why this had no E2E coverage on
+  // any engine before this package. View-only share-link rendering is the
+  // other half of this Pflichtpfad and is NOT covered here: it needs a real
+  // authenticated owner to create the link-share (drawingSharingRoutes.ts's
+  // `POST /drawings/:id/link-shares` is `requireAuth`), which puts it in the
+  // same isolated-real-auth-project category as comments-two-account.spec.ts
+  // and discovery-permission-matrix.spec.ts rather than something to fold
+  // into this list. Left as a named gap, not a silent one -- see this
+  // package's HANDOFF.
+  "**/native-export.spec.ts",
 ];
 
 /** Specs that carry the mobile contract. */
