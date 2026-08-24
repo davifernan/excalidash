@@ -140,6 +140,38 @@ laufenden Worktrees veraendert.
 8. Produktverhaltensaenderungen als eigenes Issue behandeln.
 9. unabhaengige Adapterreview.
 
+## Tag-Namensraum: Kollision mit Upstream
+
+Gemessen 24.08.2026 (NIL-507): `VERSION` sagte `0.6.0`, und ein Tag `v0.6.0` existierte
+bereits in diesem Arbeitsbaum -- aber es war ExcaliDash-Upstreams eigener Tag (`origin`),
+und er zeigte auf einen Commit, der kein Vorfahr unseres `main` ist. Unser eigener
+0.6.0-Release-Punkt (`f9108aa`, PR #68) war nie getaggt worden. Wer in einem Checkout mit
+beiden Remotes -- genau diesem Arbeitsbaum -- `git describe` glaubt, bekommt Upstreams
+Antwort fuer unseren Commit.
+
+**Regel, dauerhaft:** jeder eigene Release-Tag dieses Forks traegt das Suffix `-nilo.N`,
+nach dem Muster, das `v0.5.1-nilo.1`/`v0.5.1-nilo.2` schon vor dieser Regel etabliert
+hatten. `N` startet bei `1` je nominaler Version und zaehlt bei einem weiteren Tag auf
+demselben `X.Y.Z` hoch. Ein **blanker** `vX.Y.Z`-Tag ohne Suffix wird von diesem Fork nie
+neu angelegt -- dieser Namensraum gehoert Upstream, auch wenn eine bestimmte Nummer bei uns
+gerade frei aussieht, weil sie es lokal (noch) ist. `v0.6.0-nilo.1` (dieser Nachtrag) und
+`v0.7.0-nilo.1` (der naechste eigene Release ab diesem Package) folgen dem Muster.
+
+**Nie `git push own --tags`.** Der Befehl pusht alle lokalen Tag-Refs, einschliesslich
+jedem Upstream-Tag, den man je von `origin` gefetcht hat -- er wuerde genau die Kollision,
+die diese Regel vermeiden soll, aktiv in unser eigenes Fork-Repo hineinschieben. Immer den
+exakten Tag-Ref pushen: `git push own refs/tags/vX.Y.Z-nilo.N`.
+
+**CI-Waechter:** `scripts/release-tag-guard.cjs` (Job "Delivery Contract Tests", Schritt
+"Check the release tag guard") laeuft bei jedem PR und lehnt ab, wenn ein blanker
+`v<VERSION>`-Tag existiert, der kein Vorfahr des geprueften Commits ist -- der Fall, der
+`v0.6.0` real getroffen hat. Er sieht in CI nur die Tags des eigenen `own`-Remotes (der
+Runner klont nur dieses Repo, nie `origin`); lokal, wo beide Remotes konfiguriert sind, ist
+er strenger, weil er dort auch Upstreams Tags sieht.
+
+Wie ein Release-Tag ueberhaupt entsteht und wie der Release-Workflow VERSION/Tag-Kohaerenz
+im Moment der Wahrheit prueft: [RELEASE_PROCESS.md](./RELEASE_PROCESS.md).
+
 ## Upstream-Beitraege
 
 Ein Change ist Upstream-Kandidat, wenn er:
