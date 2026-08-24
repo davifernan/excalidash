@@ -1,0 +1,29 @@
+[Unit]
+Description=Check the ExcaliDash production deployment compose file for drift from docker-compose.prod.yml (NIL-416)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=claude
+Group=claude
+WorkingDirectory=/home/claude/excalidash-control-pr
+Environment=DEPLOYMENT_COMPOSE_PATH=/home/claude/excalidash/docker-compose.yml
+Environment=DRIFT_CHECK_REPO_PATH=/home/claude/excalidash-control-pr
+Environment=DRIFT_CHECK_REF=own/main
+ExecStart=/usr/bin/node /home/claude/excalidash-control-pr/scripts/deployment-drift-check.cjs
+
+# Matches excalidash-pipeline-sentinel.service, the sibling unit in this same
+# directory that also runs as `claude` and reads outside its own checkout.
+# ReadWritePaths carves out the one directory this unit actually writes to:
+# `git fetch` updates refs inside the checkout's .git/. Everything else this
+# unit touches (the deployment compose file under /home/claude/excalidash/,
+# read-only via ProtectHome) is a read.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/claude/excalidash-control-pr
+
+[Install]
+WantedBy=multi-user.target
