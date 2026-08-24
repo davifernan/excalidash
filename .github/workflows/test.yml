@@ -158,7 +158,7 @@ jobs:
 
       # No dependency install, same reasoning as Authz Boundary: this reads
       # backend/src with node:fs and nothing else.
-      - name: Check the agent-token centralization (NIL-382)
+      - name: Check the agent-token centralization
         run: node scripts/agent-token-boundary.cjs
 
       - name: Prove the boundary check rejects what it claims to
@@ -204,7 +204,7 @@ jobs:
 
       # No dependency install, same reasoning as Authz Boundary: this reads
       # frontend/src and backend/src with node:fs and nothing else.
-      - name: Check the string-union type inventory (NIL-489)
+      - name: Check the string-union type inventory
         run: node scripts/type-collision-inventory.cjs
 
       - name: Prove the inventory rejects what it claims to
@@ -721,7 +721,7 @@ jobs:
   # ports here, same as e2e-cross-engine, so nothing else can share the
   # blast radius.
   e2e-two-account:
-    name: E2E Two-Account (NIL-356)
+    name: E2E Two-Account
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -879,7 +879,7 @@ jobs:
   # bootstrap-admin registration concurrently would be exactly the kind of
   # cross-spec interference this isolation exists to rule out.
   e2e-permission-matrix:
-    name: E2E Permission Matrix (NIL-326)
+    name: E2E Permission Matrix
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
