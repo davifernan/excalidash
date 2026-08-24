@@ -542,6 +542,43 @@ existed. Extend `e2e/tests/helpers/editor.ts` only with what a second spec actua
 needs, the same rule `chromeSlots.tsx` follows for `order` gaps: no speculative surface
 for a consumer that does not exist yet.
 
+### Naming a new identifier (NIL-489)
+
+**A name states the question it answers, not the concept it is loosely near.** Two
+different questions get two different names even when both are naturally described with
+the same word -- `isOwner` answered "owns this collection?" (`collections.ts`,
+`Sidebar.tsx`, the `Collection.isOwner` field) and "drew this board?" (originally in
+`drawingReadRoutes.ts`) at once, and a share-link route once widened one reading into the
+other and disclosed a creator's account id it should not have. `drawingReadRoutes.ts` now
+answers the second question as `isCreator` instead, with a comment naming both remaining
+meanings so the next reader does not have to rediscover them (NIL-323/NIL-489). Prefer the
+question over the noun: not `isOwner`, but `controlsThisCollection` /
+`isBoardCreator` -- whichever question the call site is actually asking.
+
+This matters most at exactly two moments:
+
+- **A capability the adapter contract declares but does not implement yet** (see
+  `frontend/src/integrations/excalidraw/capabilities.ts`'s header). Its name must not
+  collide with the live thing that already answers a *related* question elsewhere --
+  `SceneCapability.rebaseOntoServer` and `CollaborationCapability.onLocalPointerBroadcast`
+  were both renamed away from names a live implementation already used
+  (`reconcileElements` in `utils/sync.ts`, the `onPointerUpdate` prop wiring in
+  `useEditorCollaboration.ts`) for exactly this reason. Whoever greps the working name
+  first and never looks past it plans on the dead one.
+- **A new string-literal-union type.** Before adding one, check whether an existing type
+  already answers the same question -- and after adding it, `node
+  scripts/type-collision-inventory.cjs` measures whether it is now structurally
+  assignable to (a subset or superset of) another one elsewhere in `frontend/src` or
+  `backend/src`. A new collision fails that check until it is fixed or added to its
+  `BASELINE` with a reason; that file's header explains the two ways this happens
+  (extending one alphabet on purpose, or declaring the same concept twice because
+  nothing was there to import) and why each needs a different fix.
+
+A field can carry the right name and still be misread: `drawingRouteContext.ts`'s
+`userId` parameters are genuinely S3 path keys, not an ownership filter, and counting
+their occurrences instead of reading what each one does produced exactly that wrong
+conclusion once (NIL-489). Read occurrences; do not count them.
+
 ## Makefile command map
 
 - Install: `make install`, `make dev`, `make dev-backend`, `make dev-frontend`
