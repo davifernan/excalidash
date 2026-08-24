@@ -86,6 +86,7 @@ describe("useDashboardData", () => {
     expect(result.current.collections.map((collection) => collection.id)).toEqual(["c1"]);
     expect(result.current.totalCount).toBe(1);
     expect(onRefreshSuccess).toHaveBeenCalledTimes(1);
+    expect(onRefreshSuccess).toHaveBeenCalledWith([expect.objectContaining({ id: "d1" })]);
   });
 
   it("passes favoritesOnly through to the server-side filter (NIL-292)", async () => {

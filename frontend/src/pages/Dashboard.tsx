@@ -23,9 +23,10 @@ import {
 import { useDashboardData } from "./dashboard/useDashboardData";
 import { useDashboardCollectionActions } from "./dashboard/useDashboardCollectionActions";
 import { useDashboardDrawingActions } from "./dashboard/useDashboardDrawingActions";
-import { useDashboardSelection } from "./dashboard/useDashboardSelection";
+import { retainPresentSelectedIds, useDashboardSelection } from "./dashboard/useDashboardSelection";
 import { useDashboardSort } from "./dashboard/useDashboardSort";
 import { displayFontFamily } from "../utils/displayFont";
+import type { DrawingSummary } from "../types";
 const PAGE_SIZE = 24;
 export const Dashboard: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -66,9 +67,12 @@ export const Dashboard: React.FC = () => {
     handleSortDirectionToggle,
   } = useDashboardSort();
   const { uploadFiles } = useUpload();
-  const resetSelection = React.useCallback(() => {
-    setSelectedIds(new Set());
-  }, []);
+  const reconcileSelectionAfterRefresh = React.useCallback(
+    (refreshedDrawings: DrawingSummary[]) => {
+      setSelectedIds((current) => retainPresentSelectedIds(current, refreshedDrawings));
+    },
+    [],
+  );
   const {
     drawings,
     setDrawings,
@@ -87,7 +91,7 @@ export const Dashboard: React.FC = () => {
     sortDirection: sortConfig.direction,
     pageSize: PAGE_SIZE,
     favoritesOnly,
-    onRefreshSuccess: resetSelection,
+    onRefreshSuccess: reconcileSelectionAfterRefresh,
   });
   useEffect(() => {
     const observer = new IntersectionObserver(

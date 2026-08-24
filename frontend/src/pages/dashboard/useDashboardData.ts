@@ -14,7 +14,7 @@ type UseDashboardDataOptions = {
   sortField: DrawingSortField;
   sortDirection: SortDirection;
   pageSize: number;
-  onRefreshSuccess?: () => void;
+  onRefreshSuccess?: (drawings: DrawingSummary[]) => void;
   /** NIL-292. A server-side filter on /drawings only -- ignored for the
    * "Shared with me" view, which /drawings/shared does not support yet. */
   favoritesOnly?: boolean;
@@ -77,7 +77,7 @@ export const useDashboardData = ({
         setDrawings(drawingsResult.value.drawings);
         setTotalCount(drawingsResult.value.totalCount);
         nextOffsetRef.current = drawingsResult.value.drawings.length;
-        onRefreshSuccess?.();
+        onRefreshSuccess?.(drawingsResult.value.drawings);
       } else {
         log.error("Failed to fetch drawings", { error: drawingsResult.reason }, { notify: false });
         setDrawingsError(
