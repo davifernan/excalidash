@@ -149,18 +149,35 @@ test.describe("Dashboard Workflows", () => {
 
     await page.getByTitle("Duplicate Selected").click();
 
+    // Duplicating clones S3 file references per drawing, unlike the trash
+    // move below (a single-field update) -- it is the slower op of the two
+    // and needs at least the same headroom under load. This poll used to sit
+    // on the default 10s `expect.timeout` while the trash-completion poll a
+    // few lines down was already widened to 15s; under CI load the shorter
+    // one could time out while duplication was still legitimately in flight,
+    // which is what made this test flake (NIL-508/NIL-511/NIL-514).
     await expect.poll(async () => {
       const results = await listDrawings(request, { search: prefix });
       return results.length;
-    }).toBe(4);
+    }, { timeout: 15000 }).toBe(4);
 
     await applyDashboardSearch(page, prefix);
     await expect(page.locator("[id^='drawing-card-']")).toHaveCount(4);
 
+    // Select All and the click that follows it are retried *as one unit*: a
+    // list re-render (the search refetch settling) drops the selection, and
+    // then "Move to Trash" stays disabled forever -- asserting enabled once
+    // and clicking afterwards is exactly the gap that made this flake. The
+    // observed failure was 112 click retries against a button that never
+    // became enabled again, burning the whole 60s test budget (NIL-508/511).
+    // Every wait here is bounded so a stuck state fails in seconds with a
+    // readable message instead of eating the budget.
     const bulkMoveToTrash = async () => {
-      await page.getByTitle("Select All").click();
-      await expect(page.getByTitle("Move to Trash")).toBeEnabled();
-      await page.getByTitle("Move to Trash").click();
+      await expect(async () => {
+        await page.getByTitle("Select All").click();
+        await expect(page.getByTitle("Move to Trash")).toBeEnabled({ timeout: 2_000 });
+        await page.getByTitle("Move to Trash").click({ timeout: 3_000 });
+      }).toPass({ timeout: 20_000 });
     };
 
     await bulkMoveToTrash();
