@@ -220,6 +220,28 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         const probe = await inFlight;
 
         await waitConnected(host, "host after reconnect");
+
+        // useEditorBroadcast.ts serializes outbound updates: a new one parks
+        // behind whatever is still in flight, and a reconnect does not clear
+        // that (NIL-533). Sending the follow-up before the probe's own
+        // transfer has resolved would race that queue instead of testing
+        // "a fresh file lands after reconnect" -- which is what made this
+        // step fail at different points on different runs while chasing
+        // NIL-519. Waiting for the probe here first is not weaker: it is the
+        // same "no ghost, no ack mismatch" check the follow-up assertion
+        // used to run after, just resolved before anything new is sent.
+        const arrived = await guestA
+          .waitForFunction(
+            (id) => Boolean((window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id]),
+            probe.fileId,
+            { timeout: 90_000 },
+          )
+          .then(() => true)
+          .catch(() => false);
+        if (arrived) {
+          expect(await waitForPeerFile(guestA, probe.fileId)).toBe(probe.dataHash);
+        }
+
         // The reconnect must not have wedged future delivery: a fresh file
         // sent right after still has to arrive, split-and-confirm bookkeeping
         // intact.
@@ -229,21 +251,6 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           elementId: "nil330_after_reconnect",
         });
         expect(await waitForPeerFile(guestA, followUp.fileId)).toBe(followUp.dataHash);
-
-        // The probe file itself must not have silently vanished either: it
-        // either made it across before the drop or the resend after
-        // reconnect delivered it -- either way, no ghost, no ack mismatch.
-        const arrived = await guestA
-          .waitForFunction(
-            (id) => Boolean((window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id]),
-            probe.fileId,
-            { timeout: 20_000 },
-          )
-          .then(() => true)
-          .catch(() => false);
-        if (arrived) {
-          expect(await waitForPeerFile(guestA, probe.fileId)).toBe(probe.dataHash);
-        }
       });
 
       await test.step("a widget that stops existing mid-request is refused, not hung, and surfaces to the user", async () => {
