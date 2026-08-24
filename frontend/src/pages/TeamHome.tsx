@@ -8,7 +8,7 @@ import { MemberAvatar } from "../components/MemberAvatar";
 import { displayFontFamily } from "../utils/displayFont";
 import { useTeamHomeData } from "./team/useTeamHomeData";
 import { RecentBoardCard } from "./team/RecentBoardCard";
-import { useDashboardPresence } from "./dashboard/useDashboardPresence";
+import { presenceKeysFor, useDashboardPresence } from "./dashboard/useDashboardPresence";
 
 export const TeamHome: React.FC = () => {
   const navigate = useNavigate();
@@ -106,7 +106,7 @@ export const TeamHome: React.FC = () => {
                 <RecentBoardCard
                   key={drawing.id}
                   drawing={drawing}
-                  onlineKeys={presence ? (presence.get(drawing.id)?.keys ?? new Set()) : null}
+                  onlineKeys={presenceKeysFor(presence, drawing.id)}
                   onOpen={handleOpenBoard}
                 />
               ))}

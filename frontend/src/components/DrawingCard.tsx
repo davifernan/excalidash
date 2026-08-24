@@ -29,8 +29,9 @@ interface DrawingCardProps {
   onPreviewGenerated?: (id: string, preview: string) => void;
   /** Keys of the members on the board right now, or null while that is unknown. */
   onlineKeys?: ReadonlySet<string> | null;
-  /** People on the board who are not members of it. Counted, never named. */
-  guestCount?: number;
+  /** People on the board who are not members of it, counted and never named,
+   * or null while that is unknown -- same distinction as `onlineKeys`. */
+  guestCount?: number | null;
 }
 
 export const DrawingCard: React.FC<DrawingCardProps> = ({
@@ -50,8 +51,9 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
   onMouseDown,
   onPreviewGenerated,
   onlineKeys = null,
-  guestCount = 0,
+  guestCount: guestCountProp = 0,
 }) => {
+  const guestCount = guestCountProp ?? 0;
   const [isRenaming, setIsRenaming] = useState(false);
   const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
   const [showCollectionDropdown, setShowCollectionDropdown] = useState(false);
