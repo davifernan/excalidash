@@ -18,8 +18,7 @@ vi.mock("./team/useTeamHomeData", () => ({
 }));
 
 vi.mock("./dashboard/useDashboardPresence", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./dashboard/useDashboardPresence")>();
+  const actual = await importOriginal<typeof import("./dashboard/useDashboardPresence")>();
   return {
     ...actual,
     useDashboardPresence: (...args: unknown[]) => mockUseDashboardPresence(...args),
