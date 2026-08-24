@@ -353,7 +353,8 @@ export type DiagnosticEvent = {
 
 export interface CompatibilityCapability {
   packageVersion(): string;
-  verifySeams(): CapabilityResult<SeamReport>;
+  /** Active API probes include the async library contract, so the report is awaited. */
+  verifySeams(): Promise<CapabilityResult<SeamReport>>;
   onDiagnostic(listener: (event: DiagnosticEvent) => void): Unsubscribe;
 }
 

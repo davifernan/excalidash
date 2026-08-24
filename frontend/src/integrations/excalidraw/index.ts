@@ -153,7 +153,7 @@ export const createExcalidrawAdapter = (host: AdapterHost): ExcalidrawAdapter =>
     })),
     compatibility: {
       packageVersion,
-      verifySeams: () => ok(verifySeams(host.api(), host.container())),
+      verifySeams: async () => ok(await verifySeams(host.api(), host.container())),
       onDiagnostic,
     },
   };

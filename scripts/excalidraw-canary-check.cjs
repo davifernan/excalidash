@@ -34,6 +34,7 @@ const REPO_ROOT = path.join(__dirname, "..");
 const FRONTEND_DIR = path.join(REPO_ROOT, "frontend");
 const SEAM_TEST_FILES = [
   "src/integrations/excalidraw/compatibility/seams.test.ts",
+  "src/integrations/excalidraw/compatibility/seams.integration.test.tsx",
   "src/integrations/excalidraw/index.test.ts",
 ];
 
@@ -133,7 +134,14 @@ async function main() {
     realFailures = runSeamSuite(FRONTEND_DIR);
   } finally {
     console.log("\nRestoring the pinned install from the lockfile...");
-    run("npm", ["ci", "--no-audit", "--no-fund"], FRONTEND_DIR);
+    try {
+      run("npm", ["ci", "--no-audit", "--no-fund"], FRONTEND_DIR);
+    } catch (error) {
+      console.error(
+        "\nCanary result: restore-failed; the swapped Excalidraw install may still be present.",
+      );
+      throw error;
+    }
   }
 
   if (realFailures.length === 0) {
@@ -145,8 +153,9 @@ async function main() {
     process.exit(0);
   }
 
+  console.error("\nCanary result: seam-mismatch.");
   console.error(
-    `\nCanary found ${realFailures.length} real seam break(s) against @excalidraw/excalidraw@${target}:`,
+    `Canary found ${realFailures.length} real seam break(s) against @excalidraw/excalidraw@${target}:`,
   );
   for (const title of realFailures) console.error(`  - ${title}`);
   console.error(

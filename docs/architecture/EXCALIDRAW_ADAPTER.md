@@ -317,9 +317,21 @@ Je Feature ein reviewbarer Schnitt. Alte Implementierung im selben Schnitt loesc
 
 ### Canary
 
-Ein separater regelmaessiger Lauf installiert bewusst die naechste zu pruefende
-Excalidraw-Version und fuehrt Contract plus kritische Browserpfade aus. Canary-Fehler blockieren
-nicht automatisch die aktuelle Entwicklung, erzeugen aber ein sichtbares Upgrade-Issue.
+`scripts/excalidraw-canary-check.cjs` ist der eine Runner fuer lokale und CI-seitige Aufrufe.
+Lokal startet ihn `make excalidraw-canary VERSION=<version-oder-dist-tag>`, der Workflow ruft
+dieselbe Datei direkt auf. Ohne Version prueft der Runner npm `latest` und beendet sich ohne
+Paketwechsel, solange dieses dem Pin entspricht. Ein echter Lauf installiert die Zielversion
+ohne Manifest-Aenderung, prueft den Adapter-Contract und stellt im `finally`-Pfad mit `npm ci`
+immer den gepinnten Stand wieder her. Exit 0 bedeutet "nichts zu pruefen" oder "Contract haelt";
+jeder Contract- oder Betriebsfehler ist Exit 1. Canary-Fehler blockieren nicht automatisch die
+aktuelle Entwicklung, erzeugen aber ein sichtbares Upgrade-Issue.
+
+Der Contract-Teil mountet die installierte Excalidraw-Komponente wirklich. DOM-Seams werden in
+den Layoutzustaenden geprueft, in denen ExcaliDash sie konsumiert (Desktop, Zen und Mobile), und
+die imperative API wird mit nebenwirkungsfreien Probes aufgerufen. Reads muessen synchron die
+vom Adapter konsumierte Form liefern, Subscriptions einen Unsubscribe-Callback und
+`updateLibrary` einen erfuellbaren Promise. Nur benannte Paketexports duerfen ohne Renderung als
+reine Existenzpruefung behandelt werden.
 
 ## Definition of Done
 
