@@ -5,14 +5,17 @@ import {
   presenceKeysFor,
   useCollectionPresence,
   useDashboardPresence,
+  useTeamPresence,
 } from "./useDashboardPresence";
 
 const getDashboardPresence = vi.fn();
 const getCollectionPresence = vi.fn();
+const getTeamPresence = vi.fn();
 
 vi.mock("../../api", () => ({
   getDashboardPresence: (...args: unknown[]) => getDashboardPresence(...args),
   getCollectionPresence: (...args: unknown[]) => getCollectionPresence(...args),
+  getTeamPresence: (...args: unknown[]) => getTeamPresence(...args),
 }));
 
 describe("useDashboardPresence", () => {
@@ -170,6 +173,57 @@ describe("useCollectionPresence", () => {
     });
 
     expect(result.current!.keys.has("ck1")).toBe(true);
+  });
+});
+
+describe("useTeamPresence", () => {
+  beforeEach(() => {
+    getTeamPresence.mockReset();
+    getTeamPresence.mockResolvedValue([{ subjectKey: "tk1", drawingId: "d1" }]);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports which board a team member is on", async () => {
+    const { result } = renderHook(() => useTeamPresence(["d1"]));
+
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(result.current!.get("tk1")).toBe("d1");
+  });
+
+  it("asks about no more boards than the server accepts", async () => {
+    const ids = Array.from({ length: 80 }, (_, index) => `d${index}`);
+    renderHook(() => useTeamPresence(ids));
+
+    await waitFor(() => expect(getTeamPresence).toHaveBeenCalled());
+    expect(getTeamPresence.mock.calls[0][0]).toHaveLength(50);
+  });
+
+  it("warns once when the board list is truncated, not at all when it isn't (Hans, PR #75)", async () => {
+    // Same silent-truncation risk as useDashboardPresence's own warning --
+    // useTeamPresence carried the MAX_WATCHED cutoff without it.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ids = Array.from({ length: 80 }, (_, index) => `d${index}`);
+    const { rerender } = renderHook(({ ids }) => useTeamPresence(ids), {
+      initialProps: { ids: ["d1"] },
+    });
+    await waitFor(() => expect(getTeamPresence).toHaveBeenCalledTimes(1));
+    expect(warn).not.toHaveBeenCalled();
+
+    rerender({ ids });
+    await waitFor(() => expect(getTeamPresence).toHaveBeenCalledTimes(2));
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // A later poll for the same still-truncated list must not warn again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
   });
 });
 

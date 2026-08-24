@@ -198,6 +198,21 @@ export const useTeamPresence = (drawingIds: readonly string[]): TeamPresenceByMe
   const [presence, setPresence] = useState<TeamPresenceByMember | null>(null);
   const watched = drawingIds.slice(0, MAX_WATCHED);
   const watchKey = watched.join(",");
+  const truncated = drawingIds.length > MAX_WATCHED;
+  const warnedRef = useRef(false);
+
+  useEffect(() => {
+    // Same silent-truncation risk useDashboardPresence warns about (Hans,
+    // PR #75): a team member on a board past the watch limit must read as
+    // unknown, not as "nowhere" -- the Team panel below silently dropping
+    // that warning was the same bug one layer up, just quieter.
+    if (truncated && !warnedRef.current) {
+      warnedRef.current = true;
+      console.warn(
+        `useTeamPresence: watching only the first ${MAX_WATCHED} of ${drawingIds.length} boards; a team member on one of the rest reads as unknown, not "nowhere".`,
+      );
+    }
+  }, [truncated, drawingIds.length]);
 
   useEffect(() => {
     const ids = watchKey ? watchKey.split(",") : [];

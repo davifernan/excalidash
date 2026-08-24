@@ -128,6 +128,23 @@ describe("collection presence", () => {
     });
   });
 
+  it("is not fooled by two tabs on two different boards for a signed-in non-member either (Hans, PR #75)", async () => {
+    // "acct-stranger" has a DrawingPermission on individual boards -- e.g.
+    // via a direct share -- but is not a collection roster member, so it is
+    // counted as a guest, not named. The existing "not fooled by two tabs"
+    // test only exercises this for an actual member (connectedAccountIds);
+    // this is the case memberIds.has() is false for, which fell through to
+    // guestCount += 1 *per board* instead of *per account*.
+    const presences = new PresenceRegistry();
+    presences.join("board-1", entry({ presenceId: "s1", accountId: "acct-stranger" }));
+    presences.join("board-2", entry({ presenceId: "s2", accountId: "acct-stranger" }));
+    const { app } = buildApp(presences);
+
+    const res = await invoke(app, { id: "col-1" }, { id: "acct-max" });
+
+    expect(res.payload.guestCount).toBe(1);
+  });
+
   it("answers a collection the caller has no claim on like it does not exist", async () => {
     const { app } = buildApp(new PresenceRegistry());
 

@@ -1,9 +1,9 @@
 import express from "express";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { getDrawingRosters } from "../../authz/roster";
 import { subjectKey } from "../../authz/subjectKey";
 import { TEAM_SUBJECT_SCOPE } from "./team";
 import { parseIds, MAX_IDS } from "./presenceRoutes";
+import { accountOrIpRateLimiter } from "./presenceRateLimit";
 import type { DashboardRouteDeps } from "./types";
 
 type TeamPresenceResult = { subjectKey: string; drawingId: string };
@@ -31,18 +31,7 @@ type TeamPresenceResult = { subjectKey: string; drawingId: string };
 export const registerTeamPresenceRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
   const { prisma, requireAuth, asyncHandler, subjectKeySecret, presences } = deps;
 
-  const teamPresenceRateLimiter = rateLimit({
-    windowMs: 60_000,
-    max: 60,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => {
-      if (req.user?.id && req.user.authCredentialType !== "bootstrap") {
-        return `account:${req.user.id}`;
-      }
-      return `address:${ipKeyGenerator(req.ip || "") || "anonymous"}`;
-    },
-  });
+  const teamPresenceRateLimiter = accountOrIpRateLimiter(60_000, 60);
 
   app.get(
     "/team/presence",

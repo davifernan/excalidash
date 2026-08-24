@@ -1,7 +1,7 @@
 import express from "express";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { getCollectionRoster } from "../../authz/roster";
 import { subjectKey } from "../../authz/subjectKey";
+import { accountOrIpRateLimiter } from "./presenceRateLimit";
 import type { DashboardRouteDeps } from "./types";
 
 /**
@@ -27,18 +27,7 @@ export const registerCollectionPresenceRoutes = (
 ) => {
   const { prisma, requireAuth, asyncHandler, subjectKeySecret, presences } = deps;
 
-  const collectionPresenceRateLimiter = rateLimit({
-    windowMs: 60_000,
-    max: 60,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => {
-      if (req.user?.id && req.user.authCredentialType !== "bootstrap") {
-        return `account:${req.user.id}`;
-      }
-      return `address:${ipKeyGenerator(req.ip || "") || "anonymous"}`;
-    },
-  });
+  const collectionPresenceRateLimiter = accountOrIpRateLimiter(60_000, 60);
 
   app.get(
     "/dashboard/collections/:id/presence",
@@ -63,20 +52,26 @@ export const registerCollectionPresenceRoutes = (
       });
 
       const connectedAccountIds = new Set<string>();
-      let guestCount = 0;
+      // Signed in, but not a member of this collection -- counted like
+      // presenceRoutes.ts counts one, not named like one. Deduplicated by
+      // account across boards for the same reason connectedAccountIds is: a
+      // second tab on a second board in this collection is still one person
+      // (Hans, PR #75) -- true anonymous guests have no such identity to
+      // dedupe on and stay summed per board below, same as presenceRoutes.ts.
+      const nonMemberAccountIds = new Set<string>();
+      let anonymousGuestCount = 0;
       for (const board of boards) {
         const summary = presences.summarise(board.id);
         for (const connected of summary.members) {
           if (memberIds.has(connected.accountId)) {
             connectedAccountIds.add(connected.accountId);
           } else {
-            // Signed in, but not a member of this collection -- counted like
-            // presenceRoutes.ts counts one, not named like one.
-            guestCount += 1;
+            nonMemberAccountIds.add(connected.accountId);
           }
         }
-        guestCount += summary.guestCount;
+        anonymousGuestCount += summary.guestCount;
       }
+      const guestCount = nonMemberAccountIds.size + anonymousGuestCount;
 
       const connectedMemberKeys = Array.from(connectedAccountIds, (accountId) =>
         subjectKey(subjectKeySecret, `collection:${collectionId}`, accountId),
