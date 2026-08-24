@@ -1,0 +1,259 @@
+name: Release
+
+# Triggered by a TAG, deliberately not by a push to `main` (NIL-507). A commit
+# lands on `main` constantly; a release is a distinct, deliberate act, and the
+# two must not share a trigger or a concurrency group.
+#
+# The concurrency rule here is the OPPOSITE of publish-images.yml on purpose.
+# publish-images.yml moves `latest`/`sha-<short>` tags forward on every green
+# main push, so cancelling a superseded run is correct: whoever finishes last
+# wins, and a cancelled push leaves no half-written image tag behind (a
+# registry only accepts a manifest atomically). A release tag never gets
+# superseded by a newer one with the SAME name -- there is nothing for a
+# second run of `v0.7.0-nilo.1` to legitimately race against. Cancelling a
+# release mid-flight is how you get a tag with no GitHub Release, or a draft
+# release with half its images missing: a half-published release that nobody
+# can see is *worse* than a stalled workflow, because nothing signals that
+# anything is wrong. So: no cancel-in-progress, ever, for this workflow.
+#
+# What happens if this workflow dies mid-run:
+#   - Before "Verify VERSION/tag coherence": no side effect at all yet.
+#   - Between coherence/CI checks and image push: still no side effect --
+#     both checks are pure reads.
+#   - Mid image push: the next attempt (re-run, or workflow_dispatch with the
+#     same tag) re-pushes the same tags; a registry overwrite by the same tag
+#     is a normal, idempotent operation, not a corruption.
+#   - Mid release creation: the "create-or-update" step below checks whether
+#     a release for this tag already exists and edits it instead of failing
+#     on a duplicate, so a re-run converges to the same end state.
+#   - The release is created as a DRAFT and stays a draft until a human
+#     reviews and publishes it on GitHub. A crash before that point leaves,
+#     at worst, an unpublished draft nobody but the team can see -- never a
+#     half-finished PUBLIC release. That is the actual answer to "what does
+#     a half state look like here": it looks like a draft still sitting
+#     there, not like something a user could stumble into.
+on:
+  push:
+    tags:
+      - 'v*.*.*-nilo.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to (re-)run, e.g. v0.7.0-nilo.1 (for recovering a failed/interrupted run)'
+        required: true
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/excalidash
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Resolve the tag being released
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-nilo\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' does not match vX.Y.Z-nilo.N -- see docs/architecture/UPSTREAM_MAINTENANCE.md (\"Tag-Namensraum\") for why a bare vX.Y.Z is never used here."
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          VERSION="${VERSION%-nilo.*}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          # Full history and tags: release-notes-collect.cjs needs the merge
+          # range back to the previous release tag, and `git describe` needs
+          # every tag reachable, not just the one that triggered this run.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Verify VERSION and tag actually agree
+        run: |
+          FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [ "$FILE_VERSION" != "${{ steps.tag.outputs.version }}" ]; then
+            echo "::error::VERSION says $FILE_VERSION but tag ${{ steps.tag.outputs.tag }} claims ${{ steps.tag.outputs.version }} -- these must never drift. Fix VERSION (or the tag) and re-tag; nothing has been published."
+            exit 1
+          fi
+          echo "VERSION and tag agree: ${{ steps.tag.outputs.version }}"
+
+      - name: Verify the tagged commit's CI actually passed
+        # Re-running the test suite here would double-expose this release to
+        # any flaky test (a real one is on record: dashboard-workflows.spec.ts's
+        # bulk-toolbar case has been observed to fail once and pass clean on an
+        # immediate re-run of the same commit). Trusting the check-runs GitHub
+        # already recorded for this exact SHA avoids that entirely, and it is
+        # the same evidence branch protection already required before this
+        # commit could reach `main` (docs/architecture/UPSTREAM_MAINTENANCE.md,
+        # "Was GitHub erzwingt") -- this is a second, independent read of it,
+        # not a new gate, in case a tag ever gets pushed at something that
+        # branch protection didn't actually cover (a stray branch tip, a
+        # manually pushed commit).
+        #
+        # The actual counting is scripts/release-check-runs.sh, not inlined
+        # here -- it needs to be independently testable against the real API
+        # with a forced small page size (scripts/release-check-runs.test.sh),
+        # because the bug this exists to catch (Hans-Friedrich, PR #79: `gh
+        # api --paginate --jq` runs the filter per page, not on the merged
+        # result) only appears once a commit's check-runs genuinely span more
+        # than one page -- a single-page test would stay green and prove
+        # nothing.
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          RESULT="$(scripts/release-check-runs.sh "${{ github.repository }}" "$SHA")"
+          TOTAL="$(echo "$RESULT" | jq '.total')"
+          INCOMPLETE="$(echo "$RESULT" | jq '.incomplete')"
+          FAILED_COUNT="$(echo "$RESULT" | jq '.failed')"
+          echo "Checked $TOTAL check-run(s) on $SHA: $INCOMPLETE incomplete, $FAILED_COUNT failed."
+          if [ "$TOTAL" = "0" ]; then
+            echo "::error::No check-runs recorded for $SHA at all -- cannot confirm CI passed. Refusing to release."
+            exit 1
+          fi
+          if [ "$INCOMPLETE" != "0" ]; then
+            echo "::error::$INCOMPLETE check-run(s) on $SHA are still in progress. Wait for CI to finish, then re-run this workflow with workflow_dispatch."
+            exit 1
+          fi
+          if [ "$FAILED_COUNT" != "0" ]; then
+            echo "::error::$FAILED_COUNT check-run(s) on $SHA did not pass:"
+            echo "$RESULT" | jq -r '.failed_names[] | "  - \(.)"'
+            exit 1
+          fi
+          echo "All check-runs on $SHA passed."
+
+      - name: Find the previous release tag
+        id: previous
+        run: |
+          PREVIOUS="$(git describe --tags --match 'v*.*.*-nilo.*' --abbrev=0 "${{ steps.tag.outputs.tag }}^" 2>/dev/null || true)"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          if [ -z "$PREVIOUS" ]; then
+            echo "No previous -nilo. release tag found -- this is the first one; notes cover the whole reachable history."
+          else
+            echo "Previous release tag: $PREVIOUS"
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Collect release notes from merged PRs' User-Facing lines
+        id: notes
+        env:
+          RELEASE_NOTES_REPO: ${{ github.repository }}
+          RELEASE_NOTES_PREVIOUS_REF: ${{ steps.previous.outputs.previous }}
+          RELEASE_NOTES_HEAD_REF: ${{ steps.tag.outputs.tag }}
+        run: |
+          node scripts/release-notes-collect.cjs > notes-body.md 2> notes-warnings.txt || {
+            echo "::error::Release notes collection failed -- see log above. Nothing has been published."
+            exit 1
+          }
+          {
+            echo "## Draft release notes for ${{ steps.tag.outputs.tag }}"
+            echo
+            cat notes-body.md
+            if [ -s notes-warnings.txt ]; then
+              echo
+              echo "<details><summary>Skipped merges (no usable User-Facing line -- see warnings)</summary>"
+              echo
+              echo '```'
+              cat notes-warnings.txt
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -s notes-warnings.txt ]; then
+            echo "::warning::Some merged PRs in this range had no usable User-Facing line -- see the job summary for which ones. This is expected for PRs merged before NIL-507 and needs one-time manual backfill for those; anything else should be fixed at the source, not patched here."
+          fi
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Versioned tags only (:X.Y.Z and :vX.Y.Z-nilo.N) -- :latest and
+      # :sha-<short> are publish-images.yml's job on every green main push,
+      # and re-tagging :latest here would fight that workflow's own
+      # concurrency group for no reason: this commit already has both.
+      - name: Build and push the backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-backend:${{ steps.tag.outputs.version }}
+            ${{ env.IMAGE_PREFIX }}-backend:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push the frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VITE_APP_VERSION=${{ steps.tag.outputs.version }}
+            VITE_APP_BUILD_LABEL=release · ${{ steps.tag.outputs.tag }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-frontend:${{ steps.tag.outputs.version }}
+            ${{ env.IMAGE_PREFIX }}-frontend:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Create or update the draft GitHub Release
+        # create-or-update, not create-or-fail: a re-run (recovering from a
+        # crash between here and a prior attempt) must converge instead of
+        # failing on "release already exists". Never touches an already-
+        # PUBLISHED release -- only a draft, which by definition nobody but
+        # the team has seen yet, so overwriting its body on a re-run is safe.
+        run: |
+          TITLE="ExcaliDash ${{ steps.tag.outputs.tag }}"
+          if gh release view "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx true; then
+            echo "Draft release already exists for ${{ steps.tag.outputs.tag }} -- updating it."
+            gh release edit "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --title "$TITLE" --notes-file notes-body.md
+          elif gh release view "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::${{ steps.tag.outputs.tag }} is already a PUBLISHED (non-draft) release. Refusing to overwrite it -- a new release needs a new tag."
+            exit 1
+          else
+            echo "Creating a new draft release for ${{ steps.tag.outputs.tag }}."
+            gh release create "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --draft --title "$TITLE" --notes-file notes-body.md
+          fi
+
+      - name: Say what still needs a human
+        run: |
+          {
+            echo
+            echo "### This release is a DRAFT"
+            echo
+            echo "Images are published under \`${{ steps.tag.outputs.version }}\` and \`${{ steps.tag.outputs.tag }}\`."
+            echo "The release notes above are collected verbatim from merged PRs' \`User-Facing:\` lines -- nothing was invented, and nothing has been rewritten for tone."
+            echo
+            echo "Before publishing on GitHub:"
+            echo "1. Read the draft at the Releases page and polish the wording."
+            echo "2. Fold any skipped-merge gaps (see above) in by hand if they matter to a user."
+            echo "3. Publish the release on GitHub."
+            echo "4. Copy the final, human-approved text into a new section at the top of CHANGELOG.md by hand, in a normal PR -- see docs/architecture/RELEASE_PROCESS.md. This workflow does not push to \`main\` itself; a tag-triggered CI run pushing to the protected default branch is exactly the kind of unreviewed write path this repository does not have."
+          } >> "$GITHUB_STEP_SUMMARY"
