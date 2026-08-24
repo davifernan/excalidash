@@ -102,6 +102,10 @@ const SOAK_SPECS = ["**/team-readiness.spec.ts"];
  * whatever shard runs beside them); this gets one for a budget reason -- an
  * integration test long enough to matter is long enough to need a job whose
  * timeout is sized for it alone, not shared with everything else in a shard.
+ *
+ * That job lives in .github/workflows/team-acceptance.yml and runs nightly
+ * (plus on demand), not per pull request: see the header there for why it
+ * left the merge gate and what it takes to return.
  */
 const TEAM_ACCEPTANCE_SPECS = ["**/team-acceptance.spec.ts"];
 
