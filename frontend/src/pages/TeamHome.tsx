@@ -2,17 +2,29 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, PenTool, Users } from "lucide-react";
 import * as api from "../api";
+import type { TeamMember } from "../api";
 import { Layout } from "../components/Layout";
 import { DataFailureNotice } from "../components/DataFailureNotice";
 import { MemberAvatar } from "../components/MemberAvatar";
+import type { DrawingSummary } from "../types";
 import { displayFontFamily } from "../utils/displayFont";
 import { useTeamHomeData } from "./team/useTeamHomeData";
 import { RecentBoardCard } from "./team/RecentBoardCard";
 import {
   presenceKeysFor,
+  type TeamPresenceByMember,
   useDashboardPresence,
   useTeamPresence,
 } from "./dashboard/useDashboardPresence";
+
+const resolveMemberBoard = (
+  member: TeamMember,
+  teamPresence: TeamPresenceByMember | null,
+  recentBoards: readonly DrawingSummary[],
+) => {
+  const boardId = teamPresence?.get(member.subjectKey);
+  return boardId ? recentBoards.find((drawing) => drawing.id === boardId) : undefined;
+};
 
 export const TeamHome: React.FC = () => {
   const navigate = useNavigate();
@@ -30,6 +42,24 @@ export const TeamHome: React.FC = () => {
 
   const presence = useDashboardPresence(recentBoards.map((drawing) => drawing.id));
   const teamPresence = useTeamPresence(recentBoards.map((drawing) => drawing.id));
+
+  /**
+   * One line for the Sidebar's "Team Home" entry (NIL-294), e.g. "Davi is
+   * currently in Roadmap Q4". Picks the first teammate (not self) with a
+   * known location; self is excluded because "you are currently in X" is
+   * not useful ambient info about your own sidebar entry. `null` while
+   * nobody's location is known, same as no team member being online.
+   */
+  const teamHomeStatus = React.useMemo(() => {
+    if (!team || !teamPresence) return null;
+    for (const member of team.members) {
+      if (member.isSelf) continue;
+      const board = resolveMemberBoard(member, teamPresence, recentBoards);
+      if (!board) continue;
+      return `${member.name} is currently in ${board.name}`;
+    }
+    return null;
+  }, [team, teamPresence, recentBoards]);
 
   const handleCreateCollection = async (name: string) => {
     await api.createCollection(name);
@@ -55,6 +85,7 @@ export const TeamHome: React.FC = () => {
       onCreateCollection={handleCreateCollection}
       onEditCollection={handleEditCollection}
       onDeleteCollection={handleDeleteCollection}
+      teamHomeStatus={teamHomeStatus}
     >
       <div className="flex items-center justify-between mb-6 lg:mb-8">
         <h1
@@ -145,10 +176,7 @@ export const TeamHome: React.FC = () => {
           ) : (
             <ul className="space-y-2">
               {team?.members.map((member) => {
-                const currentBoardId = teamPresence?.get(member.subjectKey);
-                const currentBoard = currentBoardId
-                  ? recentBoards.find((drawing) => drawing.id === currentBoardId)
-                  : undefined;
+                const currentBoard = resolveMemberBoard(member, teamPresence, recentBoards);
                 return (
                   <li
                     key={member.subjectKey}

@@ -145,4 +145,22 @@ describe("Sidebar Team Home entry", () => {
       "bg-indigo-50",
     );
   });
+
+  it("shows a live-status line under Team Home when teamHomeStatus is set (NIL-294)", () => {
+    render(
+      <MemoryRouter>
+        <Sidebar {...baseProps} collections={[]} teamHomeStatus="Davi is currently in Roadmap Q4" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Davi is currently in Roadmap Q4")).toBeInTheDocument();
+  });
+
+  it("shows no live-status line under Team Home when teamHomeStatus is not set", () => {
+    render(
+      <MemoryRouter>
+        <Sidebar {...baseProps} collections={[]} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(/currently in/i)).not.toBeInTheDocument();
+  });
 });
