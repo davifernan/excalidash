@@ -264,7 +264,12 @@ const paginateChunks = (chunks: Chunk[], budget: number) => {
         // A trailing piece can be pure trailing whitespace (a line ending
         // that landed exactly on a budget boundary) -- fold it back into the
         // piece before it instead of pushing it as its own near-blank page.
-        while (pieces.length > 1 && isBlank(pieces[pieces.length - 1])) {
+        // At most once: every piece but the last is exactly `budget` long by
+        // construction, so a second merge only happens when the WHOLE chunk
+        // is blank -- and a `while` here used to keep merging until one
+        // piece remained, recreating the unbounded page this hard-split
+        // exists to prevent (an all-blank document hit exactly this).
+        if (pieces.length > 1 && isBlank(pieces[pieces.length - 1])) {
           const last = pieces.pop() as string;
           pieces[pieces.length - 1] += last;
         }
@@ -330,5 +335,15 @@ export const paginateDocumentSource = (
   if (!Number.isFinite(budget) || budget < 1) throw new Error("Page budget must be positive.");
   const pages =
     kind === "MARKDOWN" ? paginateMarkdown(source, budget) : paginatePlainText(source, budget);
-  return pages.length > 0 ? pages : [source];
+  if (pages.length > 0) return pages;
+
+  // Every candidate page was blank and dropped -- flush() in paginateChunks
+  // never pushes a whitespace-only page -- which only happens when the whole
+  // source is blank. A document like that still has to render as *something*
+  // bounded by budget, not fall back to the entire unbounded source: an
+  // all-newline 2 MiB TEXT document hit exactly this before the fix (NIL-484),
+  // handing the widget one page of ~2 million blank lines to lay out.
+  const hardSplit: string[] = [];
+  for (let i = 0; i < source.length; i += budget) hardSplit.push(source.slice(i, i + budget));
+  return hardSplit;
 };

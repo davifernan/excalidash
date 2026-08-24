@@ -108,6 +108,33 @@ describe("document source pagination", () => {
     expect(pages).toEqual([fence]);
   });
 
+  // Every candidate page is blank and dropped by paginateChunks's flush()
+  // when the WHOLE source is blank -- the pre-fix fallback then handed back
+  // the entire unbounded source as one page. Both TEXT (no batching, one
+  // splittable chunk per line) and MARKDOWN (one big batched blank block,
+  // now hard-split -- and the hard-split's own trailing-whitespace merge
+  // must not walk all the way back down to one piece either) hit this.
+  it("bounds an entirely-blank TEXT document instead of falling back to the whole source", () => {
+    const source = "\n".repeat(200_000);
+
+    const pages = paginateDocumentSource(source, "TEXT", DOCUMENT_PAGE_CHAR_BUDGET);
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((page) => page.length <= DOCUMENT_PAGE_CHAR_BUDGET)).toBe(true);
+  });
+
+  it("bounds an entirely-blank MARKDOWN document instead of falling back to the whole source", () => {
+    const source = "\n".repeat(200_000);
+
+    const pages = paginateDocumentSource(source, "MARKDOWN", DOCUMENT_PAGE_CHAR_BUDGET);
+
+    expect(pages.length).toBeGreaterThan(1);
+    // The single allowed trailing-whitespace merge can leave the last piece
+    // up to ~2x budget; still a world apart from the whole 200,000-char
+    // source as one page.
+    expect(pages.every((page) => page.length <= DOCUMENT_PAGE_CHAR_BUDGET * 2)).toBe(true);
+  });
+
   // NIL-484's actual reported shape (see e2e/tests/document-pages.spec.ts,
   // PATHOLOGICAL_MARKDOWN): a 2 MiB document that is almost entirely blank
   // lines produced one atomic block PER blank line -- ~2.1 million block
