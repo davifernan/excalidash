@@ -156,11 +156,18 @@ upstream angeboten.
 Wird ein lokaler Change upstream uebernommen, wird sein lokaler Sonderpfad beim naechsten
 Sync entfernt. Es bleiben keine doppelten Implementierungen "zur Sicherheit" bestehen.
 
-### Vorbereitete Kandidaten (NIL-301/302/303), Stand 23.08.2026
+### Vorbereitete Kandidaten (NIL-301/302/303), Stand 24.08.2026
 
 Geprüft mit einem Trocken-Cherry-Pick jedes Kandidaten-Commits auf `origin/main` (die
-ExcaliDash-Upstream-Spitze), Ergebnis danach verworfen -- **nichts davon ist gepusht oder als PR
-eröffnet**, das bleibt an Davis ausdrückliche Freigabe gebunden.
+ExcaliDash-Upstream-Spitze), Ergebnis danach verworfen. Der Cherry-Pick-Befund unten bleibt
+gültig; der Push-/PR-Status hat sich seit der ursprünglichen Prüfung geändert:
+
+- **NIL-301 und NIL-302 sind inzwischen von Davi selbst als PR eröffnet**: PR #247 ("Stop
+  version history from eating the disk", seit 2026-08-18) und PR #248 ("Actually deliver
+  password reset emails", seit 2026-08-18). Die Freigabe, an die dieser Schritt gebunden war,
+  liegt für diese beiden also vor.
+- **NIL-303 hat weiterhin keine offene PR** -- konsistent mit der Bewertung "nicht bereit"
+  unten (Umfang muss erst gegen den aktuellen `origin/main`-Stand neu gebaut werden).
 
 | Kandidat | Branch (lokal, ungepusht) | Cherry-Pick auf `origin/main` | Bewertung |
 |---|---|---|---|
