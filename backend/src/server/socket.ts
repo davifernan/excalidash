@@ -513,7 +513,10 @@ export const registerSocketHandlers = ({
           .snapshot(drawingId)
           .then((pages) => socket.emit(DOCUMENT_PAGE_EVENT, pages))
           .catch((error) => {
-            console.error("Document page snapshot failed while joining a board:", error);
+            console.error(
+              `Document page snapshot failed while joining a board (socket ${socket.id}, drawing ${drawingId}):`,
+              error,
+            );
           });
         followManager.invalidateAccess(socket.id);
         ack?.({ ok: true, presence: toPublicPresence(presence) });

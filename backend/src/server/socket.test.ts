@@ -115,7 +115,7 @@ describe("socket collaboration security and follow state", () => {
       expect(ack).toMatchObject({ ok: true });
       await vi.waitFor(() =>
         expect(errorLog).toHaveBeenCalledWith(
-          "Document page snapshot failed while joining a board:",
+          "Document page snapshot failed while joining a board (socket socket-page-snapshot-error, drawing drawing-1):",
           snapshotError,
         ),
       );
