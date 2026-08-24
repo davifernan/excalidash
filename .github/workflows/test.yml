@@ -22,6 +22,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # release-tag-guard.cjs (NIL-507) needs full history and tags to
+          # check whether a bare v<VERSION> tag exists and is our ancestor --
+          # a shallow, tag-less clone would make every existence check false
+          # and the guard would pass for the wrong reason.
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -34,6 +41,10 @@ jobs:
       # holds by accident stops holding the moment somebody renames a file.
       - name: Check the real-auth E2E spec isolation list
         run: node scripts/real-auth-boundary.cjs
+      - name: Check the release tag guard (VERSION vs. a same-named foreign tag, NIL-507)
+        run: node scripts/release-tag-guard.cjs
+      - name: Prove the release tag guard rejects what it claims to
+        run: node scripts/release-tag-guard.test.cjs
 
   frontend-typecheck:
     name: Frontend Typecheck
