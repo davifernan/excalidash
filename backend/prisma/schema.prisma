@@ -38,6 +38,7 @@ model User {
   activityEvents      ActivityEvent[]      @relation("ActivityActor")
   notifications       Notification[]       @relation("NotificationRecipient")
   drawingVisits       DrawingVisit[]
+  drawingFavorites    DrawingFavorite[]
   teamActivityVisit   TeamActivityVisit?
   libraryItems        LibraryItem[]
   createdAt           DateTime             @default(now())
@@ -120,6 +121,7 @@ model Drawing {
   comments        Comment[]
   activityEvents  ActivityEvent[]
   visits          DrawingVisit[]
+  favoritedBy     DrawingFavorite[]
   /// Set when the board is archived (NIL-365): excluded from Team Home, the
   /// default drawing lists, and search by default, but not deleted -- an
   /// authorized viewer can still find and restore it from the Archive view.
@@ -350,6 +352,20 @@ model DrawingVisit {
   drawingId     String
   drawing       Drawing  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
   lastVisitedAt DateTime @default(now())
+
+  @@id([userId, drawingId])
+  @@index([drawingId])
+}
+
+/// Whether this account has starred this board (NIL-292). Per-viewer, like
+/// `DrawingVisit` above -- a board has no single "is it a favorite" answer,
+/// only "is it a favorite of the person asking".
+model DrawingFavorite {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  drawingId String
+  drawing   Drawing  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 
   @@id([userId, drawingId])
   @@index([drawingId])

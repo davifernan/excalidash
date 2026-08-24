@@ -86,6 +86,7 @@ const buildApp = (drawings = [buildDrawing(0)]) => {
     },
     drawingPermission: { findMany: vi.fn().mockResolvedValue([]) },
     drawingLinkShare: { findMany: vi.fn().mockResolvedValue([]) },
+    drawingFavorite: { findMany: vi.fn().mockResolvedValue([]) },
     collection: { findMany: vi.fn().mockResolvedValue([]) },
     collectionShare: { findMany: vi.fn().mockResolvedValue([]) },
     user: { findMany: vi.fn().mockResolvedValue([{ id: "account-1", name: "Owner" }]) },
@@ -213,5 +214,66 @@ describe("drawing list provenance (NIL-290)", () => {
     });
 
     expect(res.payload.drawings[0].accessVia).toBe("direct");
+  });
+});
+
+describe("drawing list favorites (NIL-292)", () => {
+  it("flags a starred board, and only that one, without filtering the list", async () => {
+    const drawings = [buildDrawing(0), buildDrawing(1)];
+    const { app, prisma } = buildApp(drawings);
+    prisma.drawingFavorite.findMany = vi.fn(async ({ where }: any) =>
+      [{ drawingId: "drawing-1" }].filter((row) => where.drawingId.in.includes(row.drawingId)),
+    );
+
+    const res = await invoke(app, { id: "account-1", authCredentialType: "jwt" });
+
+    expect(res.payload.drawings).toHaveLength(2);
+    const byId = Object.fromEntries(res.payload.drawings.map((d: any) => [d.id, d]));
+    expect(byId["drawing-1"].isFavorite).toBe(true);
+    expect(byId["drawing-2"].isFavorite).toBe(false);
+  });
+
+  it("does not compute isFavorite for an API key, same minimization as members", async () => {
+    const { app, prisma } = buildApp();
+    prisma.drawingFavorite.findMany = vi.fn();
+
+    const res = await invoke(app, { id: "account-1", authCredentialType: "apiKey" });
+
+    expect(res.payload.drawings[0]).not.toHaveProperty("isFavorite");
+    expect(prisma.drawingFavorite.findMany).not.toHaveBeenCalled();
+  });
+
+  it("filters to only favorited boards when favoritesOnly is set", async () => {
+    const drawings = [buildDrawing(0), buildDrawing(1)];
+    const { app, prisma } = buildApp(drawings);
+    // getDrawingMemberProjections (via getDrawingRosters) also calls
+    // drawing.findMany, with an unrelated `{ id: { in: [...] } }` shape --
+    // capture every call and pick out the top-level list query by its
+    // `userId` filter, rather than assuming this is the only caller.
+    const capturedWheres: any[] = [];
+    prisma.drawing.findMany = vi.fn(async (options: any) => {
+      capturedWheres.push(options.where);
+      if (options.where?.userId) return drawings.filter((d) => d.id === "drawing-1");
+      return drawings.filter((d) => options.where?.id?.in?.includes(d.id));
+    });
+    prisma.drawing.count = vi.fn().mockResolvedValue(1);
+    prisma.drawingFavorite.findMany = vi.fn().mockResolvedValue([{ drawingId: "drawing-1" }]);
+
+    const res = await invoke(app, { id: "account-1", authCredentialType: "jwt" }, {
+      query: { favoritesOnly: "true" },
+    });
+
+    const listWhere = capturedWheres.find((where) => where?.userId);
+    expect(listWhere.favoritedBy).toEqual({ some: { userId: "account-1" } });
+    expect(res.payload.drawings).toHaveLength(1);
+    expect(res.payload.drawings[0].isFavorite).toBe(true);
+  });
+
+  it("does not filter by favorites when favoritesOnly is absent", async () => {
+    const { app } = buildApp();
+
+    const res = await invoke(app, { id: "account-1", authCredentialType: "jwt" });
+
+    expect(res.payload.drawings).toHaveLength(1);
   });
 });

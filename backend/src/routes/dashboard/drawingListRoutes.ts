@@ -7,6 +7,7 @@ import { SortDirection, SortField } from "./types";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { getCollectionAccess, listSharedCollectionIds } from "../../authz/collections";
 import { boardsSharedWithWhere, grantedLevelSelect, ownedBoardsWhere } from "../../authz/boards";
+import { getFavoriteDrawingIds } from "../../authz/favorites";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -46,6 +47,7 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
         offset,
         sortField,
         sortDirection,
+        favoritesOnly,
       } = req.query;
       // NIL-365: archived boards are excluded from the plain drawing lists by
       // default -- they live in the dedicated Archive view
@@ -60,6 +62,17 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
 
       if (searchTerm) {
         where.name = { contains: searchTerm };
+      }
+
+      // NIL-292: a persisted per-viewer flag, so this is a real filter (a
+      // page of "everything but favorites" would otherwise silently leave
+      // favorites further down the list out of the page entirely), unlike
+      // "currently open" -- presence is not something a database query can
+      // join against, so that one stays a client-side filter over the page
+      // already fetched (see CurrentlyOpenStrip.tsx).
+      const isFavoritesOnly = favoritesOnly === "true" || favoritesOnly === "1";
+      if (isFavoritesOnly) {
+        where.favoritedBy = { some: { userId: req.user.id } };
       }
 
       // NIL-290: how the viewer reaches these boards, for the provenance
@@ -154,7 +167,7 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
           sortField: parsedSortField,
           sortDirection: parsedSortDirection,
         }) +
-        `:${parsedLimit}:${parsedOffset}:preview=${shouldIncludePreview ? "1" : "0"}:members=${includeMembers ? "1" : "0"}`;
+        `:${parsedLimit}:${parsedOffset}:preview=${shouldIncludePreview ? "1" : "0"}:members=${includeMembers ? "1" : "0"}:favoritesOnly=${isFavoritesOnly ? "1" : "0"}`;
 
       const cachedBody = getCachedDrawingsBody(cacheKey);
       if (cachedBody) {
@@ -244,6 +257,17 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
         const linkSharedIds = new Set(linkShared.map((row) => row.drawingId));
         for (const drawing of responsePayload) {
           drawing.linkShared = linkSharedIds.has(drawing.id);
+        }
+      }
+
+      if (includeMembers && responsePayload.length > 0) {
+        const favoriteIds = await getFavoriteDrawingIds({
+          prisma,
+          userId: req.user.id,
+          drawingIds: responsePayload.map((d) => d.id),
+        });
+        for (const drawing of responsePayload) {
+          drawing.isFavorite = favoriteIds.has(drawing.id);
         }
       }
 
@@ -392,6 +416,17 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       });
       for (const drawing of responsePayload) {
         drawing.members = sharedMembers.get(drawing.id) ?? { totalCount: 0, items: [] };
+      }
+
+      if (responsePayload.length > 0) {
+        const favoriteIds = await getFavoriteDrawingIds({
+          prisma,
+          userId: req.user.id,
+          drawingIds: responsePayload.map((d) => d.id),
+        });
+        for (const drawing of responsePayload) {
+          drawing.isFavorite = favoriteIds.has(drawing.id);
+        }
       }
 
       return res.json({

@@ -12,6 +12,7 @@ import { registerInboxRoutes } from "./inboxRoutes";
 import { registerActivityRoutes } from "./activityRoutes";
 import { registerSearchRoutes } from "./searchRoutes";
 import { registerArchiveRoutes } from "./archiveRoutes";
+import { registerFavoriteRoutes } from "./favoriteRoutes";
 
 export const registerDrawingRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
   const context = createDrawingRouteContext(deps);
@@ -27,4 +28,5 @@ export const registerDrawingRoutes = (app: express.Express, deps: DashboardRoute
   registerActivityRoutes(app, context);
   registerSearchRoutes(app, context);
   registerArchiveRoutes(app, context);
+  registerFavoriteRoutes(app, context);
 };
