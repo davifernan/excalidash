@@ -115,6 +115,19 @@ jobs:
         # nothing.
         run: |
           SHA="$(git rev-parse HEAD)"
+          # This workflow registers its own check-run against the very SHA it
+          # is asking about, so it has to take itself out of the count: the
+          # first attempt would otherwise see itself as `incomplete`, and every
+          # retry would additionally see the previous attempt as `failed`. Both
+          # were observed on the first real release (v0.7.0-nilo.1, 24.08.2026).
+          # Excluding every run of THIS workflow on THIS sha -- not just
+          # `github.run_id` -- is what makes a re-run possible at all.
+          SELF_RUNS="$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/release.yml/runs?head_sha=$SHA&per_page=100" \
+            --jq '.workflow_runs[].id' || true)"
+          EXCLUDE_RUN_IDS="$(printf '%s\n%s\n' "${{ github.run_id }}" "$SELF_RUNS")"
+          export EXCLUDE_RUN_IDS
+          echo "Excluding this workflow's own run(s): $(echo "$EXCLUDE_RUN_IDS" | tr '\n' ' ')"
           RESULT="$(scripts/release-check-runs.sh "${{ github.repository }}" "$SHA")"
           TOTAL="$(echo "$RESULT" | jq '.total')"
           INCOMPLETE="$(echo "$RESULT" | jq '.incomplete')"

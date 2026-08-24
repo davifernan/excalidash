@@ -64,4 +64,59 @@ printf '%s\n' "$BUGGY_JQ_LENGTH" | sed 's/^/    /'
 echo "...not the single number $GROUND_TRUTH -- exactly the per-page-not-merged fault Hans-Friedrich found, reproduced against live data."
 
 echo
-echo "release-check-runs.test.sh: PASS (green fix verified, red bug reproduced, both against the real API)"
+echo "=== EXCLUDE_RUN_IDS: removes exactly the named run, and nothing else ==="
+# The defect this guards: the Release workflow registers its own check-run
+# against the SHA it is asking about, so it counted itself -- `incomplete` on
+# the first attempt, `failed` on every retry. The gate could never pass.
+# Two directions have to hold, and a one-directional test would miss half:
+# excluding a real run must actually drop its check-runs, and excluding an
+# id that is not there must drop nothing at all.
+
+BASELINE_TOTAL="$FIXED_TOTAL"
+
+# Take a run id that genuinely produced check-runs on this commit.
+SAMPLE_RUN_ID="$(gh api "repos/${REPO}/commits/${TARGET_SHA}/check-runs?per_page=100" --paginate --slurp \
+  | jq -r '[.[].check_runs[]] | map(.details_url // "") | map(capture("/runs/(?<id>[0-9]+)/").id) | .[0] // ""')"
+if [ -z "$SAMPLE_RUN_ID" ]; then
+  echo "FAIL: could not read a run id out of any details_url -- the exclusion cannot be proven against this commit."
+  exit 1
+fi
+SAMPLE_COUNT="$(gh api "repos/${REPO}/commits/${TARGET_SHA}/check-runs?per_page=100" --paginate --slurp \
+  | jq --arg frag "/runs/${SAMPLE_RUN_ID}/" '[.[].check_runs[]] | map(select((.details_url // "") | contains($frag))) | length')"
+echo "Sample run $SAMPLE_RUN_ID contributed $SAMPLE_COUNT check-run(s) of $BASELINE_TOTAL."
+
+if [ "$SAMPLE_COUNT" -eq 0 ] || [ "$SAMPLE_COUNT" -ge "$BASELINE_TOTAL" ]; then
+  echo "FAIL: the sample run contributes $SAMPLE_COUNT of $BASELINE_TOTAL check-runs -- that cannot tell a working exclusion from a broken one. Re-run against a commit whose check-runs come from more than one workflow run."
+  exit 1
+fi
+
+EXCLUDED_TOTAL="$(EXCLUDE_RUN_IDS="$SAMPLE_RUN_ID" "$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2 | jq '.total')"
+EXPECTED_TOTAL="$((BASELINE_TOTAL - SAMPLE_COUNT))"
+if [ "$EXCLUDED_TOTAL" != "$EXPECTED_TOTAL" ]; then
+  echo "FAIL: excluding run $SAMPLE_RUN_ID gave total $EXCLUDED_TOTAL, expected $EXPECTED_TOTAL ($BASELINE_TOTAL - $SAMPLE_COUNT)."
+  exit 1
+fi
+echo "PASS: excluding a real run removed exactly its $SAMPLE_COUNT check-run(s)."
+
+# The other direction: an id that produced nothing here must change nothing.
+# 1 is a real GitHub run id somewhere, but not on this commit.
+UNRELATED_TOTAL="$(EXCLUDE_RUN_IDS="1" "$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2 | jq '.total')"
+if [ "$UNRELATED_TOTAL" != "$BASELINE_TOTAL" ]; then
+  echo "FAIL: excluding an unrelated run id changed the total from $BASELINE_TOTAL to $UNRELATED_TOTAL -- the filter is matching more than the run it was given."
+  exit 1
+fi
+echo "PASS: excluding an unrelated run id left all $BASELINE_TOTAL check-run(s) in place."
+
+# And an empty exclusion must behave exactly like no exclusion at all -- the
+# normal case for every other caller. An earlier draft of this change broke
+# precisely here: `grep` exits 1 on no match, and under `set -e` the script
+# produced no output at all.
+EMPTY_TOTAL="$(EXCLUDE_RUN_IDS="" "$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2 | jq '.total')"
+if [ "$EMPTY_TOTAL" != "$BASELINE_TOTAL" ]; then
+  echo "FAIL: an empty EXCLUDE_RUN_IDS gave total '$EMPTY_TOTAL', expected $BASELINE_TOTAL."
+  exit 1
+fi
+echo "PASS: an empty exclusion behaves exactly like no exclusion."
+
+echo
+echo "release-check-runs.test.sh: PASS (green fix verified, red bug reproduced, exclusion proven in both directions, all against the real API)"
