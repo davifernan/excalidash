@@ -3,7 +3,7 @@ import type { MutableRefObject, RefObject } from "react";
 import { io, type Socket } from "socket.io-client";
 import { toast } from "sonner";
 import type { UserIdentity } from "../../utils/identity";
-import { buildRemoteSceneUpdate } from "./shared";
+import { buildRemoteSceneUpdate, heldElementIds } from "./shared";
 import { bindFollowMode, getFollowInterruptionMessage, type Follower } from "./followMode";
 import { bindCanvasWheelZoom } from "./wheelZoom";
 import { bindSocketRoomLifecycle } from "./socketRoomLifecycle";
@@ -31,7 +31,7 @@ import { bindInviteHere, type InviteHereStatus, type ViewportInvitation } from "
 import { bindSocketDrawingName } from "./drawingName";
 import type { CapabilityFailure } from "../../integrations/excalidraw/errors";
 import { sealSceneDocument } from "../../integrations/excalidraw/adapter";
-import type { ElementId, SceneFile } from "../../integrations/excalidraw/types";
+import type { SceneFile } from "../../integrations/excalidraw/types";
 import type {
   CollaborationCapability,
   FileCapability,
@@ -325,14 +325,7 @@ export const useEditorCollaboration = ({
         }
         return;
       }
-      const protectedIds = new Set<ElementId>();
-      for (const id of [
-        interactionState.value.editingTextElementId,
-        interactionState.value.resizingElementId,
-        interactionState.value.creatingElementId,
-      ]) {
-        if (id) protectedIds.add(id);
-      }
+      const protectedIds = heldElementIds(interactionState.value, latestElementsRef.current);
       isSyncing.current = true;
       try {
         const pendingElements = Array.from(pendingRemoteElementsRef.current.values());

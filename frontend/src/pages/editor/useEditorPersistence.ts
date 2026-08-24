@@ -183,7 +183,7 @@ export const useEditorPersistence = ({
             // whatever is being typed, dragged or drawn right now must
             // survive it. Without this a rebase mid-gesture pulls the element
             // out of the person's hand.
-            protect: heldElementIds(heldNow()),
+            protect: heldElementIds(heldNow(), elementsToSave),
           },
         );
         const mergedFiles = filesToSave ? { ...(latest?.files || {}), ...filesToSave } : undefined;
