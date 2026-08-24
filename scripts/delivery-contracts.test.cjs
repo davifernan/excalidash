@@ -370,6 +370,75 @@ test("configuration recipes describe the varied key without inventing a test fil
   assert.equal(parsed?.recipe.subject.key, "services.backend.image");
 });
 
+test("equivalence recipes require a green/green pair plus a separate coverage probe that goes red on the subject", () => {
+  const recipe = {
+    kind: "equivalence",
+    command: "npx vitest run frontend/src/pages/editor/chromeSlots.test.tsx",
+    instrument: {
+      path: "frontend/src/pages/editor/chromeSlots.test.tsx",
+      blob_sha: TEST_BLOB_SHA,
+    },
+    subject: {
+      path: "frontend/src/pages/editor/chromeSlots.tsx",
+      description: "the three inlined [...ENTRIES].sort(byOrder).map(...) calls collapsed into renderSorted",
+    },
+    from: { exit_code: 0, output: "tests 6; pass 6; fail 0" },
+    to: { exit_code: 0, output: "tests 6; pass 6; fail 0" },
+    coverage_probe: {
+      exit_code: 1,
+      assertion: "expected slot order [main-menu, comments] to equal [comments, main-menu]",
+      output:
+        "AssertionError: expected slot order [main-menu, comments] to equal [comments, main-menu]",
+    },
+  };
+  const parsed = parseFixVerificationMarker(fixVerificationMarker({ recipe }));
+  assert.equal(parsed?.recipe.kind, "equivalence");
+  assert.equal(parsed?.recipe.from.output, parsed?.recipe.to.output);
+  assert.equal(parsed?.recipe.coverage_probe.exit_code, 1);
+
+  const withoutCoverageProbe = { ...recipe };
+  delete withoutCoverageProbe.coverage_probe;
+  assert.throws(
+    () => parseFixVerificationMarker(fixVerificationMarker({ recipe: withoutCoverageProbe })),
+    /does not satisfy schema version 1/,
+    "two green runs with no coverage probe must not pass -- the instrument might never touch the subject",
+  );
+
+  assert.throws(
+    () =>
+      parseFixVerificationMarker(
+        fixVerificationMarker({
+          recipe: { ...recipe, coverage_probe: { ...recipe.coverage_probe, exit_code: 0 } },
+        }),
+      ),
+    /does not satisfy schema version 1/,
+    "a coverage probe that stays green proves the instrument never exercised the subject",
+  );
+
+  assert.throws(
+    () =>
+      parseFixVerificationMarker(
+        fixVerificationMarker({
+          recipe: {
+            ...recipe,
+            coverage_probe: { ...recipe.coverage_probe, output: "AssertionError: something else failed" },
+          },
+        }),
+      ),
+    /does not satisfy schema version 1/,
+    "the coverage probe's own assertion must appear verbatim in its output, same rule as the test recipe's from",
+  );
+
+  assert.throws(
+    () =>
+      parseFixVerificationMarker(
+        fixVerificationMarker({ recipe: { ...recipe, to: { exit_code: 1, output: "fail" } } }),
+      ),
+    /does not satisfy schema version 1/,
+    "equivalence means both real sides are green -- a red `to` belongs to the test recipe, not this one",
+  );
+});
+
 test("a finding verifier can record the same reproducible schema", () => {
   const parsed = parseFixVerificationMarker(
     fixVerificationMarker({
