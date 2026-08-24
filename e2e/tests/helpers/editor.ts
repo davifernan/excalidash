@@ -55,8 +55,7 @@ export const notes = async (page: Page) => (await scene(page)).filter((e: any) =
 export const labels = async (page: Page) => (await scene(page)).filter((e: any) => e.containerId);
 
 /** A button registered through `ui.toolbarSlot()`, by its own tool name. */
-export const toolbarButton = (page: Page, name: string) =>
-  page.getByTestId(`toolbar-${name}`);
+export const toolbarButton = (page: Page, name: string) => page.getByTestId(`toolbar-${name}`);
 
 /**
  * Drop a text/markdown file onto the canvas, the way a real drag from the
@@ -203,6 +202,27 @@ export const injectNoiseImage = (
     },
     { targetBytes, elementId, position, withHash },
   );
+
+/** Wait for a peer's editor to receive one file and return its SHA-256 content hash. */
+export const waitForPeerFile = async (page: Page, fileId: string, timeout = 30_000) => {
+  await page.waitForFunction(
+    (id) => Boolean((window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id]),
+    fileId,
+    { timeout },
+  );
+  return page.evaluate(async (id) => {
+    const dataURL = (window as any).__EXCALIDASH_TEST__.getFiles()[id].dataURL;
+    const binary = atob(dataURL.slice(dataURL.indexOf(",") + 1));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
+      "",
+    );
+  }, fileId);
+};
+
+export const peerHasFile = (page: Page, fileId: string) =>
+  page.evaluate((id) => Boolean((window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id]), fileId);
 
 export const documentPageLabel = (page: Page) => page.locator(".text-document-widget__page-number");
 
