@@ -110,10 +110,19 @@ function decideAdmissionEnforcement({ intentAction, admissionOutcome } = {}) {
   if (intentAction === "admit" && admissionOutcome === "success") {
     return { ok: true, code: "admitted", annotation: "Review admission passed." };
   }
+  if (intentAction === "admit" && admissionOutcome === "failure") {
+    return {
+      ok: false,
+      code: "admission-failed",
+      annotation:
+        "::error::Review admission failed; the violated rule is in the Check review admission step log.",
+    };
+  }
   return {
     ok: false,
-    code: "admission-failed",
-    annotation: "::error::Review admission failed; the violated rule is posted on the pull request.",
+    code: "admission-not-run",
+    annotation:
+      "::error::Review admission did not complete; inspect the earlier failed workflow step.",
   };
 }
 

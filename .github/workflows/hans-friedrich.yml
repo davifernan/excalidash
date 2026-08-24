@@ -41,30 +41,7 @@ jobs:
 
       - name: Classify review intent
         id: intent
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
-          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
-          REPO: ${{ github.repository }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-          ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          EXTRA_TRUSTED: ""
-        run: |
-          decision=$(jq -cn \
-            --arg body "${PR_BODY}" \
-            --arg draft "${PR_DRAFT}" \
-            --arg authorType "${PR_AUTHOR_TYPE}" \
-            --arg repository "${REPO}" \
-            --arg headRepository "${HEAD_REPO}" \
-            --arg author "${AUTHOR}" \
-            --arg association "${ASSOCIATION}" \
-            --arg extraTrusted "${EXTRA_TRUSTED}" \
-            '{body:$body,draft:($draft == "true"),authorType:$authorType,repository:$repository,headRepository:$headRepository,author:$author,association:$association,extraTrusted:$extraTrusted}' \
-            | node scripts/hans-review-signal.cjs preflight)
-          echo "$decision"
-          echo "action=$(jq -r '.action' <<<"$decision")" >> "$GITHUB_OUTPUT"
-          echo "decision=$(jq -c '.' <<<"$decision")" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/hans-review-intent
 
       - name: Build diff-derived impact manifest
         if: steps.intent.outputs.action == 'admit'
@@ -92,10 +69,11 @@ jobs:
           status=$?
           set -e
           echo "$result"
+          delimiter="ADMISSION_RESULT_$(openssl rand -hex 16)"
           {
-            echo "result<<ADMISSION_RESULT"
-            echo "$result"
-            echo "ADMISSION_RESULT"
+            echo "result<<$delimiter"
+            printf '%s\n' "$result"
+            echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
           exit "$status"
 

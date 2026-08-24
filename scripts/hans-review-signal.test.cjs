@@ -113,6 +113,21 @@ test("draft skip is green while a ready admission failure is red", () => {
   assert.match(brokenReadyPr.stdout, /::error::Review admission failed/);
 });
 
+test("a pre-admission failure reports the workflow failure instead of promising a PR comment", () => {
+  const result = decideAdmissionEnforcement({
+    intentAction: "admit",
+    admissionOutcome: "skipped",
+  });
+  assert.doesNotMatch(
+    result.annotation,
+    /posted on the pull request/,
+    "a pre-admission failure must not claim that a PR comment exists",
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "admission-not-run");
+  assert.match(result.annotation, /earlier failed workflow step/);
+});
+
 test("comment markers deduplicate reruns of the same outcome and SHA", () => {
   const existing = [
     { body: buildSignalComment({ headSha: HEAD_SHA, decision: { action: "skip", reason: "draft" } }) },
@@ -137,8 +152,24 @@ test("workflow keeps admission as the red enforcement boundary after preflight",
   assert.match(workflow, /continue-on-error: true/);
   assert.match(workflow, /steps\.admission\.outcome == 'failure'/);
   assert.match(workflow, /hans-review-signal\.cjs enforce/);
+  assert.match(workflow, /delimiter="ADMISSION_RESULT_\$\(openssl rand -hex 16\)"/);
+  assert.match(workflow, /uses: \.\/\.github\/actions\/hans-review-intent/);
+  assert.doesNotMatch(workflow, /node scripts\/hans-review-signal\.cjs preflight/);
   assert.doesNotMatch(workflow, /request-review:\n\s+if:/);
 });
+
+function assertTrustedBaseCheckout(workflow) {
+  const checkout = workflow.match(
+    /- uses: actions\/checkout@v4\n[\s\S]*?(?=\n\s+- name: Classify review intent)/,
+  )?.[0];
+  assert.ok(checkout, "the trusted checkout block must be present");
+  assert.doesNotMatch(
+    checkout,
+    /pull_request\.head\.sha/,
+    "the trusted checkout must never execute pull-request head code",
+  );
+  assert.match(checkout, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+}
 
 test("pull_request_target companion only comments from trusted base code", () => {
   const workflow = fs.readFileSync(
@@ -147,7 +178,16 @@ test("pull_request_target companion only comments from trusted base code", () =>
   );
   assert.match(workflow, /pull_request_target:/);
   assert.match(workflow, /pull-requests: write/);
-  assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
-  assert.doesNotMatch(workflow, /pull_request\.head\.sha \}\}\n\s+path:/);
+  assertTrustedBaseCheckout(workflow);
+  const regressedWorkflow = workflow.replace(
+    "ref: ${{ github.event.pull_request.base.sha }}",
+    "ref: ${{ github.event.pull_request.head.sha }}",
+  );
+  assert.throws(
+    () => assertTrustedBaseCheckout(regressedWorkflow),
+    /the trusted checkout must never execute pull-request head code/,
+  );
+  assert.match(workflow, /uses: \.\/\.github\/actions\/hans-review-intent/);
+  assert.doesNotMatch(workflow, /node scripts\/hans-review-signal\.cjs preflight/);
   assert.doesNotMatch(workflow, /MULTICA_REVIEW_WEBHOOK/);
 });
