@@ -951,177 +951,20 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # team-acceptance.spec.ts (NIL-330's integrated M0 acceptance test) is
-  # deliberately one long test (~2.5 minutes alone) rather than several short
-  # ones -- see its own header comment. PR #76's own CI (the delivery this
-  # job was added in) hit exactly the problem that fact causes: crammed into
-  # an ordinary chromium shard, it pushed shard 2 over the 720s wall-clock
-  # budget with 48 other tests already run, SIGKILLed after the 30s SIGINT
-  # grace period, `playwright-report/` lost (NIL-488's failure mode). Its own
-  # job, sized for it alone, the same reasoning e2e-two-account and
-  # e2e-permission-matrix already apply for a different reason (a real-auth
-  # toggle that would poison a shared shard) rather than this one (a runtime
-  # budget a shared shard cannot spare).
-  e2e-team-acceptance:
-    name: E2E Team Acceptance
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
-            e2e/package-lock.json
-
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
-
-      - name: Generate Prisma client
-        run: |
-          cd backend
-          npx prisma generate
-
-      - name: Setup backend database
-        run: |
-          cd backend
-          node scripts/provider-prisma.cjs migrate deploy
-        env:
-          DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-team-acceptance.db
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
-
-      - name: Install E2E test dependencies
-        run: |
-          cd e2e
-          npm ci
-
-      - name: Install Playwright browsers
-        run: |
-          cd e2e
-          npx playwright install chromium --with-deps
-
-      - name: Start servers and run E2E tests
-        run: |
-          # Own ports so this never collides with a shard's, the cross-engine
-          # job's, or the other isolated jobs' if runners ever share a host.
-          BACKEND_LOG="${{ github.workspace }}/backend-team-acceptance.log"
-
-          cd backend
-          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/e2e-team-acceptance.db" \
-            PORT=8864 \
-            FRONTEND_URL="http://localhost:6864" \
-            CSRF_SECRET="e2e-team-acceptance-csrf" \
-            CSRF_MAX_REQUESTS=100000 \
-            RATE_LIMIT_MAX_REQUESTS=100000 \
-            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-team-acceptance-assets" \
-            npm run dev > "$BACKEND_LOG" 2>&1 &
-          BACKEND_PID=$!
-          cd ..
-
-          # Cleanup via trap, not a line after the test command: under
-          # `bash -e` (this step's default shell) a nonzero exit from that
-          # command ends the script immediately, so a cleanup line placed
-          # after it never runs in exactly the case it exists for. A trap
-          # fires on every exit path -- success, `-e` abort, or the explicit
-          # `exit` below -- so it actually keeps the promise its name makes.
-          FRONTEND_PID=""
-          cleanup() {
-            echo "Cleanup: stopping backend/frontend servers"
-            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
-            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          echo "Waiting for backend server..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8864/health > /dev/null; then
-              echo "Backend is ready!"
-              break
-            fi
-            echo "Attempt $i: Backend not ready yet..."
-            sleep 2
-          done
-
-          cd frontend
-          VITE_DEV_BACKEND_URL="http://localhost:8864" npm run dev -- --host --port 6864 &
-          FRONTEND_PID=$!
-          cd ..
-
-          echo "Waiting for frontend server..."
-          for i in {1..30}; do
-            if curl -s http://localhost:6864 > /dev/null; then
-              echo "Frontend is ready!"
-              break
-            fi
-            echo "Attempt $i: Frontend not ready yet..."
-            sleep 2
-          done
-
-          # Run E2E tests. Wrapped in our own `timeout` rather than trusting
-          # the job's 20-minute cancellation to leave a report behind: that
-          # cancellation does not reliably give Playwright the chance to
-          # write one (verified locally -- SIGTERM kills the process before
-          # it can write anything, SIGINT lets it finish the run as
-          # "interrupted" and write report/trace/video for what already ran).
-          # `--preserve-status` keeps the real pass/fail exit code instead of
-          # always reporting 124. 720s is the same budget every other E2E job
-          # uses even though this job's single test takes ~2.5 minutes on its
-          # own -- the whole point of giving it its own job is that it no
-          # longer has to share that budget with anything else.
-          cd e2e
-          TEST_EXIT_CODE=0
-          NO_SERVER=true CI=true \
-            API_URL="http://localhost:8864" \
-            BASE_URL="http://localhost:6864" \
-            E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
-            timeout --signal=INT --kill-after=30s --preserve-status 720 \
-            npx playwright test --project=team-acceptance \
-            || TEST_EXIT_CODE=$?
-          cd ..
-
-          exit "$TEST_EXIT_CODE"
-
-      - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report-team-acceptance
-          path: e2e/playwright-report/
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: test-results-team-acceptance
-          path: e2e/test-results/
-          retention-days: 7
-          if-no-files-found: error
-
-
   # Carries the name the branch ruleset requires. The shards run under their
   # own names, so without this the required context 'E2E Browser Tests' would
   # never report again and every pull request would block forever.
   #
   # always() matters: a skipped gate never reports either, so it has to run
   # even when a shard failed, and decide from the results.
+  #
+  # team-acceptance.spec.ts is deliberately not in this list: it runs from
+  # team-acceptance.yml on a nightly schedule. See that file for why.
   e2e-tests:
     name: E2E Browser Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [e2e-shards, e2e-two-account, e2e-permission-matrix, e2e-team-acceptance]
+    needs: [e2e-shards, e2e-two-account, e2e-permission-matrix]
     if: always()
 
     steps:
@@ -1130,12 +973,10 @@ jobs:
           shards="${{ needs.e2e-shards.result }}"
           two_account="${{ needs.e2e-two-account.result }}"
           permission_matrix="${{ needs.e2e-permission-matrix.result }}"
-          team_acceptance="${{ needs.e2e-team-acceptance.result }}"
           echo "Shard results: ${shards}"
           echo "Two-account result: ${two_account}"
           echo "Permission-matrix result: ${permission_matrix}"
-          echo "Team-acceptance result: ${team_acceptance}"
-          if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ] || [ "${permission_matrix}" != "success" ] || [ "${team_acceptance}" != "success" ]; then
+          if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ] || [ "${permission_matrix}" != "success" ]; then
             echo "At least one E2E shard or an isolated suite did not pass."
             exit 1
           fi
