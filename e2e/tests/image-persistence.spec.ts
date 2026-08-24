@@ -1,23 +1,17 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type APIRequestContext } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
-import {
-  API_URL,
-  createDrawing,
-  deleteDrawing,
-  getCsrfHeaders,
-  getDrawing,
-} from "./helpers/api";
+import { API_URL, createDrawing, deleteDrawing, getCsrfHeaders, getDrawing } from "./helpers/api";
 
 /**
  * E2E Browser Tests for Image Persistence - Issue #17 Regression
- * 
+ *
  * These tests verify the complete user workflow:
  * 1. Create a drawing with an embedded image
  * 2. Save the drawing
  * 3. Close and reopen the drawing
  * 4. Verify the image loads correctly
- * 
+ *
  * This tests the fix for GitHub issue #17:
  * "Images don't load fully when reopening the file"
  */
@@ -31,6 +25,20 @@ function generateLargeImageDataUrl(sizeInBytes: number = 50000): string {
   return `data:image/png;base64,${base64Data}`;
 }
 
+const expectStoredImage = async (
+  request: APIRequestContext,
+  drawingId: string,
+  fileId: string,
+  originalDataURL: string,
+) => {
+  const drawing = await getDrawing(request, drawingId);
+  expect(drawing.files?.[fileId]?.dataURL).toBe(`/api/files/${drawingId}/${fileId}`);
+
+  const response = await request.get(`${API_URL}/files/${drawingId}/${fileId}`);
+  expect(response.ok()).toBe(true);
+  expect(await response.body()).toEqual(Buffer.from(originalDataURL.split(",")[1], "base64"));
+};
+
 test.describe("Image Persistence - Browser E2E Tests", () => {
   let testDrawingIds: string[] = [];
 
@@ -38,8 +46,7 @@ test.describe("Image Persistence - Browser E2E Tests", () => {
     for (const id of testDrawingIds) {
       try {
         await deleteDrawing(request, id);
-      } catch {
-      }
+      } catch {}
     }
     testDrawingIds = [];
   });
@@ -63,12 +70,11 @@ test.describe("Image Persistence - Browser E2E Tests", () => {
     if (await newDrawingBtn.isVisible()) {
       await newDrawingBtn.click();
 
-      await page.waitForURL(/\/(editor|drawing)/i, { timeout: 5000 }).catch(() => {
-      });
+      await page.waitForURL(/\/(editor|drawing)/i, { timeout: 5000 }).catch(() => {});
     }
   });
 
-  test("should preserve large image data through save/reload cycle via API", async ({ request }) => {
+  test("should move a large embedded image to storage during create", async ({ request }) => {
     const largeDataUrl = generateLargeImageDataUrl(50000);
     expect(largeDataUrl.length).toBeGreaterThan(10000);
 
@@ -87,14 +93,9 @@ test.describe("Image Persistence - Browser E2E Tests", () => {
     });
     testDrawingIds.push(createdDrawing.id);
 
-    const drawing = await getDrawing(request, createdDrawing.id);
-    const savedFiles = drawing.files || {};  // Already parsed by API
+    await expectStoredImage(request, createdDrawing.id, "test-image-1", largeDataUrl);
 
-    expect(savedFiles["test-image-1"]).toBeDefined();
-    expect(savedFiles["test-image-1"].dataURL).toBe(largeDataUrl);
-    expect(savedFiles["test-image-1"].dataURL.length).toBe(largeDataUrl.length);
-
-    console.log("✓ Large image data preserved correctly through save/reload cycle");
+    console.log("✓ Large image moved to DrawingFile storage during create");
   });
 
   test("should display drawing in editor view", async ({ page, request }) => {
@@ -122,11 +123,12 @@ test.describe("Image Persistence - Browser E2E Tests", () => {
     });
     testDrawingIds.push(createdDrawing.id);
 
-    const drawing = await getDrawing(request, createdDrawing.id);
-    const savedFiles = drawing.files || {};  // Already parsed by API
-
-    expect(savedFiles["embedded-test-image"]).toBeDefined();
-    expect(savedFiles["embedded-test-image"].dataURL).toBe(fixtureData.files["embedded-test-image"].dataURL);
+    await expectStoredImage(
+      request,
+      createdDrawing.id,
+      "embedded-test-image",
+      fixtureData.files["embedded-test-image"].dataURL,
+    );
   });
 
   test("should handle multiple images of varying sizes", async ({ request }) => {
@@ -157,16 +159,11 @@ test.describe("Image Persistence - Browser E2E Tests", () => {
     });
     testDrawingIds.push(createdDrawing.id);
 
-    const drawing = await getDrawing(request, createdDrawing.id);
-    const savedFiles = drawing.files || {};  // Already parsed by API
-
     for (const [id, originalFile] of Object.entries(files)) {
-      expect(savedFiles[id]).toBeDefined();
-      expect(savedFiles[id].dataURL).toBe((originalFile as any).dataURL);
-      expect(savedFiles[id].dataURL.length).toBe((originalFile as any).dataURL.length);
+      await expectStoredImage(request, createdDrawing.id, id, (originalFile as any).dataURL);
     }
 
-    console.log("✓ Multiple images of varying sizes preserved correctly");
+    console.log("✓ Multiple images of varying sizes moved to DrawingFile storage");
   });
 });
 
@@ -201,7 +198,7 @@ test.describe("Security - Malicious Content Blocking", () => {
     }
     expect(response.ok()).toBe(true);
     const drawing = await response.json();
-    const savedFiles = drawing.files;  // Already parsed by API
+    const savedFiles = drawing.files; // Already parsed by API
 
     expect(savedFiles["malicious-image"].dataURL).not.toContain("javascript:");
 
@@ -240,7 +237,7 @@ test.describe("Security - Malicious Content Blocking", () => {
     }
     expect(response.ok()).toBe(true);
     const drawing = await response.json();
-    const savedFiles = drawing.files;  // Already parsed by API
+    const savedFiles = drawing.files; // Already parsed by API
 
     expect(savedFiles["malicious-image"].dataURL).not.toContain("<script>");
 
