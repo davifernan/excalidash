@@ -143,17 +143,20 @@ This fork publishes `latest` and an immutable `sha-<commit>` tag per green build
 [FORK.md](FORK.md#upgrade-and-rollback) for the full pin/verify/rollback procedure; the short
 version, if you deployed using `docker-compose.prod.yml`:
 
+1. Set `EXCALIDASH_IMAGE_TAG` in `.env` to the verified `sha-<commit>` tag you want to run.
+2. Pull and recreate both services with that same env file:
+
 ```bash
-docker compose -f docker-compose.prod.yml pull && \
-  docker compose -f docker-compose.prod.yml up -d
+docker compose --env-file .env -f docker-compose.prod.yml pull && \
+  docker compose --env-file .env -f docker-compose.prod.yml up -d
 ```
 
 If you prefer a clean stop/start (more downtime, but simpler), you can do:
 
 ```bash
-docker compose -f docker-compose.prod.yml down && \
-  docker compose -f docker-compose.prod.yml pull && \
-  docker compose -f docker-compose.prod.yml up -d
+docker compose --env-file .env -f docker-compose.prod.yml down && \
+  docker compose --env-file .env -f docker-compose.prod.yml pull && \
+  docker compose --env-file .env -f docker-compose.prod.yml up -d
 ```
 
 Notes:
