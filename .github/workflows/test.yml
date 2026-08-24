@@ -120,7 +120,29 @@ jobs:
     name: Backend Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
+    # NIL-494: real Postgres coverage for migration SQL that an in-process
+    # emulator cannot faithfully run (the NIL-326 migration's `DO $$ ...
+    # EXCEPTION ... END $$` backfill block -- see
+    # backend/src/__tests__/migrations/nil326SearchTextBackfill.postgres.test.ts).
+    # Deliberately inside this already-required job rather than a new one:
+    # a new job would not be in the branch ruleset, so it could go red
+    # without blocking anything (see the same reasoning on
+    # `frontend-typecheck`'s adapter-boundary check above).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: excalidash_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -129,24 +151,24 @@ jobs:
       # decoder invocation passes as a green run.
       - name: Install document and image tools
         run: sudo apt-get update && sudo apt-get install -y imagemagick poppler-utils ghostscript
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
-      
+
       - name: Install backend dependencies
         run: |
           cd backend
           npm ci
-      
+
       - name: Generate Prisma client
         run: |
           cd backend
           npx prisma generate
-      
+
       - name: Check formatting
         run: |
           cd backend
@@ -156,6 +178,8 @@ jobs:
         run: |
           cd backend
           npm test
+        env:
+          POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/excalidash_test
 
   frontend-unit-tests:
     name: Frontend Unit Tests
@@ -291,7 +315,21 @@ jobs:
             npm run dev &
           BACKEND_PID=$!
           cd ..
-          
+
+          # Cleanup via trap, not a line after the test command: under
+          # `bash -e` (this step's default shell) a nonzero exit from that
+          # command ends the script immediately, so a cleanup line placed
+          # after it never runs in exactly the case it exists for. A trap
+          # fires on every exit path -- success, `-e` abort, or the explicit
+          # `exit` below -- so it actually keeps the promise its name makes.
+          FRONTEND_PID=""
+          cleanup() {
+            echo "Cleanup: stopping backend/frontend servers"
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           # Wait for backend to be ready
           echo "Waiting for backend server..."
           for i in {1..30}; do
@@ -302,13 +340,13 @@ jobs:
             echo "Attempt $i: Backend not ready yet..."
             sleep 2
           done
-          
+
           # Start frontend server in background
           cd frontend
           npm run dev -- --host &
           FRONTEND_PID=$!
           cd ..
-          
+
           # Wait for frontend to be ready
           echo "Waiting for frontend server..."
           for i in {1..30}; do
@@ -319,20 +357,28 @@ jobs:
             echo "Attempt $i: Frontend not ready yet..."
             sleep 2
           done
-          
-          # Run E2E tests
+
+          # Run E2E tests. Wrapped in our own `timeout` rather than trusting
+          # the job's 20-minute cancellation to leave a report behind: that
+          # cancellation does not reliably give Playwright the chance to
+          # write one (verified locally -- SIGTERM kills the process before
+          # it can write anything, SIGINT lets it finish the run as
+          # "interrupted" and write report/trace/video for what already ran).
+          # 720s leaves several minutes of headroom under the job's 20-minute
+          # ceiling for install/setup and this upload step.
+          # `--preserve-status` keeps the real pass/fail exit code instead of
+          # always reporting 124.
           cd e2e
-          NO_SERVER=true CI=true npx playwright test --project=chromium \
-            --shard=${{ matrix.shard }}/2
-          TEST_EXIT_CODE=$?
-          
-          # Cleanup
-          kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-          
-          exit $TEST_EXIT_CODE
+          TEST_EXIT_CODE=0
+          NO_SERVER=true CI=true timeout --signal=INT --kill-after=30s --preserve-status 720 \
+            npx playwright test --project=chromium --shard=${{ matrix.shard }}/2 \
+            || TEST_EXIT_CODE=$?
+          cd ..
+
+          exit "$TEST_EXIT_CODE"
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-test.db
-      
+
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: always()
@@ -340,7 +386,12 @@ jobs:
           name: playwright-report-shard-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7
-      
+          # Today's default (`warn`) prints a warning line that reads exactly
+          # like a normal "nothing failed" run and is easy to miss in a wall
+          # of red. `error` turns "the report itself never got produced" into
+          # its own failed, visible step instead of a swallowed footnote.
+          if-no-files-found: error
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: failure()
@@ -348,6 +399,7 @@ jobs:
           name: test-results-shard-${{ matrix.shard }}
           path: e2e/test-results/
           retention-days: 7
+          if-no-files-found: error
 
 
   # The other engines, in their own job rather than as more projects in the
@@ -426,7 +478,21 @@ jobs:
             npm run dev &
           BACKEND_PID=$!
           cd ..
-          
+
+          # Cleanup via trap, not a line after the test command: under
+          # `bash -e` (this step's default shell) a nonzero exit from that
+          # command ends the script immediately, so a cleanup line placed
+          # after it never runs in exactly the case it exists for. A trap
+          # fires on every exit path -- success, `-e` abort, or the explicit
+          # `exit` below -- so it actually keeps the promise its name makes.
+          FRONTEND_PID=""
+          cleanup() {
+            echo "Cleanup: stopping backend/frontend servers"
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           # Wait for backend to be ready
           echo "Waiting for backend server..."
           for i in {1..30}; do
@@ -437,13 +503,13 @@ jobs:
             echo "Attempt $i: Backend not ready yet..."
             sleep 2
           done
-          
+
           # Start frontend server in background
           cd frontend
           npm run dev -- --host &
           FRONTEND_PID=$!
           cd ..
-          
+
           # Wait for frontend to be ready
           echo "Waiting for frontend server..."
           for i in {1..30}; do
@@ -454,20 +520,28 @@ jobs:
             echo "Attempt $i: Frontend not ready yet..."
             sleep 2
           done
-          
-          # Run E2E tests
+
+          # Run E2E tests. Wrapped in our own `timeout` rather than trusting
+          # the job's 20-minute cancellation to leave a report behind: that
+          # cancellation does not reliably give Playwright the chance to
+          # write one (verified locally -- SIGTERM kills the process before
+          # it can write anything, SIGINT lets it finish the run as
+          # "interrupted" and write report/trace/video for what already ran).
+          # 720s leaves several minutes of headroom under the job's 20-minute
+          # ceiling for install/setup and this upload step.
+          # `--preserve-status` keeps the real pass/fail exit code instead of
+          # always reporting 124.
           cd e2e
-          NO_SERVER=true CI=true npx playwright test \
-            --project=firefox --project=webkit --project=mobile-chrome
-          TEST_EXIT_CODE=$?
-          
-          # Cleanup
-          kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-          
-          exit $TEST_EXIT_CODE
+          TEST_EXIT_CODE=0
+          NO_SERVER=true CI=true timeout --signal=INT --kill-after=30s --preserve-status 720 \
+            npx playwright test --project=firefox --project=webkit --project=mobile-chrome \
+            || TEST_EXIT_CODE=$?
+          cd ..
+
+          exit "$TEST_EXIT_CODE"
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-cross.db
-      
+
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: always()
@@ -475,7 +549,8 @@ jobs:
           name: playwright-report-cross-engine
           path: e2e/playwright-report/
           retention-days: 7
-      
+          if-no-files-found: error
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: failure()
@@ -483,6 +558,7 @@ jobs:
           name: test-results-cross-engine
           path: e2e/test-results/
           retention-days: 7
+          if-no-files-found: error
 
 
   # comments-two-account.spec.ts (NIL-356) toggles real auth on for whatever
@@ -563,6 +639,20 @@ jobs:
           BACKEND_PID=$!
           cd ..
 
+          # Cleanup via trap, not a line after the test command: under
+          # `bash -e` (this step's default shell) a nonzero exit from that
+          # command ends the script immediately, so a cleanup line placed
+          # after it never runs in exactly the case it exists for. A trap
+          # fires on every exit path -- success, `-e` abort, or the explicit
+          # `exit` below -- so it actually keeps the promise its name makes.
+          FRONTEND_PID=""
+          cleanup() {
+            echo "Cleanup: stopping backend/frontend servers"
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           echo "Waiting for backend server..."
           for i in {1..30}; do
             if curl -s http://localhost:8842/health > /dev/null; then
@@ -588,17 +678,26 @@ jobs:
             sleep 2
           done
 
+          # Run E2E tests. Wrapped in our own `timeout` rather than trusting
+          # the job's 20-minute cancellation to leave a report behind: that
+          # cancellation does not reliably give Playwright the chance to
+          # write one (verified locally -- SIGTERM kills the process before
+          # it can write anything, SIGINT lets it finish the run as
+          # "interrupted" and write report/trace/video for what already ran).
+          # `--preserve-status` keeps the real pass/fail exit code instead of
+          # always reporting 124.
           cd e2e
+          TEST_EXIT_CODE=0
           NO_SERVER=true CI=true \
             API_URL="http://localhost:8842" \
             BASE_URL="http://localhost:6842" \
             E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
-            npx playwright test --project=two-account
-          TEST_EXIT_CODE=$?
+            timeout --signal=INT --kill-after=30s --preserve-status 720 \
+            npx playwright test --project=two-account \
+            || TEST_EXIT_CODE=$?
+          cd ..
 
-          kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-
-          exit $TEST_EXIT_CODE
+          exit "$TEST_EXIT_CODE"
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -607,6 +706,7 @@ jobs:
           name: playwright-report-two-account
           path: e2e/playwright-report/
           retention-days: 7
+          if-no-files-found: error
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -615,6 +715,7 @@ jobs:
           name: test-results-two-account
           path: e2e/test-results/
           retention-days: 7
+          if-no-files-found: error
 
   # discovery-permission-matrix.spec.ts (NIL-326) toggles real auth on the
   # same way comments-two-account.spec.ts does, for the same reason it needs
@@ -696,6 +797,20 @@ jobs:
           BACKEND_PID=$!
           cd ..
 
+          # Cleanup via trap, not a line after the test command: under
+          # `bash -e` (this step's default shell) a nonzero exit from that
+          # command ends the script immediately, so a cleanup line placed
+          # after it never runs in exactly the case it exists for. A trap
+          # fires on every exit path -- success, `-e` abort, or the explicit
+          # `exit` below -- so it actually keeps the promise its name makes.
+          FRONTEND_PID=""
+          cleanup() {
+            echo "Cleanup: stopping backend/frontend servers"
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           echo "Waiting for backend server..."
           for i in {1..30}; do
             if curl -s http://localhost:8853/health > /dev/null; then
@@ -721,17 +836,26 @@ jobs:
             sleep 2
           done
 
+          # Run E2E tests. Wrapped in our own `timeout` rather than trusting
+          # the job's 20-minute cancellation to leave a report behind: that
+          # cancellation does not reliably give Playwright the chance to
+          # write one (verified locally -- SIGTERM kills the process before
+          # it can write anything, SIGINT lets it finish the run as
+          # "interrupted" and write report/trace/video for what already ran).
+          # `--preserve-status` keeps the real pass/fail exit code instead of
+          # always reporting 124.
           cd e2e
+          TEST_EXIT_CODE=0
           NO_SERVER=true CI=true \
             API_URL="http://localhost:8853" \
             BASE_URL="http://localhost:6853" \
             E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
-            npx playwright test --project=permission-matrix
-          TEST_EXIT_CODE=$?
+            timeout --signal=INT --kill-after=30s --preserve-status 720 \
+            npx playwright test --project=permission-matrix \
+            || TEST_EXIT_CODE=$?
+          cd ..
 
-          kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-
-          exit $TEST_EXIT_CODE
+          exit "$TEST_EXIT_CODE"
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -740,6 +864,7 @@ jobs:
           name: playwright-report-permission-matrix
           path: e2e/playwright-report/
           retention-days: 7
+          if-no-files-found: error
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -748,6 +873,7 @@ jobs:
           name: test-results-permission-matrix
           path: e2e/test-results/
           retention-days: 7
+          if-no-files-found: error
 
 
   # Carries the name the branch ruleset requires. The shards run under their
