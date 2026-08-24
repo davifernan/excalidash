@@ -62,6 +62,32 @@ describe("useEditorFileUploads", () => {
     );
   });
 
+  it("uses the latest file capability after a rerender", async () => {
+    const firstCapability = makeFileCapability({});
+    const secondCapability = makeFileCapability({
+      "file-2": { mimeType: "image/png", dataURL: "data:image/png;base64,bbbb" },
+    });
+    mockUpload.mockResolvedValue(undefined);
+    const { rerender } = renderHook(
+      ({ fileCapability }) =>
+        useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+      { initialProps: { fileCapability: firstCapability } },
+    );
+
+    rerender({ fileCapability: secondCapability });
+    act(() => fireFilesAdded());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+
+    expect(mockUpload).toHaveBeenCalledWith(
+      "d1",
+      "file-2",
+      "data:image/png;base64,bbbb",
+      "image/png",
+    );
+  });
+
   it("marks a file uploaded only after the PUT resolves, not merely after it is sent", async () => {
     const fileCapability = makeFileCapability({
       "file-1": { mimeType: "image/png", dataURL: "data:image/png;base64,aaaa" },

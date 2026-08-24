@@ -7,7 +7,7 @@
  * frames in. There is no rename here: NIL-325's scope is listing and jumping,
  * not editing a frame's name (that stays Excalidraw's own double-click).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SceneCapability } from "../../integrations/excalidraw/capabilities";
 import type { SceneBounds } from "../../integrations/excalidraw/types";
 
@@ -82,14 +82,12 @@ export const useFrameNavigator = (
   isReady: boolean,
 ): readonly FrameSummary[] => {
   const [frames, setFrames] = useState<readonly FrameSummary[]>(() => listFrames(scene));
-  const framesRef = useRef(frames);
-  framesRef.current = frames;
 
   useEffect(() => {
     if (!isReady) return;
     const applyIfChanged = () => {
       const next = listFrames(scene);
-      if (!sameFrames(framesRef.current, next)) setFrames(next);
+      setFrames((current) => (sameFrames(current, next) ? current : next));
     };
     applyIfChanged();
     return scene.subscribe(applyIfChanged);
