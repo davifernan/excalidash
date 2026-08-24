@@ -149,10 +149,17 @@ test.describe("Dashboard Workflows", () => {
 
     await page.getByTitle("Duplicate Selected").click();
 
+    // Duplicating clones S3 file references per drawing, unlike the trash
+    // move below (a single-field update) -- it is the slower op of the two
+    // and needs at least the same headroom under load. This poll used to sit
+    // on the default 10s `expect.timeout` while the trash-completion poll a
+    // few lines down was already widened to 15s; under CI load the shorter
+    // one could time out while duplication was still legitimately in flight,
+    // which is what made this test flake (NIL-508/NIL-511/NIL-514).
     await expect.poll(async () => {
       const results = await listDrawings(request, { search: prefix });
       return results.length;
-    }).toBe(4);
+    }, { timeout: 15000 }).toBe(4);
 
     await applyDashboardSearch(page, prefix);
     await expect(page.locator("[id^='drawing-card-']")).toHaveCount(4);

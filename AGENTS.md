@@ -206,71 +206,66 @@ Review focus: <what an independent reviewer should attack>
 
 ## Helpers (Operations)
 
+This fork does not build on the server and does not push to Docker Hub -- see the note at the
+top of `docker-compose.prod.yml`. Every push to `main` that passes the tests publishes
+`linux/amd64` images to GHCR (`.github/workflows/publish-images.yml`) as
+`ghcr.io/davifernan/excalidash-backend`/`-frontend`, tagged `:latest` and `:sha-<short-sha>`.
+`docker-compose.prod.yml` requires an explicit `EXCALIDASH_IMAGE_TAG` in `.env` -- see
+`FORK.md` for the full hosting, upgrade, and rollback runbook this section summarizes.
+
 - Official supported deployment flow (production): `docker-compose.prod.yml`
-  - `curl -OL https://raw.githubusercontent.com/ZimengXiong/ExcaliDash/main/docker-compose.prod.yml`
-  - `docker compose -f docker-compose.prod.yml pull`
-  - `docker compose -f docker-compose.prod.yml up -d`
+  - `curl -O https://raw.githubusercontent.com/davifernan/ExcaliDash/main/docker-compose.prod.yml`
+  - `curl -O https://raw.githubusercontent.com/davifernan/ExcaliDash/main/.env.production.example`
+  - `cp .env.production.example .env` (set `FRONTEND_URL`, `JWT_SECRET`, `CSRF_SECRET`, and `EXCALIDASH_IMAGE_TAG`)
+  - `docker compose --env-file .env -f docker-compose.prod.yml pull`
+  - `docker compose --env-file .env -f docker-compose.prod.yml up -d`
 - Production hardening quick checklist:
-  - Pin images to a specific release tag (or digest) instead of `:latest` for reproducible upgrades/rollbacks.
-  - Stable tags are published as `zimengxiong/excalidash-backend:<VERSION>` and `zimengxiong/excalidash-frontend:<VERSION>` (and also `:latest`).
-  - Pre-release tags are published as `:dev` and `:<VERSION>-dev` (and do not update `:latest`).
+  - `EXCALIDASH_IMAGE_TAG` is required, not optional: compose refuses to start without it, so an
+    upgrade can never silently move both images to `:latest`. Pin it to a `sha-<short-sha>` tag.
   - Set fixed `JWT_SECRET` and `CSRF_SECRET` for portability and multi-instance/redeploy scenarios.
   - Set `FRONTEND_URL` to your public URL(s) and keep `TRUST_PROXY=false` unless you are behind a trusted proxy hop.
   - Ensure the backend volume is backed up (SQLite DB + persisted secrets).
 - Re-check production health:
-  - `docker compose -f docker-compose.prod.yml ps`
-  - `docker compose -f docker-compose.prod.yml logs backend --tail=200`
-  - `docker compose -f docker-compose.prod.yml logs -f backend`
-- Upgrade production:
-  - `docker compose -f docker-compose.prod.yml down` (if needed)
-  - `docker compose -f docker-compose.prod.yml pull`
-  - `docker compose -f docker-compose.prod.yml up -d`
+  - `docker compose --env-file .env -f docker-compose.prod.yml ps`
+  - `docker compose --env-file .env -f docker-compose.prod.yml logs backend --tail=200`
+  - `docker compose --env-file .env -f docker-compose.prod.yml logs -f backend`
+- Upgrade production: see "Pinning And Switching Docker Tags" below -- an upgrade is a tag
+  change in `.env`, not a compose-file edit.
 - Check bootstrap/setup signal if onboarding blocks access:
-  - `docker compose -f docker-compose.prod.yml logs backend --tail=200 | grep "BOOTSTRAP SETUP"`
-- For local helper debugging with compose (repo checkout): `docker compose up -d` (uses `docker-compose.yml`; use `-f docker-compose.prod.yml` if you deployed from Docker Hub images)
-- Must-read first for common user issues: `README.md`
+  - `docker compose --env-file .env -f docker-compose.prod.yml logs backend --tail=200 | grep "BOOTSTRAP SETUP"`
+- For local helper debugging with compose (repo checkout): `docker compose up -d` (uses `docker-compose.yml`, building from source)
+- Must-read first for common user issues: `README.md`, `FORK.md`
 
 ### Pinning And Switching Docker Tags
 
-Pin to a stable release (recommended for production):
+Both services read the same `EXCALIDASH_IMAGE_TAG` from `.env` -- there is no per-service tag to
+edit in `docker-compose.prod.yml` itself, and no `:latest` fallback if it is unset.
 
-```yaml
-services:
-  backend:
-    image: zimengxiong/excalidash-backend:0.4.18
-  frontend:
-    image: zimengxiong/excalidash-frontend:0.4.18
+Pin to an immutable build (recommended for production; the first seven characters of the full
+commit SHA that was built):
+
+```bash
+# .env
+EXCALIDASH_IMAGE_TAG=sha-54cdcc9
 ```
 
-Switch to pre-release images (rolling `:dev` tag):
+Before pointing production at a new tag, verify both images actually exist:
 
-```yaml
-services:
-  backend:
-    image: zimengxiong/excalidash-backend:dev
-  frontend:
-    image: zimengxiong/excalidash-frontend:dev
+```bash
+docker manifest inspect "ghcr.io/davifernan/excalidash-backend:sha-54cdcc9" >/dev/null
+docker manifest inspect "ghcr.io/davifernan/excalidash-frontend:sha-54cdcc9" >/dev/null
 ```
 
-Switch to a specific pre-release build (pinned `:<VERSION>-dev` tag):
+To roll back, put the previous `EXCALIDASH_IMAGE_TAG` value back into `.env` and `pull && up -d`
+again -- no compose-file edit or registry retag is needed. `FORK.md`'s "Upgrade and rollback"
+section has the full verification and rollback runbook, including how to confirm
+`docker compose ... config --images` resolved to the tag you expect rather than `:latest`.
 
-```yaml
-services:
-  backend:
-    image: zimengxiong/excalidash-backend:0.4.18-dev
-  frontend:
-    image: zimengxiong/excalidash-frontend:0.4.18-dev
-```
-
-Switch to a one-off custom dev tag (published by `make dev-release NAME=...`):
-
-```yaml
-services:
-  backend:
-    image: zimengxiong/excalidash-backend:0.4.18-dev-issue38
-  frontend:
-    image: zimengxiong/excalidash-frontend:0.4.18-dev-issue38
-```
+There is no rolling `:dev` tag, no `:<VERSION>-dev` pre-release tag, and no
+`make dev-release`-published custom tag on this fork -- those were upstream's Docker Hub
+release flow (`zimengxiong/excalidash-*`), which nobody on this fork has credentials to publish
+to. `:latest` always exists (the most recent `main` build) but is not appropriate to pin in
+production for the same reason `EXCALIDASH_IMAGE_TAG` is required rather than optional.
 
 ## Contributors (Code Changes)
 
