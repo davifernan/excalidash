@@ -61,6 +61,8 @@ type DrawingQueryOptions = {
   offset?: number;
   sortField?: DrawingSortField;
   sortDirection?: SortDirection;
+  /** NIL-292: only boards the viewer has starred. */
+  favoritesOnly?: boolean;
 };
 
 const buildDrawingParams = (
@@ -77,6 +79,7 @@ const buildDrawingParams = (
   if (options?.offset !== undefined) params.offset = options.offset;
   if (options?.sortField) params.sortField = options.sortField;
   if (options?.sortDirection) params.sortDirection = options.sortDirection;
+  if (options?.favoritesOnly) params.favoritesOnly = "true";
   return params;
 };
 
@@ -260,6 +263,14 @@ export const restoreDrawing = async (id: string) => {
     `/drawings/${id}/restore`,
   );
   return response.data;
+};
+
+/** NIL-292: star or unstar a board. Requires only view access, like /visit. */
+export const setDrawingFavorite = async (id: string, favorite: boolean): Promise<boolean> => {
+  const response = favorite
+    ? await api.put<{ isFavorite: boolean }>(`/drawings/${id}/favorite`)
+    : await api.delete<{ isFavorite: boolean }>(`/drawings/${id}/favorite`);
+  return response.data.isFavorite;
 };
 
 export type DrawingSnapshotSummary = { id: string; version: number; createdAt: string };

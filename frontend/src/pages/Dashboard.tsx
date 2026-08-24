@@ -281,6 +281,7 @@ export const Dashboard: React.FC = () => {
           onDragStart={actions.handleCardDragStart}
           onPreviewGenerated={actions.handlePreviewGenerated}
           presence={presence}
+          onToggleFavorite={actions.handleToggleFavorite}
         />{" "}
         <div ref={loaderRef} className="py-8 flex justify-center items-center h-20">
           {" "}

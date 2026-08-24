@@ -35,6 +35,8 @@ export interface DrawingSummary {
    * you don't own.
    */
   linkShared?: boolean;
+  /** Whether the viewer has starred this board (NIL-292). Absent for an API key. */
+  isFavorite?: boolean;
 }
 export interface Drawing extends DrawingSummary {
   elements: any[];

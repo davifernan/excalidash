@@ -383,6 +383,25 @@ export const useDashboardDrawingActions = ({
     );
   };
 
+  /** NIL-292: optimistic star toggle, reverted on failure rather than a full refresh -- a
+   * lost star is a small, single-field correction, not worth reloading the whole page for. */
+  const handleToggleFavorite = async (id: string, next: boolean) => {
+    setDrawings((current) =>
+      current.map((drawing) => (drawing.id === id ? { ...drawing, isFavorite: next } : drawing)),
+    );
+    try {
+      await api.setDrawingFavorite(id, next);
+    } catch (err) {
+      console.error("Failed to update favorite", err);
+      setDrawings((current) =>
+        current.map((drawing) => (drawing.id === id ? { ...drawing, isFavorite: !next } : drawing)),
+      );
+      handleViewerActionError(
+        `Couldn’t ${next ? "star" : "unstar"} ${quoteNames([id], drawings)}. Check your connection and try again.`,
+      );
+    }
+  };
+
   return {
     drawingToDelete,
     showBulkDeleteConfirm,
@@ -413,5 +432,6 @@ export const useDashboardDrawingActions = ({
     handleCardMouseDown,
     handleCardDragStart,
     handlePreviewGenerated,
+    handleToggleFavorite,
   };
 };

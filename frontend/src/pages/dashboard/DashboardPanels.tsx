@@ -115,6 +115,7 @@ type DrawingsGridProps = {
   onDragStart: (event: React.DragEvent, id: string) => void;
   onPreviewGenerated: (id: string, preview: string) => void;
   presence?: PresenceByDrawing | null;
+  onToggleFavorite?: (id: string, next: boolean) => void;
 };
 
 export const DrawingsGrid: React.FC<DrawingsGridProps> = ({
@@ -138,6 +139,7 @@ export const DrawingsGrid: React.FC<DrawingsGridProps> = ({
   onMouseDown,
   onDragStart,
   onPreviewGenerated,
+  onToggleFavorite,
   presence = null,
 }) => {
   const dataStatus = useDashboardDataStatus();
@@ -233,6 +235,7 @@ export const DrawingsGrid: React.FC<DrawingsGridProps> = ({
                 onPreviewGenerated={onPreviewGenerated}
                 onlineKeys={presenceKeysFor(presence, drawing.id)}
                 guestCount={guestCountFor(presence, drawing.id)}
+                onToggleFavorite={isTrashView ? undefined : onToggleFavorite}
               />
             );
           })

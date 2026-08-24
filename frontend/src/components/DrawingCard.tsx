@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { PenTool, Check, Clock, MoreVertical, Globe, FolderOpen, Share2, Link2 } from "lucide-react";
+import {
+  PenTool,
+  Check,
+  Clock,
+  MoreVertical,
+  Globe,
+  FolderOpen,
+  Share2,
+  Link2,
+  Star,
+} from "lucide-react";
 import type { DrawingSummary, Collection } from "../types";
 import { formatDistanceToNow } from "date-fns";
 import clsx from "clsx";
@@ -32,6 +42,9 @@ interface DrawingCardProps {
   /** People on the board who are not members of it, counted and never named,
    * or null while that is unknown -- same distinction as `onlineKeys`. */
   guestCount?: number | null;
+  /** NIL-292. Omitted entirely (not just handler-less) in trash, where a
+   * board is about to stop existing and starring it answers nothing. */
+  onToggleFavorite?: (id: string, next: boolean) => void;
 }
 
 export const DrawingCard: React.FC<DrawingCardProps> = ({
@@ -52,6 +65,7 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
   onPreviewGenerated,
   onlineKeys = null,
   guestCount: guestCountProp = 0,
+  onToggleFavorite,
 }) => {
   const guestCount = guestCountProp ?? 0;
   const [isRenaming, setIsRenaming] = useState(false);
@@ -185,17 +199,38 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
           </button>
         </div>
 
-        <button
-          ref={actionsButtonRef}
-          type="button"
-          onClick={handleActionsClick}
-          aria-label={`Actions for ${drawing.name}`}
-          aria-haspopup="menu"
-          aria-expanded={contextMenu !== null}
-          className="absolute top-2.5 right-2.5 z-20 flex h-9 w-9 items-center justify-center rounded-lg border-2 border-black dark:border-neutral-600 bg-white dark:bg-neutral-800 text-slate-700 dark:text-neutral-200 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
-        >
-          <MoreVertical size={18} aria-hidden="true" />
-        </button>
+        <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-1.5">
+          {onToggleFavorite && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite(drawing.id, !drawing.isFavorite);
+              }}
+              aria-pressed={!!drawing.isFavorite}
+              aria-label={drawing.isFavorite ? `Unstar ${drawing.name}` : `Star ${drawing.name}`}
+              className={clsx(
+                "flex h-9 w-9 items-center justify-center rounded-lg border-2 border-black dark:border-neutral-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-opacity",
+                drawing.isFavorite
+                  ? "bg-amber-400 dark:bg-amber-500 text-white opacity-100"
+                  : "bg-white dark:bg-neutral-800 text-slate-700 dark:text-neutral-200 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus:opacity-100",
+              )}
+            >
+              <Star size={16} aria-hidden="true" fill={drawing.isFavorite ? "currentColor" : "none"} />
+            </button>
+          )}
+          <button
+            ref={actionsButtonRef}
+            type="button"
+            onClick={handleActionsClick}
+            aria-label={`Actions for ${drawing.name}`}
+            aria-haspopup="menu"
+            aria-expanded={contextMenu !== null}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border-2 border-black dark:border-neutral-600 bg-white dark:bg-neutral-800 text-slate-700 dark:text-neutral-200 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+          >
+            <MoreVertical size={18} aria-hidden="true" />
+          </button>
+        </div>
 
         <button
           type="button"
