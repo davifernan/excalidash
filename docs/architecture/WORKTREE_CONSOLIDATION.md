@@ -91,6 +91,72 @@ anderen Konto. Die 26 Entfernungen waren damit faktisch sicher -- aber durch Gl�
 auf dieser Maschine heute), nicht durch die Prüfung selbst. Das ist der Grund, warum der Fix in
 `worktree-audit.sh` bleibt: die nächste Runde hat dieses Glück nicht garantiert.
 
+## Nachmessung zweier nicht registrierter Pfade (24.08.2026)
+
+NIL-529 und NIL-530 entstanden aus der Runde oben, waren aber keine normalen
+`git worktree`-Kandidaten: der erste Pfad hatte sein `.git` bereits verloren, der zweite war
+für den Host-Nutzer nicht lesbar. Vor der Messung zeigte `herdr agent list`, dass keine andere
+aktive Sitzung einen der beiden Pfade als Worktree benutzte.
+
+### `/home/claude/ex-498` und seine Sicherung
+
+Die Vergleichsbasis war nicht ein Zeitstempel, sondern der über GitHub bestätigte Merge-Commit
+von PR #71, `bd9e6ca637a792bed0930577eab09e81301a829b`, in einem sauberen detached Checkout. Beide
+Restbäume wurden mit demselben Befehl geprüft:
+
+```bash
+diff -rq <restbaum> <sauberer-pr-71-checkout> --exclude node_modules --exclude .git
+```
+
+Sowohl `/home/claude/ex-498` als auch
+`/home/claude/excalidash-kickoffs/ex-498-rest` ergaben vier abweichende Dateien:
+
+- `e2e/Dockerfile.playwright`
+- `e2e/README.md`
+- `e2e/playwright.config.ts`
+- `frontend/package.json`
+
+Drei Einträge existierten nur in den Restbäumen: `KICKOFF.md`,
+`e2e/playwright-retry-summary-reporter.cjs` und `frontend/public/fonts/`. Inhalt und
+Git-Historie ordnen die E2E-/Package-Abweichungen dem älteren Stand vor `183f712` (Retries auf
+null und Reporter entfernt) beziehungsweise `e99fa0b` (ungenutzten Frontend-Playwright-Runner
+entfernt) zu. Keine nicht ausgeschlossene Datei hatte einen Änderungszeitpunkt nach dem Merge
+von PR #71. Das erklärt die Herkunft, ist aber keine Löschfreigabe.
+
+Der direkte Vergleich zwischen Original und Sicherung mit denselben Ausschlüssen endete mit
+Exit-Code 0 und ohne Ausgabe. Beide enthalten 293 Dateien mit zusammen 13.417.803 Bytes. Damit
+ist der Restbestand vollständig und bytegleich gesichert. Weil der Vergleich gegen PR #71
+echte Abweichungen zeigte, wurden **weder** `/home/claude/ex-498` **noch** seine Sicherung
+gelöscht oder verändert. Das ist der im Auftrag festgelegte Sicherungsfall, nicht der
+Teilmengenfall.
+
+### `/home/claude/excalidash-backups`
+
+Der nur über `sudo` lesbare Pfad ist kein verwaister Fremdrest. Der laufende
+`excalidash-backend`-Prozess läuft als UID 1001 und bind-mountet genau diesen Hostpfad nach
+`/app/backups`. Damit sind Eigentümer `1001:1001`, Verzeichnismodus `0700` und Dateimodus
+`0600` für die enthaltenen Produktionsdaten beabsichtigt.
+
+Gemessen wurden 26 MiB und vier Dateien: zwei vollständige ZIP-Archive sowie ein
+32-KiB-`.sqlite.part-shm` und ein leeres `.sqlite.part-wal`. Beide Archive bestanden
+`unzip -t`; ihre Manifeste sind `excalidash-server-backup` in Formatversion 2 und enthalten
+jeweils die SQLite-Datenbank, fünf beziehungsweise sieben persistierte Original-Assets sowie
+die persistenten JWT-/CSRF-Secretdateien. Die Secretwerte wurden nicht ausgegeben. Temporäre,
+einzeln benannte Kopien beider Datenbanken bestanden außerdem `PRAGMA quick_check` mit `ok` und
+enthielten jeweils 22 Anwendungstabellen.
+
+Die Produktionskonfiguration plant täglich um 03:00 Uhr ein Backup, hält höchstens sieben
+Archive beziehungsweise 30 GiB vor und warnt nach 48 Stunden ohne erfolgreiches Backup. Der
+Readiness-Endpunkt meldete das Archiv vom 24.08.2026 03:00 Uhr als aktuell und gesund. Die zwei
+Sidecars stammen vom deployten Image auf Commit `21545d7`; der bereits auf `main` vorhandene
+Fix `a7a2579` entfernt solche Sidecars und räumt ältere Reste nach 24 Stunden auf, ist aber noch
+nicht in diesem Produktionsimage.
+
+Folge: `/home/claude/excalidash-backups` ist aktiver, sensibler Wiederherstellungsbestand und
+wurde weder gelöscht noch umberechtigt. Auch die erklärten Sidecars blieben für die normale
+Anwendungsbereinigung unangetastet; eine weitergehende Aufbewahrungsentscheidung gehört dem
+Betreiber.
+
 ## Wann als Nächstes prüfen
 
 Nicht auf einen Kalender legen -- vor jeder neuen Welle mit mehreren langlebigen Package-
