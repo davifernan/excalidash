@@ -45,6 +45,15 @@ const waitConnected = (page: Page, label: string) =>
 
 const errorToasts = (page: Page) => page.locator("[data-sonner-toast][data-type=error]");
 
+// A toast for a specific rejected file, matched by the fileId sonner's own
+// message names (`useEditorBroadcast.ts`'s "File <id> is too large ..."),
+// not by count: sonner auto-dismisses after 4s (TOAST_LIFETIME) and, at
+// least for this rejection path, re-fires a fresh toast for the same file
+// on every later broadcast attempt until its element is removed -- both
+// make a bare `errorToasts(page).count()` a snapshot of something that is
+// still moving, not a reliable signal of whether *this* rejection happened.
+const errorToastFor = (page: Page, fileId: string) => errorToasts(page).filter({ hasText: fileId });
+
 /** Waits for a file to arrive on a peer and returns its content hash. */
 const waitForPeerFile = async (page: Page, fileId: string) => {
   await page.waitForFunction(
@@ -124,18 +133,14 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           ["15 MB", 15 * 1024 * 1024],
           ["above the transport ceiling (20 MB)", 20 * 1024 * 1024],
         ] as const) {
-          const before = await errorToasts(host).count();
           const oversized = await injectNoiseImage(host, {
             withHash: true,
             targetBytes,
             elementId: `nil330_oversized_${label.replace(/\W+/g, "")}`,
           });
-          await expect
-            .poll(() => errorToasts(host).count(), {
-              timeout: 15_000,
-              message: `expected a rejection toast for the ${label} file`,
-            })
-            .toBeGreaterThan(before);
+          await expect(errorToastFor(host, oversized.fileId).first()).toBeVisible({
+            timeout: 15_000,
+          });
           // Refused, not silently dropped mid-flight: the connection stays up
           // and the peers never see a file that was never actually sent.
           await waitConnected(host, `host after ${label} rejection`);
@@ -199,9 +204,28 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           guestB.getByRole("button", { name: "Next page" }).click(),
         ]);
         await expect(documentPageLabel(host)).not.toContainText("Page 1 of", { timeout: 15_000 });
-        const converged = await documentPageLabel(host).textContent();
-        await expect(documentPageLabel(guestA)).toHaveText(converged ?? "", { timeout: 15_000 });
-        await expect(documentPageLabel(guestB)).toHaveText(converged ?? "", { timeout: 15_000 });
+
+        // Comparing guestA/guestB against a snapshot of host's page taken
+        // the instant host first moves races a peer whose own click settles
+        // later (real network/dispatch timing, not a bug): if that peer
+        // observes an earlier broadcast before its own click fires, it
+        // legitimately computes one page further and moves the whole room
+        // again -- and nothing moves it back, so a comparison against the
+        // earlier snapshot never matches again (NIL-526). Wait for all
+        // three to agree with each other instead of with one snapshot, and
+        // confirm that agreement holds rather than trusting the first
+        // match, which could itself be one step in an unfinished cascade.
+        const pageTexts = () =>
+          Promise.all([host, guestA, guestB].map((page) => documentPageLabel(page).textContent()));
+        await expect
+          .poll(async () => {
+            const texts = await pageTexts();
+            return new Set(texts).size === 1 ? texts[0] : null;
+          }, { timeout: 20_000, message: "expected all three peers to converge on the same page" })
+          .not.toBeNull();
+        await host.waitForTimeout(1_000);
+        const settled = await pageTexts();
+        expect(new Set(settled).size, `expected the converged page to hold: ${settled.join(", ")}`).toBe(1);
       });
 
       await test.step("a network drop mid-transfer resets unconfirmed state instead of leaving a ghost", async () => {
@@ -242,9 +266,9 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           expect(await waitForPeerFile(guestA, probe.fileId)).toBe(probe.dataHash);
         }
 
-        // The reconnect must not have wedged future delivery: a fresh file
-        // sent right after still has to arrive, split-and-confirm bookkeeping
-        // intact.
+        // The reconnect must not have wedged future delivery: once the
+        // probe's own transfer has resolved (above), a fresh file still has
+        // to arrive, split-and-confirm bookkeeping intact.
         const followUp = await injectNoiseImage(host, {
           withHash: true,
           targetBytes: 1 * 1024 * 1024,
