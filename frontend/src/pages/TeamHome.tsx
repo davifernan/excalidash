@@ -31,6 +31,26 @@ export const TeamHome: React.FC = () => {
   const presence = useDashboardPresence(recentBoards.map((drawing) => drawing.id));
   const teamPresence = useTeamPresence(recentBoards.map((drawing) => drawing.id));
 
+  /**
+   * One line for the Sidebar's "Team Home" entry (NIL-294), e.g. "Davi is
+   * currently in Roadmap Q4". Picks the first teammate (not self) with a
+   * known location; self is excluded because "you are currently in X" is
+   * not useful ambient info about your own sidebar entry. `null` while
+   * nobody's location is known, same as no team member being online.
+   */
+  const teamHomeStatus = React.useMemo(() => {
+    if (!team || !teamPresence) return null;
+    for (const member of team.members) {
+      if (member.isSelf) continue;
+      const boardId = teamPresence.get(member.subjectKey);
+      if (!boardId) continue;
+      const board = recentBoards.find((drawing) => drawing.id === boardId);
+      if (!board) continue;
+      return `${member.name} is currently in ${board.name}`;
+    }
+    return null;
+  }, [team, teamPresence, recentBoards]);
+
   const handleCreateCollection = async (name: string) => {
     await api.createCollection(name);
   };
@@ -55,6 +75,7 @@ export const TeamHome: React.FC = () => {
       onCreateCollection={handleCreateCollection}
       onEditCollection={handleEditCollection}
       onDeleteCollection={handleDeleteCollection}
+      teamHomeStatus={teamHomeStatus}
     >
       <div className="flex items-center justify-between mb-6 lg:mb-8">
         <h1

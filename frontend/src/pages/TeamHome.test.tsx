@@ -28,7 +28,21 @@ vi.mock("./dashboard/useDashboardPresence", async (importOriginal) => {
 });
 
 vi.mock("../components/Layout", () => ({
-  Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  // Renders teamHomeStatus too (not just children) so tests can assert on
+  // exactly what TeamHome computes and hands to the Sidebar (NIL-294) --
+  // Sidebar.test.tsx separately proves that value actually renders there.
+  Layout: ({
+    children,
+    teamHomeStatus,
+  }: {
+    children: React.ReactNode;
+    teamHomeStatus?: string | null;
+  }) => (
+    <div>
+      <div data-testid="team-home-status">{teamHomeStatus ?? ""}</div>
+      {children}
+    </div>
+  ),
 }));
 
 const baseData = {
@@ -158,6 +172,47 @@ describe("TeamHome", () => {
 
     expect(screen.getByText("Currently in Roadmap Q4")).toBeInTheDocument();
     expect(screen.getAllByText("Currently in Roadmap Q4")).toHaveLength(1);
+
+    // NIL-294: the same fact, handed to the Sidebar's Team Home entry as one line.
+    expect(screen.getByTestId("team-home-status")).toHaveTextContent(
+      "Davi is currently in Roadmap Q4",
+    );
+  });
+
+  it("does not report your own location as the sidebar's team status (NIL-294)", () => {
+    mockUseTeamHomeData.mockReturnValue({
+      ...baseData,
+      recentBoards: [
+        {
+          id: "d1",
+          name: "Roadmap Q4",
+          collectionId: null,
+          updatedAt: Date.now(),
+          createdAt: Date.now(),
+          version: 1,
+          preview: null,
+        },
+      ],
+      team: {
+        name: "Team",
+        members: [
+          {
+            subjectKey: "k1",
+            name: "Member Max",
+            initials: "MM",
+            color: "#f59e0b",
+            role: "member",
+            isSelf: true,
+          },
+        ],
+      },
+    });
+    // Only the self member is on a board; nobody else's location is known.
+    mockUseTeamPresence.mockReturnValue(new Map([["k1", "d1"]]));
+
+    renderTeamHome();
+
+    expect(screen.getByTestId("team-home-status")).toHaveTextContent("");
   });
 
   it("shows a per-section error with retry when recent boards fail to load, without blanking the roster", () => {

@@ -5,6 +5,8 @@ interface SidebarItemProps {
   id: string | null;
   icon: React.ReactNode;
   label: string;
+  /** A short live-status line under the label, e.g. "Davi is currently in Roadmap Q4" (NIL-294). */
+  subtitle?: string | null;
   isActive: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
@@ -23,6 +25,7 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
   id,
   icon,
   label,
+  subtitle,
   isActive,
   onClick,
   onDoubleClick,
@@ -100,7 +103,14 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
           >
             {icon}
           </span>
-          <span className="min-w-0 flex-1 text-left font-bold">{label}</span>
+          <span className="min-w-0 flex-1 text-left flex flex-col">
+            <span className="font-bold truncate">{label}</span>
+            {subtitle && (
+              <span className="text-[10px] font-bold normal-case tracking-normal text-emerald-600 dark:text-emerald-400 truncate">
+                {subtitle}
+              </span>
+            )}
+          </span>
           {extraAction && (
             <div className="flex items-center gap-1 flex-shrink-0">{extraAction}</div>
           )}
