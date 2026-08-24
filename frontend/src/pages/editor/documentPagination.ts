@@ -1,10 +1,27 @@
 export const DOCUMENT_PAGE_CHAR_BUDGET = 20_000;
 
+/**
+ * `splittable: false` marks content whose syntax breaks if cut mid-way -- a
+ * fenced code block, a list item, a table row. `splittable: true` is plain
+ * prose: cutting it at a character boundary loses nothing but a line wrap.
+ *
+ * The distinction matters because a chunk over budget with no internal break
+ * point (no blank line, no fence, no heading -- one continuous paragraph, or
+ * a `TEXT` document with no newlines at all) used to become one page holding
+ * the whole thing, unbounded by `budget`. A 2 MiB page like that renders on
+ * the main thread with no engine-independent cost: WebKit's text layout for
+ * one unbroken run is roughly 5-9x slower there than Chromium's for the same
+ * content (NIL-484, measured), which is what "WebKit blocks" actually was --
+ * not the pagination step itself, already off-thread since NIL-484's first
+ * pass, but the page it handed back never having been paginated at all.
+ */
 type MarkdownBlock =
-  | { kind: "atomic"; content: string }
+  | { kind: "atomic"; content: string; splittable: boolean }
   | { kind: "heading"; content: string }
   | { kind: "list"; items: string[] }
   | { kind: "table"; header: string; separator: string; rows: string[] };
+
+type Chunk = { content: string; splittable: boolean };
 
 const withoutLineEnding = (line: string) => line.replace(/[\r\n]+$/, "");
 const isBlank = (line: string) => withoutLineEnding(line).trim().length === 0;
@@ -128,7 +145,15 @@ const readList = (lines: string[], start: number) => {
   return { block: { kind: "list" as const, items }, end: index };
 };
 
-const markdownBlocks = (source: string): MarkdownBlock[] => {
+/**
+ * Exported for a test that would otherwise have no way to prove a
+ * regression back to one block per blank line without a wall-clock
+ * assertion (NIL-484, Hans-Friedrich review on #73): the block count IS
+ * the mechanism the batching fix changed, so asserting on it directly
+ * catches the regression a timing threshold can only approximate, and does
+ * so independent of how fast or loaded the machine running the test is.
+ */
+export const markdownBlocks = (source: string): MarkdownBlock[] => {
   const lines = splitLines(source);
   const blocks: MarkdownBlock[] = [];
   let index = 0;
@@ -142,7 +167,11 @@ const markdownBlocks = (source: string): MarkdownBlock[] => {
     const opening = fenceOpening(lines[index]);
     if (opening) {
       const end = readFence(lines, index, opening);
-      blocks.push({ kind: "atomic", content: lines.slice(index, end).join("") });
+      blocks.push({
+        kind: "atomic",
+        content: lines.slice(index, end).join(""),
+        splittable: false,
+      });
       index = end;
       continue;
     }
@@ -161,7 +190,18 @@ const markdownBlocks = (source: string): MarkdownBlock[] => {
 
     const start = index;
     index += 1;
-    if (!isBlank(lines[start]) && !headingPattern.test(withoutLineEnding(lines[start]))) {
+    if (isBlank(lines[start])) {
+      // A run of blank lines used to become one atomic block per line -- a
+      // pathological document that is mostly blank lines (NIL-484: a 2 MiB
+      // markdown source with ~2.1 million one-character lines) turned this
+      // into millions of block objects and dominated pagination time (1.6s+
+      // measured) well before the render this file's other NIL-484 fix
+      // addresses ever happens. Consuming the whole run here is the same
+      // batching every other block kind already gets.
+      while (index < lines.length && isBlank(lines[index])) {
+        index += 1;
+      }
+    } else if (!headingPattern.test(withoutLineEnding(lines[start]))) {
       while (
         index < lines.length &&
         !isBlank(lines[index]) &&
@@ -173,7 +213,7 @@ const markdownBlocks = (source: string): MarkdownBlock[] => {
         index += 1;
       }
     }
-    blocks.push({ kind: "atomic", content: lines.slice(start, index).join("") });
+    blocks.push({ kind: "atomic", content: lines.slice(start, index).join(""), splittable: true });
   }
 
   return blocks;
@@ -203,7 +243,14 @@ const splitParts = (prefix: string, parts: string[], budget: number) => {
   return chunks;
 };
 
-const paginateChunks = (chunks: string[], budget: number) => {
+/**
+ * A chunk over budget with nothing to split on used to become one page,
+ * however large -- see the comment on `MarkdownBlock` above. `splittable`
+ * chunks are hard-cut at `budget` instead: `splittable: false` chunks (a
+ * fence, a list item, a table row) keep the old whole-page behavior, because
+ * a character cut through their syntax would corrupt it.
+ */
+const paginateChunks = (chunks: Chunk[], budget: number) => {
   const pages: string[] = [];
   let page = "";
   const flush = () => {
@@ -212,23 +259,43 @@ const paginateChunks = (chunks: string[], budget: number) => {
   };
 
   for (const chunk of chunks) {
-    if (page.length > 0 && page.length + chunk.length > budget) {
+    if (page.length > 0 && page.length + chunk.content.length > budget) {
       flush();
     }
-    if (chunk.length > budget) {
+    if (chunk.content.length > budget) {
       if (page.length > 0) flush();
-      pages.push(chunk);
+      if (chunk.splittable) {
+        const pieces: string[] = [];
+        for (let i = 0; i < chunk.content.length; i += budget) {
+          pieces.push(chunk.content.slice(i, i + budget));
+        }
+        // A trailing piece can be pure trailing whitespace (a line ending
+        // that landed exactly on a budget boundary) -- fold it back into the
+        // piece before it instead of pushing it as its own near-blank page.
+        // At most once: every piece but the last is exactly `budget` long by
+        // construction, so a second merge only happens when the WHOLE chunk
+        // is blank -- and a `while` here used to keep merging until one
+        // piece remained, recreating the unbounded page this hard-split
+        // exists to prevent (an all-blank document hit exactly this).
+        if (pieces.length > 1 && isBlank(pieces[pieces.length - 1])) {
+          const last = pieces.pop() as string;
+          pieces[pieces.length - 1] += last;
+        }
+        pages.push(...pieces);
+      } else {
+        pages.push(chunk.content);
+      }
       page = "";
       continue;
     }
-    page += chunk;
+    page += chunk.content;
   }
   if (page.length > 0) flush();
   return pages;
 };
 
 const paginateMarkdown = (source: string, budget: number) => {
-  const chunks: string[] = [];
+  const chunks: Chunk[] = [];
   let heading = "";
   for (const block of markdownBlocks(source)) {
     if (block.kind === "heading") {
@@ -239,24 +306,33 @@ const paginateMarkdown = (source: string, budget: number) => {
       heading += block.content;
       continue;
     }
-    const blockChunks =
+    const blockChunks: Chunk[] =
       block.kind === "atomic"
-        ? [block.content]
+        ? [{ content: block.content, splittable: block.splittable }]
         : block.kind === "list"
-          ? splitParts("", block.items, budget)
-          : splitParts(block.header + block.separator, block.rows, budget);
+          ? splitParts("", block.items, budget).map((content) => ({
+              content,
+              splittable: false,
+            }))
+          : splitParts(block.header + block.separator, block.rows, budget).map((content) => ({
+              content,
+              splittable: false,
+            }));
     if (heading) {
-      blockChunks[0] = heading + blockChunks[0];
+      blockChunks[0] = { ...blockChunks[0], content: heading + blockChunks[0].content };
       heading = "";
     }
     chunks.push(...blockChunks);
   }
-  if (heading) chunks.push(heading);
+  if (heading) chunks.push({ content: heading, splittable: false });
   return paginateChunks(chunks, budget);
 };
 
 const paginatePlainText = (source: string, budget: number) =>
-  paginateChunks(splitLines(source), budget);
+  paginateChunks(
+    splitLines(source).map((content) => ({ content, splittable: true })),
+    budget,
+  );
 
 export const paginateDocumentSource = (
   source: string,
@@ -267,5 +343,15 @@ export const paginateDocumentSource = (
   if (!Number.isFinite(budget) || budget < 1) throw new Error("Page budget must be positive.");
   const pages =
     kind === "MARKDOWN" ? paginateMarkdown(source, budget) : paginatePlainText(source, budget);
-  return pages.length > 0 ? pages : [source];
+  if (pages.length > 0) return pages;
+
+  // Every candidate page was blank and dropped -- flush() in paginateChunks
+  // never pushes a whitespace-only page -- which only happens when the whole
+  // source is blank. A document like that still has to render as *something*
+  // bounded by budget, not fall back to the entire unbounded source: an
+  // all-newline 2 MiB TEXT document hit exactly this before the fix (NIL-484),
+  // handing the widget one page of ~2 million blank lines to lay out.
+  const hardSplit: string[] = [];
+  for (let i = 0; i < source.length; i += budget) hardSplit.push(source.slice(i, i + budget));
+  return hardSplit;
 };

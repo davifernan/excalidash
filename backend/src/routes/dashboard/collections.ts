@@ -16,7 +16,7 @@ import {
   revokeAllCollectionSharesOp,
   revokeCollectionShare,
 } from "../../authz/collections";
-import { normalizeDrawingPermission } from "../../authz/sharing";
+import { normalizeCollectionShareRole } from "../../authz/sharing";
 
 export const registerCollectionRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
   const {
@@ -241,7 +241,7 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
         role: string;
       };
 
-      const normalizedRole = normalizeDrawingPermission(role);
+      const normalizedRole = normalizeCollectionShareRole(role);
       if ((!identifier && !granteeUserId) || !normalizedRole) {
         return res
           .status(400)
@@ -294,7 +294,7 @@ export const registerCollectionRoutes = (app: express.Express, deps: DashboardRo
       const { id, userId } = req.params;
       const { role } = req.body as { role: string };
 
-      const normalizedRole = normalizeDrawingPermission(role);
+      const normalizedRole = normalizeCollectionShareRole(role);
       if (!normalizedRole) {
         return res.status(400).json({ error: "role must be view or edit" });
       }

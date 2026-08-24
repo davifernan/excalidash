@@ -4,7 +4,7 @@ import { registerCollectionRoutes } from "./collections";
 
 const invoke = async (
   app: express.Express,
-  method: "get" | "post",
+  method: "get" | "post" | "patch",
   path: string,
   params: Record<string, string> = {},
   body: Record<string, unknown> = {},
@@ -58,6 +58,7 @@ const buildApp = () => {
           },
         },
       ]),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       upsert: vi.fn(async ({ create }: any) => ({
         ...create,
         granteeUser: { id: create.granteeUserId },
@@ -155,5 +156,55 @@ describe("sharing a collection", () => {
 
     expect(JSON.stringify(res.payload)).not.toContain("owner@example.com");
     expect(res.payload[0]).toMatchObject({ ownerName: "Owner Olga", isOwner: false });
+  });
+
+  // NIL-489: CollectionShareRole is "view" | "edit" -- narrower than the
+  // board-level DrawingPermission alphabet ("view" | "comment" | "edit") the
+  // route used to validate against. Nothing offers collection-level comment
+  // access; a raw request naming it must be refused, matching what the error
+  // message on this route has always claimed.
+  it("refuses to grant a collection share role this alphabet does not have", async () => {
+    const { app, prisma } = buildApp();
+
+    const res = await invoke(
+      app,
+      "post",
+      "/collections/:id/shares",
+      { id: "collection-1" },
+      { granteeUserId: "alex-two", role: "comment" },
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(prisma.collectionShare.upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses to change a collection share to a role this alphabet does not have", async () => {
+    const { app, prisma } = buildApp();
+
+    const res = await invoke(
+      app,
+      "patch",
+      "/collections/:id/shares/:userId",
+      { id: "collection-1", userId: "alex-two" },
+      { role: "comment" },
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(prisma.collectionShare.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("still accepts a genuine role change to edit", async () => {
+    const { app, prisma } = buildApp();
+
+    const res = await invoke(
+      app,
+      "patch",
+      "/collections/:id/shares/:userId",
+      { id: "collection-1", userId: "alex-two" },
+      { role: "edit" },
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(prisma.collectionShare.updateMany).toHaveBeenCalled();
   });
 });

@@ -59,6 +59,25 @@ export const normalizeDrawingPermission = (input: unknown): DrawingPermission | 
   return null;
 };
 
+/**
+ * A collection share's grantable levels -- narrower than `DrawingPermission` on
+ * purpose (NIL-489). `"comment"` is a real board-level permission, but nothing
+ * grants collection-level comment access yet: no UI offers it, and the
+ * frontend's own `CollectionShareRole` type has never included it. Before this
+ * normalizer existed, the two collection-share routes validated with
+ * `normalizeDrawingPermission` and so silently accepted `role: "comment"`
+ * despite their own error messages claiming `view|edit` -- a real gap the
+ * type-collision inventory's CollectionShareRole/DrawingPermission entry
+ * pointed at, in the same "isOwner" shape as NIL-487: two things sharing an
+ * alphabet, one of them silently wider than its contract says.
+ */
+export type CollectionShareRole = "view" | "edit";
+
+export const normalizeCollectionShareRole = (input: unknown): CollectionShareRole | null => {
+  if (input === "view" || input === "edit") return input;
+  return null;
+};
+
 export const buildShareLinkToken = (): string => crypto.randomBytes(24).toString("base64url");
 
 export const hashShareLinkToken = (token: string): string => hashTokenForStorage(token);

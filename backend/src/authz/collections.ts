@@ -1,5 +1,9 @@
 import type { AuthzDb } from "./client";
-import { normalizeDrawingPermission, type DrawingPermission } from "./sharing";
+import {
+  normalizeDrawingPermission,
+  type CollectionShareRole,
+  type DrawingPermission,
+} from "./sharing";
 
 /**
  * Collection-level ownership and grants.
@@ -145,7 +149,7 @@ export const grantCollectionShare = async (params: {
   db: AuthzDb;
   collectionId: string;
   granteeUserId: string;
-  role: DrawingPermission;
+  role: CollectionShareRole;
   grantedByUserId: string;
 }) =>
   params.db.collectionShare.upsert({
@@ -170,7 +174,7 @@ export const changeCollectionShareRole = async (params: {
   db: AuthzDb;
   collectionId: string;
   granteeUserId: string;
-  role: DrawingPermission;
+  role: CollectionShareRole;
 }): Promise<boolean> =>
   (
     await params.db.collectionShare.updateMany({

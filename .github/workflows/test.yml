@@ -149,7 +149,8 @@ jobs:
     # Deliberately inside this already-required job rather than a new one:
     # a new job would not be in the branch ruleset, so it could go red
     # without blocking anything (see the same reasoning on
-    # `frontend-typecheck`'s adapter-boundary check above).
+    # `frontend-typecheck`'s adapter-boundary check above). The logging
+    # boundary (NIL-411/NIL-502) lives here for the identical reason.
     services:
       postgres:
         image: postgres:16-alpine
@@ -194,6 +195,12 @@ jobs:
         run: |
           cd backend
           npm run format:check
+
+      - name: Check the backend logging boundary
+        run: node scripts/logging-boundary.cjs
+
+      - name: Prove the logging boundary check rejects what it claims to
+        run: node scripts/logging-boundary.test.cjs
 
       - name: Run backend tests
         run: |

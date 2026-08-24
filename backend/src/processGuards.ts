@@ -10,26 +10,26 @@
  * process that keeps running in an unknown state, which is worse than the
  * silence it set out to fix.
  */
-type ExitFn = (code: number) => void;
+import { logger } from "./logger";
 
-const describe = (value: unknown): unknown => {
-  if (value instanceof Error) {
-    return { message: value.message, stack: value.stack, name: value.name };
-  }
-  return value;
-};
+type ExitFn = (code: number) => void;
 
 export const installProcessGuards = (
   target: NodeJS.EventEmitter = process,
   exit: ExitFn = (code) => process.exit(code),
 ): void => {
+  // No local Error-to-{name,message,stack} conversion here: logger.ts's own
+  // replacer already does this for every caller, for any Error nested
+  // anywhere in a fields object -- not just a top-level one. A second copy
+  // of that logic next to the centralization that exists to replace it
+  // defeats the point (Hans-Friedrich review on #73).
   target.on("uncaughtException", (error: unknown) => {
-    console.error("Uncaught exception, exiting:", describe(error));
+    logger.error("Uncaught exception, exiting", { error });
     exit(1);
   });
 
   target.on("unhandledRejection", (reason: unknown) => {
-    console.error("Unhandled promise rejection, exiting:", describe(reason));
+    logger.error("Unhandled promise rejection, exiting", { reason });
     exit(1);
   });
 };

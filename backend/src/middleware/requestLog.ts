@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { logger } from "../logger";
 
 /**
  * Request logging, minus the noise that made it unreadable.
@@ -10,6 +11,13 @@ import { Request, Response, NextFunction } from "express";
  *
  * The match is exact, not a prefix: a prefix would also swallow anything that
  * merely starts with the same characters.
+ *
+ * A per-request line at every level has the same failure mode the health
+ * probe did: the production default (`config.logLevel === "info"`) keeps
+ * only the large-request anomaly line, which is the signal someone actually
+ * goes looking for. The full per-request line is `debug`-only -- the default
+ * in development, or an explicit `LOG_LEVEL=debug` when a specific report
+ * needs tracing in production without a redeploy.
  */
 const isHealthProbe = (path: string): boolean => path === "/health";
 
@@ -25,16 +33,22 @@ export const requestLogger = (req: Request, _res: Response, next: NextFunction):
   if (contentLength) {
     const sizeInMB = parseInt(contentLength, 10) / 1024 / 1024;
     if (sizeInMB > LARGE_REQUEST_MB) {
-      console.log(
-        `[LARGE REQUEST] ${req.method} ${req.path} - ${sizeInMB.toFixed(
-          2,
-        )}MB - User: ${userEmail} - RequestID: ${requestId}`,
-      );
+      logger.info("large request", {
+        method: req.method,
+        path: req.path,
+        sizeInMB: Number(sizeInMB.toFixed(2)),
+        userEmail,
+        requestId,
+      });
     }
   }
 
-  console.log(
-    `[REQUEST] ${req.method} ${req.path} - User: ${userEmail} - IP: ${req.ip} - RequestID: ${requestId}`,
-  );
+  logger.debug("request", {
+    method: req.method,
+    path: req.path,
+    userEmail,
+    ip: req.ip,
+    requestId,
+  });
   next();
 };

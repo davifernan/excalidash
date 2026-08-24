@@ -120,7 +120,12 @@ interface Config {
   assets: AssetConfig;
   socketMaxHttpBufferBytes: number;
   linkPreviews: LinkPreviewConfig;
+  logLevel: LogLevel;
 }
+
+export type LogLevel = "silent" | "info" | "debug";
+
+const LOG_LEVELS: readonly LogLevel[] = ["silent", "info", "debug"];
 
 /**
  * Uploaded documents.
@@ -343,6 +348,25 @@ const getOptionalBoolean = (key: string, defaultValue: boolean): boolean => {
   return value.toLowerCase() === "true" || value === "1";
 };
 
+/**
+ * A per-request line for every request is the volume that made the
+ * production log unreadable; a level nobody can turn back up loses the
+ * ability to trace a specific report. "debug" keeps today's per-request
+ * line for local development and an explicit opt-in; "info" (the
+ * production default) keeps only the anomalies -- a large upload -- that
+ * are worth a line on their own; "silent" drops both for an instance that
+ * ships its own request logging elsewhere. Errors are unaffected by this:
+ * `errorHandler` always logs, regardless of level.
+ */
+const resolveLogLevel = (nodeEnv: string): LogLevel => {
+  const raw = process.env.LOG_LEVEL?.trim().toLowerCase();
+  if (raw) {
+    if ((LOG_LEVELS as readonly string[]).includes(raw)) return raw as LogLevel;
+    throw new Error(`LOG_LEVEL must be one of: ${LOG_LEVELS.join(", ")}`);
+  }
+  return nodeEnv === "development" ? "debug" : "info";
+};
+
 const getRequiredEnvNumber = (key: string, defaultValue: number): number => {
   const value = process.env[key];
   if (!value) return defaultValue;
@@ -471,6 +495,7 @@ const resolveS3Config = (): S3Config => ({
 export const config: Config = {
   port: getRequiredEnvNumber("PORT", 8000),
   nodeEnv: getOptionalEnv("NODE_ENV", "development"),
+  logLevel: resolveLogLevel(getOptionalEnv("NODE_ENV", "development")),
   databaseUrl: process.env.DATABASE_URL,
   frontendUrl: parseFrontendUrl(process.env.FRONTEND_URL),
   authMode: resolvedAuthMode,

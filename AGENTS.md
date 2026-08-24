@@ -432,6 +432,8 @@ Backend base variables:
 - `GITHUB_TOKEN` (fallback token if update token missing)
 - `DRAWINGS_CACHE_TTL_MS` (ms, default `5000`)
 - `DEBUG_CSRF` (`true` enables debug logs)
+- `LOG_LEVEL` (`silent`/`info`/`debug`, default `debug` in development and `info`
+  otherwise) — controls request-logging volume; see `backend/src/middleware/requestLog.ts`
 - `DISABLE_ONBOARDING_GATE` (`true` bypasses onboarding gate; not recommended)
 - `OIDC_PROVIDER_NAME` (default `OIDC`, optional unless OIDC mode enabled)
 - `OIDC_ISSUER_URL` (required in `hybrid`/`oidc_enforced`)
@@ -479,6 +481,8 @@ E2E variables:
 - `MIGRATION_LOCK_TIMEOUT_SECONDS`: wait window for startup migration lock.
 - `DRAWINGS_CACHE_TTL_MS`: cache duration for list endpoint responses.
 - `DEBUG_CSRF`: log CSRF debug output for troubleshooting.
+- `LOG_LEVEL`: request-logging volume (`silent`/`info`/`debug`) — turn per-request tracing up
+  or down without a redeploy.
 - `BOOTSTRAP_SETUP_CODE_TTL_MS`: bootstrap setup code expiry.
 - `BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS`: max bootstrap attempts before code refresh.
 
