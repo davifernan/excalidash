@@ -58,6 +58,48 @@ export const labels = async (page: Page) => (await scene(page)).filter((e: any) 
 export const toolbarButton = (page: Page, name: string) =>
   page.getByTestId(`toolbar-${name}`);
 
+/**
+ * Drop a text/markdown file onto the canvas, the way a real drag from the
+ * desktop does. Shared with team-acceptance.spec.ts (NIL-330), which needs
+ * the same paginated document widget document-pages.spec.ts builds.
+ */
+export const dropMarkdown = async (page: Page, source: string, name = "notes.md") => {
+  await page.evaluate(
+    async ({ text, fileName }) => {
+      const container = document.querySelector<HTMLElement>(".excalidraw")?.closest("div[style]");
+      const target = container ?? document.body;
+      const file = new File([text], fileName, { type: "text/markdown" });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: transfer,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        }),
+      );
+    },
+    { text: source, fileName: name },
+  );
+};
+
+export const documentPageLabel = (page: Page) => page.locator(".text-document-widget__page-number");
+
+/**
+ * Excalidraw keeps an embedded element behind its own canvas until you click
+ * it, the same way it guards an embedded video. Until then the canvas swallows
+ * every click, so the widget's own controls cannot be reached.
+ */
+export const activateDocumentWidget = async (page: Page) => {
+  const box = await page.locator(".text-document-widget").boundingBox();
+  if (!box) throw new Error("The document widget is not on the board.");
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+};
+
 /** Arm the sticky-note tool and wait for the editor to confirm it, not just the click. */
 export const armTool = async (page: Page) => {
   await toolbarButton(page, "sticky").click();
