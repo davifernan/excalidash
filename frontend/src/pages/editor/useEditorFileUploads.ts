@@ -37,61 +37,6 @@ type UseEditorFileUploadsInput = {
 export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFileUploadsInput) => {
   const confirmedRef = useRef<Set<FileId>>(new Set());
   const inFlightRef = useRef<Set<FileId>>(new Set());
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const drawingIdRef = useRef(drawingId);
-  drawingIdRef.current = drawingId;
-
-  const scheduleFlush = useCallback(() => {
-    if (timerRef.current) return;
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      flushRef.current();
-    }, FLUSH_INTERVAL_MS);
-  }, []);
-
-  // A ref so `flush` can call `scheduleFlush` for a follow-up batch without
-  // the effect below re-subscribing on every render `flush`'s own
-  // dependencies would otherwise cause.
-  const flushRef = useRef<() => void>(() => {});
-  flushRef.current = () => {
-    const currentDrawingId = drawingIdRef.current;
-    if (!currentDrawingId) return;
-
-    // Bounded by TOTAL in-flight uploads, not by how many this one flush
-    // call is willing to start: a flush overlapping a previous, still
-    // in-flight batch must only fill the capacity that batch left, or the
-    // real number running at once silently exceeds UPLOAD_CONCURRENCY.
-    const capacity = UPLOAD_CONCURRENCY - inFlightRef.current.size;
-    if (capacity <= 0) return;
-
-    const delta = fileCapability.deltaAgainst(confirmedRef.current);
-    if (!delta.ok) return;
-    const pending = delta.value.filter(
-      (file) => file.dataURL.startsWith("data:") && !inFlightRef.current.has(file.id),
-    );
-    if (pending.length === 0) return;
-
-    for (const file of pending.slice(0, capacity)) {
-      inFlightRef.current.add(file.id);
-      api
-        .uploadDrawingFile(currentDrawingId, file.id, file.dataURL, file.mimeType)
-        .then(() => {
-          // Only reached on a resolved PUT -- the one place this fileId is
-          // ever added to the confirmed set.
-          confirmedRef.current.add(file.id);
-        })
-        .catch((err) => {
-          log.warn("[Editor] Background file upload failed, will retry", {
-            fileId: file.id,
-            error: err,
-          });
-        })
-        .finally(() => {
-          inFlightRef.current.delete(file.id);
-          scheduleFlush();
-        });
-    }
-  };
 
   useEffect(() => {
     // A different board: nothing confirmed here describes it, and an
@@ -101,13 +46,67 @@ export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFil
     inFlightRef.current = new Set();
   }, [drawingId]);
 
-  useEffect(() => fileCapability.onFilesAdded(scheduleFlush), [fileCapability, scheduleFlush]);
-
   useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleFlush = () => {
+      if (!active || timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        flush();
+      }, FLUSH_INTERVAL_MS);
     };
-  }, []);
+    const flush = () => {
+      if (!drawingId) return;
+
+      // Capture this board generation's sets. An upload that settles after
+      // a board switch must not mutate the replacement board's bookkeeping.
+      const confirmed = confirmedRef.current;
+      const inFlight = inFlightRef.current;
+
+      // Bounded by TOTAL in-flight uploads, not by how many this one flush
+      // call is willing to start: a flush overlapping a previous, still
+      // in-flight batch must only fill the capacity that batch left, or the
+      // real number running at once silently exceeds UPLOAD_CONCURRENCY.
+      const capacity = UPLOAD_CONCURRENCY - inFlight.size;
+      if (capacity <= 0) return;
+
+      const delta = fileCapability.deltaAgainst(confirmed);
+      if (!delta.ok) return;
+      const pending = delta.value.filter(
+        (file) => file.dataURL.startsWith("data:") && !inFlight.has(file.id),
+      );
+      if (pending.length === 0) return;
+
+      for (const file of pending.slice(0, capacity)) {
+        inFlight.add(file.id);
+        api
+          .uploadDrawingFile(drawingId, file.id, file.dataURL, file.mimeType)
+          .then(() => {
+            // Only reached on a resolved PUT -- the one place this fileId is
+            // ever added to the confirmed set.
+            confirmed.add(file.id);
+          })
+          .catch((err) => {
+            log.warn("[Editor] Background file upload failed, will retry", {
+              fileId: file.id,
+              error: err,
+            });
+          })
+          .finally(() => {
+            inFlight.delete(file.id);
+            scheduleFlush();
+          });
+      }
+    };
+
+    const unsubscribe = fileCapability.onFilesAdded(scheduleFlush);
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [drawingId, fileCapability]);
 
   return {
     /** Whether this fileId's bytes are confirmed on the server -- an ack, not an attempt. */

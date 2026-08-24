@@ -134,4 +134,20 @@ describe("useFrameNavigator", () => {
     });
     expect(result.current.map((f) => f.name)).toEqual(["Ideas"]);
   });
+
+  it("keeps the same result when a scene notification contains equivalent frames", () => {
+    const late = makeLateScene();
+    late.becomeReady();
+    const { result } = renderHook(() => useFrameNavigator(late.capability as never, true));
+
+    act(() => {
+      late.setFrames([summary({ id: "frame-1", type: "frame", name: "Ideas" })]);
+    });
+    const stableFrames = result.current;
+
+    act(() => {
+      late.setFrames([summary({ id: "frame-1", type: "frame", name: "Ideas" })]);
+    });
+    expect(result.current).toBe(stableFrames);
+  });
 });
