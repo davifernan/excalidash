@@ -7,6 +7,7 @@ import { SearchPage } from "./Search";
 const mockUseSearchPageData = vi.fn();
 const mockNavigate = vi.fn();
 const mockRestoreDrawing = vi.fn();
+const mockArchiveDrawing = vi.fn();
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -23,6 +24,7 @@ vi.mock("../components/Layout", () => ({
 
 vi.mock("../api", () => ({
   restoreDrawing: (...args: unknown[]) => mockRestoreDrawing(...args),
+  archiveDrawing: (...args: unknown[]) => mockArchiveDrawing(...args),
   createCollection: vi.fn(),
   updateCollection: vi.fn(),
   deleteCollection: vi.fn(),
@@ -144,5 +146,42 @@ describe("SearchPage", () => {
     mockUseSearchPageData.mockReturnValue({ ...baseData, mode: "archive", results: [] });
     renderPage();
     expect(screen.getByText("Nothing archived")).toBeInTheDocument();
+  });
+
+  it("shows an Archive button in Search mode only for a board this account owns, and calls the API on click", async () => {
+    const retry = vi.fn();
+    mockArchiveDrawing.mockResolvedValue({ id: "d1", archivedAt: "2026-01-01T00:00:00Z" });
+    mockUseSearchPageData.mockReturnValue({
+      ...baseData,
+      query: "road",
+      results: [
+        result({ id: "d1", name: "Mine", accessLevel: "owner" }),
+        result({ id: "d2", name: "Shared with me", accessLevel: "edit" }),
+      ],
+      totalCount: 2,
+      retry,
+    });
+    renderPage();
+
+    expect(screen.getByRole("button", { name: /archive mine/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /archive shared with me/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /archive mine/i }));
+
+    await waitFor(() => expect(mockArchiveDrawing).toHaveBeenCalledWith("d1"));
+    await waitFor(() => expect(retry).toHaveBeenCalled());
+  });
+
+  it("does not show an Archive button in Archive mode", () => {
+    mockUseSearchPageData.mockReturnValue({
+      ...baseData,
+      mode: "archive",
+      results: [result({ id: "d1", name: "Old board", accessLevel: "owner" })],
+      totalCount: 1,
+    });
+    renderPage();
+    expect(screen.queryByRole("button", { name: /^archive /i })).not.toBeInTheDocument();
   });
 });

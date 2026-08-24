@@ -1,6 +1,13 @@
 import React, { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArchiveRestore, FileText, Loader2, RotateCcw, Search as SearchIcon } from "lucide-react";
+import {
+  Archive as ArchiveIcon,
+  ArchiveRestore,
+  FileText,
+  Loader2,
+  RotateCcw,
+  Search as SearchIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import * as api from "../api";
 import { Layout } from "../components/Layout";
@@ -21,7 +28,8 @@ const ResultRow: React.FC<{
   isArchiveMode: boolean;
   onOpen: (id: string) => void;
   onRestore: (id: string) => void;
-}> = ({ result, isArchiveMode, onOpen, onRestore }) => (
+  onArchive: (id: string) => void;
+}> = ({ result, isArchiveMode, onOpen, onRestore, onArchive }) => (
   <li>
     <div
       className="group flex items-start gap-3 rounded-xl border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)] hover:-translate-y-0.5 transition-all cursor-pointer"
@@ -63,7 +71,7 @@ const ResultRow: React.FC<{
           </p>
         )}
       </div>
-      {isArchiveMode && (
+      {isArchiveMode ? (
         <button
           type="button"
           aria-label={`Restore ${result.name}`}
@@ -75,6 +83,20 @@ const ResultRow: React.FC<{
         >
           <RotateCcw size={13} /> Restore
         </button>
+      ) : (
+        result.accessLevel === "owner" && (
+          <button
+            type="button"
+            aria-label={`Archive ${result.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive(result.id);
+            }}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border-2 border-black dark:border-neutral-600 bg-white dark:bg-neutral-900 px-3 py-1.5 text-xs font-bold text-neutral-900 dark:text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+          >
+            <ArchiveIcon size={13} /> Archive
+          </button>
+        )
       )}
     </div>
   </li>
@@ -114,6 +136,17 @@ export const SearchPage: React.FC = () => {
         next.delete(id);
         return next;
       });
+    }
+  };
+
+  const handleArchive = async (id: string) => {
+    try {
+      await api.archiveDrawing(id);
+      toast.success("Board archived");
+      retry();
+    } catch (err) {
+      console.error("Failed to archive drawing:", err);
+      toast.error("Couldn't archive this board. Try again.");
     }
   };
 
@@ -232,6 +265,7 @@ export const SearchPage: React.FC = () => {
               isArchiveMode={mode === "archive"}
               onOpen={handleOpen}
               onRestore={handleRestore}
+              onArchive={handleArchive}
             />
           ))}
         </ul>
