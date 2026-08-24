@@ -34,6 +34,15 @@ const baseCtx: ChromeSlotContext = {
   langCode: "en",
   isCommentsOpen: false,
   unresolvedCommentCount: 0,
+  presenting: {
+    status: "idle",
+    isSelf: false,
+    presenterName: null,
+    start: vi.fn(),
+    stop: vi.fn(),
+  },
+  onStartVoteCompose: vi.fn(),
+  onInsertTemplate: vi.fn(),
   onBackClick: vi.fn(),
   onNewNameChange: vi.fn(),
   onRenameBlur: vi.fn(),
@@ -154,27 +163,36 @@ describe("HEADER_CONTROL_ENTRIES", () => {
   });
 
   /**
-   * Regression guard (PR #61 fix-push): a "comments" HeaderControlSlotEntry
-   * was here briefly. Measured against a real multi-collaborator session, a
-   * third header-control icon (alongside invite/share) pushed
+   * Regression guard (PR #61 fix-push, then NIL-325 fix-push): a "comments"
+   * HeaderControlSlotEntry, and separately this package's own "present" one,
+   * were both here briefly. Measured against a real multi-collaborator
+   * session, a third header-control icon (alongside invite/share) pushes
    * `.layer-ui__wrapper__top-right` past whatever width Excalidraw's own
    * collaborator-avatar list uses to decide between showing avatars and
    * collapsing to a "+N" badge -- collaboration.spec.ts's presence/sync/cursor
-   * tests caught it losing `.UserList__collaborator .Avatar` entirely. Comments
-   * stays a MAIN_MENU_ENTRIES-only entry (see chromeSlots.tsx's own comment
-   * there); this asserts it never quietly comes back to the header group.
+   * tests and follow-mode.spec.ts's avatar-click test both caught it losing
+   * `.UserList__collaborator .Avatar` entirely, the second time by breaking
+   * CI on a PR that had nothing else to do with follow or presence. Both
+   * stay MAIN_MENU_ENTRIES-only entries (see chromeSlots.tsx's own comments
+   * there); this asserts neither quietly comes back to the header group.
    */
-  it("never re-adds a comments entry -- see the regression note above", () => {
+  it("never re-adds a comments or present entry -- see the regression note above", () => {
     const ids = HEADER_CONTROL_ENTRIES.map((e) => e.id);
     expect(ids).not.toContain("comments");
+    expect(ids).not.toContain("present");
   });
 });
 
 describe("renderHeaderControlEntries", () => {
-  it("renders nothing when neither control applies", () => {
-    const alone: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
+  it("renders nothing when no control applies", () => {
+    const viewer: ChromeSlotContext = {
+      ...baseCtx,
+      accessLevel: "view",
+      canEdit: false,
+      peers: [],
+    };
     const output = React.Children.toArray(
-      renderHeaderControlEntries(alone),
+      renderHeaderControlEntries(viewer),
     ) as React.ReactElement[];
     expect(output.every((el) => el.props.children == null)).toBe(true);
   });

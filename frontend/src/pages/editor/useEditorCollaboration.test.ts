@@ -100,7 +100,26 @@ const capabilities = (overrides: Record<string, any> = {}) => ({
   selection: {
     read: vi.fn(() => ({ ok: true, value: { selectedIds: [], allSelected: false } })),
   },
-  viewport: {},
+  viewport: {
+    subscribeScroll: vi.fn(() => () => {}),
+    visibleBounds: vi.fn(() => ({ ok: true, value: [0, 0, 100, 100] })),
+    showBounds: vi.fn(() => ({
+      ok: true,
+      value: {
+        viewport: {
+          zoom: 1,
+          scrollX: 0,
+          scrollY: 0,
+          offsetLeft: 0,
+          offsetTop: 0,
+          width: 0,
+          height: 0,
+        },
+        bounds: [0, 0, 100, 100],
+        zoomClamped: false,
+      },
+    })),
+  },
   ...overrides,
 });
 

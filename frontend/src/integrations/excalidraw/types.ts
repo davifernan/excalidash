@@ -61,6 +61,13 @@ export type ElementSummary = {
   readonly containerId: ElementId | null;
   readonly link: string | null;
   readonly customData: Readonly<Record<string, unknown>> | null;
+  /**
+   * Excalidraw's own frame/magicframe label. Null for every other element
+   * type. Added for the Frame Navigator (NIL-325/NIL-284): a presenter needs
+   * a human name to list, not just an id, for both a hand-drawn frame and one
+   * a workshop template created.
+   */
+  readonly name: string | null;
 };
 
 /**

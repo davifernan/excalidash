@@ -1,0 +1,178 @@
+.presentation-overlay {
+  position: absolute;
+  /* Bottom-left, not top-left: Excalidraw's own hamburger trigger lives at
+     the top-left corner, and a panel there sat on top of it, blocking the
+     one route back to the menu while presenting (found from an actual
+     screenshot, not guessed). Bottom-right is the shared timer
+     (WorkshopTimerCorner.tsx) and bottom-center is Invite Here
+     (inviteHere.css) -- bottom-left is the one corner nothing else claims. */
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 6;
+  box-sizing: border-box;
+  width: min(300px, calc(100vw - 2rem));
+  max-height: calc(100vh - 6rem);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--button-hover-border, transparent);
+  border-radius: var(--border-radius-lg);
+  color: var(--text-primary-color);
+  background: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  font: 13px/1.4 var(--ui-font, Assistant, system-ui, sans-serif);
+  pointer-events: var(--ui-pointerEvents);
+}
+
+.presentation-overlay--audience {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(420px, calc(100vw - 2rem));
+}
+
+.presentation-overlay__audience-text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presentation-overlay--audience button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1px solid var(--default-border-color);
+  border-radius: var(--border-radius-md);
+  color: var(--text-primary-color);
+  background: transparent;
+  font: 600 12px/1.2 var(--ui-font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.presentation-overlay--audience button:hover {
+  background: var(--button-hover-bg);
+}
+
+.presentation-overlay__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.presentation-overlay__stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--color-danger-background, currentColor);
+  border-radius: var(--border-radius-md);
+  color: var(--color-danger-text, var(--color-danger));
+  background: transparent;
+  font: 600 11px/1.2 var(--ui-font);
+  cursor: pointer;
+}
+
+.presentation-overlay__stop:hover {
+  background: var(--color-danger-background);
+}
+
+.presentation-overlay__frames {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.presentation-overlay__frames > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--button-hover-border, transparent);
+  border-radius: var(--border-radius-md);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.presentation-overlay__frames > button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.presentation-overlay__frames > button:not(:disabled):hover {
+  background: var(--button-hover-bg);
+}
+
+.presentation-overlay__frame-list {
+  display: flex;
+  overflow-x: auto;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.presentation-overlay__frame-list li {
+  flex: 0 0 auto;
+}
+
+.presentation-overlay__frame-list button {
+  padding: 4px 9px;
+  border: 1px solid var(--button-hover-border, transparent);
+  border-radius: var(--border-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.presentation-overlay__frame-list button:hover {
+  background: var(--button-hover-bg);
+}
+
+.presentation-overlay__frame--current {
+  border-color: var(--color-primary, #6965db) !important;
+  color: var(--color-primary, #6965db);
+  font-weight: 600;
+}
+
+.presentation-overlay__frame-empty {
+  padding: 4px 2px;
+  opacity: 0.65;
+}
+
+.presentation-overlay__notes {
+  display: block;
+  margin-top: 10px;
+}
+
+.presentation-overlay__notes > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.presentation-overlay__notes textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--button-hover-border, currentColor);
+  border-radius: var(--border-radius-md);
+  background: var(--input-bg-color, var(--island-bg-color));
+  color: inherit;
+  font: inherit;
+}

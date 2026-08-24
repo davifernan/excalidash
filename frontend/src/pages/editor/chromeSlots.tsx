@@ -20,6 +20,20 @@
  *   own collaborator avatars and Library trigger. Hidden entirely on mobile
  *   (EditorTopRight stands down there; its entry points live in the menu
  *   instead -- see EditorTopRight.tsx's own file comment for why).
+ *
+ *   This slot has a factual upper limit: a third icon here, alongside
+ *   invite-everyone-here and share, pushes `.layer-ui__wrapper__top-right`
+ *   past the width where Excalidraw's own collaborator-avatar list collapses
+ *   individual avatars into a "+N" badge. Whoever triggers this does not see
+ *   it at their own entry -- they see collaboration.spec.ts's presence, sync,
+ *   and cursor tests lose the `.UserList__collaborator .Avatar` node, or
+ *   follow-mode.spec.ts's avatar-click test with it. Two packages hit this
+ *   independently as a full third header-control entry -- a "comments" one
+ *   (PR #61) and this package's own "present" one (PR #65) -- each first
+ *   read as an unrelated regression in someone else's spec before being
+ *   traced back here. The way out is the same one Mobile (below) already
+ *   uses: a MainMenu entry or an overlay instead of a header control, once
+ *   this group is full.
  * - **Footer** (`FooterSlotEntry`) -- Excalidraw's Footer tunnel, which mounts
  *   only on desktop; Excalidraw renders no Footer at all on the mobile
  *   layout. A footer entry that also needs to exist on mobile has to bring
@@ -88,7 +102,18 @@
  *   was decided and why, instead of re-deriving it.
  */
 import React from "react";
-import { ArrowLeft, Download, History, LocateFixed, MessageSquare, Share2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  History,
+  LayoutTemplate,
+  LocateFixed,
+  MessageSquare,
+  Play,
+  Share2,
+  Square,
+  Vote,
+} from "lucide-react";
 import {
   EditorFooter as Footer,
   EditorMenu as MainMenu,
@@ -101,6 +126,8 @@ import { CommentsMenuEntry } from "./slots/commentsMenuEntry";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
+import type { PresenterStatus } from "./presenterMode";
+import { WORKSHOP_TEMPLATES } from "./workshopTemplates";
 
 export type ChromeSlotContext = {
   id?: string;
@@ -120,6 +147,20 @@ export type ChromeSlotContext = {
   langCode: string;
   isCommentsOpen: boolean;
   unresolvedCommentCount: number;
+  /**
+   * Just enough for the entry point's label and click handler -- the full
+   * server-authoritative state lives in `PresentationOverlay`'s own props.
+   * NIL-325.
+   */
+  presenting: {
+    status: PresenterStatus;
+    isSelf: boolean;
+    presenterName: string | null;
+    start: () => void;
+    stop: () => void;
+  };
+  onStartVoteCompose: () => void;
+  onInsertTemplate: (templateId: string) => void;
   onBackClick: () => void;
   onNewNameChange: (value: string) => void;
   onRenameBlur: () => void;
@@ -298,6 +339,63 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
         <MainMenu.Item onSelect={ctx.inviteHere.invite} icon={<LocateFixed size={16} />}>
           Invite everyone here
         </MainMenu.Item>
+      ) : null,
+  },
+  { id: "workshop-separator", order: 220, render: () => <MainMenu.Separator /> },
+  {
+    id: "present",
+    order: 225,
+    // Menu-only, no HeaderControlSlotEntry -- the same measured collision
+    // that reverted the "comments" header icon (see this file's regression
+    // note in HEADER_CONTROL_ENTRIES) applies here unchanged: a third icon
+    // alongside invite/share pushes `.layer-ui__wrapper__top-right` past the
+    // width Excalidraw's own collaborator-avatar list uses to decide between
+    // showing avatars and collapsing to a "+N" badge, which broke
+    // `collaboration.spec.ts`'s `.UserList__collaborator .Avatar` count
+    // assertions and `follow-mode.spec.ts`'s avatar-click test the same way
+    // it broke them for comments. Confirmed by removing this package's own
+    // header button and watching both specs pass again.
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <MainMenu.Item
+          onSelect={ctx.presenting.isSelf ? ctx.presenting.stop : ctx.presenting.start}
+          icon={ctx.presenting.isSelf ? <Square size={16} /> : <Play size={16} />}
+          data-testid="menu-present"
+        >
+          {ctx.presenting.isSelf
+            ? "Stop presenting"
+            : ctx.presenting.status === "presenting"
+              ? `${ctx.presenting.presenterName || "Someone"} is presenting`
+              : "Present"}
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "start-a-vote",
+    order: 230,
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <MainMenu.Item onSelect={ctx.onStartVoteCompose} icon={<Vote size={16} />}>
+          Start a vote
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "workshop-templates",
+    order: 235,
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <>
+          {WORKSHOP_TEMPLATES.map((template) => (
+            <MainMenu.Item
+              key={template.id}
+              onSelect={() => ctx.onInsertTemplate(template.id)}
+              icon={<LayoutTemplate size={16} />}
+            >
+              Insert: {template.label}
+            </MainMenu.Item>
+          ))}
+        </>
       ) : null,
   },
   { id: "canvas-actions-separator", order: 295, render: () => <MainMenu.Separator /> },

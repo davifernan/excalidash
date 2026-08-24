@@ -14,6 +14,9 @@ import type { DocumentPageController } from "./documentPages";
 import { WorkshopTimerCorner } from "./WorkshopTimerCorner";
 import { InviteHereOverlay, type InviteHereUiState } from "./InviteHereOverlay";
 import { CursorChatComposer } from "./CursorChatComposer";
+import { PresentationOverlay, type PresentationUiState } from "./PresentationOverlay";
+import { VotingOverlay, type VotingUiState } from "./VotingOverlay";
+import type { FrameSummary } from "./frameNavigator";
 import {
   followerNotice as describeFollowers,
   renderFooterEntries,
@@ -44,6 +47,10 @@ type EditorViewProps = {
   workshopTimer: WorkshopTimerController;
   documentPages: DocumentPageController;
   inviteHere: InviteHereUiState;
+  presenting: PresentationUiState;
+  frames: readonly FrameSummary[];
+  voting: VotingUiState;
+  onInsertTemplate: (templateId: string) => void;
   cursorChatDraft: string | null;
   onCursorChatType: (text: string) => void;
   onCursorChatClose: () => void;
@@ -98,6 +105,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
   workshopTimer,
   documentPages,
   inviteHere,
+  presenting,
+  frames,
+  voting,
+  onInsertTemplate,
   cursorChatDraft,
   onCursorChatType,
   onCursorChatClose,
@@ -146,6 +157,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
     langCode,
     isCommentsOpen,
     unresolvedCommentCount,
+    presenting: {
+      status: presenting.snapshot.status,
+      isSelf: presenting.isSelf,
+      presenterName: presenting.snapshot.presenterName,
+      start: presenting.start,
+      stop: presenting.stop,
+    },
+    onStartVoteCompose: voting.openCompose,
+    onInsertTemplate,
     onBackClick,
     onNewNameChange,
     onRenameBlur,
@@ -249,6 +269,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
             canEdit={canEdit}
             timer={workshopTimer}
           />
+          <PresentationOverlay container={excalidrawRoot} frames={frames} presenting={presenting} />
+          <VotingOverlay container={excalidrawRoot} voting={voting} />
           {inviteHere.invitation ? (
             <InviteHereOverlay
               key={inviteHere.invitation.invitationId}

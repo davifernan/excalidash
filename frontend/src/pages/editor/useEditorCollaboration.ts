@@ -18,6 +18,14 @@ import {
   WORKSHOP_TIMER_COMMAND_EVENT,
   type WorkshopTimerAction,
 } from "./workshopTimer";
+import {
+  bindPresenterMode,
+  createIdlePresenterSnapshot,
+  type PresenterNotes,
+} from "./presenterMode";
+import { bindVotingMode } from "./votingMode";
+import type { VotingSnapshot } from "./votingMode";
+import type { FrameSummary } from "./frameNavigator";
 import { useDocumentPageSharing } from "./useDocumentPageSharing";
 import { bindInviteHere, type InviteHereStatus, type ViewportInvitation } from "./inviteHere";
 import { bindSocketDrawingName } from "./drawingName";
@@ -96,6 +104,24 @@ export const useEditorCollaboration = ({
   const [workshopTimerSnapshot, setWorkshopTimerSnapshot] = useState(() =>
     createIdleWorkshopTimerSnapshot(drawingId || ""),
   );
+  const [presenterSnapshot, setPresenterSnapshot] = useState(() =>
+    createIdlePresenterSnapshot(drawingId || ""),
+  );
+  const [presenterNotes, setPresenterNotes] = useState<PresenterNotes>({ frameId: null, text: "" });
+  const [isFollowingPresenter, setIsFollowingPresenter] = useState(true);
+  const [votingSnapshot, setVotingSnapshot] = useState<VotingSnapshot>({
+    drawingId: drawingId || "",
+    status: "idle",
+    roundId: null,
+    prompt: null,
+    options: null,
+    maxSelections: null,
+    tally: null,
+    participantCount: null,
+  });
+  const [isVotingComposing, setIsVotingComposing] = useState(false);
+  const presenterModeRef = useRef<ReturnType<typeof bindPresenterMode> | null>(null);
+  const votingModeRef = useRef<ReturnType<typeof bindVotingMode> | null>(null);
   const [viewportInvitation, setViewportInvitation] = useState<ViewportInvitation | null>(null);
   const [inviteHereStatus, setInviteHereStatus] = useState<InviteHereStatus | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -166,6 +192,23 @@ export const useEditorCollaboration = ({
       drawingId,
       onChange: setWorkshopTimerSnapshot,
     });
+    const presenterMode = bindPresenterMode({
+      socket,
+      drawingId,
+      viewport,
+      onStateChange: setPresenterSnapshot,
+      onNotesChange: setPresenterNotes,
+    });
+    presenterModeRef.current = presenterMode;
+    const votingMode = bindVotingMode({
+      socket,
+      drawingId,
+      onStateChange: (snapshot) => {
+        setVotingSnapshot(snapshot);
+        if (snapshot.status !== "idle") setIsVotingComposing(false);
+      },
+    });
+    votingModeRef.current = votingMode;
     const drawingName = bindSocketDrawingName({
       socket,
       drawingId,
@@ -214,6 +257,9 @@ export const useEditorCollaboration = ({
       collaborators.reset();
       remoteSelection.reset();
       workshopTimer.reset();
+      presenterMode.reset();
+      votingMode.reset();
+      setIsVotingComposing(false);
       sharedPages.reset();
       inviteHereController.reset();
       setFollowers([]);
@@ -456,6 +502,10 @@ export const useEditorCollaboration = ({
       collaborators.dispose();
       remoteSelection.dispose();
       workshopTimer.dispose();
+      presenterMode.dispose();
+      if (presenterModeRef.current === presenterMode) presenterModeRef.current = null;
+      votingMode.dispose();
+      if (votingModeRef.current === votingMode) votingModeRef.current = null;
       drawingName.dispose();
       sharedPages.dispose();
       inviteHereController.dispose();
@@ -530,6 +580,37 @@ export const useEditorCollaboration = ({
     accept: () => inviteHereRef.current?.accept(),
     decline: () => inviteHereRef.current?.decline(),
   };
+  const notReady = { ok: false as const, error: { code: "not-ready", message: "Not connected" } };
+  const presenting = {
+    snapshot: presenterSnapshot,
+    isSelf:
+      presenterSnapshot.status === "presenting" &&
+      presenterSnapshot.presenterPresenceId === socketRef.current?.id,
+    notes: presenterNotes,
+    isFollowing: isFollowingPresenter,
+    start: () => presenterModeRef.current?.start() ?? Promise.resolve(notReady),
+    stop: () => presenterModeRef.current?.stop() ?? Promise.resolve(notReady),
+    takeover: () => presenterModeRef.current?.takeover() ?? Promise.resolve(notReady),
+    jumpToFrame: (frame: FrameSummary) =>
+      presenterModeRef.current?.jumpToFrame(frame.id, frame.bounds),
+    setNotes: (text: string) => presenterModeRef.current?.setNotes(presenterSnapshot.frameId, text),
+    setFollowing: (following: boolean) => {
+      presenterModeRef.current?.setFollowing(following);
+      setIsFollowingPresenter(following);
+    },
+  };
+  const voting = {
+    snapshot: votingSnapshot,
+    isComposing: isVotingComposing,
+    openCompose: () => setIsVotingComposing(true),
+    closeCompose: () => setIsVotingComposing(false),
+    open: (prompt: string, options: readonly string[], maxSelections: number) =>
+      votingModeRef.current?.open(prompt, options, maxSelections) ?? Promise.resolve(notReady),
+    reveal: () => votingModeRef.current?.reveal() ?? Promise.resolve(notReady),
+    close: () => votingModeRef.current?.close() ?? Promise.resolve(notReady),
+    cast: (roundId: string, optionIds: readonly string[]) =>
+      votingModeRef.current?.cast(roundId, optionIds) ?? Promise.resolve(notReady),
+  };
 
   return {
     peers,
@@ -544,5 +625,7 @@ export const useEditorCollaboration = ({
     onPointerUpdate,
     onSelectionChange,
     inviteHere,
+    presenting,
+    voting,
   };
 };
