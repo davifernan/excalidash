@@ -72,6 +72,11 @@ const makeHarness = async (overrides: Record<string, unknown> = {}) => {
       if (filePath) await fs.rm(filePath, { force: true });
     },
     verifyDatabaseIntegrityAsync: async () => true,
+    // This harness's prisma is hand-mocked, not a real blob store -- these
+    // tests are about archive/import mechanics, not image processing, so a
+    // passthrough is the same "leave files as they are" the old
+    // isS3Enabled=false default gave them.
+    processEmbeddedImages: async (files: Record<string, unknown>) => files,
     MAX_IMPORT_ARCHIVE_ENTRIES: 100,
     MAX_IMPORT_ARCHIVE_BYTES: 10 * MIB,
     MAX_IMPORT_COLLECTIONS: 10,

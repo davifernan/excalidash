@@ -46,7 +46,7 @@ import { registerSocketHandlers } from "./server/socket";
 import { PresenceRegistry } from "./server/presenceRegistry";
 import { createHttpsRedirectPolicy, getHttpsRedirectUrl } from "./server/httpsRedirectPolicy";
 import { issueBootstrapSetupCodeIfRequired } from "./auth/bootstrapSetupCode";
-import { processFilesForS3 as processFilesForS3WithPrisma } from "./fileProcessing";
+import { processEmbeddedImages as processEmbeddedImagesImpl } from "./fileProcessing";
 import { initS3 } from "./s3";
 import { startScheduledMaintenance } from "./backups/scheduler";
 import {
@@ -590,8 +590,18 @@ registerDashboardRoutes(app, {
   logAuditEvent,
   subjectKeySecret: config.jwtSecret,
   presences,
-  processFilesForS3: (files, userId, drawingId) =>
-    processFilesForS3WithPrisma(files, userId, drawingId, prisma),
+  processEmbeddedImages: (files, userId, drawingId) =>
+    processEmbeddedImagesImpl(
+      {
+        prisma,
+        storageDir: config.assets.storageDir,
+        maxUploadBytes: config.assets.maxImageUploadBytes,
+        maxPerUserBytes: config.assets.maxPerUserBytes,
+      },
+      files,
+      userId,
+      drawingId,
+    ),
 });
 registerFileRoutes(app, {
   prisma,
@@ -684,6 +694,18 @@ registerImportExportRoutes({
   invalidateDrawingsCache,
   removeFileIfExists,
   verifyDatabaseIntegrityAsync,
+  processEmbeddedImages: (files, userId, drawingId) =>
+    processEmbeddedImagesImpl(
+      {
+        prisma,
+        storageDir: config.assets.storageDir,
+        maxUploadBytes: config.assets.maxImageUploadBytes,
+        maxPerUserBytes: config.assets.maxPerUserBytes,
+      },
+      files,
+      userId,
+      drawingId,
+    ),
   MAX_IMPORT_ARCHIVE_ENTRIES,
   MAX_IMPORT_ARCHIVE_BYTES: config.imports.maxArchiveBytes,
   MAX_IMPORT_ENTRY_BYTES: config.imports.maxEntryBytes,

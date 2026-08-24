@@ -1,6 +1,6 @@
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
-import { rewritePreviewForS3 } from "../../fileProcessing";
+import { rewritePreviewFileReferences } from "../../fileProcessing";
 import { getUserTrashCollectionId, isTrashCollectionId, toPublicTrashCollectionId } from "./trash";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { deleteOwnedBoard, getOwnedBoard } from "../../authz/boards";
@@ -83,7 +83,7 @@ export const registerDrawingDeleteDuplicateRoutes = (
         req.user.id,
         originalFiles,
       );
-      const duplicatedPreview = rewritePreviewForS3(
+      const duplicatedPreview = rewritePreviewFileReferences(
         original.preview ?? null,
         originalFiles,
         duplicatedFiles,

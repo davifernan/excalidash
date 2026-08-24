@@ -16,6 +16,7 @@ import { sanitizeText, validateImportedDrawing } from "../../security";
 import { encodeSnapshotField } from "../../snapshots/snapshotCodec";
 import { registerExcalidashImportRoutes } from "./excalidashImportRoutes";
 import { registerExcalidashExportRoute } from "./exportRoutes";
+import { processEmbeddedImages } from "../../fileProcessing";
 
 const MIB = 1024 * 1024;
 
@@ -89,6 +90,13 @@ describe("document backup and export round trip", () => {
         if (filePath) await fs.rm(filePath, { force: true });
       },
       verifyDatabaseIntegrityAsync: async () => true,
+      processEmbeddedImages: (files: Record<string, any>, userId: string, drawingId: string) =>
+        processEmbeddedImages(
+          { prisma, storageDir: assetStorageDir, maxUploadBytes: 5 * MIB, maxPerUserBytes: 20 * MIB },
+          files,
+          userId,
+          drawingId,
+        ),
       MAX_IMPORT_ARCHIVE_ENTRIES: 100,
       MAX_IMPORT_ARCHIVE_BYTES: 20 * MIB,
       MAX_IMPORT_COLLECTIONS: 10,

@@ -2,7 +2,7 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { Prisma } from "../../generated/client";
 import { canEditDrawing, getDrawingAccess, isOwnerAccess } from "../../authz/sharing";
-import { rewritePreviewForS3 } from "../../fileProcessing";
+import { rewritePreviewFileReferences } from "../../fileProcessing";
 import {
   getUserTrashCollectionId,
   isTrashCollectionId,
@@ -38,7 +38,7 @@ export const registerDrawingCreateUpdateRoutes = (
     ensureTrashCollection,
     invalidateDrawingsCache,
     config,
-    processFilesForS3,
+    processEmbeddedImages,
     parseJsonField,
     getRequestPrincipal,
     getShareToken,
@@ -111,8 +111,8 @@ export const registerDrawingCreateUpdateRoutes = (
 
       const newDrawingId = uuidv4();
       const originalFiles = payload.files ?? {};
-      const processedFiles = await processFilesForS3(originalFiles, ownerUserId, newDrawingId);
-      const processedPreview = rewritePreviewForS3(
+      const processedFiles = await processEmbeddedImages(originalFiles, ownerUserId, newDrawingId);
+      const processedPreview = rewritePreviewFileReferences(
         payload.preview ?? null,
         originalFiles,
         processedFiles,
@@ -230,12 +230,30 @@ export const registerDrawingCreateUpdateRoutes = (
       }
       let processedFilesForUpdate: Record<string, unknown> | undefined;
       if (payload.files !== undefined) {
-        processedFilesForUpdate = await processFilesForS3(payload.files, ownerUserId, id);
+        // Union, not replace (NIL-381/NIL-377): a save's `files` payload is
+        // whatever the client's own scene currently references, not a claim
+        // about every file this board has ever had. Replacing outright loses
+        // a file a different tab/session already stored the moment this
+        // save's payload does not happen to repeat it -- the half of
+        // NIL-377 this repo was missing. An incoming entry only overwrites
+        // an existing one when it actually carries content; a null/empty
+        // entry is not a deletion request here (that is what the dedicated
+        // files/orphans endpoint is for), so it must not blank out a
+        // survivor.
+        const existingFiles = parseJsonField(existingDrawing.files, {}) as Record<string, unknown>;
+        const isNonEmptyFileEntry = (entry: unknown): boolean =>
+          typeof entry === "object" && entry !== null && Object.keys(entry).length > 0;
+        const mergedFiles: Record<string, unknown> = { ...existingFiles };
+        for (const [fileId, entry] of Object.entries(payload.files)) {
+          if (isNonEmptyFileEntry(entry)) mergedFiles[fileId] = entry;
+        }
+
+        processedFilesForUpdate = await processEmbeddedImages(mergedFiles, ownerUserId, id);
         data.files = JSON.stringify(processedFilesForUpdate);
       }
       if (payload.preview !== undefined) {
         const processedPreview = processedFilesForUpdate
-          ? rewritePreviewForS3(payload.preview, payload.files ?? {}, processedFilesForUpdate)
+          ? rewritePreviewFileReferences(payload.preview, payload.files ?? {}, processedFilesForUpdate)
           : payload.preview;
         data.preview = typeof processedPreview === "string" ? processedPreview : null;
       }

@@ -12,7 +12,6 @@ import {
   resolveSafeUploadedFilePath,
   sanitizeDrawingData,
 } from "./shared";
-import { processFilesForS3 } from "../../fileProcessing";
 import { claimOnBoard, isBoardCreator, isCollectionCreator } from "../../authz/boards";
 export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps) => {
   const {
@@ -29,6 +28,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
     invalidateDrawingsCache,
     removeFileIfExists,
     verifyDatabaseIntegrityAsync,
+    processEmbeddedImages,
     MAX_IMPORT_COLLECTIONS,
     MAX_IMPORT_DRAWINGS,
   } = deps;
@@ -274,7 +274,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                 const i = start + offset;
                 const files = d.sanitized.files || {};
                 const finalId = finalDrawingIdMap.get(i)!;
-                return processFilesForS3(files, req.user!.id, finalId, prisma).then(
+                return processEmbeddedImages(files, req.user!.id, finalId).then(
                   (processed) => ({ i, processed }),
                 );
               });

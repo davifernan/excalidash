@@ -118,6 +118,11 @@ describe("ExcaliDash backup round trip", () => {
         if (filePath) await fs.promises.rm(filePath, { force: true });
       },
       verifyDatabaseIntegrityAsync: async () => true,
+      // This harness's prisma is hand-mocked, not a real blob store -- this
+      // test is about the backup/export/import round trip, not image
+      // processing, so a passthrough is the same "leave files as they are"
+      // the old isS3Enabled=false default gave it.
+      processEmbeddedImages: async (files: Record<string, unknown>) => files,
       MAX_IMPORT_ARCHIVE_ENTRIES: 6000,
       MAX_IMPORT_ARCHIVE_BYTES: 100 * MIB,
       MAX_IMPORT_COLLECTIONS: 1000,

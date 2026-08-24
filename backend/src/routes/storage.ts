@@ -198,7 +198,7 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
       }
 
       // Validate every entry: same regex as the rest of the codebase
-      // (security.ts sanitiser, /files/:fileId route, processFilesForS3).
+      // (security.ts sanitiser, /files/:fileId route, processEmbeddedImages).
       // Without this, a non-string or path-traversal-shaped id would
       // explode inside the Prisma / S3 calls below.
       const invalidIds = rawFileIds.filter(

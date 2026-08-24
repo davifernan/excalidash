@@ -7,7 +7,6 @@ import {
   resolveStoragePath,
   storeStream,
 } from "../../assets/assetStorage";
-import { processFilesForS3 } from "../../fileProcessing";
 import {
   ImportValidationError,
   RegisterImportExportDeps,
@@ -30,7 +29,7 @@ import {
 import { claimOnBoard, claimOnCollection } from "../../authz/boards";
 
 export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) => {
-  const { app, prisma, requireAuth, asyncHandler, upload, uploadDir } = deps;
+  const { app, prisma, requireAuth, asyncHandler, upload, uploadDir, processEmbeddedImages } = deps;
 
   app.post(
     "/import/excalidash/verify",
@@ -211,11 +210,10 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
             .slice(start, start + concurrency)
             .map(async (prepared) => ({
               id: prepared.id,
-              files: await processFilesForS3(
+              files: await processEmbeddedImages(
                 prepared.sanitized.files || {},
                 req.user!.id,
                 finalDrawingIdMap.get(prepared.id)!,
-                prisma,
               ),
             }));
           for (const result of await Promise.all(batch))
