@@ -439,6 +439,100 @@ test("equivalence recipes require a green/green pair plus a separate coverage pr
   );
 });
 
+test("instrument-repair recipes require different instrument blobs and an old-blind/new-catches pair (NIL-522)", () => {
+  // The real case that surfaced this recipe kind (PR #78, NIL-506): audit.ts
+  // held fixed and deliberately broken by file copy (its config.enableAuditLogging
+  // check swapped for a direct process.env.ENABLE_AUDIT_LOGGING read -- a real
+  // env-boundary-bypass regression), measured against both the old and new
+  // audit.test.ts.
+  const recipe = {
+    kind: "instrument-repair",
+    command: "cd backend && npx vitest run src/utils/__tests__/audit.test.ts",
+    subject: {
+      path: "backend/src/utils/audit.ts",
+      description:
+        "config.enableAuditLogging check replaced with a direct process.env.ENABLE_AUDIT_LOGGING " +
+        "read, bypassing config.ts -- held identical for both instrument runs, never committed",
+    },
+    old_instrument: {
+      path: "backend/src/utils/__tests__/audit.test.ts",
+      blob_sha: "0aef1bf4d73d1963d57a25e97eb5fccf7003523c",
+    },
+    new_instrument: {
+      path: "backend/src/utils/__tests__/audit.test.ts",
+      blob_sha: "b1d467a667ed03a4f871d0731e6cfcf8896acd8e",
+    },
+    from: { exit_code: 0, output: "Test Files  1 passed (1)\n     Tests  10 passed (10)" },
+    to: {
+      exit_code: 1,
+      assertion: "AssertionError: expected +0 to be 1",
+      output:
+        "FAIL  src/utils/__tests__/audit.test.ts > Audit Logging > logAuditEvent > " +
+        "should create an audit log entry when enabled\nAssertionError: expected +0 to be 1 " +
+        "// Object.is equality\n\n Test Files  1 failed (1)\n      Tests  9 failed | 1 passed (10)",
+    },
+  };
+  const parsed = parseFixVerificationMarker(fixVerificationMarker({ recipe }));
+  assert.equal(parsed?.recipe.kind, "instrument-repair");
+  assert.notEqual(
+    parsed?.recipe.old_instrument.blob_sha,
+    parsed?.recipe.new_instrument.blob_sha,
+    "the two instrument blobs must differ -- that is the entire point of this recipe",
+  );
+  assert.equal(parsed?.recipe.from.exit_code, 0);
+  assert.equal(parsed?.recipe.to.exit_code, 1);
+
+  assert.throws(
+    () =>
+      parseFixVerificationMarker(
+        fixVerificationMarker({
+          recipe: {
+            ...recipe,
+            new_instrument: { ...recipe.new_instrument, blob_sha: recipe.old_instrument.blob_sha },
+          },
+        }),
+      ),
+    /does not satisfy schema version 1/,
+    "same blob on both sides means this is not an instrument-repair at all -- that inversion is the whole point of the kind",
+  );
+
+  assert.throws(
+    () =>
+      parseFixVerificationMarker(
+        fixVerificationMarker({
+          recipe: { ...recipe, from: { exit_code: 1, output: "old instrument also failed" } },
+        }),
+      ),
+    /does not satisfy schema version 1/,
+    "the old instrument must stay green (blind) despite the broken subject -- a red `from` belongs to the test recipe, not this one",
+  );
+
+  assert.throws(
+    () =>
+      parseFixVerificationMarker(
+        fixVerificationMarker({
+          recipe: { ...recipe, to: { exit_code: 0, output: "new instrument also passed" } },
+        }),
+      ),
+    /does not satisfy schema version 1/,
+    "the new instrument must actually catch the broken subject -- exit 0 proves nothing was caught",
+  );
+
+  assert.throws(
+    () =>
+      parseFixVerificationMarker(
+        fixVerificationMarker({
+          recipe: {
+            ...recipe,
+            to: { ...recipe.to, output: "AssertionError: something unrelated failed" },
+          },
+        }),
+      ),
+    /does not satisfy schema version 1/,
+    "the new instrument's own assertion must appear verbatim in its output, same rule every other recipe kind uses",
+  );
+});
+
 test("a finding verifier can record the same reproducible schema", () => {
   const parsed = parseFixVerificationMarker(
     fixVerificationMarker({

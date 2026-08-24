@@ -193,6 +193,38 @@ function isValidFixRecipe(recipe) {
     );
   }
 
+  // NIL-522: a test-methodology repair has no production-code lever to move.
+  // Surfaced covering PR #78's audit-log-write regression: `audit.ts`'s
+  // change in that fix commit was proven behavior-neutral -- holding it
+  // fixed and swapping only the instrument blob, BOTH the old and new
+  // production code passed 10/10 under the new instrument, and the old
+  // instrument failed under both. No production-code delta exists to drive
+  // a `test` recipe's from/to, and `equivalence` requires the SAME
+  // instrument on both sides, which this repair changes by definition. This
+  // recipe mirrors `test` inverted: production code (`subject`) is the
+  // CONSTANT, deliberately broken by file copy and identical on both runs;
+  // the instrument is the only variable. It proves not just "the new test
+  // passes" but "the old test was blind to a real bug the new one catches"
+  // -- `old_instrument.blob_sha` and `new_instrument.blob_sha` must differ
+  // (the literal inversion of the `test` recipe's same-blob rule), `from`
+  // (old instrument) must stay green despite the broken subject, and `to`
+  // (new instrument) must go red naming the actual failed assertion.
+  if (recipe.kind === "instrument-repair") {
+    return Boolean(
+      isNonEmptyString(recipe.subject?.path) &&
+      isNonEmptyString(recipe.subject?.description) &&
+      isNonEmptyString(recipe.old_instrument?.path) &&
+      LOWER_SHA_PATTERN.test(recipe.old_instrument?.blob_sha || "") &&
+      isNonEmptyString(recipe.new_instrument?.path) &&
+      LOWER_SHA_PATTERN.test(recipe.new_instrument?.blob_sha || "") &&
+      recipe.old_instrument.blob_sha !== recipe.new_instrument.blob_sha &&
+      recipe.from.exit_code === 0 &&
+      recipe.to.exit_code !== 0 &&
+      isNonEmptyString(recipe.to.assertion) &&
+      recipe.to.output.includes(recipe.to.assertion),
+    );
+  }
+
   // NIL-492: a behaviour-preserving refactor has no failing side by definition
   // -- "test" (from.exit_code !== 0) and "configuration" (from.output !==
   // to.output) both require a real difference this recipe never has. `from`
