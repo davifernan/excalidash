@@ -108,6 +108,26 @@ describe("document source pagination", () => {
     expect(pages).toEqual([fence]);
   });
 
+  // NIL-484's actual reported shape (see e2e/tests/document-pages.spec.ts,
+  // PATHOLOGICAL_MARKDOWN): a 2 MiB document that is almost entirely blank
+  // lines produced one atomic block PER blank line -- ~2.1 million block
+  // objects for this fixture -- which dominated pagination time (1.6s+
+  // measured) independent of the hard-split fix above, since no individual
+  // blank-line block was ever over budget. Batching a blank run into one
+  // block, the same way every other block kind is already batched, fixes it.
+  it("bounds pages from a pathological mostly-blank-lines document in linear time", () => {
+    const sparseLineBlock = `${"\n".repeat(19_999)}x`;
+    const source = sparseLineBlock.repeat(105).slice(0, 2 * 1024 * 1024);
+    const started = performance.now();
+
+    const pages = paginateDocumentSource(source, "MARKDOWN", DOCUMENT_PAGE_CHAR_BUDGET);
+    const elapsedMs = performance.now() - started;
+
+    expect(elapsedMs).toBeLessThan(500);
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((page) => page.length <= DOCUMENT_PAGE_CHAR_BUDGET)).toBe(true);
+  });
+
   it("bounds pages from a pathological 500,000-row table in linear time", () => {
     const header = "| Value |\n| --- |\n";
     const source = `${header}${"| cell |\n".repeat(500_000)}`;

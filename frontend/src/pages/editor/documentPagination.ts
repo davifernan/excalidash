@@ -182,7 +182,18 @@ const markdownBlocks = (source: string): MarkdownBlock[] => {
 
     const start = index;
     index += 1;
-    if (!isBlank(lines[start]) && !headingPattern.test(withoutLineEnding(lines[start]))) {
+    if (isBlank(lines[start])) {
+      // A run of blank lines used to become one atomic block per line -- a
+      // pathological document that is mostly blank lines (NIL-484: a 2 MiB
+      // markdown source with ~2.1 million one-character lines) turned this
+      // into millions of block objects and dominated pagination time (1.6s+
+      // measured) well before the render this file's other NIL-484 fix
+      // addresses ever happens. Consuming the whole run here is the same
+      // batching every other block kind already gets.
+      while (index < lines.length && isBlank(lines[index])) {
+        index += 1;
+      }
+    } else if (!headingPattern.test(withoutLineEnding(lines[start]))) {
       while (
         index < lines.length &&
         !isBlank(lines[index]) &&
