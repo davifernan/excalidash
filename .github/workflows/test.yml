@@ -95,6 +95,27 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/authz-boundary.test.cjs
 
+  agent-token-boundary:
+    name: Agent Token Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No dependency install, same reasoning as Authz Boundary: this reads
+      # backend/src with node:fs and nothing else.
+      - name: Check the agent-token centralization (NIL-382)
+        run: node scripts/agent-token-boundary.cjs
+
+      - name: Prove the boundary check rejects what it claims to
+        run: node scripts/agent-token-boundary.test.cjs
+
   type-collision-inventory:
     name: Type Collision Inventory
     runs-on: ubuntu-latest
