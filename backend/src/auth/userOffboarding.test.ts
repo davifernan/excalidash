@@ -30,6 +30,8 @@ describe("user offboarding", () => {
       drawingPermission: { updateMany: mutation() },
       drawingLinkShare: { updateMany: mutation() },
       collectionShare: { updateMany: mutation() },
+      comment: { updateMany: mutation() },
+      activityEvent: { updateMany: mutation() },
       library: { deleteMany: mutation() },
       auditLog: { deleteMany: mutation() },
     };
@@ -85,6 +87,21 @@ describe("user offboarding", () => {
       where: { createdByUserId: "departing" },
       data: { createdByUserId: "successor" },
     });
+    // RED PROBE evidence (see PR HANDOFF): Comment.authorUserId and
+    // ActivityEvent.actorUserId are real relations with onDelete: Cascade,
+    // unlike the createdByUserId string fields above. Without this
+    // reassignment running before tx.user.delete, deleting a departing
+    // author's own root comment cascades away every OTHER person's reply
+    // nested under it too (Comment.root is also Cascade) -- a silent loss
+    // of other people's content, not just the departing account's own.
+    expect(tx.comment.updateMany).toHaveBeenCalledWith({
+      where: { authorUserId: "departing" },
+      data: { authorUserId: "successor" },
+    });
+    expect(tx.activityEvent.updateMany).toHaveBeenCalledWith({
+      where: { actorUserId: "departing" },
+      data: { actorUserId: "successor" },
+    });
     expect(tx.library.deleteMany).toHaveBeenCalledWith({
       where: { id: "user_departing" },
     });
@@ -107,6 +124,9 @@ describe("user offboarding", () => {
     expect(tx.user.delete.mock.invocationCallOrder[0]).toBeGreaterThan(
       tx.drawing.updateMany.mock.invocationCallOrder[0],
     );
+    expect(tx.user.delete.mock.invocationCallOrder[0]).toBeGreaterThan(
+      tx.comment.updateMany.mock.invocationCallOrder[0],
+    );
   });
 
   it("creates an inactive company archive when no named successor is chosen", async () => {
@@ -127,6 +147,8 @@ describe("user offboarding", () => {
       drawingPermission: { updateMany: mutation() },
       drawingLinkShare: { updateMany: mutation() },
       collectionShare: { updateMany: mutation() },
+      comment: { updateMany: mutation() },
+      activityEvent: { updateMany: mutation() },
       library: { deleteMany: mutation() },
       auditLog: { deleteMany: mutation() },
     };

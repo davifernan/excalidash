@@ -8,3 +8,4 @@ export * from "./storage";
 export * from "./auth";
 export * from "./assets";
 export * from "./shareToken";
+export * from "./comments";

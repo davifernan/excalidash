@@ -1,0 +1,308 @@
+import type { Prisma, PrismaClient } from "../generated/client";
+import { getDrawingMemberships } from "../authz/membership";
+
+export type ActivityEventDTO = {
+  id: string;
+  drawingId: string;
+  drawingName: string;
+  actorUserId: string;
+  actorName: string;
+  verb: string;
+  commentId: string | null;
+  /**
+   * The thread this event belongs to, for deep-linking -- NOT the same as
+   * `commentId` for a reply event. `useComments`/`CommentMarkers` key a
+   * thread by its root id; a "comment.replied" event's `commentId` is the
+   * reply's own row. Without this a mention-in-a-reply notification would
+   * deep-link to an id `activeThreadId` can never match.
+   */
+  threadRootId: string | null;
+  elementId: string | null;
+  anchorX: number | null;
+  anchorY: number | null;
+  summary: string;
+  createdAt: string;
+};
+
+const EVENT_SELECT = {
+  id: true,
+  drawingId: true,
+  drawing: { select: { name: true } },
+  actorUserId: true,
+  actor: { select: { name: true } },
+  verb: true,
+  commentId: true,
+  comment: { select: { rootId: true } },
+  elementId: true,
+  anchorX: true,
+  anchorY: true,
+  summary: true,
+  createdAt: true,
+} satisfies Prisma.ActivityEventSelect;
+
+type RawEvent = Prisma.ActivityEventGetPayload<{ select: typeof EVENT_SELECT }>;
+
+const toEventDTO = (row: RawEvent): ActivityEventDTO => ({
+  id: row.id,
+  drawingId: row.drawingId,
+  drawingName: row.drawing.name,
+  actorUserId: row.actorUserId,
+  actorName: row.actor.name,
+  verb: row.verb,
+  commentId: row.commentId,
+  threadRootId: row.comment ? (row.comment.rootId ?? row.commentId) : null,
+  elementId: row.elementId,
+  anchorX: row.anchorX,
+  anchorY: row.anchorY,
+  summary: row.summary,
+  createdAt: row.createdAt.toISOString(),
+});
+
+const parseCursor = (before?: string | null): Date | undefined => {
+  if (!before) return undefined;
+  const date = new Date(before);
+  return Number.isFinite(date.getTime()) ? date : undefined;
+};
+
+export const listDrawingActivity = async (params: {
+  prisma: PrismaClient;
+  drawingId: string;
+  limit: number;
+  before?: string | null;
+}): Promise<ActivityEventDTO[]> => {
+  const cursor = parseCursor(params.before);
+  const rows = await params.prisma.activityEvent.findMany({
+    where: { drawingId: params.drawingId, ...(cursor ? { createdAt: { lt: cursor } } : {}) },
+    select: EVENT_SELECT,
+    orderBy: { createdAt: "desc" },
+    take: Math.min(Math.max(params.limit, 1), 100),
+  });
+  return rows.map(toEventDTO);
+};
+
+/**
+ * The team-wide feed: newest first, filtered to boards the viewer actually
+ * has a standing claim on.
+ *
+ * There is no single WHERE clause for "every event on every board I can
+ * see" that would not become a second, drifting copy of ownership logic
+ * (see boards.ts). Instead this fetches recent events, asks the one
+ * membership contract which of their boards the viewer belongs to, and
+ * drops the rest -- batched per page rather than per row, and topped up a
+ * bounded number of times if a page happens to be mostly boards the viewer
+ * cannot see.
+ */
+export const listTeamActivity = async (params: {
+  prisma: PrismaClient;
+  viewerUserId: string;
+  limit: number;
+  before?: string | null;
+}): Promise<ActivityEventDTO[]> => {
+  const limit = Math.min(Math.max(params.limit, 1), 100);
+  const results: ActivityEventDTO[] = [];
+  let cursor = parseCursor(params.before);
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS && results.length < limit; round += 1) {
+    const batch = await params.prisma.activityEvent.findMany({
+      where: cursor ? { createdAt: { lt: cursor } } : {},
+      select: EVENT_SELECT,
+      orderBy: { createdAt: "desc" },
+      take: limit * 2,
+    });
+    if (batch.length === 0) break;
+    cursor = batch[batch.length - 1].createdAt;
+
+    const drawingIds = Array.from(new Set(batch.map((row) => row.drawingId)));
+    const memberships = await getDrawingMemberships({
+      prisma: params.prisma,
+      userId: params.viewerUserId,
+      drawingIds,
+    });
+    for (const row of batch) {
+      if (!memberships.has(row.drawingId)) continue;
+      results.push(toEventDTO(row));
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
+};
+
+export type NotificationDTO = {
+  id: string;
+  kind: string;
+  readAt: string | null;
+  createdAt: string;
+  event: ActivityEventDTO;
+};
+
+const NOTIFICATION_ROW_SELECT = {
+  id: true,
+  kind: true,
+  readAt: true,
+  createdAt: true,
+  activityEvent: { select: EVENT_SELECT },
+} satisfies Prisma.NotificationSelect;
+
+type NotificationRow = Prisma.NotificationGetPayload<{ select: typeof NOTIFICATION_ROW_SELECT }>;
+
+const toNotificationDTO = (row: NotificationRow): NotificationDTO => ({
+  id: row.id,
+  kind: row.kind,
+  readAt: row.readAt ? row.readAt.toISOString() : null,
+  createdAt: row.createdAt.toISOString(),
+  event: toEventDTO(row.activityEvent),
+});
+
+/**
+ * Notifications are permanent once created; board membership is not. A
+ * mention delivered while you were on the board must not keep showing the
+ * drawing's name and comment text in your inbox forever after you are
+ * removed from it -- that is exactly the "permission change removes
+ * content without leaking that it ever existed" acceptance bar for M3.
+ * Same batched-then-filtered shape as listTeamActivity, for the same
+ * reason: no second, drifting copy of "can this account see this board".
+ */
+const filterToCurrentMembership = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+  rows: readonly NotificationRow[];
+}): Promise<NotificationRow[]> => {
+  const drawingIds = Array.from(new Set(params.rows.map((row) => row.activityEvent.drawingId)));
+  const memberships = await getDrawingMemberships({
+    prisma: params.prisma,
+    userId: params.userId,
+    drawingIds,
+  });
+  return params.rows.filter((row) => memberships.has(row.activityEvent.drawingId));
+};
+
+export const listInbox = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+  unreadOnly: boolean;
+  limit: number;
+  before?: string | null;
+}): Promise<NotificationDTO[]> => {
+  const limit = Math.min(Math.max(params.limit, 1), 100);
+  const results: NotificationDTO[] = [];
+  let cursor = parseCursor(params.before);
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS && results.length < limit; round += 1) {
+    const batch = await params.prisma.notification.findMany({
+      where: {
+        recipientUserId: params.userId,
+        ...(params.unreadOnly ? { readAt: null } : {}),
+        ...(cursor ? { createdAt: { lt: cursor } } : {}),
+      },
+      select: NOTIFICATION_ROW_SELECT,
+      orderBy: { createdAt: "desc" },
+      take: limit * 2,
+    });
+    if (batch.length === 0) break;
+    cursor = batch[batch.length - 1].createdAt;
+
+    const visible = await filterToCurrentMembership({
+      prisma: params.prisma,
+      userId: params.userId,
+      rows: batch,
+    });
+    for (const row of visible) {
+      results.push(toNotificationDTO(row));
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
+};
+
+export const unreadNotificationCount = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+}): Promise<number> => {
+  // Same access-loss reasoning as listInbox: the badge must not count
+  // notifications for boards the recipient can no longer see.
+  const CAP = 200;
+  const rows = await params.prisma.notification.findMany({
+    where: { recipientUserId: params.userId, readAt: null },
+    select: { id: true, activityEvent: { select: { drawingId: true } } },
+    orderBy: { createdAt: "desc" },
+    take: CAP,
+  });
+  if (rows.length === 0) return 0;
+  const drawingIds = Array.from(new Set(rows.map((row) => row.activityEvent.drawingId)));
+  const memberships = await getDrawingMemberships({
+    prisma: params.prisma,
+    userId: params.userId,
+    drawingIds,
+  });
+  const visible = rows.filter((row) => memberships.has(row.activityEvent.drawingId)).length;
+  // A capped count under-reports rather than over-reports once someone has
+  // more than CAP unread notifications -- "99+" territory either way, and
+  // under is the safer direction for a number that gates "you have mail".
+  return visible;
+};
+
+/** Only the recipient's own row; a notification id from someone else's inbox is a 404, not a 403. */
+export const markNotificationRead = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+  notificationId: string;
+}): Promise<boolean> => {
+  const result = await params.prisma.notification.updateMany({
+    where: { id: params.notificationId, recipientUserId: params.userId, readAt: null },
+    data: { readAt: new Date() },
+  });
+  return result.count > 0;
+};
+
+export const markAllNotificationsRead = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+}) => {
+  await params.prisma.notification.updateMany({
+    where: { recipientUserId: params.userId, readAt: null },
+    data: { readAt: new Date() },
+  });
+};
+
+export const recordDrawingVisit = (params: {
+  prisma: PrismaClient;
+  userId: string;
+  drawingId: string;
+}) =>
+  params.prisma.drawingVisit.upsert({
+    where: { userId_drawingId: { userId: params.userId, drawingId: params.drawingId } },
+    create: { userId: params.userId, drawingId: params.drawingId },
+    update: { lastVisitedAt: new Date() },
+  });
+
+export const getDrawingVisit = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+  drawingId: string;
+}): Promise<string | null> => {
+  const row = await params.prisma.drawingVisit.findUnique({
+    where: { userId_drawingId: { userId: params.userId, drawingId: params.drawingId } },
+    select: { lastVisitedAt: true },
+  });
+  return row ? row.lastVisitedAt.toISOString() : null;
+};
+
+export const recordTeamActivityVisit = (params: { prisma: PrismaClient; userId: string }) =>
+  params.prisma.teamActivityVisit.upsert({
+    where: { userId: params.userId },
+    create: { userId: params.userId },
+    update: { lastSeenAt: new Date() },
+  });
+
+export const getTeamActivityVisit = async (params: {
+  prisma: PrismaClient;
+  userId: string;
+}): Promise<string | null> => {
+  const row = await params.prisma.teamActivityVisit.findUnique({
+    where: { userId: params.userId },
+    select: { lastSeenAt: true },
+  });
+  return row ? row.lastSeenAt.toISOString() : null;
+};

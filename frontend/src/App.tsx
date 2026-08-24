@@ -13,6 +13,8 @@ const Editor = lazy(() => import("./pages/Editor").then((m) => ({ default: m.Edi
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+const Inbox = lazy(() => import("./pages/Inbox").then((m) => ({ default: m.Inbox })));
+const Activity = lazy(() => import("./pages/Activity").then((m) => ({ default: m.Activity })));
 const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
 const Register = lazy(() => import("./pages/Register").then((m) => ({ default: m.Register })));
 const PasswordResetRequest = lazy(() =>
@@ -83,6 +85,22 @@ function App() {
                     element={
                       <ProtectedRoute>
                         <Admin />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/inbox"
+                    element={
+                      <ProtectedRoute>
+                        <Inbox />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/activity"
+                    element={
+                      <ProtectedRoute>
+                        <Activity />
                       </ProtectedRoute>
                     }
                   />

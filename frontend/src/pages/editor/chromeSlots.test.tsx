@@ -32,6 +32,8 @@ const baseCtx: ChromeSlotContext = {
     decline: vi.fn(),
   },
   langCode: "en",
+  isCommentsOpen: false,
+  unresolvedCommentCount: 0,
   onBackClick: vi.fn(),
   onNewNameChange: vi.fn(),
   onRenameBlur: vi.fn(),
@@ -41,6 +43,7 @@ const baseCtx: ChromeSlotContext = {
   onShareOpen: vi.fn(),
   onHistoryOpen: vi.fn(),
   onSetLangCode: vi.fn(),
+  onToggleComments: vi.fn(),
 };
 
 /** Render functions return element descriptors without mounting -- Excalidraw's
@@ -119,6 +122,13 @@ describe("MAIN_MENU_ENTRIES", () => {
     const readOnly: ChromeSlotContext = { ...baseCtx, canEdit: false, accessLevel: "view" };
     expect(renderedIds(MAIN_MENU_ENTRIES, readOnly)).toContain("search-boards");
   });
+
+  it("shows comments for any real access level, hides it once access is none", () => {
+    const viewOnly: ChromeSlotContext = { ...baseCtx, accessLevel: "view", canEdit: false };
+    const noAccess: ChromeSlotContext = { ...baseCtx, accessLevel: "none", id: undefined };
+    expect(renderedIds(MAIN_MENU_ENTRIES, viewOnly)).toContain("comments");
+    expect(renderedIds(MAIN_MENU_ENTRIES, noAccess)).not.toContain("comments");
+  });
 });
 
 describe("renderMainMenuEntries", () => {
@@ -141,6 +151,22 @@ describe("HEADER_CONTROL_ENTRIES", () => {
   it("hides both controls under the conditions MainMenu also hides its own copies under", () => {
     const readOnlyEditor: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
     expect(renderedIds(HEADER_CONTROL_ENTRIES, readOnlyEditor)).toEqual([null, null]);
+  });
+
+  /**
+   * Regression guard (PR #61 fix-push): a "comments" HeaderControlSlotEntry
+   * was here briefly. Measured against a real multi-collaborator session, a
+   * third header-control icon (alongside invite/share) pushed
+   * `.layer-ui__wrapper__top-right` past whatever width Excalidraw's own
+   * collaborator-avatar list uses to decide between showing avatars and
+   * collapsing to a "+N" badge -- collaboration.spec.ts's presence/sync/cursor
+   * tests caught it losing `.UserList__collaborator .Avatar` entirely. Comments
+   * stays a MAIN_MENU_ENTRIES-only entry (see chromeSlots.tsx's own comment
+   * there); this asserts it never quietly comes back to the header group.
+   */
+  it("never re-adds a comments entry -- see the regression note above", () => {
+    const ids = HEADER_CONTROL_ENTRIES.map((e) => e.id);
+    expect(ids).not.toContain("comments");
   });
 });
 

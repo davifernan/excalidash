@@ -80,9 +80,42 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  * `FileCapability.onFilesAdded`, which is the one place allowed to know how
  * fragile it is.
  *
-
+ * NIL-324: the pattern used to catch a capability call by its bare method
+ * name, not only a raw one -- `interaction.onPointerDown(...)`, where
+ * `interaction` is a typed `InteractionCapability` parameter (capabilities.ts),
+ * matched exactly like `rawApi.onPointerDown(...)` would have. No consumer
+ * outside the layer had called this particular capability method before, so
+ * the gap sat unmeasured rather than unmigrated. Fixed at the pattern by
+ * excluding the adapter's own capability property names as a receiver --
+ * `ExcalidrawAdapter`'s own field list (capabilities.ts), not a guess -- the
+ * same reasoning `updateLibrary` was already excluded from the method-name
+ * list for: a rule that flags correct code trains people to ignore the rule,
+ * not fix the code.
  */
 const RAW_API_EXCEPTIONS = new Set([]);
+
+/**
+ * Receiver names the raw-API-call pattern must not fire on.
+ *
+ * Deliberately NOT every property `ExcalidrawAdapter` has (capabilities.ts).
+ * This list is a text-only exemption -- it cannot tell a real
+ * `InteractionCapability` bound to a local named `interaction` from an
+ * unrelated raw handle that happens to share the name (Hans-Friedrich,
+ * PR #61: exempting by name alone, with no type or scope information, lets a
+ * same-named non-adapter variable bypass the rule undetected). It stays
+ * proportionate by exempting only the receivers where that risk is real:
+ * checked mechanically against every capability interface in capabilities.ts,
+ * `InteractionCapability` is the ONLY one with a method name that collides
+ * with RAW_API_PATTERNS's list below (`onPointerDown`, `setActiveTool`) --
+ * `SceneCapability`, `TextContainerCapability`, `SelectionCapability`,
+ * `FileCapability`, `ViewportCapability`, `CollaborationCapability`,
+ * `WidgetCapability`, `ExportCapability`, `HistoryCapability`,
+ * `UiCapability`, `BoardSettingsCapability` and `CompatibilityCapability`
+ * name nothing in that list, so exempting their receiver names bought
+ * nothing and only widened the hole. Narrowing to just `interaction` closes
+ * twelve of the thirteen names this rule used to wave through by text alone.
+ */
+const CAPABILITY_RECEIVER_NAMES = ["interaction"];
 
 /**
  * The imperative handle's methods, as measured on the pinned version.
@@ -102,8 +135,16 @@ const RAW_API_PATTERNS = [
      * measured, not assumed: two files sat outside the layer calling
      * `getFiles?.()` and `getAppState?.()` while this rule reported them as
      * exceptions it no longer needed.
+     *
+     * The leading negative lookbehind is the NIL-324 fix: without it, this
+     * matched `interaction.onPointerDown(...)` -- a capability call, not a raw
+     * one -- exactly as readily as `rawHandle.onPointerDown(...)`. Excluding
+     * CAPABILITY_RECEIVER_NAMES as an immediate receiver keeps the rule
+     * catching the second while no longer catching the first.
      */
-    re: /\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)(\?\.)?\s*\(/,
+    re: new RegExp(
+      `(?<!\\b(?:${CAPABILITY_RECEIVER_NAMES.join("|")})\\??)\\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)(\\?\\.)?\\s*\\(`,
+    ),
   },
 ];
 
@@ -193,7 +234,19 @@ const scanForLegacyKeys = (root) => {
     // than uses of it.
     if (relative.endsWith("integrations/excalidraw/customData.ts")) continue;
     if (relative.endsWith("sticky/stickyNote.test.ts")) continue;
-    const contents = fs.readFileSync(file, "utf8");
+    let contents;
+    try {
+      contents = fs.readFileSync(file, "utf8");
+    } catch (error) {
+      // This walks backend/src and e2e/tests too -- directories this script
+      // does not own -- and `node --test scripts/*.test.cjs` runs test files
+      // concurrently. authz-boundary.test.cjs's own probe files live under
+      // backend/src/__authz_probe__/ for the width of a single assertion; a
+      // file this walk's directory listing just saw can legitimately be gone
+      // by the time this reads it. That is a stale listing, not a violation.
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
     for (const key of LEGACY_CUSTOM_DATA_KEYS) {
       if (contents.includes(key)) hits.push(`${relative}: still names the retired key "${key}".`);
     }
@@ -204,7 +257,18 @@ const scanForLegacyKeys = (root) => {
 const rootDir = () => root;
 
 const walk = (dir, out = []) => {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  // Same stale-listing tolerance as scanForLegacyKeys's read, and for the
+  // same reason: a sibling test's whole probe directory (rmSync'd after
+  // each assertion) can vanish between this directory being listed and
+  // being recursed into, when scripts/*.test.cjs run concurrently.
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return out;
+    throw error;
+  }
+  for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
     else if (/\.(ts|tsx)$/.test(entry.name)) out.push(full);
@@ -341,7 +405,7 @@ const assertNoExceptions = () => {
   process.exit(1);
 };
 
-module.exports = { RULES, assertNoExceptions };
+module.exports = { RULES, assertNoExceptions, scanForLegacyKeys, walk };
 
 if (require.main === module) {
   main();

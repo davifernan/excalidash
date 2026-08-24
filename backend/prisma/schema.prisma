@@ -31,6 +31,14 @@ model User {
   auditLogs           AuditLog[]
   ownedAssets         Asset[]              @relation("AssetOwner")
   uploadedAssets      Asset[]              @relation("AssetUploader")
+  authoredComments    Comment[]            @relation("CommentAuthor")
+  resolvedComments    Comment[]            @relation("CommentResolver")
+  deletedComments     Comment[]            @relation("CommentDeleter")
+  mentionedIn         Mention[]            @relation("MentionedUser")
+  activityEvents      ActivityEvent[]      @relation("ActivityActor")
+  notifications       Notification[]       @relation("NotificationRecipient")
+  drawingVisits       DrawingVisit[]
+  teamActivityVisit   TeamActivityVisit?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 }
@@ -108,6 +116,9 @@ model Drawing {
   snapshots       DrawingSnapshot[]
   assets          DrawingAsset[]
   pageViews       DocumentPageView[]
+  comments        Comment[]
+  activityEvents  ActivityEvent[]
+  visits          DrawingVisit[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
@@ -181,6 +192,157 @@ model CollectionShare {
   @@unique([collectionId, granteeUserId])
   @@index([collectionId])
   @@index([granteeUserId])
+}
+
+/// A comment or a reply, anchored to a board.
+///
+/// A thread has no table of its own: the root comment (`rootId == null`) IS
+/// the thread. Resolve/reopen only ever apply to a root; a reply inherits its
+/// thread's state by following `rootId`, so there is exactly one place that
+/// says whether a conversation is open. Two tables describing the same
+/// conversation is the mistake this project already paid for once (see
+/// ACCESS_RANK in authz/sharing.ts) and NIL-324's exit criteria name it by
+/// name: no separate comment/activity truths.
+///
+/// Deliberately no edit-history table: an edit overwrites `body` and stamps
+/// `editedAt`; prior text is not retained. A delete is a tombstone
+/// (`deletedAt` set, `body` cleared) rather than a row removal, so a reply
+/// chain never loses its root out from under it.
+///
+/// `elementId`/`anchorX`/`anchorY` are not foreign keys: canvas elements live
+/// inside `Drawing.elements` JSON, not in a relational table (see
+/// DocumentPageView above for the same shape). Whether that element still
+/// exists is resolved by the client against the live scene it already holds
+/// -- the server stores the anchor, it does not police it. A vanished element
+/// degrades the thread to board-level context; it does not delete the
+/// comment.
+model Comment {
+  id              String    @id @default(uuid())
+  drawingId       String
+  drawing         Drawing   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  /// Null on a thread root. Points at the root on every reply.
+  rootId          String?
+  root            Comment?  @relation("CommentReplies", fields: [rootId], references: [id], onDelete: Cascade)
+  replies         Comment[] @relation("CommentReplies")
+  /// Set once, from the server's own session/auth read -- never from the
+  /// request body. A guest holding only an unauthenticated link cannot
+  /// author a comment at all (see docs/architecture/... HANDOFF for the
+  /// Gastpfad decision); every row here has a real account behind it.
+  authorUserId    String
+  author          User      @relation("CommentAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+  body            String
+  elementId       String?
+  anchorX         Float?
+  anchorY         Float?
+  /// Root-only. A reply's resolved state is read off its root.
+  resolvedAt      DateTime?
+  resolvedByUserId String?
+  resolvedBy      User?     @relation("CommentResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  editedAt        DateTime?
+  deletedAt       DateTime?
+  deletedByUserId String?
+  deletedBy       User?     @relation("CommentDeleter", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  mentions        Mention[]
+  activityEvents  ActivityEvent[]
+
+  @@index([drawingId, rootId, createdAt])
+  @@index([drawingId, resolvedAt])
+  @@index([authorUserId])
+  @@index([rootId])
+}
+
+/// One row per person named in a comment, idempotent on retry.
+///
+/// The mention target is re-validated server-side against the drawing's
+/// roster at write time -- the client's picker only narrows what is offered,
+/// it is never trusted for who actually gets notified (NIL-353: no
+/// information about people who cannot see the board).
+model Mention {
+  id               String   @id @default(uuid())
+  commentId        String
+  comment          Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  mentionedUserId  String
+  mentionedUser    User     @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+
+  @@unique([commentId, mentionedUserId])
+  @@index([mentionedUserId])
+}
+
+/// The append-only feed a comment, mention, resolve or reopen writes into.
+///
+/// This is the one truth the Activity Feed, the Inbox and Notifications all
+/// read -- none of them keep their own copy of "what happened". `commentId`
+/// is the authoritative link back to current state; `elementId`/anchor and
+/// `summary` are a snapshot taken at event time so an edit made an hour later
+/// does not silently rewrite what the feed already showed.
+model ActivityEvent {
+  id           String    @id @default(uuid())
+  drawingId    String
+  drawing      Drawing   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  actorUserId  String
+  actor        User      @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  /// "comment.created" | "comment.edited" | "comment.resolved" |
+  /// "comment.reopened" | "comment.deleted" | "mention.created"
+  verb         String
+  commentId    String?
+  comment      Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  elementId    String?
+  anchorX      Float?
+  anchorY      Float?
+  summary      String
+  createdAt    DateTime  @default(now())
+
+  notifications Notification[]
+
+  @@index([drawingId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([commentId])
+}
+
+/// One notification per recipient per event. The unique constraint is what
+/// makes fan-out idempotent: a retried "create comment" request re-runs
+/// mention resolution, and must not hand the same person a second unread row
+/// for the same event.
+model Notification {
+  id              String        @id @default(uuid())
+  recipientUserId String
+  recipient       User          @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  activityEventId String
+  activityEvent   ActivityEvent @relation(fields: [activityEventId], references: [id], onDelete: Cascade)
+  /// "mention" | "reply" | "resolve"
+  kind            String
+  readAt          DateTime?
+  createdAt       DateTime      @default(now())
+
+  @@unique([recipientUserId, activityEventId])
+  @@index([recipientUserId, readAt, createdAt])
+}
+
+/// When this account last opened this board, for its own "new since you were
+/// last here" marker. Upserted on join, never read by anyone but its owner.
+model DrawingVisit {
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  drawingId     String
+  drawing       Drawing  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  lastVisitedAt DateTime @default(now())
+
+  @@id([userId, drawingId])
+  @@index([drawingId])
+}
+
+/// The same marker, once per account, for the team-wide Activity Feed rather
+/// than one board. A second table rather than a sentinel drawingId in
+/// DrawingVisit: "the team feed" is not a board and should not pretend to be
+/// one to reuse a row shape.
+model TeamActivityVisit {
+  userId     String   @id
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenAt DateTime @default(now())
 }
 
 model Library {

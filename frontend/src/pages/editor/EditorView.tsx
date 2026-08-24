@@ -25,7 +25,7 @@ import "./editorChrome.css";
 
 type EditorViewProps = {
   id?: string;
-  accessLevel: "none" | "view" | "edit" | "owner";
+  accessLevel: "none" | "view" | "comment" | "edit" | "owner";
   canEdit: boolean;
   drawingName: string;
   collectionId: string | null;
@@ -63,6 +63,18 @@ type EditorViewProps = {
   onSetLangCode: (langCode: string) => void;
   onShareOpen: () => void;
   onHistoryOpen: () => void;
+  /**
+   * The comment panel + canvas markers, a free-floating ui.overlayRoot()
+   * portal like stickyOverlay above it -- not part of the chromeSlots.tsx
+   * registries, which only cover MainMenu/header-control/Footer. The toggle
+   * button that opens it IS a chromeSlots entry (see slots/commentsMenuEntry.tsx);
+   * isCommentsOpen/unresolvedCommentCount/onToggleComments below feed that
+   * entry's ChromeSlotContext.
+   */
+  commentsOverlay?: React.ReactNode;
+  isCommentsOpen: boolean;
+  unresolvedCommentCount: number;
+  onToggleComments: () => void;
 };
 
 export const EditorView: React.FC<EditorViewProps> = ({
@@ -105,6 +117,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onSetLangCode,
   onShareOpen,
   onHistoryOpen,
+  commentsOverlay,
+  isCommentsOpen,
+  unresolvedCommentCount,
+  onToggleComments,
 }) => {
   const excalidrawRoot = useExcalidrawRoot(editorContainerRef);
   // Zen mode is handled by Excalidraw itself for everything rendered through
@@ -128,6 +144,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
     followers,
     inviteHere,
     langCode,
+    isCommentsOpen,
+    unresolvedCommentCount,
     onBackClick,
     onNewNameChange,
     onRenameBlur,
@@ -137,6 +155,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     onShareOpen,
     onHistoryOpen,
     onSetLangCode,
+    onToggleComments,
   };
 
   return (
@@ -246,6 +265,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             onClose={onCursorChatClose}
           />
           {stickyOverlay}
+          {commentsOverlay}
         </>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-500 dark:text-gray-400">

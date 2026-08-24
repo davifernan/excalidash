@@ -53,6 +53,29 @@ const assertRejects = (label, name, contents) => {
   });
 };
 
+/**
+ * The counterpart to assertRejects: a file that LOOKS like the pattern this
+ * rule matches on, but goes through the capability layer correctly, must not
+ * be named as a violation. Without this direction, a fix that makes the
+ * pattern stricter (NIL-324's receiver-name exclusion) has no probe proving
+ * it did not just start missing the real thing too -- assertRejects above
+ * already covers that half, on the same rule, in the same run.
+ */
+const assertAccepted = (label, name, contents) => {
+  withProbeFile(name, contents, (relative) => {
+    const result = run();
+    const output = outputOf(result);
+    if (result.status === 0 && !output.includes(relative)) {
+      console.log(`  green on ${label}: ${relative}`);
+      return;
+    }
+    throw new Error(
+      `${label} was rejected when it should not have been.\nexpected exit 0, ${relative} absent\n` +
+        `got exit ${result.status}\n${output}`,
+    );
+  });
+};
+
 const probes = [
   [
     "static package import",
@@ -177,6 +200,125 @@ const assertLegacyKeyCaught = () => {
  * coming back turns this test red, and the change has to be argued for instead
  * of slipped in. Deleting this probe is itself the decision to allow bypasses.
  */
+/**
+ * NIL-324: `interaction.onPointerDown(...)` used to match the raw-API-call
+ * pattern exactly as readily as a real raw call, because the pattern had no
+ * receiver awareness at all. `interaction` is the one real capability call
+ * shape this rule must keep accepting -- the receiver whose real methods
+ * (`onPointerDown`, `setActiveTool`) actually collide with RAW_API_PATTERNS.
+ */
+const assertCapabilityCallsAccepted = () => {
+  assertAccepted(
+    "a capability call the raw-API rule must not treat as the raw handle",
+    "capabilityReceiverNames.ts",
+    'export const probe = (adapter: any) => {\n  adapter.interaction.onPointerDown();\n};\n',
+  );
+};
+
+/**
+ * PR #61 (Hans-Friedrich): CAPABILITY_RECEIVER_NAMES used to exempt all
+ * thirteen of ExcalidrawAdapter's property names by text alone, with no way
+ * to tell a real capability from a same-named unrelated variable. Checked
+ * mechanically against capabilities.ts, only `InteractionCapability` names a
+ * method that collides with RAW_API_PATTERNS -- the other twelve receiver
+ * names never needed the exemption, so narrowing the list to `interaction`
+ * only closes a hole the rule never should have had open. This probe is the
+ * direction that proves it stayed closed: a raw-shaped call through any of
+ * the other twelve names is a real violation again, not a silent pass.
+ */
+const assertNonInteractionReceiverNamesRejected = () => {
+  const lines = [
+    "scene.getSceneElements();",
+    "text.getAppState();",
+    "boardSettings.getAppState();",
+    "selection.getAppState();",
+    "files.getFiles();",
+    "viewport.getAppState();",
+    "collaboration.onChange();",
+    "widgets.getAppState();",
+    "history.getAppState();",
+    "ui.getAppState();",
+    "compatibility.getAppState();",
+  ];
+  for (const line of lines) {
+    assertRejects(
+      `a raw-shaped call through a non-interaction receiver name (${line})`,
+      "nonInteractionReceiver.ts",
+      `export const probe = (scene: any, text: any, boardSettings: any, selection: any, files: any, viewport: any, collaboration: any, widgets: any, history: any, ui: any, compatibility: any) => {\n  ${line}\n};\n`,
+    );
+  }
+};
+
+/**
+ * PR #61 fix-push: `node --test scripts/*.test.cjs` runs test FILES
+ * concurrently, and scanForLegacyKeys walks backend/src and e2e/tests too --
+ * directories this script does not own. authz-boundary.test.cjs's own
+ * probes live under backend/src/__authz_probe__/ for the width of one
+ * assertion (mkdirSync before, rmSync after). A concurrent run hit exactly
+ * that: this scan's directory listing saw a probe file authz-boundary had
+ * already deleted by the time this read it -- ENOENT, uncaught, the whole
+ * check crashed instead of reporting a result. Reproduced deterministically
+ * here (no real race needed) by making fs.readFileSync/readdirSync throw
+ * ENOENT for one specific path scanForLegacyKeys/walk is mid-scanning.
+ */
+const assertLegacyKeyScanToleratesADisappearingFile = () => {
+  const { scanForLegacyKeys } = require("./adapter-boundary.cjs");
+  if (fs.existsSync(PROBE_DIR)) {
+    throw new Error(`Refusing to reuse an existing probe directory: ${PROBE_DIR}`);
+  }
+  fs.mkdirSync(PROBE_DIR, { recursive: true });
+  const vanishing = path.join(PROBE_DIR, "vanishing.ts");
+  fs.writeFileSync(vanishing, "export const probe = 1;\n", "utf8");
+  const originalReadFileSync = fs.readFileSync;
+  fs.readFileSync = (file, ...rest) => {
+    if (file === vanishing) {
+      const error = new Error(`ENOENT: no such file or directory, open '${file}'`);
+      error.code = "ENOENT";
+      throw error;
+    }
+    return originalReadFileSync(file, ...rest);
+  };
+  try {
+    const hits = scanForLegacyKeys("frontend/src");
+    if (!Array.isArray(hits)) {
+      throw new Error("scanForLegacyKeys did not return normally past the disappearing file.");
+    }
+    console.log("  legacy-key scan survives a file that vanishes mid-scan (ENOENT, not a crash)");
+  } finally {
+    fs.readFileSync = originalReadFileSync;
+    fs.rmSync(PROBE_DIR, { recursive: true, force: true });
+  }
+};
+
+const assertWalkToleratesADisappearingDirectory = () => {
+  const { walk } = require("./adapter-boundary.cjs");
+  if (fs.existsSync(PROBE_DIR)) {
+    throw new Error(`Refusing to reuse an existing probe directory: ${PROBE_DIR}`);
+  }
+  fs.mkdirSync(PROBE_DIR, { recursive: true });
+  const vanishingDir = path.join(PROBE_DIR, "vanishing-dir");
+  fs.mkdirSync(vanishingDir);
+  const originalReaddirSync = fs.readdirSync;
+  fs.readdirSync = (dir, ...rest) => {
+    if (dir === vanishingDir) {
+      const error = new Error(`ENOENT: no such file or directory, scandir '${dir}'`);
+      error.code = "ENOENT";
+      throw error;
+    }
+    return originalReaddirSync(dir, ...rest);
+  };
+  try {
+    const files = walk(PROBE_DIR);
+    if (!Array.isArray(files)) {
+      throw new Error("walk did not return normally past the disappearing directory.");
+    }
+    console.log("  walk survives a directory that vanishes mid-recursion (ENOENT, not a crash)");
+  } finally {
+    fs.readdirSync = originalReaddirSync;
+    fs.rmSync(PROBE_DIR, { recursive: true, force: true });
+  }
+};
+
 const assertNoExceptionsRemain = () => {
   const { RULES } = require("./adapter-boundary.cjs");
   const listed = RULES.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
@@ -210,6 +352,10 @@ const main = () => {
   assertStaleExceptionCaught();
   assertLegacyKeyCaught();
   assertNoExceptionsRemain();
+  assertCapabilityCallsAccepted();
+  assertNonInteractionReceiverNamesRejected();
+  assertLegacyKeyScanToleratesADisappearingFile();
+  assertWalkToleratesADisappearingDirectory();
 
   const after = run();
   if (after.status !== 0) {

@@ -22,6 +22,7 @@ import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
 import { useEditorBroadcast } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
+import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 export const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -29,8 +30,11 @@ export const Editor: React.FC = () => {
   const location = useLocation();
   const { theme } = useTheme();
   const { user } = useAuth();
-  const [accessLevel, setAccessLevel] = useState<"none" | "view" | "edit" | "owner">("none");
+  const [accessLevel, setAccessLevel] = useState<"none" | "view" | "comment" | "edit" | "owner">(
+    "none",
+  );
   const canEdit = accessLevel === "edit" || accessLevel === "owner";
+  const canComment = canEdit || accessLevel === "comment";
   const [drawingName, setDrawingName] = useState("Drawing Editor");
   // Workspace context for the Canvas Shell chrome (NIL-323/NIL-344): which
   // collection this board sits in, gated server-side to the creator exactly
@@ -446,13 +450,46 @@ export const Editor: React.FC = () => {
     chatRef: cursorChatRef,
   });
 
+  const [hasSelection, setHasSelection] = useState(false);
   const handleChangeWithSelection = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
       onSelectionChange(appState);
+      setHasSelection(
+        Object.values(appState?.selectedElementIds || {}).some((selected) => selected === true),
+      );
       handleChangeWithNotes(elements, appState, files);
     },
     [handleChangeWithNotes, onSelectionChange],
   );
+  // A comment/mention/activity deep link arrives as `?thread=<rootId>`
+  // (built by the Inbox and Activity pages). Captured once, then stripped
+  // from the URL immediately so a refresh or browser-back does not force
+  // the panel open again on its own.
+  const [deepLinkThreadId] = useState(() => new URLSearchParams(location.search).get("thread"));
+  useEffect(() => {
+    if (!deepLinkThreadId) return;
+    const params = new URLSearchParams(location.search);
+    if (!params.has("thread")) return;
+    params.delete("thread");
+    const query = params.toString();
+    navigate({ pathname: location.pathname, search: query ? `?${query}` : "" }, { replace: true });
+    // Runs once: this is a one-shot consumption of the initial URL, not a
+    // reaction to `location` changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
+    useCommentsFeature({
+      drawingId: id,
+      adapter,
+      socketRef,
+      isReady,
+      accessLevel,
+      canComment,
+      canModerate: canEdit,
+      currentUserId: user?.id ?? null,
+      hasSelection,
+      deepLinkThreadId,
+    });
   const commandRefs = React.useMemo(
     () => ({
       excalidrawAPI,
@@ -519,6 +556,10 @@ export const Editor: React.FC = () => {
         onBackClick={handleBackClick}
         onCanvasChange={handleChangeWithSelection}
         stickyOverlay={stickyOverlay}
+        commentsOverlay={commentsOverlay}
+        isCommentsOpen={isCommentsOpen}
+        onToggleComments={toggleComments}
+        unresolvedCommentCount={unresolvedCommentCount}
         onCanvasDropCapture={handleCanvasDropCapture}
         onExportClick={handleExportClick}
         onLibraryChange={handleLibraryChange}

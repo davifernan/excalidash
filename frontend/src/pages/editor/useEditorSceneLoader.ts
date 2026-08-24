@@ -6,7 +6,7 @@ import * as api from "../../api";
 import { getPersistedAppState, hasRenderableElements, resolveObjectsSnapMode } from "./shared";
 import { computeElementOrderSig } from "./useEditorElementTracking";
 
-type AccessLevel = "none" | "view" | "edit" | "owner";
+type AccessLevel = "none" | "view" | "comment" | "edit" | "owner";
 
 type SceneLoaderParams = {
   id: string | undefined;
@@ -119,9 +119,17 @@ export const useEditorSceneLoader = ({
         setCollectionId(data.collectionId ?? null);
         setCollectionName(data.collectionName ?? null);
         setAccessLevel(
-          data.accessLevel === "view" || data.accessLevel === "edit" || data.accessLevel === "owner"
+          data.accessLevel === "view" ||
+            data.accessLevel === "comment" ||
+            data.accessLevel === "edit" ||
+            data.accessLevel === "owner"
             ? data.accessLevel
-            : "owner",
+            : // An access level this build does not recognise falls back to the
+              // least-privileged real one, not the most: an unknown value must
+              // never be read as "owner". Before this fix, "comment" itself was
+              // such an unrecognised value and fell through to "owner" -- full
+              // edit and share UI for someone with comment-only access.
+              "view",
         );
         const elements = data.elements || [];
         const files = data.files || {};

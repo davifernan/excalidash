@@ -88,7 +88,7 @@
  *   was decided and why, instead of re-deriving it.
  */
 import React from "react";
-import { ArrowLeft, Download, History, LocateFixed, Share2 } from "lucide-react";
+import { ArrowLeft, Download, History, LocateFixed, MessageSquare, Share2 } from "lucide-react";
 import {
   EditorFooter as Footer,
   EditorMenu as MainMenu,
@@ -97,13 +97,14 @@ import { LanguageSelector } from "../../components/LanguageSelector";
 import { BoardNameMenuEntry } from "./slots/boardNameMenuEntry";
 import { WorkspaceContextMenuEntry } from "./slots/workspaceContextMenuEntry";
 import { SearchBoardsMenuEntry } from "./slots/searchBoardsMenuEntry";
+import { CommentsMenuEntry } from "./slots/commentsMenuEntry";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
 
 export type ChromeSlotContext = {
   id?: string;
-  accessLevel: "none" | "view" | "edit" | "owner";
+  accessLevel: "none" | "view" | "comment" | "edit" | "owner";
   canEdit: boolean;
   mobile: boolean;
   drawingName: string;
@@ -117,6 +118,8 @@ export type ChromeSlotContext = {
   followers: readonly Follower[];
   inviteHere: InviteHereUiState;
   langCode: string;
+  isCommentsOpen: boolean;
+  unresolvedCommentCount: number;
   onBackClick: () => void;
   onNewNameChange: (value: string) => void;
   onRenameBlur: () => void;
@@ -126,6 +129,7 @@ export type ChromeSlotContext = {
   onShareOpen: () => void;
   onHistoryOpen: () => void;
   onSetLangCode: (langCode: string) => void;
+  onToggleComments: () => void;
 };
 
 type SlotEntry = {
@@ -245,6 +249,30 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
       ctx.canEdit && ctx.id ? (
         <MainMenu.Item onSelect={ctx.onHistoryOpen} icon={<History size={16} />}>
           Version history
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "comments",
+    order: 140,
+    // Grouped with export/version-history (content actions on the board)
+    // rather than under collab-separator with share/invite: opening the
+    // panel does not invite or hand anyone access, it just annotates.
+    //
+    // Menu-only, no HeaderControlSlotEntry: measured against a real
+    // multi-collaborator session, a third icon in the header-control group
+    // (alongside invite/share) pushes `.layer-ui__wrapper__top-right` past
+    // whatever width Excalidraw's own collaborator-avatar list uses to
+    // decide between showing avatars and collapsing to a "+N" badge --
+    // `collaboration.spec.ts`'s presence/sync/cursor tests caught this by
+    // losing the individual `.UserList__collaborator .Avatar` node entirely.
+    // The file comment's own "Mobile" section already establishes this
+    // path (menu or overlay, not the header control slot) for an entry that
+    // cannot fit there; this is that case on desktop too, not only mobile.
+    render: (ctx) =>
+      ctx.accessLevel !== "none" && ctx.id ? (
+        <MainMenu.Item onSelect={ctx.onToggleComments} icon={<MessageSquare size={16} />}>
+          <CommentsMenuEntry ctx={ctx} />
         </MainMenu.Item>
       ) : null,
   },

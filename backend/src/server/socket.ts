@@ -278,6 +278,14 @@ export const registerSocketHandlers = ({
     connectedSockets.set(socket.id, socket);
     const credentialCheck = credentialGuard.verifyRegisteredSocket(socket);
     credentialChecks.set(socket.id, credentialCheck);
+    // A per-account room, independent of which drawing (if any) is open, so
+    // a mention/reply/resolve notification reaches someone even while they
+    // are elsewhere in the app. Never joined by a link-only guest: it has no
+    // account to notify, only a per-connection presence identity.
+    const notifyPrincipal = principals.get(socket.id);
+    if (notifyPrincipal?.kind === "user" && !notifyPrincipal.allowInactive) {
+      void socket.join(`user_${notifyPrincipal.userId}`);
+    }
     let joinRevision = 0;
     let joinQueue = Promise.resolve();
     let pendingJoins = 0;

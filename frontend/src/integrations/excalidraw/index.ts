@@ -17,6 +17,7 @@ import {
   type RawApi,
 } from "./adapter";
 import type { ExcalidrawAdapter } from "./capabilities";
+import type { ElementId } from "./types";
 import { createCollaborationCapability } from "./collaboration";
 import { verifySeams } from "./compatibility/seams";
 import { onDiagnostic } from "./compatibility/diagnostics";
@@ -76,8 +77,46 @@ export const createExcalidrawAdapter = (host: AdapterHost): ExcalidrawAdapter =>
           });
         });
       },
-      anchorAt: () =>
-        fail("unsupported", "selection.anchorAt", { detail: "arrives with comments in M3" }),
+      anchorAt: (point) => {
+        const api = raw<RawApi>();
+        if (!api) return fail("not-ready", "selection.anchorAt");
+        const found = scene.summaries();
+        if (!found.ok) return fail(found.code, "selection.anchorAt", { detail: found.detail });
+        // TOLERANCE softens near-zero-height elements (a horizontal arrow's
+        // bounding box is a sliver) that a bare box test would leave all but
+        // unclickable.
+        const TOLERANCE = 6;
+        const hits = (el: (typeof found.value)[number]): boolean => {
+          const cx = el.x + el.width / 2;
+          const cy = el.y + el.height / 2;
+          const cos = Math.cos(-el.angle);
+          const sin = Math.sin(-el.angle);
+          const dx = point.x - cx;
+          const dy = point.y - cy;
+          const localX = dx * cos - dy * sin;
+          const localY = dx * sin + dy * cos;
+          return (
+            Math.abs(localX) <= el.width / 2 + TOLERANCE &&
+            Math.abs(localY) <= el.height / 2 + TOLERANCE
+          );
+        };
+        // Topmost first: Excalidraw returns elements back-to-front, and a
+        // click should anchor to whatever the viewer actually sees under the
+        // pointer. Frames are a container, not content -- a click on a shape
+        // inside a frame must anchor to the shape, not the frame it happens
+        // to sit in, so frames are only considered once nothing else matched.
+        let frameHit: ElementId | null = null;
+        for (let i = found.value.length - 1; i >= 0; i--) {
+          const el = found.value[i];
+          if (!hits(el)) continue;
+          if (el.type === "frame") {
+            if (frameHit === null) frameHit = el.id as ElementId;
+            continue;
+          }
+          return ok(el.id as ElementId);
+        }
+        return ok(frameHit);
+      },
     },
     files: createFileCapability(() => raw<RawApi>()),
     viewport: createViewportCapability(() => raw<never>()),
