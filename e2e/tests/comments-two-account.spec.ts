@@ -315,12 +315,15 @@ test.describe
       await expect(threadOnB).not.toContainText(REPLY_BODY);
 
       // --- The whole story is now on the team activity feed B belongs to
-      // (B has comment access on this board).
+      // (B has comment access on this board). Four distinct actions above
+      // each write one ActivityEvent (commentsDomain.ts verbs): A's root
+      // comment ("comment.created"), B's reply ("comment.replied"), A's
+      // resolve ("comment.resolved"), A's delete of B's reply
+      // ("comment.deleted") -- exactly 4, not merely "at least one".
       await pageB.goto("/activity");
       const activityEvents = pageB.getByTestId("activity-event").filter({ hasText: DRAWING_NAME });
       await expect(activityEvents.first()).toBeVisible({ timeout: 10000 });
-      await expect(activityEvents).toHaveCount(await activityEvents.count());
-      expect(await activityEvents.count()).toBeGreaterThan(0);
+      await expect(activityEvents).toHaveCount(4);
     } finally {
       await contextA.close();
       await contextB.close();
