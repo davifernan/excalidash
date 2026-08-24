@@ -11,11 +11,18 @@ import request from "supertest";
 import bcrypt from "bcrypt";
 import jwt, { SignOptions } from "jsonwebtoken";
 import { StringValue } from "ms";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { getTestPrisma, setupTestDb } from "./testUtils";
 
 describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
+  const tinyPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/58BAwAI/AL+hc2rNAAAAABJRU5ErkJggg==",
+    "base64",
+  );
   const userAgent = "vitest-scene-files-union-merge";
   let prisma: PrismaClient;
   let app: any;
@@ -24,6 +31,7 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
   let ownerAgent: any;
   let csrfHeaderName: string;
   let csrfToken: string;
+  let storageDir: string;
 
   const signAccessToken = (user: { id: string; email: string }) => {
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
@@ -37,6 +45,8 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
   beforeAll(async () => {
     setupTestDb();
     prisma = getTestPrisma();
+    storageDir = await mkdtemp(join(tmpdir(), "drawing-create-files-"));
+    config.assets.storageDir = storageDir;
     ({ app } = await import("../index"));
 
     await prisma.systemConfig.upsert({
@@ -66,6 +76,7 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
 
   afterAll(async () => {
     await prisma.$disconnect();
+    await rm(storageDir, { recursive: true, force: true });
   });
 
   const put = (drawingId: string, body: Record<string, unknown>) =>
@@ -75,6 +86,50 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
       .set("Authorization", `Bearer ${ownerToken}`)
       .set(csrfHeaderName, csrfToken)
       .send(body);
+
+  it("stores an embedded image only after its new drawing exists", async () => {
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({
+        name: "Embedded Create Board",
+        elements: [],
+        appState: {},
+        files: {
+          "embedded-file": {
+            id: "embedded-file",
+            mimeType: "image/png",
+            dataURL,
+          },
+        },
+        preview: `<svg><image href="${dataURL}" /></svg>`,
+      });
+
+    expect(created.status).toBe(200);
+    const drawingId = created.body.id as string;
+    expect(created.body.files["embedded-file"].dataURL).toBe(
+      `/api/files/${drawingId}/embedded-file`,
+    );
+    expect(created.body.preview).toBe(
+      `<svg><image href="/api/files/${drawingId}/embedded-file"></image></svg>`,
+    );
+
+    const stored = await prisma.drawingFile.findUnique({
+      where: { drawingId_fileId: { drawingId, fileId: "embedded-file" } },
+      include: { blob: true },
+    });
+    expect(stored).toMatchObject({ mimeType: "image/png", blob: { purpose: "IMAGE" } });
+
+    const downloaded = await ownerAgent
+      .get(`/files/${drawingId}/embedded-file`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect("Content-Type", /image\/png/);
+    expect(downloaded.body).toEqual(tinyPng);
+  });
 
   it("keeps an existing file when a later save's files payload does not repeat it", async () => {
     const created = await ownerAgent

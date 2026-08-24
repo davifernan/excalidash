@@ -115,7 +115,16 @@ export const processEmbeddedImages = async (
       // Too large or over quota: leave this one entry embedded rather than
       // failing the whole scene save. The client still has a working board;
       // it just did not get the storage benefit for this one image.
-      logger.warn("could not move embedded image to storage", { fileId, error });
+      const storageError =
+        error instanceof Error
+          ? Object.fromEntries(
+              Object.getOwnPropertyNames(error).map((property) => [
+                property,
+                (error as unknown as Record<string, unknown>)[property],
+              ]),
+            )
+          : error;
+      logger.warn("could not move embedded image to storage", { fileId, error: storageError });
       return;
     }
 

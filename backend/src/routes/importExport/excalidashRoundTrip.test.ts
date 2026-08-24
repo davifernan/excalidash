@@ -75,6 +75,7 @@ describe("ExcaliDash backup round trip", () => {
           drawingFindUniqueCalls += 1;
           return exportedDrawing;
         },
+        update: async () => undefined,
       },
       collection: {
         findMany: async () => [],

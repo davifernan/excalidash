@@ -4,7 +4,7 @@
  * write path itself. See assetService.integration.ts for the same reasoning
  * about why a fake would only mirror the implementation here.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,6 +64,19 @@ describe("processEmbeddedImages", () => {
       where: { drawingId_fileId: { drawingId, fileId: "file-1" } },
     });
     expect(stored?.mimeType).toBe("image/png");
+  });
+
+  it("logs the complete Prisma failure when the drawing foreign key is missing", async () => {
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const files = { "file-1": { id: "file-1", mimeType: "image/png", dataURL: PNG_DATA_URL } };
+
+    await processEmbeddedImages(deps(), files, ownerId, "missing-drawing");
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"code":"P2003"'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"modelName":"DrawingFile"'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"field_name":"foreign key"'));
+    warn.mockRestore();
   });
 
   it("leaves an already-processed dataURL untouched", async () => {

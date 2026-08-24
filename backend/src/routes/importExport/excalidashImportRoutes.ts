@@ -28,6 +28,7 @@ import {
   verifyEntrySha256,
 } from "./excalidashImportSupport";
 import { claimOnBoard, claimOnCollection } from "../../authz/boards";
+import { rewritePreviewFileReferences } from "../../fileProcessing";
 
 export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) => {
   const { app, prisma, requireAuth, asyncHandler, upload, uploadDir, processEmbeddedImages } = deps;
@@ -236,24 +237,6 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
           }
           return remapped;
         };
-
-        const processedFilesMap = new Map<string, Record<string, any>>();
-        const concurrency = 8;
-        for (let start = 0; start < preparedDrawings.length; start += concurrency) {
-          const batch = preparedDrawings
-            .slice(start, start + concurrency)
-            .map(async (prepared) => ({
-              id: prepared.id,
-              files: await processEmbeddedImages(
-                pointFilesAtImportedDrawing(prepared.id, prepared.sanitized.files || {}),
-                req.user!.id,
-                finalDrawingIdMap.get(prepared.id)!,
-              ),
-            }));
-          for (const result of await Promise.all(batch))
-            processedFilesMap.set(result.id, result.files);
-        }
-
         const result = await prisma.$transaction(async (tx) => {
           for (const [id, stored] of newBlobRows) {
             await tx.storedBlob.create({
@@ -337,7 +320,10 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               name: prepared.name,
               elements: JSON.stringify(prepared.sanitized.elements),
               appState: JSON.stringify(prepared.sanitized.appState),
-              files: JSON.stringify(processedFilesMap.get(prepared.id) ?? {}),
+              // Keep the embedded fallback until the Drawing row exists. A
+              // DrawingFile upsert before this transaction commits can only
+              // violate its drawingId foreign key.
+              files: JSON.stringify(prepared.sanitized.files ?? {}),
               preview: prepared.sanitized.preview ?? null,
               version: prepared.version ?? 1,
               collectionId: resolveCollectionId(prepared.collectionId),
@@ -442,6 +428,40 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
           };
         });
         committed = true;
+        // Establish every Drawing foreign-key target before binding embedded
+        // images to it. The scene keeps its base64 fallback through the import
+        // transaction and is rewritten only after each DrawingFile succeeds.
+        const fileProcessingConcurrency = 8;
+        for (let start = 0; start < preparedDrawings.length; start += fileProcessingConcurrency) {
+          await Promise.all(
+            preparedDrawings
+              .slice(start, start + fileProcessingConcurrency)
+              .map(async (prepared) => {
+                const drawingId = finalDrawingIdMap.get(prepared.id)!;
+                const originalFiles = pointFilesAtImportedDrawing(
+                  prepared.id,
+                  prepared.sanitized.files ?? {},
+                );
+                const processedFiles = await processEmbeddedImages(
+                  originalFiles,
+                  req.user!.id,
+                  drawingId,
+                );
+                const processedPreview = rewritePreviewFileReferences(
+                  prepared.sanitized.preview ?? null,
+                  originalFiles,
+                  processedFiles,
+                );
+                await prisma.drawing.update({
+                  where: { id: drawingId },
+                  data: {
+                    files: JSON.stringify(processedFiles),
+                    preview: typeof processedPreview === "string" ? processedPreview : null,
+                  },
+                });
+              }),
+          );
+        }
         deps.invalidateDrawingsCache();
         return res.json({ success: true, message: "Backup imported successfully", ...result });
       } catch (error) {

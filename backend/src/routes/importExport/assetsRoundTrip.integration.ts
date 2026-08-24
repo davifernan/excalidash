@@ -22,6 +22,10 @@ import { processEmbeddedImages } from "../../fileProcessing";
 const MIB = 1024 * 1024;
 
 describe("document backup and export round trip", () => {
+  const tinyPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/58BAwAI/AL+hc2rNAAAAABJRU5ErkJggg==",
+    "base64",
+  );
   let prisma: PrismaClient;
   let root: string;
   let uploadDir: string;
@@ -290,6 +294,60 @@ describe("document backup and export round trip", () => {
     expect(restoredBytes).toEqual(optimizedPdf);
   });
 
+  it("moves an embedded image only after the backup import creates its drawing", async () => {
+    const user = await createTestUser(prisma, "embedded-backup@example.com");
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const drawing = await prisma.drawing.create({
+      data: {
+        name: "Embedded image backup",
+        elements: "[]",
+        appState: "{}",
+        files: JSON.stringify({
+          "backup-image": {
+            id: "backup-image",
+            mimeType: "image/png",
+            dataURL,
+          },
+        }),
+        preview: `<svg><image href="${dataURL}" /></svg>`,
+        userId: user.id,
+      },
+    });
+
+    const { exportHandler, importHandler } = routeHarness();
+    const archive = await exportArchive(exportHandler, user.id);
+    await prisma.drawing.delete({ where: { id: drawing.id } });
+    const stagedFilename = "c".repeat(32);
+    await fs.writeFile(join(uploadDir, stagedFilename), archive);
+    const response: any = {
+      statusCode: 200,
+      status(code: number) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body: unknown) {
+        this.body = body;
+        return this;
+      },
+    };
+    await importHandler({ user: { id: user.id }, file: { filename: stagedFilename } }, response);
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(200);
+
+    const restored = await prisma.drawing.findFirst({ where: { userId: user.id } });
+    expect(restored).toBeTruthy();
+    expect(restored!.id).not.toBe(drawing.id);
+    const stored = await prisma.drawingFile.findUnique({
+      where: { drawingId_fileId: { drawingId: restored!.id, fileId: "backup-image" } },
+      include: { blob: true },
+    });
+    const expectedReference = `/api/files/${restored!.id}/backup-image`;
+    expect(JSON.parse(restored!.files)["backup-image"].dataURL).toBe(expectedReference);
+    expect(stored?.blob.purpose).toBe("IMAGE");
+    expect(await fs.readFile(resolveStoragePath(assetStorageDir, stored!.blob.storageKey))).toEqual(
+      tinyPng,
+    );
+  });
+
   it("restores an uploaded board image on an empty instance with new drawing and blob ids", async () => {
     const sourceUser = await createTestUser(prisma, "image-source@example.com");
     const sourceDrawing = await prisma.drawing.create({
@@ -338,7 +396,7 @@ describe("document backup and export round trip", () => {
     await fs.mkdir(assetStorageDir, { recursive: true });
     const targetUser = await createTestUser(prisma, "image-target@example.com");
     const drawingLookup = vi.spyOn(prisma.drawing, "findUnique");
-    const stagedFilename = "c".repeat(32);
+    const stagedFilename = "d".repeat(32);
     await fs.writeFile(join(uploadDir, stagedFilename), archive);
     const response: any = {
       statusCode: 200,

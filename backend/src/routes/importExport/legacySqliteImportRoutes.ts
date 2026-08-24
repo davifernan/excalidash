@@ -14,6 +14,7 @@ import {
   sanitizeDrawingData,
 } from "./shared";
 import { claimOnBoard, isBoardCreator, isCollectionCreator } from "../../authz/boards";
+import { rewritePreviewFileReferences } from "../../fileProcessing";
 export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps) => {
   const {
     app,
@@ -266,25 +267,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
             }
             finalDrawingIdMap.set(i, finalId);
           }
-          const S3_UPLOAD_CONCURRENCY = 8;
-          const processedFilesMap = new Map<number, Record<string, any>>();
-          for (let start = 0; start < preparedDrawings.length; start += S3_UPLOAD_CONCURRENCY) {
-            const batch = preparedDrawings
-              .slice(start, start + S3_UPLOAD_CONCURRENCY)
-              .map((d, offset) => {
-                const i = start + offset;
-                const files = d.sanitized.files || {};
-                const finalId = finalDrawingIdMap.get(i)!;
-                return processEmbeddedImages(files, req.user!.id, finalId).then((processed) => ({
-                  i,
-                  processed,
-                }));
-              });
-            const results = await Promise.all(batch);
-            for (const { i, processed } of results) {
-              processedFilesMap.set(i, processed);
-            }
-          }
+          const persistedDrawingIdMap = new Map<number, string>();
           const result = await prisma.$transaction(async (tx) => {
             const trashCollectionId = getUserTrashCollectionId(req.user!.id);
             const hasTrash = importedDrawings.some((d) => String(d.collectionId || "") === "trash");
@@ -364,7 +347,6 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
             };
             for (let i = 0; i < preparedDrawings.length; i++) {
               const d = preparedDrawings[i];
-              const processedFiles = processedFilesMap.get(i) ?? {};
               const resolvedCollectionId = resolveImportedCollectionId(
                 d.collectionIdRaw,
                 d.collectionNameRaw,
@@ -380,13 +362,14 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                     name: d.name,
                     elements: JSON.stringify(d.sanitized.elements),
                     appState: JSON.stringify(d.sanitized.appState),
-                    files: JSON.stringify(processedFiles),
+                    files: JSON.stringify(d.sanitized.files ?? {}),
                     preview: d.sanitized.preview ?? null,
                     version: Number.isFinite(Number(d.versionRaw)) ? Number(d.versionRaw) : 1,
                     userId: req.user!.id,
                     collectionId: resolvedCollectionId ?? null,
                   },
                 });
+                persistedDrawingIdMap.set(i, finalId);
                 drawingsCreated += 1;
                 continue;
               }
@@ -397,7 +380,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                     name: d.name,
                     elements: JSON.stringify(d.sanitized.elements),
                     appState: JSON.stringify(d.sanitized.appState),
-                    files: JSON.stringify(processedFiles),
+                    files: JSON.stringify(d.sanitized.files ?? {}),
                     preview: d.sanitized.preview ?? null,
                     version: Number.isFinite(Number(d.versionRaw))
                       ? Number(d.versionRaw)
@@ -405,6 +388,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                     collectionId: resolvedCollectionId ?? null,
                   },
                 });
+                persistedDrawingIdMap.set(i, existing.id);
                 drawingsUpdated += 1;
                 continue;
               }
@@ -424,13 +408,14 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                   name: d.name,
                   elements: JSON.stringify(d.sanitized.elements),
                   appState: JSON.stringify(d.sanitized.appState),
-                  files: JSON.stringify(processedFiles),
+                  files: JSON.stringify(d.sanitized.files ?? {}),
                   preview: d.sanitized.preview ?? null,
                   version: Number.isFinite(Number(d.versionRaw)) ? Number(d.versionRaw) : 1,
                   userId: req.user!.id,
                   collectionId: resolvedCollectionId ?? null,
                 },
               });
+              persistedDrawingIdMap.set(i, createId);
               drawingsCreated += 1;
               drawingIdConflicts += 1;
             }
@@ -447,6 +432,39 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
               },
             };
           });
+          // A DrawingFile cannot be bound until the imported Drawing row has
+          // committed. Preserve base64 through the transaction, then replace
+          // each successfully stored image (and preview occurrence) with the
+          // final drawing-scoped URL.
+          const fileProcessingConcurrency = 8;
+          for (let start = 0; start < preparedDrawings.length; start += fileProcessingConcurrency) {
+            await Promise.all(
+              preparedDrawings
+                .slice(start, start + fileProcessingConcurrency)
+                .map(async (d, offset) => {
+                  const i = start + offset;
+                  const drawingId = persistedDrawingIdMap.get(i)!;
+                  const originalFiles = d.sanitized.files ?? {};
+                  const processedFiles = await processEmbeddedImages(
+                    originalFiles,
+                    req.user!.id,
+                    drawingId,
+                  );
+                  const processedPreview = rewritePreviewFileReferences(
+                    d.sanitized.preview ?? null,
+                    originalFiles,
+                    processedFiles,
+                  );
+                  await prisma.drawing.update({
+                    where: { id: drawingId },
+                    data: {
+                      files: JSON.stringify(processedFiles),
+                      preview: typeof processedPreview === "string" ? processedPreview : null,
+                    },
+                  });
+                }),
+            );
+          }
           invalidateDrawingsCache();
           return res.json({ success: true, ...result });
         } catch {

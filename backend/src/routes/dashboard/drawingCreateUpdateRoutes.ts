@@ -112,14 +112,12 @@ export const registerDrawingCreateUpdateRoutes = (
 
       const newDrawingId = uuidv4();
       const originalFiles = payload.files ?? {};
-      const processedFiles = await processEmbeddedImages(originalFiles, ownerUserId, newDrawingId);
-      const processedPreview = rewritePreviewFileReferences(
-        payload.preview ?? null,
-        originalFiles,
-        processedFiles,
-      );
-
-      const newDrawing = await prisma.drawing.create({
+      // DrawingFile has a real foreign key to Drawing. Persist the board with
+      // its embedded-file fallback first; processing can then replace each
+      // successfully stored image with its drawing-scoped URL. The previous
+      // order attempted every DrawingFile upsert before this row existed,
+      // guaranteeing P2003 and silently leaving every image as base64.
+      let newDrawing = await prisma.drawing.create({
         data: {
           id: newDrawingId,
           name: drawingName,
@@ -128,9 +126,23 @@ export const registerDrawingCreateUpdateRoutes = (
           userId: ownerUserId,
           createdByUserId: req.user.id,
           collectionId: targetCollectionId,
+          preview: typeof payload.preview === "string" ? payload.preview : null,
+          files: JSON.stringify(originalFiles),
+          searchText: computeSearchText(drawingName, payload.elements),
+        },
+      });
+      const processedFiles = await processEmbeddedImages(originalFiles, ownerUserId, newDrawingId);
+      const processedPreview = rewritePreviewFileReferences(
+        payload.preview ?? null,
+        originalFiles,
+        processedFiles,
+      );
+
+      newDrawing = await prisma.drawing.update({
+        where: { id: newDrawingId },
+        data: {
           preview: typeof processedPreview === "string" ? processedPreview : null,
           files: JSON.stringify(processedFiles),
-          searchText: computeSearchText(drawingName, payload.elements),
         },
       });
       invalidateDrawingsCache();
