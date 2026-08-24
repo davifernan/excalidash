@@ -8,15 +8,18 @@ vi.mock("../../authz/sharing", async (importOriginal) => {
   return { ...actual, getDrawingAccess: (...args: unknown[]) => mockGetDrawingAccess(...args) };
 });
 
-const invoke = async (
-  app: express.Express,
-  method: "put" | "delete",
-  user: any,
-) => {
+const invoke = async (app: express.Express, method: "put" | "delete", user: any) => {
   const layer = (app as any).router.stack.find(
-    (candidate: any) => candidate.route?.path === "/drawings/:id/favorite" && candidate.route.methods[method],
+    (candidate: any) =>
+      candidate.route?.path === "/drawings/:id/favorite" && candidate.route.methods[method],
   );
-  const req: any = { params: { id: "drawing-1" }, body: {}, query: {}, headers: {}, connection: {} };
+  const req: any = {
+    params: { id: "drawing-1" },
+    body: {},
+    query: {},
+    headers: {},
+    connection: {},
+  };
   const res: any = {
     statusCode: 200,
     status(code: number) {

@@ -43,7 +43,11 @@ describe("DashboardToolbar filters (NIL-292)", () => {
   it("toggles favoritesOnly on click and reflects the active state", () => {
     const onToggleFavoritesOnly = vi.fn();
     render(
-      <DashboardToolbar {...baseProps} favoritesOnly={false} onToggleFavoritesOnly={onToggleFavoritesOnly} />,
+      <DashboardToolbar
+        {...baseProps}
+        favoritesOnly={false}
+        onToggleFavoritesOnly={onToggleFavoritesOnly}
+      />,
     );
 
     const button = screen.getByLabelText("Show favorites only");
@@ -60,7 +64,9 @@ describe("DashboardToolbar filters (NIL-292)", () => {
 
   it("toggles openOnly independently of favoritesOnly", () => {
     const onToggleOpenOnly = vi.fn();
-    render(<DashboardToolbar {...baseProps} openOnly={false} onToggleOpenOnly={onToggleOpenOnly} />);
+    render(
+      <DashboardToolbar {...baseProps} openOnly={false} onToggleOpenOnly={onToggleOpenOnly} />,
+    );
 
     const button = screen.getByLabelText("Show boards open right now");
     button.click();

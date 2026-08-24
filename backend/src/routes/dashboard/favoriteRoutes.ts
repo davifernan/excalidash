@@ -11,13 +11,8 @@ import type { DrawingRouteContext } from "./drawingRouteContext";
  * `/drawings/shared` as `isFavorite`, batched there rather than fetched here.
  */
 export const registerFavoriteRoutes = (app: express.Express, context: DrawingRouteContext) => {
-  const {
-    prisma,
-    requireAuth,
-    asyncHandler,
-    getRequestPrincipal,
-    invalidateDrawingsCache,
-  } = context;
+  const { prisma, requireAuth, asyncHandler, getRequestPrincipal, invalidateDrawingsCache } =
+    context;
 
   app.put(
     "/drawings/:id/favorite",

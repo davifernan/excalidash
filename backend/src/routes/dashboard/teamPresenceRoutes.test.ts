@@ -58,7 +58,9 @@ const buildApp = (presences: PresenceRegistry) => {
     drawingPermission: {
       findMany: vi
         .fn()
-        .mockResolvedValue([{ drawingId: "drawing-1", granteeUserId: "acct-me", permission: "edit" }]),
+        .mockResolvedValue([
+          { drawingId: "drawing-1", granteeUserId: "acct-me", permission: "edit" },
+        ]),
     },
     collection: { findMany: vi.fn().mockResolvedValue([]) },
     collectionShare: { findMany: vi.fn().mockResolvedValue([]) },
@@ -92,7 +94,10 @@ const buildApp = (presences: PresenceRegistry) => {
 describe("team presence", () => {
   it("reports a team member's board with a team-scoped key", async () => {
     const presences = new PresenceRegistry();
-    presences.join("drawing-1", entry({ presenceId: "s1", accountId: "acct-owner", kind: "owner" }));
+    presences.join(
+      "drawing-1",
+      entry({ presenceId: "s1", accountId: "acct-owner", kind: "owner" }),
+    );
     const { app } = buildApp(presences);
 
     const res = await invoke(app, { ids: "drawing-1" }, { id: "acct-me" });
@@ -118,7 +123,10 @@ describe("team presence", () => {
 
   it("reports one board per person even with two tabs open on two boards", async () => {
     const presences = new PresenceRegistry();
-    presences.join("drawing-1", entry({ presenceId: "s1", accountId: "acct-owner", kind: "owner" }));
+    presences.join(
+      "drawing-1",
+      entry({ presenceId: "s1", accountId: "acct-owner", kind: "owner" }),
+    );
     const { app } = buildApp(presences);
 
     const res = await invoke(app, { ids: "drawing-1" }, { id: "acct-me" });
@@ -129,7 +137,11 @@ describe("team presence", () => {
   it("is not an agent endpoint", async () => {
     const { app } = buildApp(new PresenceRegistry());
 
-    const res = await invoke(app, { ids: "drawing-1" }, { id: "acct-me", authCredentialType: "apiKey" });
+    const res = await invoke(
+      app,
+      { ids: "drawing-1" },
+      { id: "acct-me", authCredentialType: "apiKey" },
+    );
 
     expect(res.statusCode).toBe(403);
   });

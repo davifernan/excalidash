@@ -48,7 +48,9 @@ describe("DrawingsGrid empty state (NIL-292)", () => {
 
   it("explains an empty favorites filter, with a way to clear it", () => {
     const onClearFavoritesOnly = vi.fn();
-    render(<DrawingsGrid {...baseProps} favoritesOnly onClearFavoritesOnly={onClearFavoritesOnly} />);
+    render(
+      <DrawingsGrid {...baseProps} favoritesOnly onClearFavoritesOnly={onClearFavoritesOnly} />,
+    );
     expect(screen.getByText("No favorites yet")).toBeInTheDocument();
     screen.getByText("Clear filter").click();
     expect(onClearFavoritesOnly).toHaveBeenCalled();
@@ -65,7 +67,13 @@ describe("DrawingsGrid empty state (NIL-292)", () => {
       <DrawingsGrid
         {...baseProps}
         isSharedCollection
-        currentCollection={{ id: "c1", name: "Team Board", createdAt: 0, isOwner: false, sharedRole: "view" }}
+        currentCollection={{
+          id: "c1",
+          name: "Team Board",
+          createdAt: 0,
+          isOwner: false,
+          sharedRole: "view",
+        }}
       />,
     );
     expect(screen.getByText(/ask an editor to add one/i)).toBeInTheDocument();
@@ -76,10 +84,18 @@ describe("DrawingsGrid empty state (NIL-292)", () => {
       <DrawingsGrid
         {...baseProps}
         isSharedCollection
-        currentCollection={{ id: "c1", name: "Team Board", createdAt: 0, isOwner: false, sharedRole: "edit" }}
+        currentCollection={{
+          id: "c1",
+          name: "Team Board",
+          createdAt: 0,
+          isOwner: false,
+          sharedRole: "edit",
+        }}
       />,
     );
-    expect(screen.getByText("Create the first board in this collection to get started!")).toBeInTheDocument();
+    expect(
+      screen.getByText("Create the first board in this collection to get started!"),
+    ).toBeInTheDocument();
   });
 
   it("keeps the plain trash message even when a filter happens to be set", () => {

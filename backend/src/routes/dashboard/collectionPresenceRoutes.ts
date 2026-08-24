@@ -21,7 +21,10 @@ import type { DashboardRouteDeps } from "./types";
  * if the collection roster already recognises it as a member -- the same
  * "holding a link is not a claim" rule `presenceRoutes.ts` applies per board.
  */
-export const registerCollectionPresenceRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
+export const registerCollectionPresenceRoutes = (
+  app: express.Express,
+  deps: DashboardRouteDeps,
+) => {
   const { prisma, requireAuth, asyncHandler, subjectKeySecret, presences } = deps;
 
   const collectionPresenceRateLimiter = rateLimit({

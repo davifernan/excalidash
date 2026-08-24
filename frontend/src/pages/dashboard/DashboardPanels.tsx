@@ -141,7 +141,8 @@ const getEmptyState = (params: {
   canEditCollection: boolean;
 }): EmptyState => {
   if (params.isTrashView) return { title: "Your trash is empty", subtitle: null };
-  if (params.search) return { title: "No drawings found", subtitle: `No results for "${params.search}"` };
+  if (params.search)
+    return { title: "No drawings found", subtitle: `No results for "${params.search}"` };
   if (params.openOnly) {
     return {
       title: "Nothing open right now",
@@ -234,101 +235,99 @@ export const DrawingsGrid: React.FC<DrawingsGridProps> = ({
         )}
         style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
       >
-        {drawings.length === 0 ? (
-          (() => {
-            const emptyState = getEmptyState({
-              isTrashView,
-              search,
-              favoritesOnly,
-              openOnly,
-              isSharedView,
-              isSharedCollection,
-              canEditCollection: currentCollection?.sharedRole === "edit",
-            });
-            const EmptyIcon = isTrashView
-              ? Trash2
-              : openOnly
-                ? Radio
-                : favoritesOnly
-                  ? Star
-                  : Inbox;
-            return (
-              <div className="col-span-full flex flex-col items-center justify-center py-16 sm:py-32 text-slate-400 dark:text-neutral-500 border-2 border-dashed border-slate-200 dark:border-neutral-700 rounded-3xl bg-slate-50/50 dark:bg-neutral-800/50">
-                <div className="w-20 h-20 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center mb-6">
-                  <EmptyIcon size={32} className="text-slate-300 dark:text-slate-600" />
-                </div>
-                <p className="text-lg font-semibold text-slate-600 dark:text-slate-400">
-                  {emptyState.title}
-                </p>
-                {emptyState.subtitle && (
-                  <p className="text-sm mt-2 text-slate-400 dark:text-neutral-500 max-w-xs text-center">
-                    {emptyState.subtitle}
+        {drawings.length === 0
+          ? (() => {
+              const emptyState = getEmptyState({
+                isTrashView,
+                search,
+                favoritesOnly,
+                openOnly,
+                isSharedView,
+                isSharedCollection,
+                canEditCollection: currentCollection?.sharedRole === "edit",
+              });
+              const EmptyIcon = isTrashView
+                ? Trash2
+                : openOnly
+                  ? Radio
+                  : favoritesOnly
+                    ? Star
+                    : Inbox;
+              return (
+                <div className="col-span-full flex flex-col items-center justify-center py-16 sm:py-32 text-slate-400 dark:text-neutral-500 border-2 border-dashed border-slate-200 dark:border-neutral-700 rounded-3xl bg-slate-50/50 dark:bg-neutral-800/50">
+                  <div className="w-20 h-20 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center mb-6">
+                    <EmptyIcon size={32} className="text-slate-300 dark:text-slate-600" />
+                  </div>
+                  <p className="text-lg font-semibold text-slate-600 dark:text-slate-400">
+                    {emptyState.title}
                   </p>
-                )}
-                {search && (
-                  <button
-                    onClick={onClearSearch}
-                    className="mt-4 text-indigo-600 dark:text-indigo-400 font-medium hover:underline text-sm"
-                  >
-                    Clear search
-                  </button>
-                )}
-                {!search && openOnly && onClearOpenOnly && (
-                  <button
-                    onClick={onClearOpenOnly}
-                    className="mt-4 text-indigo-600 dark:text-indigo-400 font-medium hover:underline text-sm"
-                  >
-                    Clear filter
-                  </button>
-                )}
-                {!search && !openOnly && favoritesOnly && onClearFavoritesOnly && (
-                  <button
-                    onClick={onClearFavoritesOnly}
-                    className="mt-4 text-indigo-600 dark:text-indigo-400 font-medium hover:underline text-sm"
-                  >
-                    Clear filter
-                  </button>
-                )}
-              </div>
-            );
-          })()
-        ) : (
-          drawings.map((drawing) => {
-            const cardDrawing =
-              isSharedCollection && currentCollection?.sharedRole
-                ? { ...drawing, accessLevel: currentCollection.sharedRole }
-                : drawing;
-            return (
-              <DrawingCard
-                key={drawing.id}
-                drawing={cardDrawing}
-                collections={collections}
-                isSelected={selectedIds.has(drawing.id)}
-                isTrash={isTrashView}
-                isSharedCollection={isSharedCollection}
-                isShared={isSharedView || isSharedCollection}
-                onToggleSelection={(event) => onToggleSelection(drawing.id, event)}
-                onRename={onRename}
-                onDelete={onDelete}
-                onDuplicate={onDuplicate}
-                onMoveToCollection={onMoveToCollection}
-                onClick={(id, event) => {
-                  if (selectedIds.size > 0 || event.shiftKey || event.metaKey || event.ctrlKey) {
-                    onToggleSelection(id, event);
-                  } else {
-                    onOpenDrawing(id);
-                  }
-                }}
-                onMouseDown={onMouseDown}
-                onDragStart={onDragStart}
-                onPreviewGenerated={onPreviewGenerated}
-                onlineKeys={presenceKeysFor(presence, drawing.id)}
-                guestCount={guestCountFor(presence, drawing.id)}
-                onToggleFavorite={isTrashView ? undefined : onToggleFavorite}
-              />
-            );
-          })
-        )}
+                  {emptyState.subtitle && (
+                    <p className="text-sm mt-2 text-slate-400 dark:text-neutral-500 max-w-xs text-center">
+                      {emptyState.subtitle}
+                    </p>
+                  )}
+                  {search && (
+                    <button
+                      onClick={onClearSearch}
+                      className="mt-4 text-indigo-600 dark:text-indigo-400 font-medium hover:underline text-sm"
+                    >
+                      Clear search
+                    </button>
+                  )}
+                  {!search && openOnly && onClearOpenOnly && (
+                    <button
+                      onClick={onClearOpenOnly}
+                      className="mt-4 text-indigo-600 dark:text-indigo-400 font-medium hover:underline text-sm"
+                    >
+                      Clear filter
+                    </button>
+                  )}
+                  {!search && !openOnly && favoritesOnly && onClearFavoritesOnly && (
+                    <button
+                      onClick={onClearFavoritesOnly}
+                      className="mt-4 text-indigo-600 dark:text-indigo-400 font-medium hover:underline text-sm"
+                    >
+                      Clear filter
+                    </button>
+                  )}
+                </div>
+              );
+            })()
+          : drawings.map((drawing) => {
+              const cardDrawing =
+                isSharedCollection && currentCollection?.sharedRole
+                  ? { ...drawing, accessLevel: currentCollection.sharedRole }
+                  : drawing;
+              return (
+                <DrawingCard
+                  key={drawing.id}
+                  drawing={cardDrawing}
+                  collections={collections}
+                  isSelected={selectedIds.has(drawing.id)}
+                  isTrash={isTrashView}
+                  isSharedCollection={isSharedCollection}
+                  isShared={isSharedView || isSharedCollection}
+                  onToggleSelection={(event) => onToggleSelection(drawing.id, event)}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                  onDuplicate={onDuplicate}
+                  onMoveToCollection={onMoveToCollection}
+                  onClick={(id, event) => {
+                    if (selectedIds.size > 0 || event.shiftKey || event.metaKey || event.ctrlKey) {
+                      onToggleSelection(id, event);
+                    } else {
+                      onOpenDrawing(id);
+                    }
+                  }}
+                  onMouseDown={onMouseDown}
+                  onDragStart={onDragStart}
+                  onPreviewGenerated={onPreviewGenerated}
+                  onlineKeys={presenceKeysFor(presence, drawing.id)}
+                  guestCount={guestCountFor(presence, drawing.id)}
+                  onToggleFavorite={isTrashView ? undefined : onToggleFavorite}
+                />
+              );
+            })}
         {dataStatus.loadMoreError && (
           <div className="col-span-full">
             <DataFailureNotice

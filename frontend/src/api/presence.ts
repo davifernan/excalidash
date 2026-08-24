@@ -48,7 +48,9 @@ export type TeamMemberPresence = { subjectKey: string; drawingId: string };
  * keys, one board per person. Same client-supplied-ids trust boundary as
  * `getDashboardPresence`: a board the caller cannot see contributes nothing.
  */
-export const getTeamPresence = async (drawingIds: readonly string[]): Promise<TeamMemberPresence[]> => {
+export const getTeamPresence = async (
+  drawingIds: readonly string[],
+): Promise<TeamMemberPresence[]> => {
   if (drawingIds.length === 0) return [];
   const response = await api.get<{ results: TeamMemberPresence[] }>("/team/presence", {
     params: { ids: drawingIds.join(",") },

@@ -141,7 +141,9 @@ export type CollectionPresence = { keys: ReadonlySet<string>; guestCount: number
  * `CollectionTeamBar` must not read "we haven't asked yet" as "confirmed
  * nobody online" (NIL-272).
  */
-export const useCollectionPresence = (collectionId: string | undefined): CollectionPresence | null => {
+export const useCollectionPresence = (
+  collectionId: string | undefined,
+): CollectionPresence | null => {
   const [presence, setPresence] = useState<CollectionPresence | null>(null);
 
   useEffect(() => {

@@ -54,9 +54,7 @@ const buildApp = (presences: PresenceRegistry) => {
     },
     collectionShare: {
       findMany: vi.fn(async ({ where }: any) =>
-        where.collectionId === "col-1"
-          ? [{ granteeUserId: "acct-max", role: "edit" }]
-          : [],
+        where.collectionId === "col-1" ? [{ granteeUserId: "acct-max", role: "edit" }] : [],
       ),
     },
     user: {
@@ -69,9 +67,7 @@ const buildApp = (presences: PresenceRegistry) => {
     },
     drawing: {
       findMany: vi.fn(async ({ where }: any) =>
-        where.collectionId === "col-1"
-          ? [{ id: "board-1" }, { id: "board-2" }]
-          : [],
+        where.collectionId === "col-1" ? [{ id: "board-1" }, { id: "board-2" }] : [],
       ),
     },
   };
@@ -143,7 +139,11 @@ describe("collection presence", () => {
   it("is not an agent endpoint", async () => {
     const { app } = buildApp(new PresenceRegistry());
 
-    const res = await invoke(app, { id: "col-1" }, { id: "acct-max", authCredentialType: "apiKey" });
+    const res = await invoke(
+      app,
+      { id: "col-1" },
+      { id: "acct-max", authCredentialType: "apiKey" },
+    );
 
     expect(res.statusCode).toBe(403);
   });

@@ -17,17 +17,23 @@ const drawing = (id: string, name: string): DrawingSummary => ({
 describe("CurrentlyOpenStrip", () => {
   it("renders nothing when presence is unknown", () => {
     render(
-      <CurrentlyOpenStrip drawings={[drawing("d1", "Roadmap")]} presence={null} onOpenDrawing={() => {}} />,
+      <CurrentlyOpenStrip
+        drawings={[drawing("d1", "Roadmap")]}
+        presence={null}
+        onOpenDrawing={() => {}}
+      />,
     );
     expect(screen.queryByTestId("currently-open-strip")).not.toBeInTheDocument();
   });
 
   it("renders nothing when every board is confirmed empty", () => {
-    const presence: PresenceByDrawing = new Map([
-      ["d1", { keys: new Set(), guestCount: 0 }],
-    ]);
+    const presence: PresenceByDrawing = new Map([["d1", { keys: new Set(), guestCount: 0 }]]);
     render(
-      <CurrentlyOpenStrip drawings={[drawing("d1", "Roadmap")]} presence={presence} onOpenDrawing={() => {}} />,
+      <CurrentlyOpenStrip
+        drawings={[drawing("d1", "Roadmap")]}
+        presence={presence}
+        onOpenDrawing={() => {}}
+      />,
     );
     expect(screen.queryByTestId("currently-open-strip")).not.toBeInTheDocument();
   });
@@ -41,7 +47,11 @@ describe("CurrentlyOpenStrip", () => {
     ]);
     render(
       <CurrentlyOpenStrip
-        drawings={[drawing("d1", "Roadmap Q4"), drawing("d2", "Empty Board"), drawing("d3", "Unwatched Board")]}
+        drawings={[
+          drawing("d1", "Roadmap Q4"),
+          drawing("d2", "Empty Board"),
+          drawing("d3", "Unwatched Board"),
+        ]}
         presence={presence}
         onOpenDrawing={() => {}}
       />,
@@ -55,7 +65,11 @@ describe("CurrentlyOpenStrip", () => {
   it("counts a guest-only board as open too", () => {
     const presence: PresenceByDrawing = new Map([["d1", { keys: new Set(), guestCount: 1 }]]);
     render(
-      <CurrentlyOpenStrip drawings={[drawing("d1", "Guest Board")]} presence={presence} onOpenDrawing={() => {}} />,
+      <CurrentlyOpenStrip
+        drawings={[drawing("d1", "Guest Board")]}
+        presence={presence}
+        onOpenDrawing={() => {}}
+      />,
     );
     expect(screen.getByText("Guest Board")).toBeInTheDocument();
   });

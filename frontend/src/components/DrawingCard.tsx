@@ -216,7 +216,11 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
                   : "bg-white dark:bg-neutral-800 text-slate-700 dark:text-neutral-200 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus:opacity-100",
               )}
             >
-              <Star size={16} aria-hidden="true" fill={drawing.isFavorite ? "currentColor" : "none"} />
+              <Star
+                size={16}
+                aria-hidden="true"
+                fill={drawing.isFavorite ? "currentColor" : "none"}
+              />
             </button>
           )}
           <button

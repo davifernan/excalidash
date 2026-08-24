@@ -197,9 +197,13 @@ describe("drawing list provenance (NIL-290)", () => {
     prisma.collectionShare.findFirst = vi.fn().mockResolvedValue({ role: "view" });
     prisma.drawingLinkShare.findMany = vi.fn();
 
-    const res = await invoke(app, { id: "account-1", authCredentialType: "jwt" }, {
-      query: { collectionId: "col-1" },
-    });
+    const res = await invoke(
+      app,
+      { id: "account-1", authCredentialType: "jwt" },
+      {
+        query: { collectionId: "col-1" },
+      },
+    );
 
     expect(res.payload.drawings[0].accessVia).toBe("collection");
     expect(res.payload.drawings[0]).not.toHaveProperty("linkShared");
@@ -209,9 +213,13 @@ describe("drawing list provenance (NIL-290)", () => {
   it("marks every board on the shared-with-me list as accessVia direct", async () => {
     const { app } = buildApp();
 
-    const res = await invoke(app, { id: "account-1", authCredentialType: "jwt" }, {
-      path: "/drawings/shared",
-    });
+    const res = await invoke(
+      app,
+      { id: "account-1", authCredentialType: "jwt" },
+      {
+        path: "/drawings/shared",
+      },
+    );
 
     expect(res.payload.drawings[0].accessVia).toBe("direct");
   });
@@ -259,9 +267,13 @@ describe("drawing list favorites (NIL-292)", () => {
     prisma.drawing.count = vi.fn().mockResolvedValue(1);
     prisma.drawingFavorite.findMany = vi.fn().mockResolvedValue([{ drawingId: "drawing-1" }]);
 
-    const res = await invoke(app, { id: "account-1", authCredentialType: "jwt" }, {
-      query: { favoritesOnly: "true" },
-    });
+    const res = await invoke(
+      app,
+      { id: "account-1", authCredentialType: "jwt" },
+      {
+        query: { favoritesOnly: "true" },
+      },
+    );
 
     const listWhere = capturedWheres.find((where) => where?.userId);
     expect(listWhere.favoritedBy).toEqual({ some: { userId: "account-1" } });

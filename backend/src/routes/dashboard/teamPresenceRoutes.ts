@@ -74,10 +74,13 @@ export const registerTeamPresenceRoutes = (app: express.Express, deps: Dashboard
         }
       }
 
-      const results: TeamPresenceResult[] = Array.from(byMember, ([memberSubjectKey, drawingId]) => ({
-        subjectKey: memberSubjectKey,
-        drawingId,
-      }));
+      const results: TeamPresenceResult[] = Array.from(
+        byMember,
+        ([memberSubjectKey, drawingId]) => ({
+          subjectKey: memberSubjectKey,
+          drawingId,
+        }),
+      );
 
       res.set("Cache-Control", "private, no-store");
       return res.json({ results });
