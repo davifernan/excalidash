@@ -49,15 +49,20 @@ type DeliveryPacket = {
   acknowledge: () => void;
 };
 
-type PendingUpdate = {
+type PendingSceneUpdate = {
   elements: readonly any[];
-  files?: Record<string, any>;
-  filesOnly: boolean;
+  files: Record<string, any>;
 };
 
-type RejectedFileAttempt = {
+type FileContentAttempt = {
   dataURL: unknown;
   metadata: string;
+};
+
+type FileDeliveryState = {
+  desiredFile: any;
+  queued: boolean;
+  retryTimeout: number | null;
 };
 
 type ElementUpdateAck = {
@@ -66,7 +71,7 @@ type ElementUpdateAck = {
   warning?: { code?: string; message?: string };
 };
 
-const rejectedFileAttempt = (file: any): RejectedFileAttempt => {
+const fileContentAttempt = (file: any): FileContentAttempt => {
   if (!file || typeof file !== "object") {
     return { dataURL: undefined, metadata: JSON.stringify(file) ?? String(file) };
   }
@@ -74,8 +79,8 @@ const rejectedFileAttempt = (file: any): RejectedFileAttempt => {
   return { dataURL, metadata: JSON.stringify(metadata) };
 };
 
-const isSameRejectedFileAttempt = (previous: RejectedFileAttempt, file: any): boolean => {
-  const next = rejectedFileAttempt(file);
+const isSameFileContent = (previous: FileContentAttempt, file: any): boolean => {
+  const next = fileContentAttempt(file);
   return previous.dataURL === next.dataURL && previous.metadata === next.metadata;
 };
 
@@ -104,15 +109,20 @@ export const useEditorBroadcast = ({
   setHasSceneChangesSinceLoad,
 }: UseEditorBroadcastParams) => {
   const throttleTimeoutRef = useRef<number | null>(null);
-  const retryTimeoutRef = useRef<number | null>(null);
+  const sceneRetryTimeoutRef = useRef<number | null>(null);
   const deliveryGenerationRef = useRef(0);
-  const sendingRef = useRef(false);
-  const pendingUpdateRef = useRef<PendingUpdate | null>(null);
-  const rejectedFileAttemptsRef = useRef(new Map<string, RejectedFileAttempt>());
+  // File packets use a fair, per-file retry queue so one slow upload cannot
+  // monopolize collaboration. Scene packets stay on a separate serialized
+  // lane because element versions and elementOrder must never overtake.
+  const sceneSendingRef = useRef(false);
+  const pendingSceneUpdateRef = useRef<PendingSceneUpdate | null>(null);
+  const fileDeliveryQueueRef = useRef<string[]>([]);
+  const fileDeliveryStatesRef = useRef(new Map<string, FileDeliveryState>());
+  const activeFileDeliveryRef = useRef<string | null>(null);
+  const rejectedFileAttemptsRef = useRef(new Map<string, FileContentAttempt>());
   const rejectedFilesDrawingIdRef = useRef<string | undefined>(drawingId);
-  const queueUpdateRef = useRef<
-    (elements: readonly any[], files?: Record<string, any>, filesOnly?: boolean) => boolean
-  >(() => false);
+  const drainFileDeliveriesRef = useRef<() => void>(() => undefined);
+  const drainSceneDeliveryRef = useRef<() => void>(() => undefined);
   const lastRunAtRef = useRef(0);
   const trailingArgsRef = useRef<[readonly any[], Record<string, any> | undefined] | null>(null);
   const deliverPackets = useCallback(
@@ -136,8 +146,8 @@ export const useEditorBroadcast = ({
         }
         const socket = socketRef.current;
         if (!socket) {
-          retryTimeoutRef.current = window.setTimeout(() => {
-            retryTimeoutRef.current = null;
+          sceneRetryTimeoutRef.current = window.setTimeout(() => {
+            sceneRetryTimeoutRef.current = null;
             sendCurrent();
           }, ELEMENT_UPDATE_RETRY_DELAY_MS);
           return;
@@ -150,8 +160,8 @@ export const useEditorBroadcast = ({
           if (transportError || response?.error?.code === "rate-limited") {
             const message = response?.error?.message;
             if (typeof message === "string") toast.error(message);
-            retryTimeoutRef.current = window.setTimeout(() => {
-              retryTimeoutRef.current = null;
+            sceneRetryTimeoutRef.current = window.setTimeout(() => {
+              sceneRetryTimeoutRef.current = null;
               sendCurrent();
             }, ELEMENT_UPDATE_RETRY_DELAY_MS);
             return;
@@ -186,6 +196,211 @@ export const useEditorBroadcast = ({
     [socketRef],
   );
 
+  const drainFileDeliveries = useCallback(() => {
+    if (activeFileDeliveryRef.current !== null) return;
+    const generation = deliveryGenerationRef.current;
+
+    const scheduleRetry = (fileId: string, state: FileDeliveryState) => {
+      if (state.retryTimeout !== null) return;
+      state.retryTimeout = window.setTimeout(() => {
+        state.retryTimeout = null;
+        if (deliveryGenerationRef.current !== generation || state.queued) return;
+        state.queued = true;
+        fileDeliveryQueueRef.current.push(fileId);
+        drainFileDeliveriesRef.current();
+      }, ELEMENT_UPDATE_RETRY_DELAY_MS);
+    };
+
+    while (fileDeliveryQueueRef.current.length > 0) {
+      const fileId = fileDeliveryQueueRef.current.shift();
+      if (!fileId) continue;
+      const state = fileDeliveryStatesRef.current.get(fileId);
+      if (!state) continue;
+      state.queued = false;
+      if (state.retryTimeout !== null) continue;
+
+      const socket = socketRef.current;
+      if (!socket) {
+        scheduleRetry(fileId, state);
+        continue;
+      }
+
+      const attemptFile = state.desiredFile;
+      const attemptContent = fileContentAttempt(attemptFile);
+      const payload: ElementUpdatePayload = {
+        drawingId: drawingId!,
+        elements: [],
+        files: { [fileId]: attemptFile },
+      };
+      activeFileDeliveryRef.current = fileId;
+      let attemptSettled = false;
+      const acknowledge = (transportError: unknown, response?: ElementUpdateAck) => {
+        if (
+          attemptSettled ||
+          deliveryGenerationRef.current !== generation ||
+          activeFileDeliveryRef.current !== fileId
+        ) {
+          return;
+        }
+        attemptSettled = true;
+        activeFileDeliveryRef.current = null;
+        const currentState = fileDeliveryStatesRef.current.get(fileId);
+        if (!currentState) {
+          drainFileDeliveriesRef.current();
+          return;
+        }
+
+        if (transportError || response?.error?.code === "rate-limited") {
+          const message = response?.error?.message;
+          if (typeof message === "string") toast.error(message);
+          scheduleRetry(fileId, currentState);
+          // A failed file attempt yields the single file slot. A different
+          // file can now pass before this one becomes retryable again.
+          drainFileDeliveriesRef.current();
+          return;
+        }
+        if (!response?.ok) {
+          const message = response?.error?.message;
+          if (typeof message === "string") toast.error(message);
+          fileDeliveryStatesRef.current.delete(fileId);
+          drainFileDeliveriesRef.current();
+          return;
+        }
+
+        lastSyncedFilesRef.current = {
+          ...lastSyncedFilesRef.current,
+          [fileId]: attemptFile,
+        };
+        const warning = response.warning?.message;
+        if (typeof warning === "string") toast.error(warning);
+        if (isSameFileContent(attemptContent, currentState.desiredFile)) {
+          fileDeliveryStatesRef.current.delete(fileId);
+        } else if (!currentState.queued) {
+          currentState.queued = true;
+          fileDeliveryQueueRef.current.push(fileId);
+        }
+        drainSceneDeliveryRef.current();
+        drainFileDeliveriesRef.current();
+      };
+
+      if (typeof socket.timeout === "function") {
+        socket.timeout(ELEMENT_UPDATE_ACK_TIMEOUT_MS).emit("element-update", payload, acknowledge);
+      } else {
+        socket.emit("element-update", payload, (response: ElementUpdateAck) =>
+          acknowledge(null, response),
+        );
+      }
+      return;
+    }
+  }, [drawingId, lastSyncedFilesRef, socketRef]);
+
+  const queueFileDelivery = useCallback((fileId: string, file: any) => {
+    const existing = fileDeliveryStatesRef.current.get(fileId);
+    if (existing) {
+      if (isSameFileContent(fileContentAttempt(existing.desiredFile), file)) return;
+      existing.desiredFile = file;
+      if (
+        activeFileDeliveryRef.current !== fileId &&
+        existing.retryTimeout === null &&
+        !existing.queued
+      ) {
+        existing.queued = true;
+        fileDeliveryQueueRef.current.push(fileId);
+      }
+    } else {
+      fileDeliveryStatesRef.current.set(fileId, {
+        desiredFile: file,
+        queued: true,
+        retryTimeout: null,
+      });
+      fileDeliveryQueueRef.current.push(fileId);
+    }
+    drainFileDeliveriesRef.current();
+  }, []);
+
+  const drainSceneDelivery = useCallback(() => {
+    if (sceneSendingRef.current) return;
+    const pending = pendingSceneUpdateRef.current;
+    if (!pending || !drawingId) return;
+
+    const normalizedElements = normalizeImageElementStatus(pending.elements, pending.files);
+    const candidateChanges = normalizedElements.filter((element) => hasElementChanged(element));
+    const nextOrderSig = computeElementOrderSig(normalizedElements);
+    const shouldSyncOrder = nextOrderSig !== lastSyncedElementOrderSigRef.current;
+    const unconfirmedFileIds = new Set(
+      Object.keys(getFilesDelta(lastSyncedFilesRef.current, pending.files)),
+    );
+    const rejectedFileIds = new Set<string>();
+    for (const [fileId, attempt] of rejectedFileAttemptsRef.current) {
+      if (fileId in pending.files && isSameFileContent(attempt, pending.files[fileId])) {
+        rejectedFileIds.add(fileId);
+      }
+    }
+    const blockedFileIds = new Set([...unconfirmedFileIds, ...rejectedFileIds]);
+    const changes = candidateChanges.filter(
+      (element) => !referencesRejectedFile(element, blockedFileIds),
+    );
+    const hasBlockedImage = normalizedElements.some((element) =>
+      referencesRejectedFile(element, blockedFileIds),
+    );
+    const shouldDeliverOrder = shouldSyncOrder && !hasBlockedImage;
+
+    if (changes.length === 0 && !shouldDeliverOrder) {
+      if (!hasBlockedImage) pendingSceneUpdateRef.current = null;
+      return;
+    }
+
+    const elementOrder = shouldDeliverOrder
+      ? normalizedElements
+          .filter((element: any) => !element?.isDeleted)
+          .map((element: any) => element?.id)
+          .filter((id): id is string => Boolean(id))
+      : undefined;
+    const orderBytes = elementOrder ? elementOrderByteLength(elementOrder) : 0;
+    const packet: DeliveryPacket = {
+      payload: {
+        drawingId,
+        elements: changes,
+        elementOrder:
+          elementOrder && orderBytes <= ELEMENT_ORDER_BYTE_LIMIT ? elementOrder : undefined,
+        elementOrderOmittedBytes:
+          elementOrder && orderBytes > ELEMENT_ORDER_BYTE_LIMIT ? orderBytes : undefined,
+      },
+      acknowledge: () => {
+        changes.forEach((element) => recordElementVersion(element));
+        if (shouldDeliverOrder) {
+          lastSyncedElementOrderSigRef.current = nextOrderSig;
+        }
+      },
+    };
+
+    pendingSceneUpdateRef.current = null;
+    sceneSendingRef.current = true;
+    deliverPackets([packet], (delivered) => {
+      sceneSendingRef.current = false;
+      if (delivered && hasBlockedImage && pendingSceneUpdateRef.current === null) {
+        pendingSceneUpdateRef.current = pending;
+      } else if (!delivered) {
+        pendingSceneUpdateRef.current = null;
+      }
+      drainSceneDeliveryRef.current();
+    });
+  }, [
+    computeElementOrderSig,
+    deliverPackets,
+    drawingId,
+    hasElementChanged,
+    lastSyncedElementOrderSigRef,
+    lastSyncedFilesRef,
+    normalizeImageElementStatus,
+    recordElementVersion,
+  ]);
+
+  useEffect(() => {
+    drainFileDeliveriesRef.current = drainFileDeliveries;
+    drainSceneDeliveryRef.current = drainSceneDelivery;
+  }, [drainFileDeliveries, drainSceneDelivery]);
+
   const queueUpdate = useCallback(
     (elements: readonly any[], currentFiles?: Record<string, any>, filesOnly = false): boolean => {
       if (!socketRef.current || !drawingId) return false;
@@ -199,17 +414,7 @@ export const useEditorBroadcast = ({
         nextFiles = fileState.value;
       }
       const rawFilesDelta = getFilesDelta(lastSyncedFilesRef.current, nextFiles);
-      const shouldSyncFiles = Object.keys(rawFilesDelta).length > 0;
       if (Object.keys(nextFiles).length > 0) latestFilesRef.current = nextFiles;
-
-      if (sendingRef.current) {
-        const pending = pendingUpdateRef.current;
-        pendingUpdateRef.current =
-          pending && !pending.filesOnly && filesOnly
-            ? { ...pending, files: nextFiles }
-            : { elements, files: nextFiles, filesOnly };
-        return shouldSyncFiles;
-      }
 
       const normalizedElements = filesOnly
         ? elements
@@ -238,7 +443,7 @@ export const useEditorBroadcast = ({
         Object.entries(rawFilesDelta).filter(([fileId, file]) => {
           const previousAttempt = rejectedFileAttemptsRef.current.get(fileId);
           if (!previousAttempt) return true;
-          if (isSameRejectedFileAttempt(previousAttempt, file)) {
+          if (isSameFileContent(previousAttempt, file)) {
             rejectedFileIds.add(fileId);
             return false;
           }
@@ -247,19 +452,19 @@ export const useEditorBroadcast = ({
         }),
       );
 
-      let filePayloads = splitFilesIntoUpdatePayloads({ drawingId, files: deliverableFiles });
-      while (!filePayloads.ok) {
-        const rejectedFile = deliverableFiles[filePayloads.fileId];
+      let filePreflight = splitFilesIntoUpdatePayloads({ drawingId, files: deliverableFiles });
+      while (!filePreflight.ok) {
+        const rejectedFile = deliverableFiles[filePreflight.fileId];
         // This is a local refusal marker, not a delivery marker. Keeping the
         // exact rejected content separate from lastSyncedFilesRef prevents it
         // from blocking every later update without ever claiming server ACK.
-        rejectedFileAttemptsRef.current.set(filePayloads.fileId, rejectedFileAttempt(rejectedFile));
-        rejectedFileIds.add(filePayloads.fileId);
+        rejectedFileAttemptsRef.current.set(filePreflight.fileId, fileContentAttempt(rejectedFile));
+        rejectedFileIds.add(filePreflight.fileId);
         toast.error(
-          `File ${filePayloads.fileId} is too large for live collaboration (${filePayloads.payloadBytes} bytes)`,
+          `File ${filePreflight.fileId} is too large for live collaboration (${filePreflight.payloadBytes} bytes)`,
         );
-        delete deliverableFiles[filePayloads.fileId];
-        filePayloads = splitFilesIntoUpdatePayloads({ drawingId, files: deliverableFiles });
+        delete deliverableFiles[filePreflight.fileId];
+        filePreflight = splitFilesIntoUpdatePayloads({ drawingId, files: deliverableFiles });
       }
 
       const changes = candidateChanges.filter(
@@ -269,48 +474,23 @@ export const useEditorBroadcast = ({
         shouldSyncOrder &&
         !normalizedElements.some((element) => referencesRejectedFile(element, rejectedFileIds));
 
-      const packets: DeliveryPacket[] = filePayloads.payloads.map((payload) => ({
-        payload,
-        acknowledge: () => {
-          lastSyncedFilesRef.current = {
-            ...lastSyncedFilesRef.current,
-            ...payload.files,
-          };
-        },
-      }));
-
-      if (changes.length > 0 || shouldDeliverOrder) {
-        const elementOrder = shouldDeliverOrder
-          ? normalizedElements
-              .filter((element: any) => !element?.isDeleted)
-              .map((element: any) => element?.id)
-              .filter((id): id is string => Boolean(id))
-          : undefined;
-        const orderBytes = elementOrder ? elementOrderByteLength(elementOrder) : 0;
-        packets.push({
-          payload: {
-            drawingId,
-            elements: changes,
-            elementOrder:
-              elementOrder && orderBytes <= ELEMENT_ORDER_BYTE_LIMIT ? elementOrder : undefined,
-            elementOrderOmittedBytes:
-              elementOrder && orderBytes > ELEMENT_ORDER_BYTE_LIMIT ? orderBytes : undefined,
-          },
-          acknowledge: () => {
-            changes.forEach((element) => recordElementVersion(element));
-            if (shouldDeliverOrder && nextOrderSig !== undefined) {
-              lastSyncedElementOrderSigRef.current = nextOrderSig;
-            }
-          },
-        });
+      for (const [fileId, file] of Object.entries(deliverableFiles)) {
+        queueFileDelivery(fileId, file);
       }
 
-      if (packets.length > 0) {
+      if (!filesOnly) {
+        pendingSceneUpdateRef.current = { elements, files: nextFiles };
+        drainSceneDeliveryRef.current();
+      }
+
+      const hasDeliveryWork =
+        Object.keys(deliverableFiles).length > 0 || changes.length > 0 || shouldDeliverOrder;
+      if (hasDeliveryWork) {
         setHasSceneChangesSinceLoad();
         lastLocalChangeAtRef.current = Date.now();
       }
 
-      if (!filesOnly && (packets.length > 0 || settingsChanged)) {
+      if (!filesOnly && (hasDeliveryWork || settingsChanged)) {
         const appState = latestAppStateRef.current;
         if (appState) {
           if (settingsChanged) {
@@ -321,24 +501,13 @@ export const useEditorBroadcast = ({
         }
       }
 
-      if (packets.length === 0) return false;
-      sendingRef.current = true;
-      deliverPackets(packets, (delivered) => {
-        sendingRef.current = false;
-        const pending = pendingUpdateRef.current;
-        pendingUpdateRef.current = null;
-        if (delivered && pending) {
-          queueUpdateRef.current(pending.elements, pending.files, pending.filesOnly);
-        }
-      });
-      return true;
+      return hasDeliveryWork;
     },
     [
       computeElementOrderSig,
       files,
       debouncedSave,
       debouncedSavePreview,
-      deliverPackets,
       drawingId,
       hasElementChanged,
       lastLocalChangeAtRef,
@@ -348,14 +517,11 @@ export const useEditorBroadcast = ({
       latestAppStateRef,
       latestFilesRef,
       normalizeImageElementStatus,
-      recordElementVersion,
+      queueFileDelivery,
       setHasSceneChangesSinceLoad,
       socketRef,
     ],
   );
-  useEffect(() => {
-    queueUpdateRef.current = queueUpdate;
-  }, [queueUpdate]);
 
   const broadcastChanges = useCallback(
     (elements: readonly any[], currentFiles?: Record<string, any>) => {
@@ -394,14 +560,20 @@ export const useEditorBroadcast = ({
   useEffect(
     () => () => {
       deliveryGenerationRef.current += 1;
-      sendingRef.current = false;
-      pendingUpdateRef.current = null;
+      sceneSendingRef.current = false;
+      pendingSceneUpdateRef.current = null;
+      activeFileDeliveryRef.current = null;
+      fileDeliveryQueueRef.current = [];
       if (throttleTimeoutRef.current !== null) {
         window.clearTimeout(throttleTimeoutRef.current);
       }
-      if (retryTimeoutRef.current !== null) {
-        window.clearTimeout(retryTimeoutRef.current);
+      if (sceneRetryTimeoutRef.current !== null) {
+        window.clearTimeout(sceneRetryTimeoutRef.current);
       }
+      for (const state of fileDeliveryStatesRef.current.values()) {
+        if (state.retryTimeout !== null) window.clearTimeout(state.retryTimeout);
+      }
+      fileDeliveryStatesRef.current.clear();
     },
     [],
   );

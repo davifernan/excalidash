@@ -65,7 +65,8 @@ describe("editor broadcast delivery tracking", () => {
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "new-order",
-        hasElementChanged: () => true,
+        hasElementChanged: (element) =>
+          !recordElementVersion.mock.calls.some(([recorded]) => recorded === element),
         normalizeImageElementStatus: (elements) => elements,
         recordElementVersion,
         setHasSceneChangesSinceLoad: vi.fn(),
@@ -158,7 +159,8 @@ describe("editor broadcast delivery tracking", () => {
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "same-order",
-        hasElementChanged: () => true,
+        hasElementChanged: (element) =>
+          !recordElementVersion.mock.calls.some(([recorded]) => recorded === element),
         normalizeImageElementStatus: (elements) => elements,
         recordElementVersion,
         setHasSceneChangesSinceLoad: vi.fn(),
@@ -250,6 +252,193 @@ describe("editor broadcast delivery tracking", () => {
     expect(recordElementVersion).toHaveBeenCalledWith(element);
     vi.useRealTimers();
   });
+
+  it("lets a fresh file use the delivery slot while an older file waits to retry", () => {
+    vi.useFakeTimers();
+    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
+    const emit = vi.fn(
+      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
+        acknowledgements.push(ack);
+      },
+    );
+    const socket = { timeout: vi.fn(() => ({ emit })) };
+    const largeFile = { id: "large", mimeType: "image/png", dataURL: "data:large" };
+    const smallFile = { id: "small", mimeType: "image/png", dataURL: "data:small" };
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        files: { read: () => ({ ok: true, value: {} }) } as any,
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>(socket),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => false,
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion: vi.fn(),
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => expect(result.current.broadcastFiles({ large: largeFile })).toBe(true));
+    expect(emit.mock.calls[0][1]).toMatchObject({ files: { large: largeFile } });
+
+    act(() => acknowledgements[0]?.(new Error("offline")));
+    act(() =>
+      expect(result.current.broadcastFiles({ large: largeFile, small: smallFile })).toBe(true),
+    );
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[1][1]).toMatchObject({ files: { small: smallFile } });
+    expect(emit.mock.calls[1][1]).not.toHaveProperty("files.large");
+    vi.useRealTimers();
+  });
+
+  it("keeps scene updates ordered while the first update retries", () => {
+    vi.useFakeTimers();
+    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
+    const emit = vi.fn(
+      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
+        acknowledgements.push(ack);
+      },
+    );
+    const socket = { timeout: vi.fn(() => ({ emit })) };
+    const first = { id: "first", version: 1 };
+    const second = { id: "second", version: 1 };
+    const recordElementVersion = vi.fn();
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        files: { read: () => ({ ok: true, value: {} }) } as any,
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("old-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>(socket),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: (elements) => elements.map((element) => element.id).join(","),
+        hasElementChanged: (element) => !recordElementVersion.mock.calls.flat().includes(element),
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion,
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => result.current.broadcastChanges([first], {}));
+    act(() => acknowledgements[0]?.(new Error("offline")));
+    act(() => vi.advanceTimersByTime(101));
+    act(() => result.current.broadcastChanges([first, second], {}));
+
+    expect(emit).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[1][1]).toMatchObject({ elements: [first] });
+
+    act(() => acknowledgements[1]?.(null, { ok: true }));
+    expect(emit).toHaveBeenCalledTimes(3);
+    expect(emit.mock.calls[2][1]).toMatchObject({ elements: [second] });
+    vi.useRealTimers();
+  });
+
+  it.each([
+    {
+      name: "an added element",
+      pendingSnapshots: [
+        [
+          { id: "first", version: 1 },
+          { id: "changing", version: 1, isDeleted: false },
+        ],
+        [
+          { id: "first", version: 1 },
+          { id: "changing", version: 2, isDeleted: false },
+        ],
+      ],
+      expected: { id: "changing", version: 2, isDeleted: false },
+    },
+    {
+      name: "a deletion tombstone",
+      pendingSnapshots: [
+        [
+          { id: "first", version: 1 },
+          { id: "changing", version: 1, isDeleted: false },
+        ],
+        [
+          { id: "first", version: 1 },
+          { id: "changing", version: 2, isDeleted: true },
+        ],
+      ],
+      expected: { id: "changing", version: 2, isDeleted: true },
+    },
+    {
+      name: "an element that is deleted and then restored",
+      pendingSnapshots: [
+        [
+          { id: "first", version: 1 },
+          { id: "changing", version: 1, isDeleted: false },
+        ],
+        [
+          { id: "first", version: 1 },
+          { id: "changing", version: 2, isDeleted: true },
+        ],
+        [
+          { id: "first", version: 1 },
+          { id: "changing", version: 3, isDeleted: false },
+        ],
+      ],
+      expected: { id: "changing", version: 3, isDeleted: false },
+    },
+  ])(
+    "coalesces pending full-scene snapshots without losing $name",
+    ({ pendingSnapshots, expected }) => {
+      vi.useFakeTimers();
+      const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
+      const emit = vi.fn(
+        (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
+          acknowledgements.push(ack);
+        },
+      );
+      const first = { id: "first", version: 1 };
+      const { result } = renderHook(() =>
+        useEditorBroadcast({
+          drawingId: "drawing-1",
+          files: { read: () => ({ ok: true, value: {} }) } as any,
+          lastLocalChangeAtRef: ref(0),
+          lastSyncedElementOrderSigRef: ref("old-order"),
+          lastSyncedFilesRef: ref({}),
+          latestAppStateRef: ref(null),
+          latestFilesRef: ref({}),
+          lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+          socketRef: ref<any>({ timeout: vi.fn(() => ({ emit })) }),
+          debouncedSave: vi.fn(),
+          debouncedSavePreview: vi.fn(),
+          computeElementOrderSig: (elements) => elements.map((element) => element.id).join(","),
+          hasElementChanged: () => true,
+          normalizeImageElementStatus: (elements) => elements,
+          recordElementVersion: vi.fn(),
+          setHasSceneChangesSinceLoad: vi.fn(),
+        }),
+      );
+
+      act(() => result.current.broadcastChanges([first], {}));
+      for (const snapshot of pendingSnapshots) {
+        act(() => vi.advanceTimersByTime(101));
+        act(() => result.current.broadcastChanges(snapshot, {}));
+      }
+      act(() => acknowledgements[0]?.(null, { ok: true }));
+
+      expect(emit).toHaveBeenCalledTimes(2);
+      expect(emit.mock.calls[1][1]).toMatchObject({ elements: expect.arrayContaining([expected]) });
+      vi.useRealTimers();
+    },
+  );
 
   it.each([
     { code: "rate-limited", expectedEmits: 2 },
