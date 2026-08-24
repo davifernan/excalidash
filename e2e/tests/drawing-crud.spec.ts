@@ -32,7 +32,7 @@ test.describe("Drawing Creation", () => {
   });
 
   test("should create a new drawing via UI", async ({ page, request }) => {
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const newDrawingButton = page.getByRole("button", { name: /New Drawing/i });
@@ -57,7 +57,7 @@ test.describe("Drawing Creation", () => {
     const drawing = await createDrawing(request, { name: `Open_Test_${Date.now()}` });
     createdDrawingIds.push(drawing.id);
 
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     await page.getByPlaceholder("Search drawings...").fill(drawing.name);
@@ -126,7 +126,7 @@ test.describe("Drawing Creation", () => {
     await expect(backButton).toBeInViewport();
     await backButton.click();
 
-    await page.waitForURL("/");
+    await page.waitForURL("/collections");
     await expect(page.getByPlaceholder("Search drawings...")).toBeVisible();
   });
 });
@@ -293,7 +293,7 @@ test.describe("Drawing Deletion", () => {
     const drawing = await createDrawing(request, { name: `Delete_Card_${Date.now()}` });
     createdDrawingIds.push(drawing.id);
 
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     await page.getByPlaceholder("Search drawings...").fill(drawing.name);
@@ -349,7 +349,7 @@ test.describe("Drawing Deletion", () => {
     const drawing = await createDrawing(request, { name: baseName });
     createdDrawingIds.push(drawing.id);
 
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     await page.getByPlaceholder("Search drawings...").fill(baseName);

@@ -25,7 +25,12 @@ const shortcutLabel = /Mac|iPhone|iPod|iPad/.test(navigator.platform) ? "⌘K" :
 export const SearchBoardsMenuEntry = () => {
   const { open } = useCommandPalette();
   return (
-    <MainMenu.Item onSelect={open} icon={<Search size={16} />} shortcut={shortcutLabel}>
+    <MainMenu.Item
+      onSelect={open}
+      icon={<Search size={16} />}
+      shortcut={shortcutLabel}
+      data-testid="menu-search-boards"
+    >
       Search boards
     </MainMenu.Item>
   );

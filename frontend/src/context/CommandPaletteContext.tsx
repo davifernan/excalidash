@@ -21,20 +21,33 @@ const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(n
  * old page-local Cmd+K-focuses-search-box behavior rather than running
  * alongside it; see the comment in useDashboardSelection.ts.
  *
- * Gated on `isAuthenticated`: an unauthenticated visitor (login page, or a
+ * Gated on `canUse = authEnabled === false || isAuthenticated`, the same
+ * condition `ProtectedRoute.tsx` uses to decide whether a route needs a
+ * real session at all -- NOT on `isAuthenticated` alone. An instance
+ * running with auth disabled entirely (a supported deployment mode, and
+ * the e2e suite's own default) never produces a `user`, so
+ * `isAuthenticated` (`!!user`) is permanently false there even though
+ * every route works with no login step. Gating on it alone would have
+ * silently disabled the palette for every no-auth instance -- caught by
+ * `search-and-sort.spec.ts`'s Cmd+K test failing locally, not by any unit
+ * test, because CommandPaletteContext.test.tsx mocks `useAuth()` directly
+ * and never exercised the real `authEnabled === false` shape from
+ * AuthContext. What `canUse` still correctly excludes: a genuinely
+ * logged-out visitor on an auth-*enabled* instance (login page, or a
  * public /shared/:id link viewed while logged out) has no team/board list
- * to search, so the shortcut does nothing rather than opening an empty or
- * erroring palette.
+ * to search, so the shortcut does nothing there rather than opening an
+ * empty or erroring palette.
  */
 export const CommandPaletteProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { authEnabled, isAuthenticated } = useAuth();
+  const canUse = authEnabled === false || isAuthenticated;
   const [isOpen, setIsOpen] = useState(false);
 
   const open = useCallback(() => setIsOpen(true), []);
   const close = useCallback(() => setIsOpen(false), []);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!canUse) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -43,15 +56,15 @@ export const CommandPaletteProvider: React.FC<{ children: React.ReactNode }> = (
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isAuthenticated]);
+  }, [canUse]);
 
-  // A stale isOpen=true must not resurface the palette the instant auth
+  // A stale isOpen=true must not resurface the palette the instant this
   // flips back to true later in the same session (logout then log back in
   // without a full page reload) -- close it the moment it does, rather than
   // relying on the render gate below alone to have caught it in time.
   useEffect(() => {
-    if (!isAuthenticated && isOpen) setIsOpen(false);
-  }, [isAuthenticated, isOpen]);
+    if (!canUse && isOpen) setIsOpen(false);
+  }, [canUse, isOpen]);
 
   const value = useMemo(() => ({ isOpen, open, close }), [isOpen, open, close]);
 
@@ -60,10 +73,10 @@ export const CommandPaletteProvider: React.FC<{ children: React.ReactNode }> = (
       {children}
       {/* Gated here too, not just by the effect above: an effect runs after
           commit, so relying on it alone would still paint the palette for
-          one frame on the render where auth just went false before its
+          one frame on the render where this just went false before its
           cleanup catches up. This gate makes that frame impossible instead
           of merely brief. */}
-      {isAuthenticated && <CommandPalette isOpen={isOpen} onClose={close} />}
+      {canUse && <CommandPalette isOpen={isOpen} onClose={close} />}
     </CommandPaletteContext.Provider>
   );
 };

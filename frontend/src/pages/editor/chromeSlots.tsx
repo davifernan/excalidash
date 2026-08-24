@@ -153,10 +153,32 @@ const describeFollowers = (followers: readonly Follower[]): string | null => {
  * already lived in the menu, renumbered with gaps so a later package can
  * slot something between two existing entries without renumbering the rest
  * -- workspace-context (order 15, NIL-323/NIL-344) is exactly that: slotted
- * between board-name and back-to-dashboard without moving either, and
- * search-boards (order 22, NIL-323/NIL-345) the same again, right after
- * back-to-dashboard: both are "leave this board" navigation, so they sit
- * together ahead of the separator rather than down with the canvas actions.
+ * between board-name and back-to-dashboard without moving either.
+ *
+ * workspace-context sits ABOVE back-to-dashboard on purpose, not just
+ * because order 15 fell between 10 and 20: the lead-in reads as a
+ * breadcrumb -- board name, then which collection it lives in, then the
+ * navigation actions that leave the board. Context belongs with the
+ * identity it describes, before the actions, the same order a page title
+ * and its breadcrumb trail would read in any other part of the app. If a
+ * future package wants navigation actions to lead instead, that is a
+ * deliberate reordering to argue for here, not an accident to route around
+ * in a test.
+ *
+ * search-boards (order 22, NIL-323/NIL-345) sits right after
+ * back-to-dashboard for the same "leave this board" reason: both are
+ * navigation, so they sit together ahead of the separator rather than
+ * down with the canvas actions.
+ *
+ * This ordering is a registry, not a fixed list -- a test asserting an
+ * entry's exact index (`menuItems.nth(1)`) breaks on every legitimate
+ * insertion, which is the whole reason this file exists. Assert relative
+ * order between two testids (or their presence) instead; see
+ * `e2e/tests/canvas-chrome.spec.ts`'s "back to dashboard" test for the
+ * pattern, and `menu-back-to-dashboard`/`menu-search-boards`/
+ * `menu-board-name`/`menu-workspace-context`'s `data-testid`s below for the
+ * hooks to assert against.
+ *
  * Help sits last on purpose (NIL-374): Excalidraw's own floating "?" is
  * hidden in editorChrome.css, so this is the only way to it.
  */
@@ -190,7 +212,11 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
     id: "back-to-dashboard",
     order: 20,
     render: (ctx) => (
-      <MainMenu.Item onSelect={ctx.onBackClick} icon={<ArrowLeft size={16} />}>
+      <MainMenu.Item
+        onSelect={ctx.onBackClick}
+        icon={<ArrowLeft size={16} />}
+        data-testid="menu-back-to-dashboard"
+      >
         Back to dashboard
       </MainMenu.Item>
     ),

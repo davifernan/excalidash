@@ -46,7 +46,7 @@ test.describe("Drag and Drop - Collections", () => {
     const drawing = await createDrawing(request, { name: `DnD_Drawing_${Date.now()}` });
     createdDrawingIds.push(drawing.id);
 
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const card = page.locator(`#drawing-card-${drawing.id}`);
@@ -115,7 +115,7 @@ test.describe("Drag and Drop - Collections", () => {
     ]);
     createdDrawingIds.push(drawing1.id, drawing2.id);
 
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const searchInput = page.getByPlaceholder("Search drawings...");
@@ -172,7 +172,7 @@ test.describe("Drag and Drop - File Import", () => {
   });
 
   test("should show drop zone overlay when dragging files", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     await expect(page.getByRole("button", { name: /Import/i })).toBeVisible();
@@ -180,7 +180,7 @@ test.describe("Drag and Drop - File Import", () => {
   });
 
   test("should import excalidraw file via file input", async ({ page, request }) => {
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const fileBase = `ImportedDnD_${Date.now()}`;

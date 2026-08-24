@@ -122,7 +122,7 @@ test.describe.serial("Import Functionality", () => {
   });
 
   test("should import .excalidraw file from Dashboard", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const fixtureContent = JSON.stringify({
@@ -186,7 +186,7 @@ test.describe.serial("Import Functionality", () => {
   });
 
   test("should import JSON drawing file from Dashboard", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const timestamp = Date.now();
@@ -257,7 +257,7 @@ test.describe.serial("Import Functionality", () => {
   });
 
   test("should show error for invalid import file", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const invalidContent = "this is not valid JSON or excalidraw format {}{}";
@@ -275,7 +275,7 @@ test.describe.serial("Import Functionality", () => {
   });
 
   test("should import multiple drawings at once", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
 
     const timestamp = Date.now();

@@ -64,7 +64,7 @@ test.describe("Dashboard Workflows", () => {
     const createdDrawing = await createDrawing(request, { name: drawingName });
     createdDrawingIds.push(createdDrawing.id);
 
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
     await applyDashboardSearch(page, drawingName);
 
@@ -94,7 +94,7 @@ test.describe("Dashboard Workflows", () => {
     createdDrawingIds.push(createdDrawing.id);
 
     const collectionName = `Team ${Date.now()}`;
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
     await applyDashboardSearch(page, drawingName);
 
@@ -140,7 +140,7 @@ test.describe("Dashboard Workflows", () => {
     ]);
     createdDrawingIds.push(first.id, second.id);
 
-    await page.goto("/");
+    await page.goto("/collections");
     await page.waitForLoadState("networkidle");
     await applyDashboardSearch(page, prefix);
     await expect(page.locator("[id^='drawing-card-']")).toHaveCount(2);
