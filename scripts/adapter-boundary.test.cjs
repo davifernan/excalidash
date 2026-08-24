@@ -249,6 +249,76 @@ const assertNonInteractionReceiverNamesRejected = () => {
   }
 };
 
+/**
+ * PR #61 fix-push: `node --test scripts/*.test.cjs` runs test FILES
+ * concurrently, and scanForLegacyKeys walks backend/src and e2e/tests too --
+ * directories this script does not own. authz-boundary.test.cjs's own
+ * probes live under backend/src/__authz_probe__/ for the width of one
+ * assertion (mkdirSync before, rmSync after). A concurrent run hit exactly
+ * that: this scan's directory listing saw a probe file authz-boundary had
+ * already deleted by the time this read it -- ENOENT, uncaught, the whole
+ * check crashed instead of reporting a result. Reproduced deterministically
+ * here (no real race needed) by making fs.readFileSync/readdirSync throw
+ * ENOENT for one specific path scanForLegacyKeys/walk is mid-scanning.
+ */
+const assertLegacyKeyScanToleratesADisappearingFile = () => {
+  const { scanForLegacyKeys } = require("./adapter-boundary.cjs");
+  if (fs.existsSync(PROBE_DIR)) {
+    throw new Error(`Refusing to reuse an existing probe directory: ${PROBE_DIR}`);
+  }
+  fs.mkdirSync(PROBE_DIR, { recursive: true });
+  const vanishing = path.join(PROBE_DIR, "vanishing.ts");
+  fs.writeFileSync(vanishing, "export const probe = 1;\n", "utf8");
+  const originalReadFileSync = fs.readFileSync;
+  fs.readFileSync = (file, ...rest) => {
+    if (file === vanishing) {
+      const error = new Error(`ENOENT: no such file or directory, open '${file}'`);
+      error.code = "ENOENT";
+      throw error;
+    }
+    return originalReadFileSync(file, ...rest);
+  };
+  try {
+    const hits = scanForLegacyKeys("frontend/src");
+    if (!Array.isArray(hits)) {
+      throw new Error("scanForLegacyKeys did not return normally past the disappearing file.");
+    }
+    console.log("  legacy-key scan survives a file that vanishes mid-scan (ENOENT, not a crash)");
+  } finally {
+    fs.readFileSync = originalReadFileSync;
+    fs.rmSync(PROBE_DIR, { recursive: true, force: true });
+  }
+};
+
+const assertWalkToleratesADisappearingDirectory = () => {
+  const { walk } = require("./adapter-boundary.cjs");
+  if (fs.existsSync(PROBE_DIR)) {
+    throw new Error(`Refusing to reuse an existing probe directory: ${PROBE_DIR}`);
+  }
+  fs.mkdirSync(PROBE_DIR, { recursive: true });
+  const vanishingDir = path.join(PROBE_DIR, "vanishing-dir");
+  fs.mkdirSync(vanishingDir);
+  const originalReaddirSync = fs.readdirSync;
+  fs.readdirSync = (dir, ...rest) => {
+    if (dir === vanishingDir) {
+      const error = new Error(`ENOENT: no such file or directory, scandir '${dir}'`);
+      error.code = "ENOENT";
+      throw error;
+    }
+    return originalReaddirSync(dir, ...rest);
+  };
+  try {
+    const files = walk(PROBE_DIR);
+    if (!Array.isArray(files)) {
+      throw new Error("walk did not return normally past the disappearing directory.");
+    }
+    console.log("  walk survives a directory that vanishes mid-recursion (ENOENT, not a crash)");
+  } finally {
+    fs.readdirSync = originalReaddirSync;
+    fs.rmSync(PROBE_DIR, { recursive: true, force: true });
+  }
+};
+
 const assertNoExceptionsRemain = () => {
   const { RULES } = require("./adapter-boundary.cjs");
   const listed = RULES.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
@@ -284,6 +354,8 @@ const main = () => {
   assertNoExceptionsRemain();
   assertCapabilityCallsAccepted();
   assertNonInteractionReceiverNamesRejected();
+  assertLegacyKeyScanToleratesADisappearingFile();
+  assertWalkToleratesADisappearingDirectory();
 
   const after = run();
   if (after.status !== 0) {

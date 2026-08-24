@@ -234,7 +234,19 @@ const scanForLegacyKeys = (root) => {
     // than uses of it.
     if (relative.endsWith("integrations/excalidraw/customData.ts")) continue;
     if (relative.endsWith("sticky/stickyNote.test.ts")) continue;
-    const contents = fs.readFileSync(file, "utf8");
+    let contents;
+    try {
+      contents = fs.readFileSync(file, "utf8");
+    } catch (error) {
+      // This walks backend/src and e2e/tests too -- directories this script
+      // does not own -- and `node --test scripts/*.test.cjs` runs test files
+      // concurrently. authz-boundary.test.cjs's own probe files live under
+      // backend/src/__authz_probe__/ for the width of a single assertion; a
+      // file this walk's directory listing just saw can legitimately be gone
+      // by the time this reads it. That is a stale listing, not a violation.
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
     for (const key of LEGACY_CUSTOM_DATA_KEYS) {
       if (contents.includes(key)) hits.push(`${relative}: still names the retired key "${key}".`);
     }
@@ -245,7 +257,18 @@ const scanForLegacyKeys = (root) => {
 const rootDir = () => root;
 
 const walk = (dir, out = []) => {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  // Same stale-listing tolerance as scanForLegacyKeys's read, and for the
+  // same reason: a sibling test's whole probe directory (rmSync'd after
+  // each assertion) can vanish between this directory being listed and
+  // being recursed into, when scripts/*.test.cjs run concurrently.
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return out;
+    throw error;
+  }
+  for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
     else if (/\.(ts|tsx)$/.test(entry.name)) out.push(full);
@@ -382,7 +405,7 @@ const assertNoExceptions = () => {
   process.exit(1);
 };
 
-module.exports = { RULES, assertNoExceptions };
+module.exports = { RULES, assertNoExceptions, scanForLegacyKeys, walk };
 
 if (require.main === module) {
   main();
