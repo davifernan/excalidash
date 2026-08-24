@@ -115,3 +115,54 @@ export const useDashboardPresence = (drawingIds: readonly string[]): PresenceByD
 
   return presence;
 };
+
+export type CollectionPresence = { keys: ReadonlySet<string>; guestCount: number };
+
+/**
+ * Who from one collection is on any of its boards, right now -- the
+ * collection-scoped sibling of `useDashboardPresence`. `null` while
+ * unknown (no collection selected, or the first poll has not answered
+ * yet), same null-vs-empty-set distinction as `presenceKeysFor`: a
+ * `CollectionTeamBar` must not read "we haven't asked yet" as "confirmed
+ * nobody online" (NIL-272).
+ */
+export const useCollectionPresence = (collectionId: string | undefined): CollectionPresence | null => {
+  const [presence, setPresence] = useState<CollectionPresence | null>(null);
+
+  useEffect(() => {
+    // Switching collections must read as "unknown", not as the previous
+    // collection's keys held over until the first poll for the new one
+    // resolves -- a stale cross-collection Set is a worse lie than no
+    // answer at all.
+    setPresence(null);
+    if (!collectionId) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const result = await api.getCollectionPresence(collectionId);
+        if (cancelled) return;
+        setPresence({ keys: new Set(result.connectedMemberKeys), guestCount: result.guestCount });
+      } catch {
+        // Presence is decoration here too: keep the last answer standing.
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [collectionId]);
+
+  return presence;
+};

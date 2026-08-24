@@ -8,7 +8,7 @@ import { useUpload } from "../context/UploadContext";
 import { DragOverlayPortal } from "./dashboard/shared";
 import { DashboardToolbar } from "./dashboard/DashboardToolbar";
 import { CollectionTeamBar } from "./dashboard/CollectionTeamBar";
-import { useDashboardPresence } from "./dashboard/useDashboardPresence";
+import { useCollectionPresence, useDashboardPresence } from "./dashboard/useDashboardPresence";
 import {
   DragPreview,
   DrawingsGrid,
@@ -156,6 +156,7 @@ export const Dashboard: React.FC = () => {
   const presence = useDashboardPresence(
     React.useMemo(() => sortedDrawings.map((d) => d.id), [sortedDrawings]),
   );
+  const collectionPresence = useCollectionPresence(actions.currentCollection?.id);
   const visibleCollections = React.useMemo(
     () => collections.filter((c) => c.id !== "trash"),
     [collections],
@@ -193,7 +194,10 @@ export const Dashboard: React.FC = () => {
         {" "}
         {viewTitle}{" "}
       </h1>{" "}
-      <CollectionTeamBar collection={actions.currentCollection} />{" "}
+      <CollectionTeamBar
+        collection={actions.currentCollection}
+        onlineKeys={collectionPresence?.keys ?? null}
+      />{" "}
       <ViewerActionToast message={actions.viewerActionError} />{" "}
       <DashboardToolbar
         search={search}

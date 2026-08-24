@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { guestCountFor, presenceKeysFor, useDashboardPresence } from "./useDashboardPresence";
+import {
+  guestCountFor,
+  presenceKeysFor,
+  useCollectionPresence,
+  useDashboardPresence,
+} from "./useDashboardPresence";
 
 const getDashboardPresence = vi.fn();
+const getCollectionPresence = vi.fn();
 
 vi.mock("../../api", () => ({
   getDashboardPresence: (...args: unknown[]) => getDashboardPresence(...args),
+  getCollectionPresence: (...args: unknown[]) => getCollectionPresence(...args),
 }));
 
 describe("useDashboardPresence", () => {
@@ -91,6 +98,78 @@ describe("useDashboardPresence", () => {
     expect(warn).toHaveBeenCalledTimes(1);
 
     warn.mockRestore();
+  });
+});
+
+describe("useCollectionPresence", () => {
+  beforeEach(() => {
+    getCollectionPresence.mockReset();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports who from the collection is connected", async () => {
+    getCollectionPresence.mockResolvedValue({
+      collectionId: "c1",
+      connectedMemberKeys: ["ck1"],
+      guestCount: 2,
+    });
+    const { result } = renderHook(() => useCollectionPresence("c1"));
+
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(result.current!.keys.has("ck1")).toBe(true);
+    expect(result.current!.guestCount).toBe(2);
+  });
+
+  it("is null while no collection is selected", () => {
+    const { result } = renderHook(() => useCollectionPresence(undefined));
+    expect(result.current).toBeNull();
+    expect(getCollectionPresence).not.toHaveBeenCalled();
+  });
+
+  it("reads as unknown, not as the previous collection's keys, the instant the collection changes", async () => {
+    getCollectionPresence.mockResolvedValue({
+      collectionId: "c1",
+      connectedMemberKeys: ["ck1"],
+      guestCount: 0,
+    });
+    const { result, rerender } = renderHook(({ id }) => useCollectionPresence(id), {
+      initialProps: { id: "c1" as string | undefined },
+    });
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(result.current!.keys.has("ck1")).toBe(true);
+
+    // A slow answer about the collection the viewer just left is worse than
+    // no answer -- switching must clear the old collection's keys
+    // synchronously, before the new collection's first poll resolves.
+    let resolveNext: (value: unknown) => void = () => {};
+    getCollectionPresence.mockReturnValue(new Promise((resolve) => (resolveNext = resolve)));
+    rerender({ id: "c2" });
+
+    expect(result.current).toBeNull();
+    await act(async () => {
+      resolveNext({ collectionId: "c2", connectedMemberKeys: [], guestCount: 0 });
+    });
+  });
+
+  it("leaves the last answer standing when a poll fails", async () => {
+    getCollectionPresence.mockResolvedValue({
+      collectionId: "c1",
+      connectedMemberKeys: ["ck1"],
+      guestCount: 0,
+    });
+    const { result } = renderHook(() => useCollectionPresence("c1"));
+    await waitFor(() => expect(result.current).not.toBeNull());
+
+    getCollectionPresence.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(result.current!.keys.has("ck1")).toBe(true);
   });
 });
 

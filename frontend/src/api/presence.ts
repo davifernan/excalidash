@@ -22,3 +22,21 @@ export const getDashboardPresence = async (
   });
   return response.data.results;
 };
+
+export type CollectionPresence = {
+  collectionId: string;
+  connectedMemberKeys: string[];
+  guestCount: number;
+};
+
+/**
+ * Who from a collection is on any of its boards, right now. Keys come back
+ * scoped `collection:<id>` -- they will not match a `drawing:<id>` key from
+ * `getDashboardPresence` for the same person, on purpose (NIL-272).
+ */
+export const getCollectionPresence = async (collectionId: string): Promise<CollectionPresence> => {
+  const response = await api.get<CollectionPresence>(
+    `/dashboard/collections/${collectionId}/presence`,
+  );
+  return response.data;
+};
