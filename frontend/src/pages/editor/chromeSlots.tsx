@@ -88,7 +88,18 @@
  *   was decided and why, instead of re-deriving it.
  */
 import React from "react";
-import { ArrowLeft, Download, History, LocateFixed, MessageSquare, Share2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  History,
+  LayoutTemplate,
+  LocateFixed,
+  MessageSquare,
+  Play,
+  Share2,
+  Square,
+  Vote,
+} from "lucide-react";
 import {
   EditorFooter as Footer,
   EditorMenu as MainMenu,
@@ -101,6 +112,8 @@ import { CommentsMenuEntry } from "./slots/commentsMenuEntry";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
+import type { PresenterStatus } from "./presenterMode";
+import { WORKSHOP_TEMPLATES } from "./workshopTemplates";
 
 export type ChromeSlotContext = {
   id?: string;
@@ -120,6 +133,20 @@ export type ChromeSlotContext = {
   langCode: string;
   isCommentsOpen: boolean;
   unresolvedCommentCount: number;
+  /**
+   * Just enough for the entry point's label and click handler -- the full
+   * server-authoritative state lives in `PresentationOverlay`'s own props.
+   * NIL-325.
+   */
+  presenting: {
+    status: PresenterStatus;
+    isSelf: boolean;
+    presenterName: string | null;
+    start: () => void;
+    stop: () => void;
+  };
+  onStartVoteCompose: () => void;
+  onInsertTemplate: (templateId: string) => void;
   onBackClick: () => void;
   onNewNameChange: (value: string) => void;
   onRenameBlur: () => void;
@@ -300,6 +327,52 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
         </MainMenu.Item>
       ) : null,
   },
+  { id: "workshop-separator", order: 220, render: () => <MainMenu.Separator /> },
+  {
+    id: "present",
+    order: 225,
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <MainMenu.Item
+          onSelect={ctx.presenting.isSelf ? ctx.presenting.stop : ctx.presenting.start}
+          icon={ctx.presenting.isSelf ? <Square size={16} /> : <Play size={16} />}
+        >
+          {ctx.presenting.isSelf
+            ? "Stop presenting"
+            : ctx.presenting.status === "presenting"
+              ? `${ctx.presenting.presenterName || "Someone"} is presenting`
+              : "Present"}
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "start-a-vote",
+    order: 230,
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <MainMenu.Item onSelect={ctx.onStartVoteCompose} icon={<Vote size={16} />}>
+          Start a vote
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "workshop-templates",
+    order: 235,
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <>
+          {WORKSHOP_TEMPLATES.map((template) => (
+            <MainMenu.Item
+              key={template.id}
+              onSelect={() => ctx.onInsertTemplate(template.id)}
+              icon={<LayoutTemplate size={16} />}
+            >
+              Insert: {template.label}
+            </MainMenu.Item>
+          ))}
+        </>
+      ) : null,
+  },
   { id: "canvas-actions-separator", order: 295, render: () => <MainMenu.Separator /> },
   { id: "clear-canvas", order: 300, render: () => <MainMenu.DefaultItems.ClearCanvas /> },
   {
@@ -352,6 +425,22 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
               {ctx.inviteHere.status.arrivedCount}
             </span>
           ) : null}
+        </button>
+      ) : null,
+  },
+  {
+    id: "present",
+    order: 25,
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <button
+          onClick={ctx.presenting.isSelf ? ctx.presenting.stop : ctx.presenting.start}
+          className="editor-header-control"
+          title={ctx.presenting.isSelf ? "Stop presenting" : "Present"}
+          aria-label={ctx.presenting.isSelf ? "Stop presenting" : "Present"}
+          data-testid="editor-present"
+        >
+          {ctx.presenting.isSelf ? <Square size={16} /> : <Play size={16} />}
         </button>
       ) : null,
   },

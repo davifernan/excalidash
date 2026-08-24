@@ -65,6 +65,7 @@ describe("the read projection", () => {
       "id",
       "isDeleted",
       "link",
+      "name",
       "type",
       "width",
       "x",
@@ -74,6 +75,11 @@ describe("the read projection", () => {
 
   it("does not carry the element's text out with it", () => {
     expect(JSON.stringify(summarise(element()))).not.toContain("secret label");
+  });
+
+  it("reads a frame's name, and reports null for every other element", () => {
+    expect(summarise(element()).name).toBeNull();
+    expect(summarise(element({ type: "frame", name: "1. Ideas" })).name).toBe("1. Ideas");
   });
 
   it("is a copy, so product code cannot write back through it", () => {

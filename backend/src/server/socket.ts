@@ -66,6 +66,10 @@ import {
 import { createSocketInviteHereManager } from "./socketInviteHere";
 import { createRoomEventFeedback, type RoomEventAck } from "./socketRoomEvent";
 import { deriveAssetPageCount } from "../assets/documentPageCount";
+import { PresenterRegistry } from "./presenterRegistry";
+import { createSocketPresenterManager, PRESENTER_STATE_EVENT } from "./socketPresenter";
+import { VotingRegistry } from "./votingRegistry";
+import { createSocketVotingManager, VOTING_STATE_EVENT } from "./socketVoting";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -144,6 +148,8 @@ export const registerSocketHandlers = ({
   const allowCursorChat = createKeyedRateLimiter(CURSOR_CHAT_LIMITS.eventsPerSecond * 4, 1_000);
   const shareTokenBySocket = new Map<string, string>();
   const workshopTimers = createWorkshopTimerManager({ io });
+  const presenters = new PresenterRegistry();
+  const voting = new VotingRegistry();
   const documentPages = createDocumentPageManager({
     io,
     prisma,
@@ -153,6 +159,7 @@ export const registerSocketHandlers = ({
   });
   let followManager: ReturnType<typeof createSocketFollowManager>;
   let inviteHereManager: ReturnType<typeof createSocketInviteHereManager>;
+  let presenterManager: ReturnType<typeof createSocketPresenterManager>;
   const activeAccounts = new ActiveAccountCache(async (userId) => {
     const account = await prisma.user.findUnique({
       where: { id: userId },
@@ -191,9 +198,14 @@ export const registerSocketHandlers = ({
     if (!drawingId) return;
     followManager.clearSocket(socket.id, reason);
     inviteHereManager.clearSocket(socket.id, drawingId);
+    presenterManager.clearSocket(socket.id, drawingId);
     drawingBySocket.delete(socket.id);
     presences.leave(drawingId, socket.id);
-    if (presences.list(drawingId).length === 0) workshopTimers.clear(drawingId);
+    if (presences.list(drawingId).length === 0) {
+      workshopTimers.clear(drawingId);
+      presenters.clear(drawingId);
+      voting.clear(drawingId);
+    }
     if (leaveSocketRoom) await socket.leave(roomName(drawingId));
     emitPresence(drawingId);
   };
@@ -257,6 +269,13 @@ export const registerSocketHandlers = ({
     getPresence,
     requireAccess,
   });
+  presenterManager = createSocketPresenterManager({
+    io,
+    presenters,
+    getPresence,
+    requireAccess,
+  });
+  const votingManager = createSocketVotingManager({ io, voting, requireAccess });
 
   const disconnectApiKey = createApiKeySocketRevoker({
     connectedSockets,
@@ -310,6 +329,12 @@ export const registerSocketHandlers = ({
     // otherwise be the one room event with no limit at all.
     const allowUnfollow = createRateLimiter(12, 60_000);
     followManager.registerHandlers(socket, allowFollow, allowViewport, allowUnfollow);
+    const allowPresenterCommand = createRateLimiter(20, 60_000);
+    const allowPresenterViewport = createRateLimiter(30, 1_000);
+    presenterManager.registerHandlers(socket, allowPresenterCommand, allowPresenterViewport);
+    const allowVotingCommand = createRateLimiter(20, 60_000);
+    const allowVotingCast = createRateLimiter(20, 10_000);
+    votingManager.registerHandlers(socket, allowVotingCommand, allowVotingCast);
     registerCoreRoomEvents({
       socket,
       getPresence,
@@ -477,6 +502,8 @@ export const registerSocketHandlers = ({
         emitPresence(drawingId);
         socket.emit(SELECTION_SNAPSHOT_EVENT, presences.selectionSnapshot(drawingId));
         socket.emit("workshop-timer-update", workshopTimers.snapshot(drawingId));
+        socket.emit(PRESENTER_STATE_EVENT, presenters.snapshot(drawingId));
+        socket.emit(VOTING_STATE_EVENT, voting.snapshot(drawingId));
         const drawingNameSnapshot = await loadDrawingNameSnapshot({ prisma, drawingId });
         if (!isCurrentJoin()) return;
         if (drawingNameSnapshot) socket.emit(DRAWING_NAME_EVENT, drawingNameSnapshot);

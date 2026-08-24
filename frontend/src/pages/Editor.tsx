@@ -24,6 +24,9 @@ import { useEditorBroadcast } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
+import { useFrameNavigator } from "./editor/frameNavigator";
+import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
+import { toast } from "sonner";
 export const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -266,6 +269,8 @@ export const Editor: React.FC = () => {
     onPointerUpdate,
     onSelectionChange,
     inviteHere,
+    presenting,
+    voting,
   } = useEditorCollaboration({
     drawingId: id,
     collaboration: adapter.collaboration,
@@ -288,6 +293,16 @@ export const Editor: React.FC = () => {
     onDrawingNameChange: setDrawingName,
   });
   useLibraryImportFromUrl({ ui: adapter.ui, isReady, user });
+  const frames = useFrameNavigator(adapter.scene, isReady);
+  const handleInsertTemplate = useCallback(
+    (templateId: string) => {
+      const template = WORKSHOP_TEMPLATES.find((candidate) => candidate.id === templateId);
+      if (!template) return;
+      const result = insertWorkshopTemplate(adapter.scene, template);
+      if (!result.ok) toast.error(`Could not insert the ${template.label} template.`);
+    },
+    [adapter.scene],
+  );
   const persistenceRefs = React.useMemo(
     () => ({
       currentDrawingVersion: currentDrawingVersionRef,
@@ -553,6 +568,10 @@ export const Editor: React.FC = () => {
         theme={theme}
         workshopTimer={workshopTimer}
         documentPages={documentPages}
+        presenting={{ ...presenting, canTakeover: accessLevel === "owner" }}
+        frames={frames}
+        voting={{ ...voting, canModerate: canEdit }}
+        onInsertTemplate={handleInsertTemplate}
         onBackClick={handleBackClick}
         onCanvasChange={handleChangeWithSelection}
         stickyOverlay={stickyOverlay}
