@@ -4,6 +4,7 @@ import {
   activateDocumentWidget,
   documentPageLabel,
   dropMarkdown,
+  injectNoiseImage,
   openEditor as openEditorReady,
 } from "./helpers/editor";
 
@@ -36,98 +37,11 @@ const socketConnected = (page: Page) =>
 
 const waitConnected = (page: Page, label: string) =>
   expect
-    .poll(() => socketConnected(page), { timeout: 30_000, message: `${label} socket never connected` })
+    .poll(() => socketConnected(page), {
+      timeout: 30_000,
+      message: `${label} socket never connected`,
+    })
     .toBe(true);
-
-/**
- * A noise-filled PNG of a target raw byte size, as a data URL.
- *
- * Random pixels are incompressible, so the encoded PNG lands close to
- * `width * height * 4` regardless of what the browser's deflate pass does --
- * the same calibration large-image-delivery.spec.ts (NIL-315) uses, reused
- * here so an oversized-file rejection is tested against a real generated
- * image rather than a hand-built byte string the client never actually
- * produces this way.
- */
-const injectNoiseImage = async (
-  page: Page,
-  { targetBytes, elementId }: { targetBytes: number; elementId: string },
-) =>
-  page.evaluate(
-    async ({ targetBytes, elementId }) => {
-      const pixelCount = Math.ceil(targetBytes / 4);
-      const width = Math.ceil(Math.sqrt(pixelCount));
-      const height = Math.ceil(pixelCount / width);
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Missing 2D canvas context");
-      const pixels = context.createImageData(width, height);
-      const CHUNK = 65536;
-      for (let offset = 0; offset < pixels.data.length; offset += CHUNK) {
-        crypto.getRandomValues(pixels.data.subarray(offset, Math.min(offset + CHUNK, pixels.data.length)));
-      }
-      context.putImageData(pixels, 0, 0);
-      const dataURL = canvas.toDataURL("image/png");
-
-      const binary = atob(dataURL.slice(dataURL.indexOf(",") + 1));
-      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
-      const dataHash = Array.from(new Uint8Array(digest), (byte) =>
-        byte.toString(16).padStart(2, "0"),
-      ).join("");
-      const fileDigest = await crypto.subtle.digest("SHA-1", bytes);
-      const fileId = Array.from(new Uint8Array(fileDigest), (byte) =>
-        byte.toString(16).padStart(2, "0"),
-      ).join("");
-      const created = Date.now();
-
-      const api = (window as any).__EXCALIDASH_TEST__;
-      api.addFiles({
-        [fileId]: { id: fileId, mimeType: "image/png", dataURL, created, lastRetrieved: created },
-      });
-      api.updateScene({
-        elements: [
-          ...api.getSceneElementsIncludingDeleted(),
-          {
-            id: elementId,
-            type: "image",
-            x: 40,
-            y: 100,
-            width: 120,
-            height: 90,
-            angle: 0,
-            strokeColor: "#1e1e1e",
-            backgroundColor: "transparent",
-            fillStyle: "solid",
-            strokeWidth: 1,
-            strokeStyle: "solid",
-            roundness: null,
-            roughness: 0,
-            opacity: 100,
-            groupIds: [],
-            frameId: null,
-            seed: 1,
-            version: 1,
-            versionNonce: 1,
-            isDeleted: false,
-            boundElements: null,
-            link: null,
-            locked: false,
-            index: "a1",
-            updated: created,
-            status: "saved",
-            fileId,
-            scale: [1, 1],
-            crop: null,
-          },
-        ],
-      });
-      return { fileId, dataHash, dataURLLength: dataURL.length };
-    },
-    { targetBytes, elementId },
-  );
 
 const errorToasts = (page: Page) => page.locator("[data-sonner-toast][data-type=error]");
 
@@ -147,7 +61,8 @@ const waitForPeerFile = async (page: Page, fileId: string) => {
   }, fileId);
 };
 
-const openPeer = async (context: BrowserContext, drawingId: string) => openEditor(await context.newPage(), drawingId);
+const openPeer = async (context: BrowserContext, drawingId: string) =>
+  openEditor(await context.newPage(), drawingId);
 
 test.describe("M0 acceptance: guardrails hold together under combined pressure (NIL-330)", () => {
   test("large files, concurrent page turns, a mid-transfer drop and a vanished widget all land correctly on one board", async ({
@@ -170,7 +85,11 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
       const host = await openPeer(hostCtx, drawing.id);
       const guestA = await openPeer(guestACtx, drawing.id);
       const guestB = await openPeer(guestBCtx, drawing.id);
-      await Promise.all([waitConnected(host, "host"), waitConnected(guestA, "guestA"), waitConnected(guestB, "guestB")]);
+      await Promise.all([
+        waitConnected(host, "host"),
+        waitConnected(guestA, "guestA"),
+        waitConnected(guestB, "guestB"),
+      ]);
 
       let widgetId = "";
 
@@ -183,14 +102,20 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         await expect(documentPageLabel(host)).toContainText("Page 1 of", { timeout: 30_000 });
         await expect(documentPageLabel(guestA)).toContainText("Page 1 of", { timeout: 30_000 });
         await expect(documentPageLabel(guestB)).toContainText("Page 1 of", { timeout: 30_000 });
-        const widgets = await host.evaluate(() => (window as any).__EXCALIDASH_TEST__.getSceneElements());
+        const widgets = await host.evaluate(() =>
+          (window as any).__EXCALIDASH_TEST__.getSceneElements(),
+        );
         expect(widgets).toHaveLength(1);
         widgetId = widgets[0].id;
         expect(widgetId).toBeTruthy();
       });
 
       await test.step("a 2 MB file syncs silently; 14 MB, 15 MB and an over-ceiling file are refused, not lost", async () => {
-        const okImage = await injectNoiseImage(host, { targetBytes: 2 * 1024 * 1024, elementId: "nil330_ok" });
+        const okImage = await injectNoiseImage(host, {
+          withHash: true,
+          targetBytes: 2 * 1024 * 1024,
+          elementId: "nil330_ok",
+        });
         expect(await waitForPeerFile(guestA, okImage.fileId)).toBe(okImage.dataHash);
         expect(await waitForPeerFile(guestB, okImage.fileId)).toBe(okImage.dataHash);
 
@@ -201,6 +126,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         ] as const) {
           const before = await errorToasts(host).count();
           const oversized = await injectNoiseImage(host, {
+            withHash: true,
             targetBytes,
             elementId: `nil330_oversized_${label.replace(/\W+/g, "")}`,
           });
@@ -225,23 +151,30 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           // again keeps the board's own periodic full-scene autosave from
           // repeatedly retrying (and failing) on a file this test intentionally
           // made too large for the rest of this run.
-          await host.evaluate((elementId) => {
-            const api = (window as any).__EXCALIDASH_TEST__;
-            api.updateScene({
-              elements: api
-                .getSceneElementsIncludingDeleted()
-                .map((element: any) =>
-                  element.id === elementId ? { ...element, isDeleted: true } : element,
-                ),
-            });
-          }, `nil330_oversized_${label.replace(/\W+/g, "")}`);
+          await host.evaluate(
+            (elementId) => {
+              const api = (window as any).__EXCALIDASH_TEST__;
+              api.updateScene({
+                elements: api
+                  .getSceneElementsIncludingDeleted()
+                  .map((element: any) =>
+                    element.id === elementId ? { ...element, isDeleted: true } : element,
+                  ),
+              });
+            },
+            `nil330_oversized_${label.replace(/\W+/g, "")}`,
+          );
         }
       });
 
       await test.step("three files split across packets are all confirmed on every peer", async () => {
         const batch = await Promise.all(
           [0, 1, 2].map((i) =>
-            injectNoiseImage(host, { targetBytes: 6 * 1024 * 1024, elementId: `nil330_split_${i}` }),
+            injectNoiseImage(host, {
+              withHash: true,
+              targetBytes: 6 * 1024 * 1024,
+              elementId: `nil330_split_${i}`,
+            }),
           ),
         );
         for (const file of batch) {
@@ -273,6 +206,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
 
       await test.step("a network drop mid-transfer resets unconfirmed state instead of leaving a ghost", async () => {
         const inFlight = injectNoiseImage(host, {
+          withHash: true,
           targetBytes: 6 * 1024 * 1024,
           elementId: "nil330_reconnect_probe",
         });
@@ -290,6 +224,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         // sent right after still has to arrive, split-and-confirm bookkeeping
         // intact.
         const followUp = await injectNoiseImage(host, {
+          withHash: true,
           targetBytes: 1 * 1024 * 1024,
           elementId: "nil330_after_reconnect",
         });
@@ -357,7 +292,10 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         // (several other steps above did), the same way it guards an
         // embedded video. Purely local, so this works the same offline.
         await activateDocumentWidget(guestB).catch(() => {});
-        await guestB.getByRole("button", { name: "Next page" }).click({ timeout: 5_000 }).catch(() => {});
+        await guestB
+          .getByRole("button", { name: "Next page" })
+          .click({ timeout: 5_000 })
+          .catch(() => {});
 
         await guestBCtx.setOffline(false);
         await waitConnected(guestB, "guestB after reconnect");
@@ -385,8 +323,8 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         });
 
         // Not hung, not crashed: guestB's harness is still responsive.
-        const stillResponsive = await guestB.evaluate(
-          () => Array.isArray((window as any).__EXCALIDASH_TEST__?.getSceneElements?.()),
+        const stillResponsive = await guestB.evaluate(() =>
+          Array.isArray((window as any).__EXCALIDASH_TEST__?.getSceneElements?.()),
         );
         expect(stillResponsive).toBe(true);
       });

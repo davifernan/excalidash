@@ -86,6 +86,124 @@ export const dropMarkdown = async (page: Page, source: string, name = "notes.md"
   );
 };
 
+/**
+ * A noise-filled PNG of a target raw byte size, injected as an image element
+ * via the same `addFiles`/`updateScene` path the product uses. Shared by
+ * team-acceptance.spec.ts and team-readiness.spec.ts (NIL-330) -- both need
+ * the same pixel generation and scene-injection shape, one to verify content
+ * hashes arrive on a peer unchanged and the other purely as sustained size
+ * pressure with no peer to check.
+ *
+ * Random pixels are incompressible, so the encoded PNG lands close to
+ * `targetBytes` regardless of what the browser's deflate pass does.
+ * `crypto.getRandomValues` fills the pixel buffer in 64KiB chunks (its own
+ * per-call cap) rather than a JS-level per-pixel loop, which matters once
+ * `targetBytes` reaches double digits of MB.
+ *
+ * `withHash: true` (team-acceptance's peer-verification use) derives the
+ * file id from a SHA-1 of the raw bytes and returns a SHA-256 `dataHash` a
+ * peer's own received copy can be compared against -- computed in-browser
+ * deliberately, so a multi-MB data URL never crosses the Playwright RPC
+ * boundary just to be hashed in Node. Without it (team-readiness's pressure-
+ * only use), `elementId` doubles as the file id and no hash is computed.
+ */
+export const injectNoiseImage = (
+  page: Page,
+  {
+    targetBytes,
+    elementId,
+    position,
+    withHash = false,
+  }: {
+    targetBytes: number;
+    elementId: string;
+    position?: { x: number; y: number };
+    withHash?: boolean;
+  },
+): Promise<{ fileId: string; dataURLLength: number; dataHash?: string }> =>
+  page.evaluate(
+    async ({ targetBytes, elementId, position, withHash }) => {
+      const pixelCount = Math.ceil(targetBytes / 4);
+      const width = Math.ceil(Math.sqrt(pixelCount));
+      const height = Math.ceil(pixelCount / width);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Missing 2D canvas context");
+      const pixels = context.createImageData(width, height);
+      const CHUNK = 65536;
+      for (let offset = 0; offset < pixels.data.length; offset += CHUNK) {
+        crypto.getRandomValues(
+          pixels.data.subarray(offset, Math.min(offset + CHUNK, pixels.data.length)),
+        );
+      }
+      context.putImageData(pixels, 0, 0);
+      const dataURL = canvas.toDataURL("image/png");
+
+      let fileId = elementId;
+      let dataHash: string | undefined;
+      if (withHash) {
+        const binary = atob(dataURL.slice(dataURL.indexOf(",") + 1));
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        dataHash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        const fileDigest = await crypto.subtle.digest("SHA-1", bytes);
+        fileId = Array.from(new Uint8Array(fileDigest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+      }
+
+      const created = Date.now();
+      const api = (window as any).__EXCALIDASH_TEST__;
+      if (!api) throw new Error("Missing __EXCALIDASH_TEST__");
+      api.addFiles({
+        [fileId]: { id: fileId, mimeType: "image/png", dataURL, created, lastRetrieved: created },
+      });
+      api.updateScene({
+        elements: [
+          ...api.getSceneElementsIncludingDeleted(),
+          {
+            id: elementId,
+            type: "image",
+            x: position?.x ?? 40,
+            y: position?.y ?? 100,
+            width: position ? 100 : 120,
+            height: position ? 80 : 90,
+            angle: 0,
+            strokeColor: "#1e1e1e",
+            backgroundColor: "transparent",
+            fillStyle: "solid",
+            strokeWidth: 1,
+            strokeStyle: "solid",
+            roundness: null,
+            roughness: 0,
+            opacity: 100,
+            groupIds: [],
+            frameId: null,
+            seed: Math.floor(Math.random() * 1e9),
+            version: 1,
+            versionNonce: Math.floor(Math.random() * 1e9),
+            isDeleted: false,
+            boundElements: null,
+            link: null,
+            locked: false,
+            index: `nil330_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            updated: created,
+            status: "saved",
+            fileId,
+            scale: [1, 1],
+            crop: null,
+          },
+        ],
+      });
+      return { fileId, dataURLLength: dataURL.length, dataHash };
+    },
+    { targetBytes, elementId, position, withHash },
+  );
+
 export const documentPageLabel = (page: Page) => page.locator(".text-document-widget__page-number");
 
 /**
