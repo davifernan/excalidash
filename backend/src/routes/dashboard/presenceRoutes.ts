@@ -4,7 +4,7 @@ import { getDrawingRosters } from "../../authz/roster";
 import { subjectKey } from "../../authz/subjectKey";
 import type { DashboardRouteDeps } from "./types";
 
-const MAX_IDS = 50;
+export const MAX_IDS = 50;
 const MAX_QUERY_LENGTH = 4096;
 const ID_MAX_LENGTH = 200;
 
@@ -14,7 +14,9 @@ type PresenceResult = {
   guestCount: number;
 };
 
-const parseIds = (raw: unknown): string[] | null => {
+/** Shared with teamPresenceRoutes.ts: same "board ids the client already has
+ * on screen" trust boundary, so the same validation applies to both. */
+export const parseIds = (raw: unknown): string[] | null => {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_QUERY_LENGTH) return null;
   const ids: string[] = [];
   for (const part of raw.split(",")) {

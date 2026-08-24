@@ -8,7 +8,11 @@ import { MemberAvatar } from "../components/MemberAvatar";
 import { displayFontFamily } from "../utils/displayFont";
 import { useTeamHomeData } from "./team/useTeamHomeData";
 import { RecentBoardCard } from "./team/RecentBoardCard";
-import { presenceKeysFor, useDashboardPresence } from "./dashboard/useDashboardPresence";
+import {
+  presenceKeysFor,
+  useDashboardPresence,
+  useTeamPresence,
+} from "./dashboard/useDashboardPresence";
 
 export const TeamHome: React.FC = () => {
   const navigate = useNavigate();
@@ -25,6 +29,7 @@ export const TeamHome: React.FC = () => {
   } = useTeamHomeData();
 
   const presence = useDashboardPresence(recentBoards.map((drawing) => drawing.id));
+  const teamPresence = useTeamPresence(recentBoards.map((drawing) => drawing.id));
 
   const handleCreateCollection = async (name: string) => {
     await api.createCollection(name);
@@ -139,7 +144,12 @@ export const TeamHome: React.FC = () => {
             </div>
           ) : (
             <ul className="space-y-2">
-              {team?.members.map((member) => (
+              {team?.members.map((member) => {
+                const currentBoardId = teamPresence?.get(member.subjectKey);
+                const currentBoard = currentBoardId
+                  ? recentBoards.find((drawing) => drawing.id === currentBoardId)
+                  : undefined;
+                return (
                 <li
                   key={member.subjectKey}
                   className="flex items-center gap-2.5 rounded-xl border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]"
@@ -149,6 +159,7 @@ export const TeamHome: React.FC = () => {
                     initials={member.initials}
                     color={member.color}
                     size={28}
+                    online={!!currentBoard}
                   />
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-sm text-slate-900 dark:text-white truncate">
@@ -159,6 +170,11 @@ export const TeamHome: React.FC = () => {
                         </span>
                       )}
                     </p>
+                    {currentBoard && (
+                      <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 truncate">
+                        Currently in {currentBoard.name}
+                      </p>
+                    )}
                   </div>
                   {member.role === "owner" && (
                     <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-slate-100 dark:bg-neutral-800 text-slate-400 dark:text-neutral-500 border-slate-200 dark:border-neutral-700">
@@ -166,7 +182,8 @@ export const TeamHome: React.FC = () => {
                     </span>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </aside>

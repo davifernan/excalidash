@@ -166,3 +166,55 @@ export const useCollectionPresence = (collectionId: string | undefined): Collect
 
   return presence;
 };
+
+/** subjectKey (team scope) -> the drawing id that member is currently on. */
+export type TeamPresenceByMember = ReadonlyMap<string, string>;
+
+/**
+ * Which team members are on which of these boards, right now -- the
+ * by-person sibling of `useDashboardPresence`'s by-board answer, for the
+ * Sidebar's "Team" panel (NIL-294). `null` while unknown, same contract as
+ * every other hook here: a `null` map must not be read as "nobody is
+ * anywhere," only as "haven't asked yet."
+ */
+export const useTeamPresence = (drawingIds: readonly string[]): TeamPresenceByMember | null => {
+  const [presence, setPresence] = useState<TeamPresenceByMember | null>(null);
+  const watched = drawingIds.slice(0, MAX_WATCHED);
+  const watchKey = watched.join(",");
+
+  useEffect(() => {
+    const ids = watchKey ? watchKey.split(",") : [];
+    if (ids.length === 0) {
+      setPresence(null);
+      return;
+    }
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const results = await api.getTeamPresence(ids);
+        if (cancelled) return;
+        setPresence(new Map(results.map((result) => [result.subjectKey, result.drawingId])));
+      } catch {
+        // Presence is decoration here too: keep the last answer standing.
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [watchKey]);
+
+  return presence;
+};
