@@ -182,7 +182,13 @@ test.describe
       await pageA.goto(`/editor/${drawing_id}`);
       await pageA.waitForSelector(".excalidraw", { timeout: 30000 });
       await pageA.waitForTimeout(1000);
-      await pageA.getByTestId("editor-comments-toggle").click();
+      // Comments is a hamburger-menu-only entry, not a header-control icon
+      // (see chromeSlots.tsx's "comments" MAIN_MENU_ENTRIES comment): a
+      // third header icon alongside invite/share measurably pushed
+      // Excalidraw's own collaborator-avatar list into its "+N" collapsed
+      // state instead of showing individual avatars.
+      await pageA.getByTestId("main-menu-trigger").click();
+      await pageA.locator('[data-testid="dropdown-menu"]').getByText("Comments", { exact: true }).click();
       await expect(pageA.getByTestId("comment-panel")).toBeVisible();
 
       // Anchor the thread to a point on the canvas (not a bare, unanchored

@@ -113,30 +113,38 @@ describe("renderMainMenuEntries", () => {
 });
 
 describe("HEADER_CONTROL_ENTRIES", () => {
-  it("orders invite, then comments, then share", () => {
+  it("orders invite before share", () => {
     const ids = [...HEADER_CONTROL_ENTRIES].sort((a, b) => a.order - b.order).map((e) => e.id);
-    expect(ids).toEqual(["invite-everyone-here", "comments", "share"]);
+    expect(ids).toEqual(["invite-everyone-here", "share"]);
   });
 
-  it("hides invite and share under the conditions MainMenu also hides its own copies under -- comments has its own, broader condition", () => {
+  it("hides both controls under the conditions MainMenu also hides its own copies under", () => {
     const readOnlyEditor: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
-    // Comments is not gated on peers (unlike invite) or ownership (unlike
-    // share): any account with real access to the board may open the panel
-    // alone, so it renders here where the other two do not.
-    expect(renderedIds(HEADER_CONTROL_ENTRIES, readOnlyEditor)).toEqual([null, "comments", null]);
+    expect(renderedIds(HEADER_CONTROL_ENTRIES, readOnlyEditor)).toEqual([null, null]);
   });
 
-  it("hides comments too once there is no real access at all", () => {
-    const noAccess: ChromeSlotContext = { ...baseCtx, accessLevel: "none" };
-    expect(renderedIds(HEADER_CONTROL_ENTRIES, noAccess)).toEqual([null, null, null]);
+  /**
+   * Regression guard (PR #61 fix-push): a "comments" HeaderControlSlotEntry
+   * was here briefly. Measured against a real multi-collaborator session, a
+   * third header-control icon (alongside invite/share) pushed
+   * `.layer-ui__wrapper__top-right` past whatever width Excalidraw's own
+   * collaborator-avatar list uses to decide between showing avatars and
+   * collapsing to a "+N" badge -- collaboration.spec.ts's presence/sync/cursor
+   * tests caught it losing `.UserList__collaborator .Avatar` entirely. Comments
+   * stays a MAIN_MENU_ENTRIES-only entry (see chromeSlots.tsx's own comment
+   * there); this asserts it never quietly comes back to the header group.
+   */
+  it("never re-adds a comments entry -- see the regression note above", () => {
+    const ids = HEADER_CONTROL_ENTRIES.map((e) => e.id);
+    expect(ids).not.toContain("comments");
   });
 });
 
 describe("renderHeaderControlEntries", () => {
-  it("renders nothing when no control applies", () => {
-    const noAccess: ChromeSlotContext = { ...baseCtx, accessLevel: "none", peers: [] };
+  it("renders nothing when neither control applies", () => {
+    const alone: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
     const output = React.Children.toArray(
-      renderHeaderControlEntries(noAccess),
+      renderHeaderControlEntries(alone),
     ) as React.ReactElement[];
     expect(output.every((el) => el.props.children == null)).toBe(true);
   });

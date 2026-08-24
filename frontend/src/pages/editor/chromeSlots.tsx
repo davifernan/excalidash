@@ -70,7 +70,7 @@ import {
 } from "../../integrations/excalidraw/slots";
 import { LanguageSelector } from "../../components/LanguageSelector";
 import { BoardNameMenuEntry } from "./slots/boardNameMenuEntry";
-import { CommentsHeaderControl, CommentsMenuEntry } from "./slots/commentsMenuEntry";
+import { CommentsMenuEntry } from "./slots/commentsMenuEntry";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
@@ -176,6 +176,17 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
     // Grouped with export/version-history (content actions on the board)
     // rather than under collab-separator with share/invite: opening the
     // panel does not invite or hand anyone access, it just annotates.
+    //
+    // Menu-only, no HeaderControlSlotEntry: measured against a real
+    // multi-collaborator session, a third icon in the header-control group
+    // (alongside invite/share) pushes `.layer-ui__wrapper__top-right` past
+    // whatever width Excalidraw's own collaborator-avatar list uses to
+    // decide between showing avatars and collapsing to a "+N" badge --
+    // `collaboration.spec.ts`'s presence/sync/cursor tests caught this by
+    // losing the individual `.UserList__collaborator .Avatar` node entirely.
+    // The file comment's own "Mobile" section already establishes this
+    // path (menu or overlay, not the header control slot) for an entry that
+    // cannot fit there; this is that case on desktop too, not only mobile.
     render: (ctx) =>
       ctx.accessLevel !== "none" && ctx.id ? (
         <MainMenu.Item onSelect={ctx.onToggleComments} icon={<MessageSquare size={16} />}>
@@ -277,12 +288,6 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
           <Share2 size={16} />
         </button>
       ) : null,
-  },
-  {
-    id: "comments",
-    order: 25,
-    render: (ctx) =>
-      ctx.accessLevel !== "none" && ctx.id ? <CommentsHeaderControl ctx={ctx} /> : null,
   },
 ];
 
