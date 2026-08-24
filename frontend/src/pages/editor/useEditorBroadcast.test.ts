@@ -261,7 +261,8 @@ describe("editor broadcast delivery tracking", () => {
         acknowledgements.push(ack);
       },
     );
-    const socket = { timeout: vi.fn(() => ({ emit })) };
+    const socket = { connected: true, timeout: vi.fn(() => ({ emit })) };
+    const roomJoinedRef = ref(true);
     const largeFile = { id: "large", mimeType: "image/png", dataURL: "data:large" };
     const smallFile = { id: "small", mimeType: "image/png", dataURL: "data:small" };
     const { result } = renderHook(() =>
@@ -274,6 +275,7 @@ describe("editor broadcast delivery tracking", () => {
         latestAppStateRef: ref(null),
         latestFilesRef: ref({}),
         lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        roomJoinedRef,
         socketRef: ref<any>(socket),
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
@@ -288,15 +290,151 @@ describe("editor broadcast delivery tracking", () => {
     act(() => expect(result.current.broadcastFiles({ large: largeFile })).toBe(true));
     expect(emit.mock.calls[0][1]).toMatchObject({ files: { large: largeFile } });
 
+    socket.connected = false;
+    roomJoinedRef.current = false;
     act(() => acknowledgements[0]?.(new Error("offline")));
+    act(() => vi.advanceTimersByTime(1_000));
     act(() =>
-      expect(result.current.broadcastFiles({ large: largeFile, small: smallFile })).toBe(true),
+      expect(
+        result.current.broadcastFiles({
+          large: { ...largeFile, lastRetrieved: 1 },
+          small: smallFile,
+        }),
+      ).toBe(true),
     );
 
+    expect(emit).toHaveBeenCalledOnce();
+    socket.connected = true;
+    roomJoinedRef.current = true;
+    act(() => vi.advanceTimersByTime(100));
     expect(emit).toHaveBeenCalledTimes(2);
     expect(emit.mock.calls[1][1]).toMatchObject({ files: { small: smallFile } });
     expect(emit.mock.calls[1][1]).not.toHaveProperty("files.large");
     vi.useRealTimers();
+  });
+
+  it("waits for the room join acknowledgement before delivering queued files", () => {
+    vi.useFakeTimers();
+    const emit = vi.fn();
+    const socket = { connected: false, timeout: vi.fn(() => ({ emit })) };
+    const roomJoinedRef = ref(false);
+    const queuedFile = { id: "queued", mimeType: "image/png", dataURL: "data:queued" };
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        files: { read: () => ({ ok: true, value: {} }) } as any,
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        roomJoinedRef,
+        socketRef: ref<any>(socket),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => false,
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion: vi.fn(),
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => expect(result.current.broadcastFiles({ queued: queuedFile })).toBe(true));
+    act(() => vi.advanceTimersByTime(100));
+    expect(emit).not.toHaveBeenCalled();
+
+    socket.connected = true;
+    act(() => vi.advanceTimersByTime(100));
+    expect(emit).not.toHaveBeenCalled();
+
+    roomJoinedRef.current = true;
+    act(() => vi.advanceTimersByTime(100));
+    expect(emit).toHaveBeenCalledOnce();
+    expect(emit.mock.calls[0][1]).toMatchObject({ files: { queued: queuedFile } });
+    vi.useRealTimers();
+  });
+
+  it("batches queued files up to the live update limits", () => {
+    const emit = vi.fn();
+    const firstFile = { id: "first", mimeType: "image/png", dataURL: "data:first" };
+    const secondFile = { id: "second", mimeType: "image/png", dataURL: "data:second" };
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        files: { read: () => ({ ok: true, value: {} }) } as any,
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>({ timeout: vi.fn(() => ({ emit })) }),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => false,
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion: vi.fn(),
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() =>
+      expect(result.current.broadcastFiles({ first: firstFile, second: secondFile })).toBe(true),
+    );
+
+    expect(emit).toHaveBeenCalledOnce();
+    expect(emit.mock.calls[0][1]).toMatchObject({
+      elements: [],
+      files: { first: firstFile, second: secondFile },
+    });
+  });
+
+  it("requeues a newer file version when the in-flight version is hard rejected", () => {
+    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
+    const emit = vi.fn(
+      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
+        acknowledgements.push(ack);
+      },
+    );
+    const firstVersion = { id: "replaceable", dataURL: "data:first-version" };
+    const secondVersion = { id: "replaceable", dataURL: "data:second-version" };
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        files: { read: () => ({ ok: true, value: {} }) } as any,
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>({ timeout: vi.fn(() => ({ emit })) }),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => false,
+        normalizeImageElementStatus: (elements) => elements,
+        recordElementVersion: vi.fn(),
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => result.current.broadcastFiles({ replaceable: firstVersion }));
+    act(() => result.current.broadcastFiles({ replaceable: secondVersion }));
+    expect(emit).toHaveBeenCalledOnce();
+
+    act(() =>
+      acknowledgements[0]?.(null, {
+        ok: false,
+        error: { code: "invalid-request", message: "old version rejected" },
+      }),
+    );
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[1][1]).toMatchObject({ files: { replaceable: secondVersion } });
   });
 
   it("keeps scene updates ordered while the first update retries", () => {

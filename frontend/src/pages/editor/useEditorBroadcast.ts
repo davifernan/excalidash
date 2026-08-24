@@ -26,6 +26,7 @@ type UseEditorBroadcastParams = {
   latestAppStateRef: MutableRefObject<any>;
   latestFilesRef: MutableRefObject<any>;
   lastPersistedAppStateSigRef: MutableRefObject<string | null>;
+  roomJoinedRef?: MutableRefObject<boolean>;
   socketRef: MutableRefObject<any>;
   debouncedSave: (
     drawingId: string,
@@ -62,6 +63,7 @@ type FileContentAttempt = {
 type FileDeliveryState = {
   desiredFile: any;
   queued: boolean;
+  retrying: boolean;
   retryTimeout: number | null;
 };
 
@@ -99,6 +101,7 @@ export const useEditorBroadcast = ({
   latestAppStateRef,
   latestFilesRef,
   lastPersistedAppStateSigRef,
+  roomJoinedRef,
   socketRef,
   debouncedSave,
   debouncedSavePreview,
@@ -110,6 +113,7 @@ export const useEditorBroadcast = ({
 }: UseEditorBroadcastParams) => {
   const throttleTimeoutRef = useRef<number | null>(null);
   const sceneRetryTimeoutRef = useRef<number | null>(null);
+  const fileWakeTimeoutRef = useRef<number | null>(null);
   const deliveryGenerationRef = useRef(0);
   // File packets use a fair, per-file retry queue so one slow upload cannot
   // monopolize collaboration. Scene packets stay on a separate serialized
@@ -118,13 +122,17 @@ export const useEditorBroadcast = ({
   const pendingSceneUpdateRef = useRef<PendingSceneUpdate | null>(null);
   const fileDeliveryQueueRef = useRef<string[]>([]);
   const fileDeliveryStatesRef = useRef(new Map<string, FileDeliveryState>());
-  const activeFileDeliveryRef = useRef<string | null>(null);
+  const activeFileDeliveryRef = useRef<ReadonlySet<string> | null>(null);
   const rejectedFileAttemptsRef = useRef(new Map<string, FileContentAttempt>());
   const rejectedFilesDrawingIdRef = useRef<string | undefined>(drawingId);
   const drainFileDeliveriesRef = useRef<() => void>(() => undefined);
   const drainSceneDeliveryRef = useRef<() => void>(() => undefined);
   const lastRunAtRef = useRef(0);
   const trailingArgsRef = useRef<[readonly any[], Record<string, any> | undefined] | null>(null);
+  const canDeliverToRoom = useCallback(() => {
+    const socket = socketRef.current;
+    return Boolean(socket && socket.connected !== false && roomJoinedRef?.current !== false);
+  }, [roomJoinedRef, socketRef]);
   const deliverPackets = useCallback(
     (packets: readonly DeliveryPacket[], onFinished: (delivered: boolean) => void) => {
       const generation = deliveryGenerationRef.current;
@@ -145,7 +153,7 @@ export const useEditorBroadcast = ({
           return;
         }
         const socket = socketRef.current;
-        if (!socket) {
+        if (!canDeliverToRoom()) {
           sceneRetryTimeoutRef.current = window.setTimeout(() => {
             sceneRetryTimeoutRef.current = null;
             sendCurrent();
@@ -193,15 +201,24 @@ export const useEditorBroadcast = ({
 
       sendCurrent();
     },
-    [socketRef],
+    [canDeliverToRoom, socketRef],
   );
 
   const drainFileDeliveries = useCallback(() => {
     if (activeFileDeliveryRef.current !== null) return;
     const generation = deliveryGenerationRef.current;
 
+    const scheduleWake = () => {
+      if (fileWakeTimeoutRef.current !== null) return;
+      fileWakeTimeoutRef.current = window.setTimeout(() => {
+        fileWakeTimeoutRef.current = null;
+        drainFileDeliveriesRef.current();
+      }, 100);
+    };
+
     const scheduleRetry = (fileId: string, state: FileDeliveryState) => {
       if (state.retryTimeout !== null) return;
+      state.retrying = true;
       state.retryTimeout = window.setTimeout(() => {
         state.retryTimeout = null;
         if (deliveryGenerationRef.current !== generation || state.queued) return;
@@ -211,99 +228,169 @@ export const useEditorBroadcast = ({
       }, ELEMENT_UPDATE_RETRY_DELAY_MS);
     };
 
-    while (fileDeliveryQueueRef.current.length > 0) {
-      const fileId = fileDeliveryQueueRef.current.shift();
-      if (!fileId) continue;
-      const state = fileDeliveryStatesRef.current.get(fileId);
-      if (!state) continue;
-      state.queued = false;
-      if (state.retryTimeout !== null) continue;
-
-      const socket = socketRef.current;
-      if (!socket) {
-        scheduleRetry(fileId, state);
-        continue;
-      }
-
-      const attemptFile = state.desiredFile;
-      const attemptContent = fileContentAttempt(attemptFile);
-      const payload: ElementUpdatePayload = {
-        drawingId: drawingId!,
-        elements: [],
-        files: { [fileId]: attemptFile },
-      };
-      activeFileDeliveryRef.current = fileId;
-      let attemptSettled = false;
-      const acknowledge = (transportError: unknown, response?: ElementUpdateAck) => {
-        if (
-          attemptSettled ||
-          deliveryGenerationRef.current !== generation ||
-          activeFileDeliveryRef.current !== fileId
-        ) {
-          return;
-        }
-        attemptSettled = true;
-        activeFileDeliveryRef.current = null;
-        const currentState = fileDeliveryStatesRef.current.get(fileId);
-        if (!currentState) {
-          drainFileDeliveriesRef.current();
-          return;
-        }
-
-        if (transportError || response?.error?.code === "rate-limited") {
-          const message = response?.error?.message;
-          if (typeof message === "string") toast.error(message);
-          scheduleRetry(fileId, currentState);
-          // A failed file attempt yields the single file slot. A different
-          // file can now pass before this one becomes retryable again.
-          drainFileDeliveriesRef.current();
-          return;
-        }
-        if (!response?.ok) {
-          const message = response?.error?.message;
-          if (typeof message === "string") toast.error(message);
-          fileDeliveryStatesRef.current.delete(fileId);
-          drainFileDeliveriesRef.current();
-          return;
-        }
-
-        lastSyncedFilesRef.current = {
-          ...lastSyncedFilesRef.current,
-          [fileId]: attemptFile,
-        };
-        const warning = response.warning?.message;
-        if (typeof warning === "string") toast.error(warning);
-        if (isSameFileContent(attemptContent, currentState.desiredFile)) {
-          fileDeliveryStatesRef.current.delete(fileId);
-        } else if (!currentState.queued) {
-          currentState.queued = true;
-          fileDeliveryQueueRef.current.push(fileId);
-        }
-        drainSceneDeliveryRef.current();
-        drainFileDeliveriesRef.current();
-      };
-
-      if (typeof socket.timeout === "function") {
-        socket.timeout(ELEMENT_UPDATE_ACK_TIMEOUT_MS).emit("element-update", payload, acknowledge);
-      } else {
-        socket.emit("element-update", payload, (response: ElementUpdateAck) =>
-          acknowledge(null, response),
-        );
-      }
+    if (fileDeliveryQueueRef.current.length === 0) return;
+    if (!drawingId || !canDeliverToRoom()) {
+      scheduleWake();
       return;
     }
-  }, [drawingId, lastSyncedFilesRef, socketRef]);
+
+    const queuedFiles: Record<string, any> = {};
+    const eligibleQueue: string[] = [];
+    for (const fileId of fileDeliveryQueueRef.current) {
+      const state = fileDeliveryStatesRef.current.get(fileId);
+      if (!state?.queued || state.retryTimeout !== null || fileId in queuedFiles) continue;
+      eligibleQueue.push(fileId);
+    }
+    if (eligibleQueue.length === 0) return;
+    // A retry may already be queued when a fresh file arrives during a
+    // disconnect. Fresh work goes first, and a batch never mixes it with an
+    // older retry whose large frame could recreate head-of-line blocking.
+    eligibleQueue.sort((left, right) => {
+      const leftRetrying = fileDeliveryStatesRef.current.get(left)?.retrying ?? false;
+      const rightRetrying = fileDeliveryStatesRef.current.get(right)?.retrying ?? false;
+      return Number(leftRetrying) - Number(rightRetrying);
+    });
+    fileDeliveryQueueRef.current = eligibleQueue;
+    const batchIsRetry = fileDeliveryStatesRef.current.get(eligibleQueue[0])?.retrying ?? false;
+    for (const fileId of eligibleQueue) {
+      const state = fileDeliveryStatesRef.current.get(fileId)!;
+      if (state.retrying !== batchIsRetry) break;
+      queuedFiles[fileId] = state.desiredFile;
+    }
+
+    const split = splitFilesIntoUpdatePayloads({ drawingId, files: queuedFiles });
+    if (!split.ok) {
+      const state = fileDeliveryStatesRef.current.get(split.fileId);
+      if (state) {
+        state.queued = false;
+        fileDeliveryStatesRef.current.delete(split.fileId);
+      }
+      fileDeliveryQueueRef.current = fileDeliveryQueueRef.current.filter(
+        (fileId) => fileId !== split.fileId,
+      );
+      drainFileDeliveriesRef.current();
+      return;
+    }
+    const payload = split.payloads[0];
+    const attemptFiles = payload?.files ?? {};
+    const attemptFileIds = new Set(Object.keys(attemptFiles));
+    if (attemptFileIds.size === 0) return;
+    const attemptContents = new Map(
+      Object.entries(attemptFiles).map(([fileId, file]) => [fileId, fileContentAttempt(file)]),
+    );
+    fileDeliveryQueueRef.current = fileDeliveryQueueRef.current.filter(
+      (fileId) => !attemptFileIds.has(fileId),
+    );
+    for (const fileId of attemptFileIds) {
+      const state = fileDeliveryStatesRef.current.get(fileId);
+      if (state) state.queued = false;
+    }
+
+    const socket = socketRef.current;
+    activeFileDeliveryRef.current = attemptFileIds;
+    let attemptSettled = false;
+    const queueCurrentVersion = (fileId: string, state: FileDeliveryState) => {
+      if (state.retryTimeout !== null) {
+        window.clearTimeout(state.retryTimeout);
+        state.retryTimeout = null;
+      }
+      state.retrying = false;
+      if (!state.queued) {
+        state.queued = true;
+        fileDeliveryQueueRef.current.push(fileId);
+      }
+    };
+    const acknowledge = (transportError: unknown, response?: ElementUpdateAck) => {
+      if (
+        attemptSettled ||
+        deliveryGenerationRef.current !== generation ||
+        activeFileDeliveryRef.current !== attemptFileIds
+      ) {
+        return;
+      }
+      attemptSettled = true;
+      activeFileDeliveryRef.current = null;
+
+      if (transportError || response?.error?.code === "rate-limited") {
+        const message = response?.error?.message;
+        if (typeof message === "string") toast.error(message);
+        for (const fileId of attemptFileIds) {
+          const state = fileDeliveryStatesRef.current.get(fileId);
+          if (!state) continue;
+          const attempted = attemptContents.get(fileId)!;
+          const desired = fileContentAttempt(state.desiredFile);
+          // Excalidraw may refresh metadata such as lastRetrieved while the
+          // bytes are in flight. That is still the same blocked upload, so it
+          // remains a retry instead of joining a fresh-file batch.
+          if (attempted.dataURL === desired.dataURL) scheduleRetry(fileId, state);
+          else queueCurrentVersion(fileId, state);
+        }
+        // Failed files yield the slot. Files which arrived while this batch
+        // was in flight can pass before an unchanged retry becomes eligible.
+        drainFileDeliveriesRef.current();
+        return;
+      }
+      if (!response?.ok) {
+        const message = response?.error?.message;
+        if (typeof message === "string") toast.error(message);
+        for (const fileId of attemptFileIds) {
+          const state = fileDeliveryStatesRef.current.get(fileId);
+          if (!state) continue;
+          const attempted = attemptContents.get(fileId)!;
+          if (isSameFileContent(attempted, state.desiredFile)) {
+            fileDeliveryStatesRef.current.delete(fileId);
+          } else {
+            // A hard rejection describes the attempted bytes, not a newer
+            // replacement selected while that acknowledgement was pending.
+            queueCurrentVersion(fileId, state);
+          }
+        }
+        drainFileDeliveriesRef.current();
+        return;
+      }
+
+      lastSyncedFilesRef.current = {
+        ...lastSyncedFilesRef.current,
+        ...attemptFiles,
+      };
+      const warning = response.warning?.message;
+      if (typeof warning === "string") toast.error(warning);
+      for (const fileId of attemptFileIds) {
+        const state = fileDeliveryStatesRef.current.get(fileId);
+        if (!state) continue;
+        const attempted = attemptContents.get(fileId)!;
+        if (isSameFileContent(attempted, state.desiredFile)) {
+          fileDeliveryStatesRef.current.delete(fileId);
+        } else {
+          queueCurrentVersion(fileId, state);
+        }
+      }
+      drainSceneDeliveryRef.current();
+      drainFileDeliveriesRef.current();
+    };
+
+    if (typeof socket.timeout === "function") {
+      socket.timeout(ELEMENT_UPDATE_ACK_TIMEOUT_MS).emit("element-update", payload, acknowledge);
+    } else {
+      socket.emit("element-update", payload, (response: ElementUpdateAck) =>
+        acknowledge(null, response),
+      );
+    }
+  }, [canDeliverToRoom, drawingId, lastSyncedFilesRef, socketRef]);
 
   const queueFileDelivery = useCallback((fileId: string, file: any) => {
     const existing = fileDeliveryStatesRef.current.get(fileId);
     if (existing) {
-      if (isSameFileContent(fileContentAttempt(existing.desiredFile), file)) return;
+      const previous = fileContentAttempt(existing.desiredFile);
+      if (isSameFileContent(previous, file)) return;
+      const next = fileContentAttempt(file);
       existing.desiredFile = file;
-      if (
-        activeFileDeliveryRef.current !== fileId &&
-        existing.retryTimeout === null &&
-        !existing.queued
-      ) {
+      if (existing.retrying && previous.dataURL === next.dataURL) return;
+      if (existing.retryTimeout !== null) {
+        window.clearTimeout(existing.retryTimeout);
+        existing.retryTimeout = null;
+      }
+      if (!activeFileDeliveryRef.current?.has(fileId) && !existing.queued) {
         existing.queued = true;
         fileDeliveryQueueRef.current.push(fileId);
       }
@@ -311,11 +398,11 @@ export const useEditorBroadcast = ({
       fileDeliveryStatesRef.current.set(fileId, {
         desiredFile: file,
         queued: true,
+        retrying: false,
         retryTimeout: null,
       });
       fileDeliveryQueueRef.current.push(fileId);
     }
-    drainFileDeliveriesRef.current();
   }, []);
 
   const drainSceneDelivery = useCallback(() => {
@@ -477,6 +564,7 @@ export const useEditorBroadcast = ({
       for (const [fileId, file] of Object.entries(deliverableFiles)) {
         queueFileDelivery(fileId, file);
       }
+      drainFileDeliveriesRef.current();
 
       if (!filesOnly) {
         pendingSceneUpdateRef.current = { elements, files: nextFiles };
@@ -569,6 +657,9 @@ export const useEditorBroadcast = ({
       }
       if (sceneRetryTimeoutRef.current !== null) {
         window.clearTimeout(sceneRetryTimeoutRef.current);
+      }
+      if (fileWakeTimeoutRef.current !== null) {
+        window.clearTimeout(fileWakeTimeoutRef.current);
       }
       for (const state of fileDeliveryStatesRef.current.values()) {
         if (state.retryTimeout !== null) window.clearTimeout(state.retryTimeout);
