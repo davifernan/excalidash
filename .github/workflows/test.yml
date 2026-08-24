@@ -72,6 +72,34 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/adapter-boundary.test.cjs
 
+  backend-typecheck:
+    name: Backend Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma client
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: Typecheck backend
+        run: npm run typecheck --prefix backend
+
   authz-boundary:
     name: Authz Boundary
     runs-on: ubuntu-latest
