@@ -105,6 +105,45 @@ describe("CommandPalette", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("resets the highlight when a new result set arrives, even if the count stays the same (Hans PR #62-R1)", async () => {
+    // Reported scenario: type "road" -> two results, ArrowDown to the 2nd
+    // ("Roadwork") -> type "roads" -> a different two results ("Roadster"
+    // instead of "Roadwork"). highlightedIndex must not still point at
+    // position 1 meaning "whatever board is there now" -- Enter must not
+    // silently open a board the user never highlighted.
+    getDrawings.mockResolvedValueOnce({
+      drawings: [
+        board({ id: "b-inn", name: "Inn Notes" }),
+        board({ id: "b-work", name: "Roadwork" }),
+      ],
+      totalCount: 2,
+    });
+    const onClose = vi.fn();
+    render(<CommandPalette isOpen onClose={onClose} />);
+    const input = screen.getByPlaceholderText(/search boards/i);
+
+    fireEvent.change(input, { target: { value: "road" } });
+    await screen.findByText("Roadwork");
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight index 1: "Roadwork"
+
+    getDrawings.mockResolvedValueOnce({
+      drawings: [
+        board({ id: "b-side", name: "Roadside" }),
+        board({ id: "b-ster", name: "Roadster" }),
+      ],
+      totalCount: 2,
+    });
+    fireEvent.change(input, { target: { value: "roads" } });
+    await screen.findByText("Roadster");
+    expect(screen.queryByText("Roadwork")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(navigate).toHaveBeenCalledWith("/editor/b-side");
+    expect(navigate).not.toHaveBeenCalledWith("/editor/b-ster");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("shows a compact retry-able error when board search fails", async () => {
     getDrawings.mockRejectedValue(new Error("network down"));
     render(<CommandPalette isOpen onClose={vi.fn()} />);

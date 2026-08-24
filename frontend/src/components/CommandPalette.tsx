@@ -125,9 +125,16 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
     [filteredActions, boards],
   );
 
+  // `items.length` alone under-resets: a new debounced search replaces
+  // `boards` wholesale, but when the new result count happens to match the
+  // old one, the length dependency never fires and highlightedIndex keeps
+  // pointing at the same position -- now a different board (Hans-Friedrich,
+  // PR #62 review). `items` is only a new reference when `filteredActions`
+  // or `boards` actually changed (both are memoized), so this still does
+  // not fire on every render.
   useEffect(() => {
     setHighlightedIndex(0);
-  }, [items.length]);
+  }, [items]);
 
   if (!isOpen) return null;
 
