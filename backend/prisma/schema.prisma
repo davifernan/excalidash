@@ -122,6 +122,7 @@ model Drawing {
   activityEvents  ActivityEvent[]
   visits          DrawingVisit[]
   favoritedBy     DrawingFavorite[]
+  apiKeys         ApiKey[]
   /// Set when the board is archived (NIL-365): excluded from Team Home, the
   /// default drawing lists, and search by default, but not deleted -- an
   /// authorized viewer can still find and restore it from the Archive view.
@@ -438,6 +439,29 @@ model RefreshToken {
   createdAt DateTime @default(now())
 }
 
+/// `drawingId == null` is an account-wide key: it carries `drawings:*`/
+/// `collections:*` scopes and reaches every board the owning account can
+/// reach. `drawingId != null` is an agent token confined to exactly that
+/// board (NIL-382): it carries only `drawing:read`/`drawing:ops` (a
+/// disjoint scope namespace on purpose -- `drawing:` singular vs
+/// `drawings:` plural makes the two families impossible to confuse at a
+/// glance or in a grep) and is refused everywhere except the three agent
+/// routes named in `middleware/auth.ts`'s `getAgentRouteDrawingId`. It is
+/// also refused outright at the socket handshake
+/// (`server/socketAuth.ts`) rather than threaded through the dozen
+/// per-feature socket handlers (voting, presenter, workshop timer, cursor
+/// chat, follow, invite-here, ...) that would each need their own copy of
+/// the same board-match check to stay safe -- one refusal at the door is
+/// the whole enforcement, not a property every future handler must
+/// remember to preserve.
+///
+/// `expiresAt` is enforced for both key types wherever a key is resolved
+/// (`auth/apiKeys.ts#resolveApiKeyUser`, shared by the HTTP middleware and
+/// the socket handshake). Account-wide keys keep it null (never expire,
+/// unchanged product behavior). Agent tokens always get one: 30 days by
+/// default if the caller does not name a shorter one. Before this, the
+/// product's advertised "agent tokens expire after 30 days" was not true
+/// of any key this table could produce.
 model ApiKey {
   id         String    @id @default(uuid())
   userId     String
@@ -447,6 +471,9 @@ model ApiKey {
   tokenHash  String    @unique
   prefix     String
   scopes     String    @default("drawings:read,drawings:write,collections:read,collections:write")
+  drawingId  String?
+  drawing    Drawing?  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime?
   lastUsedAt DateTime?
   revokedAt  DateTime?
   createdAt  DateTime  @default(now())
@@ -454,6 +481,7 @@ model ApiKey {
 
   @@index([userId, createdAt])
   @@index([keyId, revokedAt])
+  @@index([drawingId])
 }
 
 model AuditLog {

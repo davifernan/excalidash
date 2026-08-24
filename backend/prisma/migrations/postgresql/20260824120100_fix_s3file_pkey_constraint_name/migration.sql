@@ -1,0 +1,11 @@
+-- Fix: 20260506130000_s3file_composite_pk renamed the TABLE "new_S3File" to
+-- "S3File" but Postgres does not rename a table's constraints along with it,
+-- so the live primary key constraint has stayed named "new_S3File_pkey"
+-- (SQLite has no equivalent drift: its composite PK is declared inline,
+-- with no named constraint to drift). Harmless on its own, but Prisma's
+-- schema-drift detection treats it as an unexpected difference from the
+-- conventional "S3File_pkey" name every other model uses, and a future
+-- migration that legitimately touches this table would otherwise have to
+-- carry this rename as unrelated noise. Found while generating the
+-- NIL-382 migration; postgres-only, no data movement.
+ALTER TABLE "S3File" RENAME CONSTRAINT "new_S3File_pkey" TO "S3File_pkey";

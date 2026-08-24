@@ -6,14 +6,14 @@ import { prisma as defaultPrisma } from "../db/prisma";
 import { createAuthModeService, type AuthModeService } from "../auth/authMode";
 import { ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME, readCookie } from "../auth/cookies";
 import {
-  apiKeyHashMatches,
-  extractApiKeyId,
   isApiKeyToken,
-  parseApiKeyScopes,
+  resolveApiKeyUser,
   DRAWINGS_HISTORY_SCOPE,
   DRAWINGS_READ_SCOPE,
   DRAWINGS_SHARE_SCOPE,
   DRAWINGS_WRITE_SCOPE,
+  DRAWING_READ_SCOPE,
+  DRAWING_OPS_SCOPE,
 } from "../auth/apiKeys";
 declare global {
   namespace Express {
@@ -30,6 +30,14 @@ declare global {
       };
       principal?: { kind: "user"; userId: string; allowInactive?: boolean };
       authError?: { code: "INVALID_ACCESS_TOKEN" | "ACCESS_TOKEN_MISSING" };
+      /**
+       * Set only when the authenticated API key is a drawing-bound agent
+       * token (NIL-382). `authorizeApiKeyRequest` has already refused the
+       * request unless `req.params.id` equals this value, so a route handler
+       * does not need to re-check it to stay safe -- it is exposed for
+       * defense in depth and for anything a handler wants to log or assert.
+       */
+      apiKeyDrawingId?: string | null;
     }
   }
 }
@@ -202,15 +210,79 @@ export const getRequiredApiKeyScopes = (req: Request): string[] => {
   const access = isReadMethod(req.method) ? "read" : "write";
   return [`${resource}:${access}`];
 };
-const authorizeApiKeyRequest = (req: Request, res: Response, scopes: string[]): boolean => {
+
+/**
+ * The exclusive, exhaustive route surface a drawing-bound agent token
+ * (NIL-382) may ever reach: `GET .../agent/summary`, `GET .../agent/elements`,
+ * `POST .../agent/ops`, on its own board only. Returns null for every other
+ * request -- including `/drawings/:id` itself, the full scene PUT, history,
+ * sharing, and every other drawing sub-resource -- so that surface cannot
+ * grow by a route elsewhere in this file happening to match a loose pattern.
+ *
+ * This function's return value decides everything for an agent token; there
+ * is no second, broader path a request can take to reach one (see
+ * `authorizeApiKeyRequest` below, which refuses unconditionally when this
+ * returns null instead of falling back to the account-wide scope check).
+ */
+const getAgentRouteDrawingId = (
+  req: Request,
+): { drawingId: string; scope: typeof DRAWING_READ_SCOPE | typeof DRAWING_OPS_SCOPE } | null => {
+  const segments = normalizeRequestPath(req).split("/").filter(Boolean);
+  if (segments[0] !== "drawings" || segments.length !== 4 || segments[2] !== "agent") return null;
+  const drawingId = segments[1];
+  const action = segments[3];
+  const method = req.method;
+  if (action === "summary" && isReadMethod(method)) return { drawingId, scope: DRAWING_READ_SCOPE };
+  if (action === "elements" && isReadMethod(method)) return { drawingId, scope: DRAWING_READ_SCOPE };
+  if (action === "ops" && method === "POST") return { drawingId, scope: DRAWING_OPS_SCOPE };
+  return null;
+};
+
+/**
+ * Pure predicate, no response side effects, so both `requireAuth` (hard
+ * 401/403) and `optionalAuth` (soft `req.authError` + fall through to
+ * anonymous/share-link handling) decide every API-key request through this
+ * exact same rule -- not two independently maintained copies of it. Two
+ * copies is exactly how the drawing-bound branch below could stay correct in
+ * one auth entry point and rot in the other (NIL-382); see
+ * `resolveApiKeyUser`'s comment for the same argument one layer down, at the
+ * database lookup itself.
+ *
+ * A drawing-bound agent token never falls through to the account-wide scope
+ * check below, on any code path -- that fallthrough is exactly the "not an
+ * agent token after all, so full account rights" shape this repo has been
+ * bitten by repeatedly. Every one of its requests is decided right here,
+ * unconditionally, against its own three routes and nothing else.
+ */
+const isApiKeyRequestAuthorized = (
+  req: Request,
+  scopes: string[],
+  apiKeyDrawingId: string | null,
+): boolean => {
+  if (apiKeyDrawingId) {
+    const agentRoute = getAgentRouteDrawingId(req);
+    return Boolean(
+      agentRoute && agentRoute.drawingId === apiKeyDrawingId && scopes.includes(agentRoute.scope),
+    );
+  }
   if (req.method === "GET" && SCOPE_FREE_API_KEY_PATHS.has(normalizeRequestPath(req))) {
     return true;
   }
   const requiredScopes = getRequiredApiKeyScopes(req);
-  if (requiredScopes.length > 0 && requiredScopes.every((scope) => scopes.includes(scope))) {
-    return true;
-  }
-  res.status(403).json({ error: "Forbidden", message: "API key is not authorized for this route" });
+  return requiredScopes.length > 0 && requiredScopes.every((scope) => scopes.includes(scope));
+};
+
+const authorizeApiKeyRequest = (
+  req: Request,
+  res: Response,
+  scopes: string[],
+  apiKeyDrawingId: string | null,
+): boolean => {
+  if (isApiKeyRequestAuthorized(req, scopes, apiKeyDrawingId)) return true;
+  const message = apiKeyDrawingId
+    ? "Agent token is not authorized for this route"
+    : "API key is not authorized for this route";
+  res.status(403).json({ error: "Forbidden", message });
   return false;
 };
 export type AuthMiddlewareDeps = { prisma: PrismaClient; authModeService: AuthModeService };
@@ -233,20 +305,12 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
         isActive: true,
       },
     });
-  const authenticateApiKey = async (token: string) => {
-    const keyId = extractApiKeyId(token);
-    if (!keyId) return null;
-    const apiKey = await prisma.apiKey.findUnique({ where: { keyId }, include: { user: true } });
-    if (!apiKey || apiKey.revokedAt) return null;
-    if (!apiKeyHashMatches(token, apiKey.tokenHash)) return null;
-    if (!apiKey.user.isActive) return null;
-    try {
-      await prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } });
-    } catch (error) {
-      console.warn("Failed to update API key lastUsedAt:", error);
-    }
-    return { user: apiKey.user, scopes: parseApiKeyScopes(apiKey.scopes) };
-  };
+  // Delegates to the one shared lookup (auth/apiKeys.ts#resolveApiKeyUser) that
+  // also backs the socket handshake, rather than keeping a second copy of the
+  // key/expiry/revocation checks here -- see that function's own comment for
+  // why a second copy is exactly how a board-bound agent token would end up
+  // treated as an account-wide key on whichever entry point drifted (NIL-382).
+  const authenticateApiKey = (token: string) => resolveApiKeyUser(prisma, token);
   const shouldReconcileOidcRole = async (payload: JwtPayload, userId: string): Promise<boolean> => {
     if (configuredOidcAdminGroups.size === 0) return false;
     if (payload.impersonatorId) return false;
@@ -329,10 +393,11 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
           res.status(401).json({ error: "Unauthorized", message: "Invalid or revoked API key" });
           return;
         }
-        const { user, scopes } = result;
-        if (!authorizeApiKeyRequest(req, res, scopes)) {
+        const { user, scopes, drawingId } = result;
+        if (!authorizeApiKeyRequest(req, res, scopes, drawingId)) {
           return;
         }
+        req.apiKeyDrawingId = drawingId;
         if (user.mustResetPassword && !isAllowedWhileMustResetPassword(req)) {
           res.status(403).json({
             error: "Forbidden",
@@ -431,16 +496,9 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
     if (extracted.source === "bearer" && isApiKeyToken(extracted.token)) {
       try {
         const result = await authenticateApiKey(extracted.token);
-        if (result) {
-          const requiredScopes = getRequiredApiKeyScopes(req);
-          if (
-            requiredScopes.length === 0 ||
-            !requiredScopes.every((scope) => result.scopes.includes(scope))
-          ) {
-            req.authError = { code: "INVALID_ACCESS_TOKEN" };
-            return next();
-          }
-          const { user } = result;
+        if (result && isApiKeyRequestAuthorized(req, result.scopes, result.drawingId)) {
+          const { user, drawingId } = result;
+          req.apiKeyDrawingId = drawingId;
           req.user = {
             id: user.id,
             username: user.username,
