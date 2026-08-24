@@ -11,8 +11,13 @@ import {
 } from "./importsCompatFixtures";
 import { getTestPrisma, setupTestDb, cleanupTestDb } from "./testUtils";
 import { BOOTSTRAP_USER_ID } from "../auth/authMode";
+import { config } from "../config";
 
 describe("Import compatibility (legacy exports)", () => {
+  const tinyPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/58BAwAI/AL+hc2rNAAAAABJRU5ErkJggg==",
+    "base64",
+  );
   const uploadsDir = path.resolve(__dirname, "../../uploads");
   const userAgent = "vitest-import-compat";
   let prisma: ReturnType<typeof getTestPrisma>;
@@ -20,11 +25,14 @@ describe("Import compatibility (legacy exports)", () => {
   let agent: any;
   let csrfHeaderName: string;
   let csrfToken: string;
+  let assetStorageDir: string;
 
   beforeAll(async () => {
     setupTestDb();
     prisma = getTestPrisma();
     fs.mkdirSync(uploadsDir, { recursive: true });
+    assetStorageDir = path.join(createTempDir(), "assets");
+    config.assets.storageDir = assetStorageDir;
 
     ({ app } = await import("../index"));
 
@@ -42,6 +50,7 @@ describe("Import compatibility (legacy exports)", () => {
 
   afterAll(async () => {
     await prisma.$disconnect();
+    fs.rmSync(assetStorageDir, { recursive: true, force: true });
   });
 
   it("verifies a v0.1.x–v0.3.2-style SQLite export (Drawing/Collection tables) and returns migration info when present", async () => {
@@ -99,6 +108,44 @@ describe("Import compatibility (legacy exports)", () => {
       where: { id: `trash:${BOOTSTRAP_USER_ID}` },
     });
     expect(trash).toBeTruthy();
+  });
+
+  it("moves a legacy embedded image to DrawingFile storage after creating its drawing", async () => {
+    const legacyDb = createLegacySqliteDb({
+      tableStyle: "prisma",
+      includeCollections: false,
+      includeMigrationsTable: false,
+      includeTrashDrawing: false,
+      firstDrawingFiles: {
+        "legacy-image": {
+          id: "legacy-image",
+          mimeType: "image/png",
+          dataURL: `data:image/png;base64,${tinyPng.toString("base64")}`,
+        },
+      },
+    });
+
+    const imported = await agent
+      .post("/import/sqlite/legacy")
+      .set("User-Agent", userAgent)
+      .set(csrfHeaderName, csrfToken)
+      .attach("db", legacyDb);
+
+    expect(imported.status).toBe(200);
+    const drawing = await prisma.drawing.findUnique({ where: { id: "legacy-drawing-1" } });
+    expect(JSON.parse(drawing!.files)["legacy-image"].dataURL).toBe(
+      "/api/files/legacy-drawing-1/legacy-image",
+    );
+    expect(
+      await prisma.drawingFile.findUnique({
+        where: {
+          drawingId_fileId: { drawingId: "legacy-drawing-1", fileId: "legacy-image" },
+        },
+      }),
+    ).toBeTruthy();
+
+    const downloaded = await agent.get("/files/legacy-drawing-1/legacy-image").expect(200);
+    expect(downloaded.body).toEqual(tinyPng);
   });
 
   it("supports older exports with plural/lowercase table names (drawings/collections)", async () => {

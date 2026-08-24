@@ -53,6 +53,32 @@ export type ProcessEmbeddedImagesDeps = {
 };
 
 /**
+ * Error properties such as Prisma's `code` and `meta` are not part of an
+ * Error's enumerable JSON shape. Keep the storage warning on one structured
+ * line so CI log collectors do not reduce a useful Prisma failure to only its
+ * class name (or `{}`).
+ */
+const serializeStorageError = (error: unknown): string => {
+  if (!(error instanceof Error)) {
+    try {
+      return JSON.stringify({ value: error }) ?? JSON.stringify({ value: String(error) });
+    } catch {
+      return JSON.stringify({ value: String(error) });
+    }
+  }
+
+  const details: Record<string, unknown> = {};
+  for (const property of Object.getOwnPropertyNames(error)) {
+    details[property] = (error as unknown as Record<string, unknown>)[property];
+  }
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return JSON.stringify({ name: error.name, message: error.message });
+  }
+};
+
+/**
  * Scan a drawing's files record for base64 dataURLs, move them into the blob
  * store, and replace the dataURL with the access URL
  * (`/api/files/:drawingId/:fileId`) the frontend already knows how to load
@@ -114,7 +140,9 @@ export const processEmbeddedImages = async (
       // Too large or over quota: leave this one entry embedded rather than
       // failing the whole scene save. The client still has a working board;
       // it just did not get the storage benefit for this one image.
-      console.warn(`[files] Could not move embedded image "${fileId}" to storage:`, error);
+      console.warn(
+        `[files] Could not move embedded image "${fileId}" to storage: ${serializeStorageError(error)}`,
+      );
       return;
     }
 

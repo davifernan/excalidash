@@ -41,7 +41,7 @@ const makeHarness = async (overrides: Record<string, unknown> = {}) => {
     drawingSnapshotAsset: { create: async () => undefined },
   };
   const prisma = {
-    drawing: { findUnique: async () => null },
+    drawing: { findUnique: async () => null, update: async () => undefined },
     storedBlob: { findUnique: async () => null },
     s3File: {},
     $transaction: async (callback: any) => callback(tx),

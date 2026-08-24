@@ -8,6 +8,7 @@ type LegacyDbOptions = {
   includeCollections: boolean;
   includeMigrationsTable: boolean;
   includeTrashDrawing: boolean;
+  firstDrawingFiles?: Record<string, unknown>;
 };
 
 export const createTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "excalidash-legacy-"));
@@ -81,7 +82,7 @@ export const createLegacySqliteDb = (opts: LegacyDbOptions): string => {
       "Legacy Drawing 1",
       JSON.stringify([]),
       JSON.stringify({}),
-      JSON.stringify({}),
+      JSON.stringify(opts.firstDrawingFiles ?? {}),
       null,
       1,
       opts.includeCollections ? "legacy-collection-1" : null,

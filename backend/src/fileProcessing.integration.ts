@@ -66,6 +66,19 @@ describe("processEmbeddedImages", () => {
     expect(stored?.mimeType).toBe("image/png");
   });
 
+  it("logs the complete Prisma failure when the drawing foreign key is missing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const files = { "file-1": { id: "file-1", mimeType: "image/png", dataURL: PNG_DATA_URL } };
+
+    await processEmbeddedImages(deps(), files, ownerId, "missing-drawing");
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"code":"P2003"'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"modelName":"DrawingFile"'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"field_name":"foreign key"'));
+    warn.mockRestore();
+  });
+
   it("leaves an already-processed dataURL untouched", async () => {
     const files = {
       "file-1": { id: "file-1", mimeType: "image/png", dataURL: `/api/files/${drawingId}/file-1` },
