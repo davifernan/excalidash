@@ -59,6 +59,12 @@ describe("checking the imperative handle", () => {
     ).resolves.toEqual(["getAppState"]);
   });
 
+  it("rejects an array where the application consumes an AppState object", async () => {
+    await expect(verifyApiMethods({ ...fullApi, getAppState: () => [] })).resolves.toEqual([
+      "getAppState",
+    ]);
+  });
+
   it("reports everything for a handle that is not there at all", async () => {
     await expect(verifyApiMethods(null)).resolves.toEqual([...EXPECTED_API_METHODS]);
   });

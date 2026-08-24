@@ -59,7 +59,7 @@ const isThenable = (value: unknown): value is PromiseLike<unknown> =>
   isObject(value) && typeof value.then === "function";
 
 const isSynchronousObject = (value: unknown): value is Record<string, unknown> =>
-  isObject(value) && !isThenable(value);
+  isObject(value) && !Array.isArray(value) && !isThenable(value);
 
 const isVoid = (value: unknown): boolean => value === undefined;
 
@@ -78,7 +78,7 @@ const API_METHOD_PROBES = {
   },
   getFiles: {
     invoke: (api) => api.getFiles(),
-    accepts: (value) => isSynchronousObject(value) && !Array.isArray(value),
+    accepts: isSynchronousObject,
   },
   addFiles: { invoke: (api) => api.addFiles([] as never), accepts: isVoid },
   updateScene: { invoke: (api) => api.updateScene({} as never), accepts: isVoid },
