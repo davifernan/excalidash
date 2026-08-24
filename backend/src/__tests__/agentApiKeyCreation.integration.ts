@@ -38,7 +38,11 @@ describe("Agent API key creation (NIL-382)", () => {
 
   const signAccessToken = (user: { id: string; email: string }) => {
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
-    return jwt.sign({ userId: user.id, email: user.email, type: "access" }, config.jwtSecret, signOptions);
+    return jwt.sign(
+      { userId: user.id, email: user.email, type: "access" },
+      config.jwtSecret,
+      signOptions,
+    );
   };
 
   const createUser = async (email: string, name: string) => {

@@ -89,7 +89,8 @@ describe("processEmbeddedImages", () => {
   });
 
   it("skips an unsupported embedded MIME type, leaving the entry as-is", async () => {
-    const hostileDataUrl = "data:text/html;base64," + Buffer.from("<script>x</script>").toString("base64");
+    const hostileDataUrl =
+      "data:text/html;base64," + Buffer.from("<script>x</script>").toString("base64");
     const files = { "file-1": { id: "file-1", mimeType: "text/html", dataURL: hostileDataUrl } };
 
     const result = await processEmbeddedImages(deps(), files, ownerId, drawingId);

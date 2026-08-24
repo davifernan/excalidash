@@ -140,9 +140,10 @@ if (process.env.CI === "true" && !getPostgresTestUrl()) {
 
       await client.query(`DELETE FROM "Drawing" WHERE id = $1`, ["d1"]);
 
-      const { rows } = await client.query(`SELECT "drawingId" FROM "DrawingFile" WHERE "drawingId" = $1`, [
-        "d1",
-      ]);
+      const { rows } = await client.query(
+        `SELECT "drawingId" FROM "DrawingFile" WHERE "drawingId" = $1`,
+        ["d1"],
+      );
       expect(rows.length).toBe(0);
     });
 
@@ -156,9 +157,9 @@ if (process.env.CI === "true" && !getPostgresTestUrl()) {
         ["d1", "file1", "blob1", "u1", "image/png"],
       );
 
-      await expect(client.query(`DELETE FROM "StoredBlob" WHERE id = $1`, ["blob1"])).rejects.toThrow(
-        /foreign key constraint/i,
-      );
+      await expect(
+        client.query(`DELETE FROM "StoredBlob" WHERE id = $1`, ["blob1"]),
+      ).rejects.toThrow(/foreign key constraint/i);
     });
   });
 }

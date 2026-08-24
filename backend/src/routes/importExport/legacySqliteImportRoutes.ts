@@ -274,9 +274,10 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                 const i = start + offset;
                 const files = d.sanitized.files || {};
                 const finalId = finalDrawingIdMap.get(i)!;
-                return processEmbeddedImages(files, req.user!.id, finalId).then(
-                  (processed) => ({ i, processed }),
-                );
+                return processEmbeddedImages(files, req.user!.id, finalId).then((processed) => ({
+                  i,
+                  processed,
+                }));
               });
             const results = await Promise.all(batch);
             for (const { i, processed } of results) {

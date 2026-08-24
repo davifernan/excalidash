@@ -27,7 +27,11 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
 
   const signAccessToken = (user: { id: string; email: string }) => {
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
-    return jwt.sign({ userId: user.id, email: user.email, type: "access" }, config.jwtSecret, signOptions);
+    return jwt.sign(
+      { userId: user.id, email: user.email, type: "access" },
+      config.jwtSecret,
+      signOptions,
+    );
   };
 
   beforeAll(async () => {
@@ -43,7 +47,13 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
 
     const passwordHash = await bcrypt.hash("password123", 10);
     owner = await prisma.user.create({
-      data: { email: "union-merge-owner@test.local", passwordHash, name: "Owner", role: "USER", isActive: true },
+      data: {
+        email: "union-merge-owner@test.local",
+        passwordHash,
+        name: "Owner",
+        role: "USER",
+        isActive: true,
+      },
       select: { id: true, email: true },
     });
     ownerToken = signAccessToken(owner);
@@ -76,7 +86,9 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
         name: "Union Merge Board",
         elements: [],
         appState: {},
-        files: { "file-a": { id: "file-a", mimeType: "image/png", dataURL: "/api/files/x/file-a" } },
+        files: {
+          "file-a": { id: "file-a", mimeType: "image/png", dataURL: "/api/files/x/file-a" },
+        },
       });
     expect(created.status).toBe(200);
     const drawingId = created.body.id as string;
@@ -105,7 +117,9 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
         name: "Union Merge Board 2",
         elements: [],
         appState: {},
-        files: { "file-a": { id: "file-a", mimeType: "image/png", dataURL: "/api/files/x/file-a" } },
+        files: {
+          "file-a": { id: "file-a", mimeType: "image/png", dataURL: "/api/files/x/file-a" },
+        },
       });
     const drawingId = created.body.id as string;
 
@@ -115,7 +129,11 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
       files: { "file-a": {} },
     });
     expect(res.status).toBe(200);
-    expect(res.body.files["file-a"]).toEqual({ id: "file-a", mimeType: "image/png", dataURL: "/api/files/x/file-a" });
+    expect(res.body.files["file-a"]).toEqual({
+      id: "file-a",
+      mimeType: "image/png",
+      dataURL: "/api/files/x/file-a",
+    });
   });
 
   it("a real re-upload of the same fileId still overwrites it", async () => {
@@ -128,7 +146,9 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
         name: "Union Merge Board 3",
         elements: [],
         appState: {},
-        files: { "file-a": { id: "file-a", mimeType: "image/png", dataURL: "/api/files/x/file-a" } },
+        files: {
+          "file-a": { id: "file-a", mimeType: "image/png", dataURL: "/api/files/x/file-a" },
+        },
       });
     const drawingId = created.body.id as string;
 

@@ -233,7 +233,8 @@ const getAgentRouteDrawingId = (
   const action = segments[3];
   const method = req.method;
   if (action === "summary" && isReadMethod(method)) return { drawingId, scope: DRAWING_READ_SCOPE };
-  if (action === "elements" && isReadMethod(method)) return { drawingId, scope: DRAWING_READ_SCOPE };
+  if (action === "elements" && isReadMethod(method))
+    return { drawingId, scope: DRAWING_READ_SCOPE };
   if (action === "ops" && method === "POST") return { drawingId, scope: DRAWING_OPS_SCOPE };
   return null;
 };

@@ -146,7 +146,16 @@ describe("NIL-382 sqlite migration: ApiKey.drawingId / ApiKey.expiresAt", () => 
       `INSERT INTO "ApiKey"
          (id, userId, name, keyId, tokenHash, prefix, scopes, drawingId, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-    ).run("key-agent", "u1", "Agent token", "keyid-agent", "hash-agent", "exd_age", "drawing:read", "d1");
+    ).run(
+      "key-agent",
+      "u1",
+      "Agent token",
+      "keyid-agent",
+      "hash-agent",
+      "exd_age",
+      "drawing:read",
+      "d1",
+    );
 
     db.prepare(`DELETE FROM "Drawing" WHERE id = ?`).run("d1");
 

@@ -253,7 +253,11 @@ export const registerDrawingCreateUpdateRoutes = (
       }
       if (payload.preview !== undefined) {
         const processedPreview = processedFilesForUpdate
-          ? rewritePreviewFileReferences(payload.preview, payload.files ?? {}, processedFilesForUpdate)
+          ? rewritePreviewFileReferences(
+              payload.preview,
+              payload.files ?? {},
+              processedFilesForUpdate,
+            )
           : payload.preview;
         data.preview = typeof processedPreview === "string" ? processedPreview : null;
       }

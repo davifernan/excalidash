@@ -31,7 +31,11 @@ describe("Agent operations routes (NIL-382)", () => {
 
   const signAccessToken = (user: { id: string; email: string }) => {
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
-    return jwt.sign({ userId: user.id, email: user.email, type: "access" }, config.jwtSecret, signOptions);
+    return jwt.sign(
+      { userId: user.id, email: user.email, type: "access" },
+      config.jwtSecret,
+      signOptions,
+    );
   };
 
   const mintAgentToken = async (scopes?: string[]) => {
@@ -58,7 +62,13 @@ describe("Agent operations routes (NIL-382)", () => {
 
     const passwordHash = await bcrypt.hash("password123", 10);
     owner = await prisma.user.create({
-      data: { email: "agent-ops-owner@test.local", passwordHash, name: "Owner", role: "USER", isActive: true },
+      data: {
+        email: "agent-ops-owner@test.local",
+        passwordHash,
+        name: "Owner",
+        role: "USER",
+        isActive: true,
+      },
       select: { id: true, email: true },
     });
     ownerToken = signAccessToken(owner);
@@ -89,7 +99,9 @@ describe("Agent operations routes (NIL-382)", () => {
   });
 
   it("GET .../agent/summary counts live elements by type, excluding isDeleted", async () => {
-    const res = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const res = await request(app)
+      .get(`/drawings/${drawingId}/agent/summary`)
+      .set("Authorization", `Bearer ${agentToken}`);
     expect(res.status).toBe(200);
     expect(res.body.elementCount).toBe(1);
     expect(res.body.elementCountsByType).toEqual({ rectangle: 1 });
@@ -97,7 +109,9 @@ describe("Agent operations routes (NIL-382)", () => {
   });
 
   it("GET .../agent/elements returns the full lossless element list", async () => {
-    const res = await request(app).get(`/drawings/${drawingId}/agent/elements`).set("Authorization", `Bearer ${agentToken}`);
+    const res = await request(app)
+      .get(`/drawings/${drawingId}/agent/elements`)
+      .set("Authorization", `Bearer ${agentToken}`);
     expect(res.status).toBe(200);
     expect(res.body.elements).toHaveLength(1);
     expect(res.body.elements[0].id).toBe("el-1");
@@ -125,7 +139,13 @@ describe("Agent operations routes (NIL-382)", () => {
 
   it("REAL ATTACK: an agent token bound to this board is refused on a different board's agent routes", async () => {
     const other = await prisma.drawing.create({
-      data: { name: "Someone else's board", elements: "[]", appState: "{}", files: "{}", userId: owner.id },
+      data: {
+        name: "Someone else's board",
+        elements: "[]",
+        appState: "{}",
+        files: "{}",
+        userId: owner.id,
+      },
       select: { id: true },
     });
     const res = await request(app)
@@ -143,7 +163,9 @@ describe("Agent operations routes (NIL-382)", () => {
   });
 
   it("POST .../agent/ops applies create/update/delete atomically and bumps the version", async () => {
-    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const before = await request(app)
+      .get(`/drawings/${drawingId}/agent/summary`)
+      .set("Authorization", `Bearer ${agentToken}`);
     const version = before.body.version as number;
 
     const res = await request(app)
@@ -172,7 +194,9 @@ describe("Agent operations routes (NIL-382)", () => {
   });
 
   it("rejects a batch that references an unknown element id, discarding the WHOLE batch -- not the valid ops within it", async () => {
-    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const before = await request(app)
+      .get(`/drawings/${drawingId}/agent/summary`)
+      .set("Authorization", `Bearer ${agentToken}`);
     const version = before.body.version as number;
 
     const res = await request(app)
@@ -187,7 +211,9 @@ describe("Agent operations routes (NIL-382)", () => {
       });
     expect(res.status).toBe(400);
 
-    const after = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const after = await request(app)
+      .get(`/drawings/${drawingId}/agent/summary`)
+      .set("Authorization", `Bearer ${agentToken}`);
     // Version unchanged, and no "diamond" element appeared -- the valid op in
     // the same batch as the failing one was NOT applied on its own.
     expect(after.body.version).toBe(version);
@@ -208,7 +234,9 @@ describe("Agent operations routes (NIL-382)", () => {
   });
 
   it("rejects a batch that tries to set server-assigned fields (id/version/versionNonce)", async () => {
-    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const before = await request(app)
+      .get(`/drawings/${drawingId}/agent/summary`)
+      .set("Authorization", `Bearer ${agentToken}`);
     const res = await request(app)
       .post(`/drawings/${drawingId}/agent/ops`)
       .set("Authorization", `Bearer ${agentToken}`)
@@ -220,13 +248,18 @@ describe("Agent operations routes (NIL-382)", () => {
   });
 
   it("rejects a batch over the MAX_OPS_PER_BATCH limit", async () => {
-    const before = await request(app).get(`/drawings/${drawingId}/agent/summary`).set("Authorization", `Bearer ${agentToken}`);
+    const before = await request(app)
+      .get(`/drawings/${drawingId}/agent/summary`)
+      .set("Authorization", `Bearer ${agentToken}`);
     const res = await request(app)
       .post(`/drawings/${drawingId}/agent/ops`)
       .set("Authorization", `Bearer ${agentToken}`)
       .send({
         version: before.body.version,
-        ops: Array.from({ length: 51 }, () => ({ op: "create", element: { type: "text", x: 0, y: 0 } })),
+        ops: Array.from({ length: 51 }, () => ({
+          op: "create",
+          element: { type: "text", x: 0, y: 0 },
+        })),
       });
     expect(res.status).toBe(400);
   });

@@ -15,7 +15,12 @@
 import express from "express";
 import { PrismaClient } from "../generated/client";
 import { isS3Enabled, generatePresignedDownloadUrl } from "../s3";
-import { canEditDrawing, canViewDrawing, getDrawingAccess, shareLinkTokenFromRequest } from "../authz/sharing";
+import {
+  canEditDrawing,
+  canViewDrawing,
+  getDrawingAccess,
+  shareLinkTokenFromRequest,
+} from "../authz/sharing";
 import { storeDrawingFile, AssetTooLargeError, QuotaExceededError } from "../assets/assetService";
 import { streamStoredFile } from "../assets/assetRoutes";
 import { resolveStoragePath } from "../assets/assetStorage";
@@ -64,8 +69,15 @@ export type FileRouteDeps = {
 };
 
 export const registerFileRoutes = (app: express.Express, deps: FileRouteDeps): void => {
-  const { prisma, requireAuth, optionalAuth, asyncHandler, storageDir, maxImageUploadBytes, maxPerUserBytes } =
-    deps;
+  const {
+    prisma,
+    requireAuth,
+    optionalAuth,
+    asyncHandler,
+    storageDir,
+    maxImageUploadBytes,
+    maxPerUserBytes,
+  } = deps;
 
   // ------------------------------------------------------------------
   // GET /files/config
@@ -115,7 +127,10 @@ export const registerFileRoutes = (app: express.Express, deps: FileRouteDeps): v
         });
       }
 
-      const drawing = await prisma.drawing.findUnique({ where: { id: drawingId }, select: { userId: true } });
+      const drawing = await prisma.drawing.findUnique({
+        where: { id: drawingId },
+        select: { userId: true },
+      });
       if (!drawing) return res.status(404).json({ error: "Drawing not found" });
 
       try {

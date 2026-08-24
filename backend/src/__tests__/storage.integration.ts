@@ -232,8 +232,20 @@ describe("Storage management routes", () => {
       });
       await prisma.drawingFile.createMany({
         data: [
-          { drawingId: drawing.id, fileId: "file-keep", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
-          { drawingId: drawing.id, fileId: "file-drop", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
+          {
+            drawingId: drawing.id,
+            fileId: "file-keep",
+            blobId: blob.id,
+            ownerUserId: owner.id,
+            mimeType: "image/png",
+          },
+          {
+            drawingId: drawing.id,
+            fileId: "file-drop",
+            blobId: blob.id,
+            ownerUserId: owner.id,
+            mimeType: "image/png",
+          },
         ],
       });
 
@@ -313,8 +325,20 @@ describe("Storage management routes", () => {
       });
       await prisma.drawingFile.createMany({
         data: [
-          { drawingId: drawing.id, fileId: "file-active", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
-          { drawingId: drawing.id, fileId: "file-orphan", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
+          {
+            drawingId: drawing.id,
+            fileId: "file-active",
+            blobId: blob.id,
+            ownerUserId: owner.id,
+            mimeType: "image/png",
+          },
+          {
+            drawingId: drawing.id,
+            fileId: "file-orphan",
+            blobId: blob.id,
+            ownerUserId: owner.id,
+            mimeType: "image/png",
+          },
         ],
       });
 

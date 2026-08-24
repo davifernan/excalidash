@@ -92,7 +92,12 @@ describe("document backup and export round trip", () => {
       verifyDatabaseIntegrityAsync: async () => true,
       processEmbeddedImages: (files: Record<string, any>, userId: string, drawingId: string) =>
         processEmbeddedImages(
-          { prisma, storageDir: assetStorageDir, maxUploadBytes: 5 * MIB, maxPerUserBytes: 20 * MIB },
+          {
+            prisma,
+            storageDir: assetStorageDir,
+            maxUploadBytes: 5 * MIB,
+            maxPerUserBytes: 20 * MIB,
+          },
           files,
           userId,
           drawingId,

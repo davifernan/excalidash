@@ -74,7 +74,9 @@ export const resetPostgresSchema = async (client: Client, schemaName: string): P
   if (!SAFE_SCHEMA_NAME.test(schemaName)) {
     throw new Error(`Unsafe Postgres schema name for a test: ${JSON.stringify(schemaName)}`);
   }
-  await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE; CREATE SCHEMA "${schemaName}";`);
+  await client.query(
+    `DROP SCHEMA IF EXISTS "${schemaName}" CASCADE; CREATE SCHEMA "${schemaName}";`,
+  );
   await client.query(`SET search_path TO "${schemaName}"`);
 };
 

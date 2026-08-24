@@ -5,7 +5,13 @@ describe("opSchemas", () => {
   it("accepts a well-formed create op with arbitrary passthrough fields", () => {
     const result = opSchema.safeParse({
       op: "create",
-      element: { type: "rectangle", x: 1, y: 2, strokeColor: "#000", customWidgetPayload: { foo: "bar" } },
+      element: {
+        type: "rectangle",
+        x: 1,
+        y: 2,
+        strokeColor: "#000",
+        customWidgetPayload: { foo: "bar" },
+      },
     });
     expect(result.success).toBe(true);
   });
@@ -38,7 +44,10 @@ describe("opSchemas", () => {
 
   it("rejects a create with non-finite geometry", () => {
     for (const bad of [Infinity, NaN, -Infinity]) {
-      const result = opSchema.safeParse({ op: "create", element: { type: "rectangle", x: bad, y: 0 } });
+      const result = opSchema.safeParse({
+        op: "create",
+        element: { type: "rectangle", x: bad, y: 0 },
+      });
       expect(result.success).toBe(false);
     }
   });
@@ -74,11 +83,11 @@ describe("opSchemas", () => {
   });
 
   it("requires a non-negative integer version", () => {
-    expect(opsBatchSchema.safeParse({ version: -1, ops: [{ op: "delete", id: "x" }] }).success).toBe(
-      false,
-    );
-    expect(opsBatchSchema.safeParse({ version: 1.5, ops: [{ op: "delete", id: "x" }] }).success).toBe(
-      false,
-    );
+    expect(
+      opsBatchSchema.safeParse({ version: -1, ops: [{ op: "delete", id: "x" }] }).success,
+    ).toBe(false);
+    expect(
+      opsBatchSchema.safeParse({ version: 1.5, ops: [{ op: "delete", id: "x" }] }).success,
+    ).toBe(false);
   });
 });

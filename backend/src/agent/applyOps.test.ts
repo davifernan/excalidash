@@ -6,7 +6,10 @@ const op = (raw: unknown) => opSchema.parse(raw);
 
 describe("applyOperations", () => {
   it("creates an element with a server-assigned id, version 1, and isDeleted false", () => {
-    const result = applyOperations([], [op({ op: "create", element: { type: "rectangle", x: 1, y: 2 } })]);
+    const result = applyOperations(
+      [],
+      [op({ op: "create", element: { type: "rectangle", x: 1, y: 2 } })],
+    );
     expect(result.ok).toBe(true);
     if (!result.ok || !result.elements) return;
     expect(result.elements).toHaveLength(1);
@@ -19,8 +22,19 @@ describe("applyOperations", () => {
   });
 
   it("updates an existing element, incrementing its version and bumping updated/versionNonce", () => {
-    const existing = { id: "el-1", type: "rectangle", x: 0, y: 0, version: 3, versionNonce: 111, updated: 100 };
-    const result = applyOperations([existing], [op({ op: "update", id: "el-1", patch: { x: 50 } })]);
+    const existing = {
+      id: "el-1",
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      version: 3,
+      versionNonce: 111,
+      updated: 100,
+    };
+    const result = applyOperations(
+      [existing],
+      [op({ op: "update", id: "el-1", patch: { x: 50 } })],
+    );
     expect(result.ok).toBe(true);
     if (!result.ok || !result.elements) return;
     const el = result.elements[0];

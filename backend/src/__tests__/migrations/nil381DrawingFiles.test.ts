@@ -65,7 +65,9 @@ describe("NIL-381 sqlite migration: DrawingFile", () => {
     ).run("d1", "file1", "blob1", "u1", "image/png");
 
     const row = db
-      .prepare(`SELECT blobId, ownerUserId, mimeType FROM "DrawingFile" WHERE drawingId = ? AND fileId = ?`)
+      .prepare(
+        `SELECT blobId, ownerUserId, mimeType FROM "DrawingFile" WHERE drawingId = ? AND fileId = ?`,
+      )
       .get("d1", "file1") as { blobId: string; ownerUserId: string; mimeType: string };
 
     expect(row.blobId).toBe("blob1");

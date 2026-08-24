@@ -135,7 +135,10 @@ describe("board image file routes (NIL-381)", () => {
 
   it("rejects an upload past the per-image size limit", async () => {
     const big = Buffer.alloc(1_000_001, 1);
-    const res = await request(app).put(`/files/${drawingId}/img-1`).set("Content-Type", "image/png").send(big);
+    const res = await request(app)
+      .put(`/files/${drawingId}/img-1`)
+      .set("Content-Type", "image/png")
+      .send(big);
     expect(res.status).toBe(413);
   });
 
@@ -203,8 +206,13 @@ describe("board image file routes (NIL-381)", () => {
   });
 
   it("forces an uploaded SVG to download rather than render inline, since it can carry a <script>", async () => {
-    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
-    const put = await request(app).put(`/files/${drawingId}/img-svg`).set("Content-Type", "image/svg+xml").send(svg);
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    );
+    const put = await request(app)
+      .put(`/files/${drawingId}/img-svg`)
+      .set("Content-Type", "image/svg+xml")
+      .send(svg);
     expect(put.status).toBe(200);
 
     const get = await request(app).get(`/files/${drawingId}/img-svg`);

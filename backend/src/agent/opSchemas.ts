@@ -84,7 +84,11 @@ export const deleteOpSchema = z.object({
   id: z.string().trim().min(1),
 });
 
-export const opSchema = z.discriminatedUnion("op", [createOpSchema, updateOpSchema, deleteOpSchema]);
+export const opSchema = z.discriminatedUnion("op", [
+  createOpSchema,
+  updateOpSchema,
+  deleteOpSchema,
+]);
 export type Op = z.infer<typeof opSchema>;
 
 export const opsBatchSchema = z.object({

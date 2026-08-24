@@ -41,10 +41,7 @@ const isElementRecord = (value: unknown): value is Record<string, unknown> & { i
   value !== null &&
   typeof (value as Record<string, unknown>).id === "string";
 
-export const applyOperations = (
-  currentElements: unknown[],
-  ops: readonly Op[],
-): ApplyOpsResult => {
+export const applyOperations = (currentElements: unknown[], ops: readonly Op[]): ApplyOpsResult => {
   const byId = new Map<string, Record<string, unknown>>();
   const order: string[] = [];
   for (const element of currentElements) {

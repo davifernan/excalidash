@@ -160,7 +160,16 @@ if (process.env.CI === "true" && !getPostgresTestUrl()) {
           `INSERT INTO "ApiKey"
              (id, "userId", name, "keyId", "tokenHash", prefix, scopes, "drawingId", "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())`,
-          ["key-agent", "u1", "Agent token", "keyid-agent", "hash-agent", "exd_age", "drawing:read", "d1"],
+          [
+            "key-agent",
+            "u1",
+            "Agent token",
+            "keyid-agent",
+            "hash-agent",
+            "exd_age",
+            "drawing:read",
+            "d1",
+          ],
         );
 
         await client.query(`DELETE FROM "Drawing" WHERE id = $1`, ["d1"]);
