@@ -327,11 +327,20 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       const whereDrawing: Prisma.DrawingWhereInput = {
         ...boardsSharedWithWhere(req.user.id),
         archivedAt: null,
-        // Exclude drawings already accessible via a shared collection
+        // Exclude drawings already accessible via a shared collection -- but
+        // `NOT: { collectionId: { in: sharedColIds } }` silently drops every
+        // *unorganized* (collectionId: null) board too, shared or not: SQL's
+        // three-valued logic evaluates `NULL IN (...)` to NULL, and `NOT
+        // NULL` is NULL, which a WHERE clause treats as "exclude" the same
+        // as false. A board directly shared with the viewer that happens to
+        // sit in no collection would vanish from "Shared with me" the moment
+        // the viewer was also given a shared collection -- same pitfall
+        // `authz/boards.ts`'s `excludeTrash` names and works around with an
+        // explicit `OR` for exactly this reason (verified there against
+        // sqlite; the same fix applies here since it is the same SQL
+        // semantics, not a sqlite quirk).
         ...(sharedColIds.length > 0 && {
-          NOT: {
-            collectionId: { in: sharedColIds },
-          },
+          OR: [{ collectionId: null }, { collectionId: { notIn: sharedColIds } }],
         }),
       };
       if (searchTerm) {
