@@ -32,7 +32,7 @@ describe("user offboarding", () => {
       collectionShare: { updateMany: mutation() },
       comment: { updateMany: mutation() },
       activityEvent: { updateMany: mutation() },
-      library: { deleteMany: mutation() },
+      libraryItem: { findMany: vi.fn().mockResolvedValue([]), updateMany: mutation(), deleteMany: mutation() },
       auditLog: { deleteMany: mutation() },
     };
     const prisma = {
@@ -102,8 +102,13 @@ describe("user offboarding", () => {
       where: { actorUserId: "departing" },
       data: { actorUserId: "successor" },
     });
-    expect(tx.library.deleteMany).toHaveBeenCalledWith({
-      where: { id: "user_departing" },
+    // Team Library items (NIL-364) transfer to the successor like every
+    // other owned resource -- transferOwnedLibraryItems reads this
+    // account's own items first (findMany), then the successor's existing
+    // item ids to resolve collisions, before reassigning ownership.
+    expect(tx.libraryItem.findMany).toHaveBeenCalledWith({
+      where: { ownerUserId: "departing" },
+      select: { id: true, excalidrawItemId: true },
     });
     expect(tx.auditLog.deleteMany).toHaveBeenCalledWith({
       where: {
@@ -149,7 +154,7 @@ describe("user offboarding", () => {
       collectionShare: { updateMany: mutation() },
       comment: { updateMany: mutation() },
       activityEvent: { updateMany: mutation() },
-      library: { deleteMany: mutation() },
+      libraryItem: { findMany: vi.fn().mockResolvedValue([]), updateMany: mutation(), deleteMany: mutation() },
       auditLog: { deleteMany: mutation() },
     };
     const prisma = {

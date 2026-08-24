@@ -13,6 +13,7 @@ import { COMPANY_ARCHIVE_USER_EMAIL } from "./userOffboarding";
 import { revokeUserCredentials } from "./userCredentialRevocation";
 import { registerAdminUserOffboardingRoutes } from "./adminUserOffboardingRoutes";
 import { transferOwnedBoards, transferOwnedCollections } from "../authz/boards";
+import { transferOwnedLibraryItems } from "../authz/libraryItems";
 import { reassignGrantAuthorshipOps } from "../authz/grants";
 
 const INVITE_VALID_DAYS = 7;
@@ -458,6 +459,16 @@ export const registerAdminUserRoutes = (deps: RegisterAdminRoutesDeps) => {
                 excludeTrash: true,
               });
               transferredCollections = await transferOwnedCollections({
+                db: tx,
+                fromUserId: userId,
+                toUserId: req.user.id,
+              });
+              // Same reasoning as boards/collections just above: a
+              // deactivated account's Team Library items (NIL-364) --
+              // personal or team-visible -- must not become unmanageable or
+              // silently vanish just because their owner can no longer log
+              // in.
+              await transferOwnedLibraryItems({
                 db: tx,
                 fromUserId: userId,
                 toUserId: req.user.id,

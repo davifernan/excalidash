@@ -39,6 +39,7 @@ model User {
   notifications       Notification[]       @relation("NotificationRecipient")
   drawingVisits       DrawingVisit[]
   teamActivityVisit   TeamActivityVisit?
+  libraryItems        LibraryItem[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 }
@@ -119,12 +120,31 @@ model Drawing {
   comments        Comment[]
   activityEvents  ActivityEvent[]
   visits          DrawingVisit[]
+  /// Set when the board is archived (NIL-365): excluded from Team Home, the
+  /// default drawing lists, and search by default, but not deleted -- an
+  /// authorized viewer can still find and restore it from the Archive view.
+  /// Distinct from Trash (`collectionId` pointing at the per-account
+  /// `trash:<userId>` collection, see `routes/dashboard/trash.ts`): Trash is
+  /// staging for permanent deletion by the board's own owner, Archive is a
+  /// reversible team-visible lifecycle state that does not change ownership
+  /// or collection membership.
+  archivedAt      DateTime?
+  /// Denormalized, lowercased plain text extracted from the board's name and
+  /// its visible text-element content, recomputed on every save
+  /// (`searchIndex.ts`). Existing purely so `contains` search has one column
+  /// to match against instead of parsing `elements` JSON per request; it is
+  /// never returned to a client and never the source of truth (`elements`
+  /// is). SQLite `LIKE`-based, not FTS5: at ~10 accounts and their boards
+  /// this is cheap enough that a second, rebuildable virtual index is not
+  /// worth the dual-write hazard it would add.
+  searchText      String              @default("")
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
   @@index([userId, updatedAt])
   @@index([userId, collectionId, updatedAt])
   @@index([createdByUserId])
+  @@index([archivedAt])
 }
 
 model DrawingSnapshot {
@@ -345,11 +365,41 @@ model TeamActivityVisit {
   lastSeenAt DateTime @default(now())
 }
 
-model Library {
-  id        String   @id
-  items     String   @default("[]")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+/// Replaces the flat, per-account `Library { id: "user_<userId>", items }` blob
+/// (NIL-364): one row per Excalidraw library item instead of one row per
+/// account holding a whole-array JSON blob, so an item can carry its own
+/// ownership and visibility instead of inheriting whichever account's blob it
+/// happened to live in.
+///
+/// `excalidrawItemId`/`excalidrawData` mirror Excalidraw's own native library
+/// item shape (`{id, status, elements, created}` from `api.getLibrary()`) --
+/// this table is what `GET/PUT /library` (the sync contract Excalidraw's own
+/// uncontrolled library panel already expects, wired in
+/// `useEditorSceneLoader.ts`/`useEditorPersistence.ts`) reads from and writes
+/// to. `excalidrawItemId` is Excalidraw's own item id, not this row's `id`;
+/// it is the identity `PUT /library`'s array-diff matches on to tell "this
+/// account edited an item it already owns" apart from "this is a new item".
+///
+/// `visibility` is the "Team/persoenlich" split the acceptance slice names:
+/// `"personal"` is invisible to every other account (the case
+/// "nicht sichtbare Teamitems leaken nicht" in NIL-364 actually exercises),
+/// `"team"` is visible to every active team member. There is no `teamId` --
+/// `Team` is the one singleton NIL-323 built, so "team" here means exactly
+/// that one team.
+model LibraryItem {
+  id               String   @id @default(uuid())
+  excalidrawItemId String
+  name             String
+  category         String?
+  visibility       String   @default("personal")
+  ownerUserId      String
+  owner            User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  excalidrawData   String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([ownerUserId, excalidrawItemId])
+  @@index([visibility, category])
 }
 
 model PasswordResetToken {

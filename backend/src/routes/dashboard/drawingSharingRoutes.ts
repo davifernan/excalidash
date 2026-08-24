@@ -1,6 +1,7 @@
 import express from "express";
 import { normalizeDrawingPermission } from "../../authz/sharing";
 import { controlsDrawing } from "../../authz/membership";
+import { getDrawingRosters } from "../../authz/roster";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import {
   grantDrawingPermission,
@@ -71,12 +72,19 @@ export const registerDrawingSharingRoutes = (
         return res.status(404).json({ error: "Drawing not found" });
       }
 
-      const [permissions, linkShares] = await Promise.all([
+      const [permissions, linkShares, rosters] = await Promise.all([
         listDrawingPermissions({ db: prisma, drawingId: id }),
         listDrawingLinkShares({ db: prisma, drawingId: id }),
+        // NIL-291: `permissions` above is direct grants only, which is why
+        // the Share dialog previously had no way to show that someone with
+        // no direct grant still has access -- through the collection this
+        // board lives in. `getDrawingRosters` (authz/roster.ts) already
+        // computes the full claim, direct-or-inherited, with a `via` label;
+        // reusing it here is the fix, not a new rights computation.
+        getDrawingRosters({ prisma, drawingIds: [id] }),
       ]);
 
-      return res.json({ permissions, linkShares });
+      return res.json({ permissions, linkShares, roster: rosters.get(id) ?? [] });
     }),
   );
 

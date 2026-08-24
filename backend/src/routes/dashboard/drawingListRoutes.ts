@@ -47,7 +47,11 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
         sortField,
         sortDirection,
       } = req.query;
-      const where: Prisma.DrawingWhereInput = { ...ownedBoardsWhere(req.user.id) };
+      // NIL-365: archived boards are excluded from the plain drawing lists by
+      // default -- they live in the dedicated Archive view
+      // (`GET /search?archivedOnly=true`), not silently mixed into "All
+      // Drawings" or a collection's contents.
+      const where: Prisma.DrawingWhereInput = { ...ownedBoardsWhere(req.user.id), archivedAt: null };
       const searchTerm =
         typeof search === "string" && search.trim().length > 0 ? search.trim() : undefined;
 
@@ -267,6 +271,7 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
 
       const whereDrawing: Prisma.DrawingWhereInput = {
         ...boardsSharedWithWhere(req.user.id),
+        archivedAt: null,
         // Exclude drawings already accessible via a shared collection
         ...(sharedColIds.length > 0 && {
           NOT: {

@@ -4,6 +4,7 @@ import { rewritePreviewForS3 } from "../../fileProcessing";
 import { getUserTrashCollectionId, isTrashCollectionId, toPublicTrashCollectionId } from "./trash";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { deleteOwnedBoard, getOwnedBoard } from "../../authz/boards";
+import { computeSearchText } from "../../search/searchIndex";
 
 export const registerDrawingDeleteDuplicateRoutes = (
   app: express.Express,
@@ -88,10 +89,11 @@ export const registerDrawingDeleteDuplicateRoutes = (
         duplicatedFiles,
       );
 
+      const duplicatedName = `${original.name} (Copy)`;
       const newDrawing = await prisma.drawing.create({
         data: {
           id: newDrawingId,
-          name: `${original.name} (Copy)`,
+          name: duplicatedName,
           elements: original.elements,
           appState: original.appState,
           files: JSON.stringify(duplicatedFiles),
@@ -100,6 +102,10 @@ export const registerDrawingDeleteDuplicateRoutes = (
           createdByUserId: req.user.id,
           collectionId: duplicatedCollectionId,
           version: 1,
+          // Archive is a lifecycle state of the original board, not something
+          // a copy inherits -- a duplicate always starts active, same as a
+          // brand-new board would.
+          searchText: computeSearchText(duplicatedName, parseJsonField(original.elements, [])),
         },
       });
       invalidateDrawingsCache();
