@@ -1,10 +1,24 @@
 import express from "express";
 import { getCollectionRoster } from "../../authz/roster";
+import type { MembershipLevel } from "../../authz/membership";
 import { subjectKey } from "../../authz/subjectKey";
 import { derivePresenceColor, toPresenceInitials } from "../../server/socketPresence";
 import type { DashboardRouteDeps } from "./types";
 
-const ROLE_BY_LEVEL = { owner: "owner", edit: "editor", view: "viewer" } as const;
+// Typed as Record<MembershipLevel, string>, not `as const` on a partial
+// literal, so the compiler rejects this file the day MembershipLevel grows a
+// level this map doesn't cover -- which is exactly the gap NIL-515 found:
+// "comment" existed on MembershipLevel already, nothing assigned it here, and
+// a member roster looked up ROLE_BY_LEVEL[member.level] came back `undefined`
+// for a level nothing in this codebase grants yet (see AGENTS.md's note on
+// DrawingPermission's "comment" tier). "commenter" is a placeholder label
+// only reachable once something actually grants that level.
+const ROLE_BY_LEVEL: Record<MembershipLevel, string> = {
+  owner: "owner",
+  edit: "editor",
+  view: "viewer",
+  comment: "commenter",
+};
 
 /**
  * Who a collection is shared with, told to the people it is shared with.

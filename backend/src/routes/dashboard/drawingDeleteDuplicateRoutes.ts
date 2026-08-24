@@ -1,6 +1,7 @@
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { rewritePreviewFileReferences } from "../../fileProcessing";
+import { logger } from "../../logger";
 import { getUserTrashCollectionId, isTrashCollectionId, toPublicTrashCollectionId } from "./trash";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { deleteOwnedBoard, getOwnedBoard } from "../../authz/boards";
@@ -42,7 +43,7 @@ export const registerDrawingDeleteDuplicateRoutes = (
       try {
         await cleanupS3FilesForDrawing(id, req.user.id);
       } catch (error) {
-        console.warn("[s3] Failed to cleanup deleted drawing files", { drawingId: id, error });
+        logger.warn("failed to cleanup deleted drawing files", { drawingId: id, error });
       }
       invalidateDrawingsCache();
 

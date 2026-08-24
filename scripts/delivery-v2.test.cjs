@@ -57,6 +57,7 @@ function ownerMetadata() {
 function prBody({
   visualEvidence = VISUAL_EVIDENCE.NON_VISIBLE_SKIP,
   slices = "none",
+  userFacing = "none",
   gates = [
     "- [x] Multica HANDOFF posted",
     "- [x] Local verification complete",
@@ -68,6 +69,7 @@ Delivery-Slices: ${slices}
 Package-Session: ${OWNER_SESSION}
 Impact-Manifest: generated from git diff
 Visual-Evidence: ${visualEvidence}
+User-Facing: ${userFacing}
 
 ## Ready gate
 
@@ -247,6 +249,54 @@ test("PR admission requires one package, its slices, session, manifest, and exac
   assert.equal(result.primaryPackage, "NIL-404");
   assert.deepEqual(result.deliverySlices, []);
   assert.equal(result.packageSession, OWNER_SESSION);
+});
+
+test("PR admission surfaces a real User-Facing sentence and accepts the none escape hatch", () => {
+  const manifest = impact([]);
+
+  const withSentence = checkPrAdmission({
+    body: prBody({ userFacing: "Boards can now be starred and pinned to the top of the dashboard." }),
+    impactManifest: manifest,
+  });
+  assert.equal(withSentence.ok, true);
+  assert.equal(withSentence.userFacing, "Boards can now be starred and pinned to the top of the dashboard.");
+
+  const withNone = checkPrAdmission({ body: prBody({ userFacing: "none" }), impactManifest: manifest });
+  assert.equal(withNone.ok, true);
+  assert.equal(withNone.userFacing, "none");
+});
+
+test("PR admission rejects a missing User-Facing line", () => {
+  const withoutLine = prBody().replace(/\nUser-Facing: none/, "");
+  const result = checkPrAdmission({ body: withoutLine, impactManifest: impact([]) });
+  assert.equal(result.code, "delivery-contract");
+  assert.match(result.message, /exactly one `User-Facing:` line/);
+});
+
+test("RED: User-Facing rejects ticket and PR number references (NIL-507, Davi's hard rule)", () => {
+  const manifest = impact([]);
+
+  const ticket = checkPrAdmission({
+    body: prBody({ userFacing: "Fixes the bug from NIL-292 with favorites." }),
+    impactManifest: manifest,
+  });
+  assert.equal(ticket.code, "delivery-contract");
+  assert.match(ticket.message, /must not reference a ticket or PR number/);
+
+  const prNumber = checkPrAdmission({
+    body: prBody({ userFacing: "Ships the dashboard work from #75." }),
+    impactManifest: manifest,
+  });
+  assert.equal(prNumber.code, "delivery-contract");
+  assert.match(prNumber.message, /must not reference a ticket or PR number/);
+
+  // A plain "#" used as a heading marker or count, not a PR reference, must
+  // stay legal -- the check targets "#<digits>", not the character alone.
+  const hashNotNumber = checkPrAdmission({
+    body: prBody({ userFacing: "Search now matches board titles starting with #." }),
+    impactManifest: manifest,
+  });
+  assert.equal(hashNotNumber.ok, true);
 });
 
 test("PR admission parses unique Delivery Slices and rejects a second package", () => {

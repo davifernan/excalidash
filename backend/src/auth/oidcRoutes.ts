@@ -12,6 +12,7 @@ import {
   requestUsesHttps,
   sanitizeReturnTo,
 } from "./oidcRouteHelpers";
+import { logger } from "../logger";
 
 export type RegisterOidcRoutesDeps = {
   router: express.Router;
@@ -131,7 +132,7 @@ export const registerOidcRoutes = (deps: RegisterOidcRoutesDeps) => {
       });
       return res.redirect(authorizationUrl);
     } catch (error) {
-      console.error("OIDC start error:", error);
+      logger.error("OIDC start error", { error });
       return redirectToLoginWithError(req, res, "callback_failed");
     }
   });

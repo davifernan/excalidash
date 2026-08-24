@@ -11,6 +11,8 @@ import {
   CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { logger } from "./logger";
+import { config } from "./config";
 
 export interface S3Config {
   bucket: string;
@@ -32,7 +34,7 @@ let s3Config: S3Config | null = null;
  * Shared S3 object-key prefix. Reading the env var in one place avoids
  * upload and cleanup code paths drifting onto different prefixes.
  */
-const FILE_KEY_PREFIX = process.env.S3_KEY_PREFIX?.replace(/\/+$/, "") || "excalidash";
+const FILE_KEY_PREFIX = config.s3.keyPrefix;
 
 /**
  * Build the canonical S3 object key for a given drawing's image file.
@@ -144,10 +146,8 @@ export const getPublicUrl = (key: string): string => {
   if (s3Config.endpoint) {
     // Custom endpoint without S3_PUBLIC_URL is ambiguous — the URL format
     // varies between MinIO, Cloudflare R2, and other services.
-    console.warn(
-      "[S3] S3_PUBLIC_URL is not set but a custom S3_ENDPOINT is configured. " +
-        "Public image URLs may not resolve correctly. Set S3_PUBLIC_URL to the " +
-        "public base URL of your bucket or CDN.",
+    logger.warn(
+      "S3_PUBLIC_URL is not set but a custom S3_ENDPOINT is configured; public image URLs may not resolve correctly",
     );
   }
 

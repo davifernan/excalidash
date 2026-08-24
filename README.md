@@ -2,7 +2,7 @@
 
 # ExcaliDash
 
-![License](https://img.shields.io/github/license/zimengxiong/ExcaliDash)
+![License](https://img.shields.io/github/license/davifernan/excalidash)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 
@@ -10,16 +10,24 @@ A self-hosted dashboard and organizer for [Excalidraw](https://github.com/excali
 
 > **Modified downstream distribution.** This repository is based on
 > [ExcaliDash](https://github.com/ZimengXiong/ExcaliDash) by
-> [ZimengXiong](https://github.com/ZimengXiong) and has been modified since
-> August 2026 — collaboration budgets and reconnect handling, board settings
-> that persist, snapshot compression for version history, transactional email
-> for password resets, a graph layout operation, login UX, and an end-to-end
-> test suite.
+> [ZimengXiong](https://github.com/ZimengXiong) and has grown, since August
+> 2026, from a set of small patches (collaboration budgets and reconnect
+> handling, board settings that persist, snapshot compression for version
+> history, transactional email for password resets, a graph layout operation,
+> login UX, an end-to-end test suite) into a canvas-first project space for a
+> small team: Team Home, comments/mentions/activity, a shared Team Library,
+> workshop/presentation mode, and a typed boundary in front of the Excalidraw
+> editor. See [FORK.md](FORK.md) and
+> [docs/product/PRODUCT_VISION.md](docs/product/PRODUCT_VISION.md) for the
+> current scope.
 >
 > It is distributed under the **AGPL-3.0**, the same licence as upstream. This
 > repository is the complete corresponding source for the instance running at
-> `draw.nilo.live`. Fixes meant for upstream are sent as pull requests from
-> [davifernan/excalidash-prs](https://github.com/davifernan/excalidash-prs).
+> `draw.nilo.live`. A handful of early, generic fixes were sent upstream as
+> pull requests (see the table in [FORK.md](FORK.md)) from
+> [davifernan/excalidash-prs](https://github.com/davifernan/excalidash-prs),
+> a now-retired repository — that is not an active contribution channel any
+> more, and further fixes are not routed through it.
 
 ![](readme-assets/demo.gif)
 
@@ -106,9 +114,21 @@ Automatically retain recent drawing snapshots, preview past versions without sav
 
 </details>
 
+<details>
+<summary>Team Home, comments, workshops and a shared library</summary>
+
+Team Home shows recent/favorite boards, who's working where, and team activity. Boards carry
+comments with mentions and notifications, an inbox for what happened while you were away, a
+shared Team Library, and a presenter/workshop mode for frame-based walkthroughs. See
+[docs/product/PRODUCT_VISION.md](docs/product/PRODUCT_VISION.md) for the full product thesis —
+this is the newest and fastest-moving part of the fork, so it doesn't have a stable screenshot
+set yet.
+
+</details>
+
 # Upgrading
 
-See [release notes](https://github.com/ZimengXiong/ExcaliDash/releases) for a specific release.
+See [this fork's release notes](https://github.com/davifernan/excalidash/releases) for a specific release.
 
 ExcaliDash includes an in-app update notifier that checks GitHub Releases. If your deployment must not make outbound network calls, disable it on the backend:
 
@@ -116,9 +136,12 @@ ExcaliDash includes an in-app update notifier that checks GitHub Releases. If yo
 UPDATE_CHECK_OUTBOUND=false
 ```
 
-## Docker Hub Upgrades
+## Upgrading a published-image deployment
 
-If you deployed using `docker-compose.prod.yml` (Docker Hub images), upgrade by pulling the latest images and recreating containers:
+This fork publishes `latest` and an immutable `sha-<commit>` tag per green build to GHCR
+(`ghcr.io/davifernan/excalidash-*`) — there is no Docker Hub image. See
+[FORK.md](FORK.md#upgrade-and-rollback) for the full pin/verify/rollback procedure; the short
+version, if you deployed using `docker-compose.prod.yml`:
 
 ```bash
 docker compose -f docker-compose.prod.yml pull && \
@@ -152,24 +175,37 @@ Notes:
 Prereqs: Docker + Docker Compose v2.
 
 <details>
-<summary>Docker Hub (Recommended)</summary>
+<summary>Published images (Recommended)</summary>
 
-## Docker Hub (Recommended)
+## Published images (Recommended)
+
+This fork publishes its own images to GHCR (not Docker Hub, and not upstream's images — see
+[FORK.md](FORK.md) for the full deploy/upgrade/rollback flow, including how to pin an
+immutable `sha-<commit>` tag instead of `latest`):
 
 ```bash
-# Download docker-compose.prod.yml
-curl -OL https://raw.githubusercontent.com/ZimengXiong/ExcaliDash/main/docker-compose.prod.yml
+# Download docker-compose.prod.yml and the env template
+curl -OL https://raw.githubusercontent.com/davifernan/excalidash/main/docker-compose.prod.yml
+curl -OL https://raw.githubusercontent.com/davifernan/excalidash/main/.env.production.example
+cp .env.production.example .env   # review all four values; fixed secrets are recommended
 
 # Pull images
-docker compose -f docker-compose.prod.yml pull
+docker compose --env-file .env -f docker-compose.prod.yml pull
 
 # Run container
-docker compose -f docker-compose.prod.yml up -d
+docker compose --env-file .env -f docker-compose.prod.yml up -d
 
 # Access the frontend at localhost:6767
 ```
 
-For single-container deployments, `JWT_SECRET` can be omitted and will be auto-generated and persisted in the backend volume on first start. For portability and most production deployments, set a fixed `JWT_SECRET` explicitly.
+`docker-compose.prod.yml` requires `EXCALIDASH_IMAGE_TAG` in `.env` (a verified release or
+`sha-<commit>` tag) and refuses to start without it, so an upgrade can't silently move both
+images to `latest`.
+
+For a single backend instance, `JWT_SECRET` and `CSRF_SECRET` can stay empty: the container
+entrypoint generates and persists both in the backend volume on first start. For portable
+backups or multiple backend instances, set each to a separate fixed value (run
+`openssl rand -hex 32` once per variable).
 
 By default, the provided Compose files set `TRUST_PROXY=false` for safer setup. Only set `TRUST_PROXY` to a positive hop count (for example, `1`) when requests always pass through a trusted reverse proxy that correctly sets forwarded headers.
 
@@ -182,10 +218,10 @@ By default, the provided Compose files set `TRUST_PROXY=false` for safer setup. 
 
 ```bash
 # Clone the repository (recommended)
-git clone git@github.com:ZimengXiong/ExcaliDash.git
+git clone git@github.com:davifernan/excalidash.git
 
 # or, clone with HTTPS
-# git clone https://github.com/ZimengXiong/ExcaliDash.git
+# git clone https://github.com/davifernan/excalidash.git
 
 docker compose build
 docker compose up -d
@@ -216,10 +252,10 @@ For contributor workflow, `make dev` starts the app in local single-user mode so
 
 ```bash
 # Clone the repository (recommended)
-git clone git@github.com:ZimengXiong/ExcaliDash.git
+git clone git@github.com:davifernan/excalidash.git
 
 # or, clone with HTTPS
-# git clone https://github.com/ZimengXiong/ExcaliDash.git
+# git clone https://github.com/davifernan/excalidash.git
 ```
 
 </details>
@@ -230,7 +266,7 @@ git clone git@github.com:ZimengXiong/ExcaliDash.git
 ## Frontend
 
 ```bash
-cd ExcaliDash/frontend
+cd excalidash/frontend
 npm install
 
 # Copy environment file and customize if needed
@@ -247,7 +283,7 @@ npm run dev
 ## Backend
 
 ```bash
-cd ExcaliDash/backend
+cd excalidash/backend
 npm install
 
 # Copy environment file and customize if needed
@@ -270,7 +306,7 @@ npm run dev
 To simulate first-run authentication choice flows in local development:
 
 ```bash
-cd ExcaliDash/backend
+cd excalidash/backend
 
 # Preview what would change (no data modifications)
 npm run dev:simulate-auth-onboarding:dry-run

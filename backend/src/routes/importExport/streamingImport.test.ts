@@ -243,6 +243,41 @@ describe("streaming .excalidash import", () => {
     expect(response.body.message).toContain("sha256 mismatch");
   });
 
+  it("rejects a version-3 drawing file link whose blob is absent", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "excalidash.manifest.json",
+      JSON.stringify({
+        format: "excalidash",
+        formatVersion: 3,
+        exportedAt: new Date().toISOString(),
+        unorganizedFolder: "Unorganized",
+        collections: [],
+        drawings: [
+          { id: "drawing", name: "Board", filePath: "board.excalidraw", collectionId: null },
+        ],
+        blobs: [],
+        assets: [],
+        drawingAssets: [],
+        snapshots: [],
+        drawingFiles: [
+          {
+            drawingId: "drawing",
+            fileId: "image",
+            blobId: "missing-blob",
+            mimeType: "image/png",
+          },
+        ],
+      }),
+    );
+    zip.file("board.excalidraw", JSON.stringify({ elements: [], appState: {}, files: {} }));
+
+    const harness = await makeHarness();
+    const response = await harness.invoke(await zip.generateAsync({ type: "nodebuffer" }));
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toContain("Drawing file link references an unknown record");
+  });
+
   it("rejects a small compressed archive whose declared extracted size exceeds the total limit", async () => {
     const zip = new JSZip();
     zip.file(

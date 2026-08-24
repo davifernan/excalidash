@@ -4,6 +4,7 @@ import jwt, { SignOptions } from "jsonwebtoken";
 import ms, { type StringValue } from "ms";
 import { Prisma, PrismaClient } from "./generated/client";
 import { config } from "./config";
+import { logger } from "./logger";
 import {
   requireAuth as defaultRequireAuth,
   optionalAuth as defaultOptionalAuth,
@@ -118,8 +119,20 @@ const createAuthRouter = (deps: CreateAuthRouterDeps): express.Router => {
   let loginAttemptLimiter: ReturnType<typeof rateLimit> | null = null;
   let loginLimiterInitPromise: Promise<void> | null = null;
   let loginIdentifierKeyIndex = new Map<string, Set<string>>();
+  // Only these three fields are read below. Typing the parameter as the full
+  // `Awaited<ReturnType<typeof ensureSystemConfig>>` (as it used to be)
+  // silently committed every caller to supplying the whole system-config
+  // shape, which registerAdminRoutes's already-narrower
+  // RegisterAdminRoutesDeps["parseLoginRateLimitConfig"] contract does not --
+  // strict mode caught the mismatch as a genuine contract break, not a false
+  // positive. Narrowing here to what the function actually uses is the fix,
+  // not a cast at the call site.
+  type LoginRateLimitSystemConfig = Pick<
+    Awaited<ReturnType<typeof ensureSystemConfig>>,
+    "authLoginRateLimitEnabled" | "authLoginRateLimitWindowMs" | "authLoginRateLimitMax"
+  >;
   const parseLoginRateLimitConfig = (
-    systemConfig: Awaited<ReturnType<typeof ensureSystemConfig>>,
+    systemConfig: LoginRateLimitSystemConfig,
   ): LoginRateLimitConfig => {
     const enabled =
       typeof systemConfig.authLoginRateLimitEnabled === "boolean"
@@ -209,14 +222,9 @@ const createAuthRouter = (deps: CreateAuthRouterDeps): express.Router => {
     await loginLimiterInitPromise;
   };
   const applyLoginRateLimitConfig = (
-    systemConfig: Pick<
-      Awaited<ReturnType<typeof ensureSystemConfig>>,
-      "authLoginRateLimitEnabled" | "authLoginRateLimitWindowMs" | "authLoginRateLimitMax"
-    >,
+    systemConfig: LoginRateLimitSystemConfig,
   ): LoginRateLimitConfig => {
-    loginRateLimitConfig = parseLoginRateLimitConfig(
-      systemConfig as Awaited<ReturnType<typeof ensureSystemConfig>>,
-    );
+    loginRateLimitConfig = parseLoginRateLimitConfig(systemConfig);
     buildLoginAttemptLimiter(loginRateLimitConfig);
     return loginRateLimitConfig;
   };
@@ -234,8 +242,8 @@ const createAuthRouter = (deps: CreateAuthRouterDeps): express.Router => {
       }
       loginIdentifierKeyIndex.delete(normalizedIdentifier);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.debug("Rate limit reset skipped:", error);
+      if (config.nodeEnv === "development") {
+        logger.debug("Rate limit reset skipped", { error });
       }
     }
   };

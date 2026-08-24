@@ -27,6 +27,14 @@ const VISUAL_EVIDENCE = Object.freeze({
   TEST_ONLY_SKIP: "skipped: test-only frontend delta",
   NON_VISIBLE_SKIP: "skipped: no visible frontend product delta",
 });
+const USER_FACING_NONE = "none";
+// A release note that names NIL-292 or #75 is useless to anyone reading it --
+// nobody outside this Multica project has an account, and a bare number
+// carries no meaning. This is the one line in the whole contract whose
+// AUDIENCE is not the reviewer or the pipeline but a person who will never
+// see a ticket tracker, so it is checked for that leak rather than just for
+// presence (NIL-507, Davi 24.08.2026).
+const TICKET_REFERENCE_PATTERN = /\bNIL-\d+\b|(?:^|[^\w])#\d+\b/i;
 
 function routeExecutionUnit({ issue, trigger = {} }) {
   const identifier = normalizeIdentifier(issue?.identifier);
@@ -224,6 +232,7 @@ function checkPrAdmission({ body, draft = false, authorType = "User", impactMani
     packageSession: delivery.packageSession,
     impact: impactManifest.effective,
     visualEvidence: impactManifest.visual_evidence,
+    userFacing: delivery.userFacing,
   };
 }
 
@@ -267,11 +276,28 @@ function parsePrDeliveryContract(body) {
     throw new Error("PR body must contain exactly one supported `Visual-Evidence:` decision.");
   }
 
+  const userFacing = fieldValues(text, "User-Facing");
+  if (userFacing.length !== 1 || userFacing[0].length === 0) {
+    throw new Error(
+      "PR body must contain exactly one `User-Facing:` line -- a plain sentence describing " +
+        "what a user of ExcaliDash notices, or `User-Facing: none` for a package that only " +
+        "changes guards, tests, or internal plumbing.",
+    );
+  }
+  if (userFacing[0] !== USER_FACING_NONE && TICKET_REFERENCE_PATTERN.test(userFacing[0])) {
+    throw new Error(
+      "User-Facing must not reference a ticket or PR number (no `NIL-NNN`, no `#NNN`) -- " +
+        "the release notes generated from this line are read by people with no Multica " +
+        "access. Describe what changed in plain language instead.",
+    );
+  }
+
   return {
     primaryPackage: packages[0],
     deliverySlices,
     packageSession: sessions[0].toLowerCase(),
     visualEvidence: evidence[0],
+    userFacing: userFacing[0],
   };
 }
 
@@ -573,11 +599,14 @@ module.exports = {
   MAX_ACTIVE_SESSIONS,
   OWNERSHIP_PACKAGE,
   READY_GATE_LINES,
+  TICKET_REFERENCE_PATTERN,
+  USER_FACING_NONE,
   VISUAL_EVIDENCE,
   buildImpactManifest,
   buildImpactManifestFromGit,
   checkPrAdmission,
   classifyChangedFile,
+  fieldValues,
   parsePrDeliveryContract,
   planPackageClaim,
   planReleaseQa,

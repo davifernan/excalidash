@@ -9,6 +9,7 @@ import { SettingsMainGrid } from "./settings/SettingsMainGrid";
 import { AdvancedSettings } from "./settings/AdvancedSettings";
 import { SettingsConfirmModals } from "./settings/SettingsConfirmModals";
 import { displayFontFamily } from "../utils/displayFont";
+import { log } from "../logging";
 export const Settings: React.FC = () => {
   const [collections, setCollections] = useState<Collection[]>([]);
   const navigate = useNavigate();
@@ -81,7 +82,7 @@ export const Settings: React.FC = () => {
         const data = await api.getCollections();
         setCollections(data);
       } catch (err) {
-        console.error("Failed to fetch collections:", err);
+        log.error("Failed to fetch collections", { error: err });
       }
     };
     fetchCollections();
@@ -175,7 +176,7 @@ export const Settings: React.FC = () => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      console.error("Backup export failed:", err);
+      log.error("Backup export failed", { error: err }, { notify: false });
       setBackupImportError({
         isOpen: true,
         message: "Failed to export backup. Please try again.",
@@ -209,7 +210,7 @@ export const Settings: React.FC = () => {
         },
       });
     } catch (err: unknown) {
-      console.error("Backup verify failed:", err);
+      log.error("Backup verify failed", { error: err }, { notify: false });
       let message = "Failed to verify backup file.";
       if (api.isAxiosError(err)) {
         message = err.response?.data?.message || err.response?.data?.error || message;
@@ -244,7 +245,7 @@ export const Settings: React.FC = () => {
         },
       });
     } catch (err: unknown) {
-      console.error("Legacy DB verify failed:", err);
+      log.error("Legacy DB verify failed", { error: err }, { notify: false });
       let message = "Failed to verify legacy database file.";
       if (api.isAxiosError(err)) {
         message = err.response?.data?.message || err.response?.data?.error || message;

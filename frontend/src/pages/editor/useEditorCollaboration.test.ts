@@ -388,18 +388,19 @@ describe("editor collaboration reconnect state", () => {
 
     expect(mocks.roomLifecycleInput.getFollowTargetPresenceId()).toBeNull();
     expect(error).toHaveBeenCalledWith("Live collaboration could not update the editor.");
-    expect(warn).toHaveBeenCalledWith(
-      "[Editor] Excalidraw capability failed:",
-      expect.objectContaining({
+    const logged = JSON.parse(warn.mock.calls[0][0] as string);
+    expect(logged).toMatchObject({
+      message: "[Editor] Excalidraw capability failed",
+      failure: {
         ok: false,
         code: "not-ready",
         seam: "collaboration.readFollowState",
-      }),
-    );
+      },
+    });
     unmount();
   });
 
-  it("forgets confirmed file markers when the room lifecycle resets for reconnect", () => {
+  it("keeps confirmed file markers when the room lifecycle resets for reconnect", () => {
     const confirmedFiles = {
       image: { id: "image", dataURL: "data:image/png;base64,bytes" },
     };
@@ -432,7 +433,7 @@ describe("editor collaboration reconnect state", () => {
     expect(mocks.resetConnectionState).toBeTypeOf("function");
     act(() => mocks.resetConnectionState?.());
 
-    expect(lastSyncedFilesRef.current).toEqual({});
+    expect(lastSyncedFilesRef.current).toBe(confirmedFiles);
     unmount();
   });
 });

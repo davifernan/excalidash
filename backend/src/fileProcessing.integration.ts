@@ -4,7 +4,7 @@
  * write path itself. See assetService.integration.ts for the same reasoning
  * about why a fake would only mirror the implementation here.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,7 +67,7 @@ describe("processEmbeddedImages", () => {
   });
 
   it("logs the complete Prisma failure when the drawing foreign key is missing", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const files = { "file-1": { id: "file-1", mimeType: "image/png", dataURL: PNG_DATA_URL } };
 
     await processEmbeddedImages(deps(), files, ownerId, "missing-drawing");

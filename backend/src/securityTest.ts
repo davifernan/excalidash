@@ -119,7 +119,10 @@ try {
   console.log(`PASS: Link sanitized: ${sanitizedDrawing.elements[1].link || "null"}`);
   console.log(`PASS: SVG sanitized: ${!sanitizedDrawing.preview?.includes("<script>")}`);
 } catch (error) {
-  console.log("PASS: Sanitization failed as expected:", error.message);
+  console.log(
+    "PASS: Sanitization failed as expected:",
+    error instanceof Error ? error.message : String(error),
+  );
 }
 console.log("");
 
@@ -167,7 +170,10 @@ try {
   console.log(`PASS: Text preserved: "${sanitizedLegitimate.elements[0].text}"`);
   console.log(`PASS: Safe URL preserved: "${sanitizedLegitimate.elements[1].link}"`);
 } catch (error) {
-  console.log("FAIL: Legitimate drawing should not fail:", error.message);
+  console.log(
+    "FAIL: Legitimate drawing should not fail:",
+    error instanceof Error ? error.message : String(error),
+  );
 }
 console.log("");
 

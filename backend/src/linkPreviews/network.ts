@@ -1,6 +1,9 @@
-import http, { type IncomingHttpHeaders, type IncomingMessage } from "node:http";
+import http, {
+  type ClientRequestArgs,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+} from "node:http";
 import https from "node:https";
-import { type TcpNetConnectOpts } from "node:net";
 import { Readable } from "node:stream";
 import type { Duplex } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
@@ -43,8 +46,22 @@ export type PreviewNetworkDeps = {
     connectTimeoutMs: number,
     signal: AbortSignal,
   ) => Promise<IncomingMessage>;
-  /** Test seam below HTTP: production always opens the checked IP itself. */
-  connect?: (options: TcpNetConnectOpts) => Duplex;
+  /**
+   * Test seam below HTTP: production always opens the checked IP itself.
+   *
+   * Typed as `http.ClientRequestArgs`, the shape `http(s).request()` actually
+   * hands its `createConnection` option -- not `net.connect`'s
+   * `TcpNetConnectOpts` (the shape this used to declare). The two diverge on
+   * `port`: `TcpNetConnectOpts` requires a `number`, but
+   * `pinnedRequestOptions` below sets `port: url.port || undefined` for the
+   * default-port case, and Node forwards that request-options object,
+   * `undefined` port and all, straight through to `createConnection`. A
+   * `connect` typed to require a numeric port let that mismatch through
+   * uncaught; nothing here reads `options.port` today (the test override
+   * dials a fixed port from closure instead), but the declared type should
+   * describe what Node actually passes, not what happens to go unused.
+   */
+  connect?: (options: ClientRequestArgs) => Duplex;
 };
 
 const timeoutError = (part: string) =>
@@ -70,7 +87,7 @@ const timeoutError = (part: string) =>
 export function pinnedRequestOptions(
   url: URL,
   target: ResolvedAddress,
-  connect?: (options: TcpNetConnectOpts) => Duplex,
+  connect?: (options: ClientRequestArgs) => Duplex,
 ) {
   return {
     protocol: url.protocol,
@@ -97,7 +114,7 @@ function openPinnedRequest(
   target: ResolvedAddress,
   connectTimeoutMs: number,
   signal: AbortSignal,
-  connect?: (options: TcpNetConnectOpts) => Duplex,
+  connect?: (options: ClientRequestArgs) => Duplex,
 ): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === "https:" ? https : http;

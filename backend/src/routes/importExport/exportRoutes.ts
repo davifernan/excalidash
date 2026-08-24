@@ -2,6 +2,7 @@ import { createReadStream, promises as fs } from "node:fs";
 import { Readable } from "node:stream";
 import { createBrotliDecompress } from "node:zlib";
 import archiver from "archiver";
+import { logger } from "../../logger";
 import { resolveStoragePath } from "../../assets/assetStorage";
 import { decodeSnapshotField } from "../../snapshots/snapshotCodec";
 import {
@@ -13,6 +14,7 @@ import {
   RegisterImportExportDeps,
   assertSafeArchivePath,
   getUserTrashCollectionId,
+  groupDrawingFileIdsByDrawing,
   isTrashCollectionId,
   makeUniqueName,
   sanitizePathSegment,
@@ -54,6 +56,10 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
       const drawingAssetRows = await prisma.drawingAsset.findMany({
         where: throughOwnedBoardWhere(req.user.id),
         include: { asset: { include: { blob: true } } },
+      });
+      const drawingFileRows = await prisma.drawingFile.findMany({
+        where: throughOwnedBoardWhere(req.user.id),
+        include: { blob: true },
       });
       const snapshots = await prisma.drawingSnapshot.findMany({
         where: throughOwnedBoardWhere(req.user.id),
@@ -138,10 +144,11 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
       }
       const blobsById = new Map<string, any>();
       for (const asset of assetsById.values()) blobsById.set(asset.blob.id, asset.blob);
+      for (const file of drawingFileRows as any[]) blobsById.set(file.blob.id, file.blob);
 
       const blobManifest = [...blobsById.values()].map((blob) => ({
         id: blob.id,
-        filePath: `assets/originals/${blob.sha256}`,
+        filePath: `blobs/originals/${blob.sha256}`,
         sha256: blob.sha256,
         sizeBytes: blob.sizeBytes,
         contentEncoding: blob.contentEncoding === "br" ? ("br" as const) : null,
@@ -163,9 +170,15 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
         createdAt: snapshot.createdAt.toISOString(),
         assetIds: snapshot.assets.map((row: any) => row.assetId),
       }));
+      const drawingFileManifest = (drawingFileRows as any[]).map((file) => ({
+        drawingId: file.drawingId,
+        fileId: file.fileId,
+        blobId: file.blobId,
+        mimeType: file.mimeType,
+      }));
       const manifest = {
         format: "excalidash" as const,
-        formatVersion: 2 as const,
+        formatVersion: 3 as const,
         exportedAt,
         excalidashBackendVersion: getBackendVersion(),
         userId: req.user.id,
@@ -181,12 +194,33 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
           expiresAt: row.expiresAt?.toISOString() ?? null,
         })),
         snapshots: snapshotManifest,
+        drawingFiles: drawingFileManifest,
       };
       const pdfBlobIds = new Set(
         [...assetsById.values()]
           .filter((asset) => asset.mimeType === "application/pdf")
           .map((asset) => asset.blobId),
       );
+      const drawingFileIdsByDrawing = groupDrawingFileIdsByDrawing(drawingFileManifest);
+      const assertPortableSceneFiles = (
+        drawingId: string,
+        files: Record<string, unknown>,
+      ): void => {
+        const storedFileIds = drawingFileIdsByDrawing.get(drawingId) ?? new Set<string>();
+        for (const [fileId, value] of Object.entries(files)) {
+          if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+          const dataURL = (value as { dataURL?: unknown }).dataURL;
+          if (typeof dataURL !== "string" || dataURL.length === 0 || dataURL.startsWith("data:")) {
+            continue;
+          }
+          if (storedFileIds.has(fileId) && dataURL === `/api/files/${drawingId}/${fileId}`) {
+            continue;
+          }
+          throw new Error(
+            `Backup cannot bundle drawing image "${fileId}" from drawing ${drawingId}`,
+          );
+        }
+      };
 
       const serializeDrawing = (drawing: any) =>
         JSON.stringify(
@@ -229,6 +263,10 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
           select: { id: true, collectionId: true, elements: true, appState: true, files: true },
         });
         if (!scene) throw new Error(`Drawing disappeared during export: ${drawing.id}`);
+        assertPortableSceneFiles(
+          scene.id,
+          parseJsonField(scene.files, {} as Record<string, unknown>),
+        );
         const json = serializeDrawing(scene);
         const bytes = Buffer.byteLength(json);
         if (bytes > deps.MAX_IMPORT_ENTRY_BYTES || bytes > deps.MAX_IMPORT_DRAWING_BYTES) {
@@ -242,6 +280,10 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
           select: { id: true, version: true, elements: true, appState: true, files: true },
         });
         if (!scene) throw new Error(`Snapshot disappeared during export: ${snapshot.id}`);
+        assertPortableSceneFiles(
+          snapshot.drawingId,
+          parseJsonField(decodeSnapshotField(scene.files), {} as Record<string, unknown>),
+        );
         const json = serializeSnapshot(scene);
         const bytes = Buffer.byteLength(json);
         if (bytes > deps.MAX_IMPORT_ENTRY_BYTES) {
@@ -260,7 +302,7 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
 
       for (const blob of blobsById.values()) {
         if (blob.sizeBytes > deps.MAX_IMPORT_ENTRY_BYTES) {
-          return res.status(413).json({ error: "Document is too large", message: blob.id });
+          return res.status(413).json({ error: "Stored file is too large", message: blob.id });
         }
         const sourcePath = resolveStoragePath(deps.assetStorageDir, blob.storageKey);
         const stat = await fs.lstat(sourcePath);
@@ -286,7 +328,7 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
         if (!res.writableEnded) abortArchive();
       });
       archive.on("error", (error) => {
-        console.error("Archive error:", error);
+        logger.error("archive error", { error });
         abortArchive();
         if (res.headersSent) res.destroy(error instanceof Error ? error : undefined);
         else res.status(500).json({ error: "Failed to create archive" });
@@ -315,6 +357,10 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
                 },
               });
               if (!scene) throw new Error(`Drawing disappeared during export: ${drawing.id}`);
+              assertPortableSceneFiles(
+                scene.id,
+                parseJsonField(scene.files, {} as Record<string, unknown>),
+              );
               yield serializeDrawing(scene);
             })(),
           ),
@@ -331,6 +377,10 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
                 select: { id: true, version: true, elements: true, appState: true, files: true },
               });
               if (!scene) throw new Error(`Snapshot disappeared during export: ${meta.id}`);
+              assertPortableSceneFiles(
+                meta.drawingId,
+                parseJsonField(decodeSnapshotField(scene.files), {} as Record<string, unknown>),
+              );
               yield serializeSnapshot(scene);
             })(),
           ),
@@ -352,7 +402,7 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
       }
 
       archive.append(
-        `ExcaliDash Backup (.excalidash)\n\nFormatVersion: 2\nCollections: ${collectionsToExport.length}\nDrawings: ${drawings.length}\nDocuments: ${assetManifest.length}\n`,
+        `ExcaliDash Backup (.excalidash)\n\nFormatVersion: 3\nCollections: ${collectionsToExport.length}\nDrawings: ${drawings.length}\nDocuments: ${assetManifest.length}\nBoard images: ${drawingFileManifest.length}\n`,
         { name: "README.txt" },
       );
       await archive.finalize();

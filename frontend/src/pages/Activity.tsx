@@ -6,6 +6,7 @@ import * as api from "../api";
 import type { Collection } from "../types";
 import type { ActivityEventDTO } from "../api/comments";
 import { displayFontFamily } from "../utils/displayFont";
+import { log } from "../logging";
 
 /**
  * The team-wide Activity Feed, same reasoning and same shell-reuse pattern
@@ -49,7 +50,7 @@ export const Activity: React.FC = () => {
     api
       .getCollections()
       .then(setCollections)
-      .catch((err) => console.error("Failed to fetch collections:", err));
+      .catch((err) => log.error("Failed to fetch collections", { error: err }));
   }, []);
 
   useEffect(() => {

@@ -32,6 +32,14 @@ interface SidebarProps {
   onEditCollection: (id: string, name: string) => void | Promise<void>;
   onDeleteCollection: (id: string) => void | Promise<void>;
   onDrop?: (e: React.DragEvent, collectionId: string | null) => void;
+  /**
+   * A live-status line under "Team Home", e.g. "Davi is currently in Roadmap
+   * Q4" (NIL-294). Source-agnostic on purpose: today only the Team Home page
+   * itself computes and passes this (it already has team roster + presence
+   * loaded, so there's no new fetch or poll anywhere else). Undefined on
+   * every other page, same as before this prop existed.
+   */
+  teamHomeStatus?: string | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -42,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onEditCollection,
   onDeleteCollection,
   onDrop,
+  teamHomeStatus,
 }) => {
   const { logout, user, authEnabled } = useAuth();
   const navigate = useNavigate();
@@ -194,6 +203,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 id="team-home"
                 icon={<Home size={18} />}
                 label="Team Home"
+                subtitle={teamHomeStatus}
                 isActive={location.pathname === "/team"}
                 onClick={() => navigate("/team")}
               />

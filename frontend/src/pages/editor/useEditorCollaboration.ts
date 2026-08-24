@@ -40,6 +40,7 @@ import type {
   SelectionCapability,
   ViewportCapability,
 } from "../../integrations/excalidraw/capabilities";
+import { log } from "../../logging";
 export type { Peer } from "./socketCollaborators";
 
 type UseEditorCollaborationInput = {
@@ -125,6 +126,7 @@ export const useEditorCollaboration = ({
   const [viewportInvitation, setViewportInvitation] = useState<ViewportInvitation | null>(null);
   const [inviteHereStatus, setInviteHereStatus] = useState<InviteHereStatus | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const roomJoinedRef = useRef(false);
   const documentPageSharing = useDocumentPageSharing({ drawingId, socketRef });
   const inviteHereRef = useRef<ReturnType<typeof bindInviteHere> | null>(null);
   const lastCursorEmit = useRef<number>(0);
@@ -137,7 +139,7 @@ export const useEditorCollaboration = ({
   const remoteFlushRafIdRef = useRef<number | null>(null);
   const shareToken = getShareLinkToken();
   const reportCapabilityFailure = useCallback((failure: CapabilityFailure) => {
-    console.warn("[Editor] Excalidraw capability failed:", failure);
+    log.warn("[Editor] Excalidraw capability failed", { failure });
     toast.error("Live collaboration could not update the editor.");
   }, []);
   useEffect(() => {
@@ -149,16 +151,32 @@ export const useEditorCollaboration = ({
       withCredentials: true,
     });
     socketRef.current = socket;
+    roomJoinedRef.current = false;
     if (import.meta.env.DEV) {
-      (window as any).__EXCALIDASH_SOCKET_STATUS__ = {
-        connected: socket.connected,
+      const socketTestStatus = { connected: socket.connected } as {
+        connected: boolean;
+        roomJoined: boolean;
+        dropTransport: () => void;
       };
-      socket.on("connect", () => {
-        (window as any).__EXCALIDASH_SOCKET_STATUS__ = { connected: true };
+      Object.defineProperties(socketTestStatus, {
+        roomJoined: {
+          enumerable: false,
+          value: roomJoinedRef.current,
+          writable: true,
+        },
+        dropTransport: {
+          enumerable: false,
+          value: () => socket.io.engine?.close(),
+        },
       });
-      socket.on("disconnect", () => {
-        (window as any).__EXCALIDASH_SOCKET_STATUS__ = { connected: false };
-      });
+      const updateSocketTestStatus = () => {
+        socketTestStatus.connected = socket.connected;
+        socketTestStatus.roomJoined = roomJoinedRef.current;
+      };
+      (window as any).__EXCALIDASH_SOCKET_STATUS__ = socketTestStatus;
+      updateSocketTestStatus();
+      socket.on("connect", updateSocketTestStatus);
+      socket.on("disconnect", updateSocketTestStatus);
     }
     // Bound before the collaborators (they read it), referred to after (a
     // message has to refresh the names).
@@ -227,7 +245,7 @@ export const useEditorCollaboration = ({
     selectionPublisherRef.current = remoteSelection.publish;
     socket.on("error", (payload: any) => {
       const message = typeof payload?.message === "string" ? payload.message : null;
-      console.warn("[Editor] Socket error:", payload);
+      log.warn("[Editor] Socket error", { payload });
       if (message === "You do not have access to this drawing") {
         onAccessDenied();
         return;
@@ -237,7 +255,7 @@ export const useEditorCollaboration = ({
     socket.on("room-event-error", (payload: any) => {
       const message = typeof payload?.error?.message === "string" ? payload.error.message : null;
       if (!message) return;
-      console.warn("[Editor] Room event rejected:", payload);
+      log.warn("[Editor] Room event rejected", { payload });
       if (payload?.error?.code === "rate-limited") toast.info(message);
       else toast.error(message);
     });
@@ -250,6 +268,11 @@ export const useEditorCollaboration = ({
       onFollowInterrupted: (reason) => toast.info(getFollowInterruptionMessage(reason)),
     });
     const resetConnectionState = () => {
+      roomJoinedRef.current = false;
+      if (import.meta.env.DEV) {
+        const status = (window as any).__EXCALIDASH_SOCKET_STATUS__;
+        if (status) status.roomJoined = false;
+      }
       unbindFollowMode.resetConnectionState();
       // The clearing message is volatile: dropped mid-sentence it never
       // arrives, and the same presence returns wearing what it used to say.
@@ -263,10 +286,10 @@ export const useEditorCollaboration = ({
       sharedPages.reset();
       inviteHereController.reset();
       setFollowers([]);
-      // A disconnect makes delivery acknowledgements unknowable. Forget the
-      // confirmed file baseline so the next local comparison can resend bytes
-      // instead of trusting markers from the previous connection.
-      lastSyncedFilesRef.current = {};
+      // Keep the acknowledged file baseline. Unacknowledged attempts never
+      // enter it and remain in the delivery queue, while clearing confirmed
+      // files here turns every historical image into reconnect work and can
+      // bury the first genuinely fresh file behind a full-board replay.
       pendingRemoteElementsRef.current.clear();
       pendingRemoteFilesRef.current = {};
       pendingRemoteElementOrderRef.current = null;
@@ -283,6 +306,11 @@ export const useEditorCollaboration = ({
       user: me,
       resetConnectionState,
       onJoined: (serverUser) => {
+        roomJoinedRef.current = true;
+        if (import.meta.env.DEV) {
+          const status = (window as any).__EXCALIDASH_SOCKET_STATUS__;
+          if (status) status.roomJoined = true;
+        }
         collaborators.setSelfPresenceId(serverUser.presenceId);
         const selected = selection.read();
         if (!selected.ok) reportCapabilityFailure(selected);
@@ -619,6 +647,7 @@ export const useEditorCollaboration = ({
     workshopTimer: { snapshot: workshopTimerSnapshot, sendCommand: sendWorkshopTimerCommand },
     documentPages: documentPageSharing.controller,
     socketRef,
+    roomJoinedRef,
     isSyncing,
     onPointerUpdate,
     onSelectionChange,

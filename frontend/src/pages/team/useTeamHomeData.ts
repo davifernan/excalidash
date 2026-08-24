@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../../api";
 import type { Collection, DrawingSummary } from "../../types";
 import type { Team } from "../../api";
+import { log } from "../../logging";
 
 /** Enough to fill a card row without turning Team Home into the Dashboard. */
 export const RECENT_BOARDS_LIMIT = 8;
@@ -46,7 +47,7 @@ export const useTeamHomeData = (): TeamHomeData => {
       setRecentBoards(result.drawings);
     } catch (error) {
       if (requestVersion !== requestVersionRef.current) return;
-      console.error("Failed to fetch recent boards:", error);
+      log.error("Failed to fetch recent boards", { error }, { notify: false });
       setRecentBoardsError(FAILURE_MESSAGE);
     }
   }, []);
@@ -57,7 +58,7 @@ export const useTeamHomeData = (): TeamHomeData => {
       const result = await api.getTeam();
       setTeam(result);
     } catch (error) {
-      console.error("Failed to fetch team roster:", error);
+      log.error("Failed to fetch team roster", { error }, { notify: false });
       setTeamError(FAILURE_MESSAGE);
     }
   }, []);
@@ -70,7 +71,7 @@ export const useTeamHomeData = (): TeamHomeData => {
         if (!cancelled) setCollections(result);
       } catch (error) {
         if (!cancelled) {
-          console.error("Failed to fetch collections:", error);
+          log.error("Failed to fetch collections", { error }, { notify: false });
           setCollectionsError(FAILURE_MESSAGE);
         }
       }

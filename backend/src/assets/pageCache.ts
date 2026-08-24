@@ -28,6 +28,7 @@ import {
 } from "./assetStorage";
 import { RENDERER_VERSION, renderPage } from "./pdfRenderer";
 import { BoundedTaskQueue, QueueAbortedError, QueueCapacityError } from "../utils/boundedTaskQueue";
+import { config } from "../config";
 
 export type CachedPage = {
   body: Buffer;
@@ -101,12 +102,12 @@ const globalRenderQueue = new BoundedTaskQueue();
 export const renderQueueDepth = () => globalRenderQueue.depth;
 
 const renderConcurrency = (configured?: number): number => {
-  const value = configured ?? Number(process.env.ASSET_RENDER_CONCURRENCY ?? "1");
+  const value = configured ?? config.assets.renderConcurrency;
   return Number.isInteger(value) && value > 0 ? value : 1;
 };
 
 const renderQueueLimit = (configured?: number): number => {
-  const value = configured ?? Number(process.env.ASSET_RENDER_QUEUE_LIMIT ?? "32");
+  const value = configured ?? config.assets.renderQueueLimit;
   return Number.isInteger(value) && value > 0 ? value : 32;
 };
 

@@ -9,6 +9,7 @@
 import { Readable } from "node:stream";
 import type { PrismaClient } from "./generated/client";
 import { storeDrawingFile, type StoreDrawingFileInput } from "./assets/assetService";
+import { logger } from "./logger";
 
 /**
  * Reject anything that could escape the per-drawing storage prefix. Same
@@ -53,32 +54,6 @@ export type ProcessEmbeddedImagesDeps = {
 };
 
 /**
- * Error properties such as Prisma's `code` and `meta` are not part of an
- * Error's enumerable JSON shape. Keep the storage warning on one structured
- * line so CI log collectors do not reduce a useful Prisma failure to only its
- * class name (or `{}`).
- */
-const serializeStorageError = (error: unknown): string => {
-  if (!(error instanceof Error)) {
-    try {
-      return JSON.stringify({ value: error }) ?? JSON.stringify({ value: String(error) });
-    } catch {
-      return JSON.stringify({ value: String(error) });
-    }
-  }
-
-  const details: Record<string, unknown> = {};
-  for (const property of Object.getOwnPropertyNames(error)) {
-    details[property] = (error as unknown as Record<string, unknown>)[property];
-  }
-  try {
-    return JSON.stringify(details);
-  } catch {
-    return JSON.stringify({ name: error.name, message: error.message });
-  }
-};
-
-/**
  * Scan a drawing's files record for base64 dataURLs, move them into the blob
  * store, and replace the dataURL with the access URL
  * (`/api/files/:drawingId/:fileId`) the frontend already knows how to load
@@ -108,7 +83,7 @@ export const processEmbeddedImages = async (
       // Reject path-traversal candidates rather than silently storing them
       // under a forged key. Drop from output so the bad entry never reaches
       // the database either.
-      console.warn(`[files] Skipping file with invalid id: ${JSON.stringify(fileId)}`);
+      logger.warn("skipping file with invalid id", { fileId });
       delete result[fileId];
       return;
     }
@@ -122,7 +97,7 @@ export const processEmbeddedImages = async (
     const decoded = decodeDataURL(dataURL);
     if (!decoded) return;
     if (!ALLOWED_IMAGE_MIME_TYPES.has(decoded.mimeType)) {
-      console.warn(`[files] Skipping unsupported embedded MIME type: ${decoded.mimeType}`);
+      logger.warn("skipping unsupported embedded MIME type", { mimeType: decoded.mimeType });
       return;
     }
 
@@ -140,9 +115,16 @@ export const processEmbeddedImages = async (
       // Too large or over quota: leave this one entry embedded rather than
       // failing the whole scene save. The client still has a working board;
       // it just did not get the storage benefit for this one image.
-      console.warn(
-        `[files] Could not move embedded image "${fileId}" to storage: ${serializeStorageError(error)}`,
-      );
+      const storageError =
+        error instanceof Error
+          ? Object.fromEntries(
+              Object.getOwnPropertyNames(error).map((property) => [
+                property,
+                (error as unknown as Record<string, unknown>)[property],
+              ]),
+            )
+          : error;
+      logger.warn("could not move embedded image to storage", { fileId, error: storageError });
       return;
     }
 

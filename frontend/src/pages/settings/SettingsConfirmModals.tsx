@@ -1,6 +1,7 @@
 import type React from "react";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import * as api from "../../api";
+import { log } from "../../logging";
 
 type LegacyDbImportConfirmation = {
   isOpen: boolean;
@@ -124,7 +125,7 @@ export const SettingsConfirmModals = ({
             message: `Legacy DB imported. Collections: +${response.data.collections.created} / ~${response.data.collections.updated}. Drawings: +${response.data.drawings.created} / ~${response.data.drawings.updated}.`,
           });
         } catch (err: unknown) {
-          console.error(err);
+          log.error("Failed to import legacy database", { error: err }, { notify: false });
           let message = "Failed to import legacy database.";
           if (api.isAxiosError(err)) {
             message = err.response?.data?.message || err.response?.data?.error || message;
@@ -241,7 +242,7 @@ export const SettingsConfirmModals = ({
           });
           setBackupImportSuccess(true);
         } catch (err: unknown) {
-          console.error("Backup import failed:", err);
+          log.error("Backup import failed", { error: err }, { notify: false });
           let message = "Failed to import backup.";
           if (api.isAxiosError(err)) {
             message = err.response?.data?.message || err.response?.data?.error || message;

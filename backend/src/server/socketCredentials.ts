@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../generated/client";
 import type { Socket } from "socket.io";
 import type { DrawingPrincipal } from "../authz/sharing";
+import { logger } from "../logger";
 
 type CredentialGuardDeps = {
   prisma: PrismaClient;
@@ -61,7 +62,7 @@ export const createSocketCredentialGuard = ({
       }
       return connectedSockets.get(socket.id) === socket;
     } catch (error) {
-      console.error("Final socket credential verification failed:", error);
+      logger.error("Final socket credential verification failed", { error });
       connectedSockets.delete(socket.id);
       principals.delete(socket.id);
       socket.emit("error", {

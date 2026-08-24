@@ -139,10 +139,11 @@ describe("editor canvas capability failures", () => {
     await result.current.handleCanvasDropCapture(event);
 
     expect(scene.apply).toHaveBeenCalled();
-    expect(error).toHaveBeenCalledWith(
-      "[Editor] Failed to import dropped images",
-      expect.objectContaining({ message: "scene.apply failed (editor-changed)" }),
-    );
+    const logged = JSON.parse(error.mock.calls[0][0] as string);
+    expect(logged).toMatchObject({
+      message: "[Editor] Failed to import dropped images",
+      error: { message: "scene.apply failed (editor-changed)" },
+    });
     expect(toastError).toHaveBeenCalledWith("Failed to import dropped images");
     error.mockRestore();
     toastError.mockRestore();

@@ -22,6 +22,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # release-tag-guard.cjs (NIL-507) needs full history and tags to
+          # check whether a bare v<VERSION> tag exists and is our ancestor --
+          # a shallow, tag-less clone would make every existence check false
+          # and the guard would pass for the wrong reason.
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -34,6 +41,19 @@ jobs:
       # holds by accident stops holding the moment somebody renames a file.
       - name: Check the real-auth E2E spec isolation list
         run: node scripts/real-auth-boundary.cjs
+      - name: Check the release tag guard (VERSION vs. a same-named foreign tag, NIL-507)
+        run: node scripts/release-tag-guard.cjs
+      - name: Prove the release tag guard rejects what it claims to
+        run: node scripts/release-tag-guard.test.cjs
+      # Runs against the real GitHub API (main's own tip and its real
+      # check-runs), not a fixture -- Davi, PR #79: a test that only covers
+      # the single-page case would stay green and prove nothing, since the
+      # bug it guards only appears once a commit's check-runs genuinely span
+      # more than one page.
+      - name: Prove release-check-runs.sh merges real multi-page results correctly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release-check-runs.test.sh
 
   frontend-typecheck:
     name: Frontend Typecheck
@@ -71,6 +91,44 @@ jobs:
 
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/adapter-boundary.test.cjs
+
+      # Same "already-required job, not a new one" reasoning as the adapter
+      # boundary above -- the frontend logging boundary (NIL-510/NIL-513)
+      # lives here for the identical reason as logging-boundary.cjs living in
+      # backend-tests.
+      - name: Check the frontend logging boundary
+        run: node scripts/frontend-logging-boundary.cjs
+
+      - name: Prove the frontend logging boundary check rejects what it claims to
+        run: node scripts/frontend-logging-boundary.test.cjs
+
+  backend-typecheck:
+    name: Backend Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma client
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: Typecheck backend
+        run: npm run typecheck --prefix backend
 
   authz-boundary:
     name: Authz Boundary
@@ -110,11 +168,36 @@ jobs:
 
       # No dependency install, same reasoning as Authz Boundary: this reads
       # backend/src with node:fs and nothing else.
-      - name: Check the agent-token centralization (NIL-382)
+      - name: Check the agent-token centralization
         run: node scripts/agent-token-boundary.cjs
 
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/agent-token-boundary.test.cjs
+
+  env-boundary:
+    name: Env Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No dependency install, same reasoning as Authz Boundary: this reads
+      # backend/src with node:fs and nothing else. Not yet in
+      # ops/repository-rules.sh's required_status_checks -- NIL-505 adds that
+      # in a follow-up after this merges, the same ordering Authz Boundary and
+      # Agent Token Boundary used, so a brand new job name is never a required
+      # check before it has run green on main at least once.
+      - name: Check the process.env boundary (NIL-505)
+        run: node scripts/env-boundary.cjs
+
+      - name: Prove the env boundary check rejects what it claims to
+        run: node scripts/env-boundary.test.cjs
 
   type-collision-inventory:
     name: Type Collision Inventory
@@ -131,7 +214,7 @@ jobs:
 
       # No dependency install, same reasoning as Authz Boundary: this reads
       # frontend/src and backend/src with node:fs and nothing else.
-      - name: Check the string-union type inventory (NIL-489)
+      - name: Check the string-union type inventory
         run: node scripts/type-collision-inventory.cjs
 
       - name: Prove the inventory rejects what it claims to
@@ -248,7 +331,6 @@ jobs:
 
       - name: Prove the logging boundary check rejects what it claims to
         run: node scripts/logging-boundary.test.cjs
-
 
       - name: Run backend tests
         run: |
@@ -649,7 +731,7 @@ jobs:
   # ports here, same as e2e-cross-engine, so nothing else can share the
   # blast radius.
   e2e-two-account:
-    name: E2E Two-Account (NIL-356)
+    name: E2E Two-Account
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -807,7 +889,7 @@ jobs:
   # bootstrap-admin registration concurrently would be exactly the kind of
   # cross-spec interference this isolation exists to rule out.
   e2e-permission-matrix:
-    name: E2E Permission Matrix (NIL-326)
+    name: E2E Permission Matrix
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

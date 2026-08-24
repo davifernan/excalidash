@@ -26,12 +26,15 @@
  * route, and its console.log calls ARE its output, not a log line about
  * something else.
  *
- * BASELINE is temporary: the measured starting state -- every backend
- * product file that still calls console.* directly, 42 files / 134 call
- * sites as of NIL-502 -- and it shrinks to nothing as consumers migrate to
- * `logger.*`, exactly as adapter-boundary's five rules did. A baseline that
- * nobody pays down is containment, not a fix (NIL-489's own lesson); NIL-504
- * tracks paying it down, with the 42/134 count in it.
+ * BASELINE was the measured starting state at NIL-502 -- 42 files / 134 call
+ * sites that still called console.* directly -- and NIL-504 paid all of it
+ * down to zero: every one of those 42 files now logs through `logger.*`
+ * (each removal proved itself by turning that file's baseline entry STALE
+ * first, per the check below -- a progress indicator that cannot lie). The
+ * set stays declared, empty, rather than deleted: a future violation must
+ * still be added by name, and the empty set is the record that this baseline
+ * was paid down instead of quietly forgotten, which is the NIL-489 lesson
+ * this whole effort exists to not repeat.
  */
 
 const fs = require("node:fs");
@@ -57,51 +60,12 @@ const STRUCTURAL_EXCEPTIONS = new Set([
  * `logger.*` yet -- remove it from this list in the same change that
  * migrates it. A stale entry (migrated but still listed) is caught below,
  * same as adapter-boundary.cjs's stale-exception handling.
+ *
+ * Empty as of NIL-504: the 42-file/134-call-site baseline measured at
+ * NIL-502 is fully paid down. Stays declared (not deleted) so the next
+ * violation is a visible addition, not a silent reappearance.
  */
-const BASELINE = new Set([
-  "backend/src/assets/assetRoutes.ts",
-  "backend/src/auth.ts",
-  "backend/src/auth/accountApiKeyRoutes.ts",
-  "backend/src/auth/accountPasswordChangeRoutes.ts",
-  "backend/src/auth/accountPasswordResetRoutes.ts",
-  "backend/src/auth/accountPreferencesRoutes.ts",
-  "backend/src/auth/accountProfileRoutes.ts",
-  "backend/src/auth/adminImpersonationRoutes.ts",
-  "backend/src/auth/adminSettingsRoutes.ts",
-  "backend/src/auth/adminUserOffboardingRoutes.ts",
-  "backend/src/auth/adminUserPasswordRoutes.ts",
-  "backend/src/auth/adminUserRoutes.ts",
-  "backend/src/auth/apiKeys.ts",
-  "backend/src/auth/bootstrapSetupCode.ts",
-  "backend/src/auth/coreRoutes.ts",
-  "backend/src/auth/oidcCallbackRoute.ts",
-  "backend/src/auth/oidcClient.ts",
-  "backend/src/auth/oidcRoutes.ts",
-  "backend/src/backups/backupLimits.ts",
-  "backend/src/backups/runOnce.ts",
-  "backend/src/backups/scheduler.ts",
-  "backend/src/db/prisma.ts",
-  "backend/src/fileProcessing.ts",
-  "backend/src/index.ts",
-  "backend/src/middleware/auth.ts",
-  "backend/src/routes/dashboard/drawingCreateUpdateRoutes.ts",
-  "backend/src/routes/dashboard/drawingDeleteDuplicateRoutes.ts",
-  "backend/src/routes/importExport/exportRoutes.ts",
-  "backend/src/routes/importExport/legacySqliteImportRoutes.ts",
-  "backend/src/routes/storage/s3Delete.ts",
-  "backend/src/s3.ts",
-  "backend/src/security.ts",
-  "backend/src/server/csrf.ts",
-  "backend/src/server/operationalHealth.ts",
-  "backend/src/server/socketAccessSweep.ts",
-  "backend/src/server/socketAuth.ts",
-  "backend/src/server/socketCredentials.ts",
-  "backend/src/server/socketDocumentPages.ts",
-  "backend/src/server/socketDrawingName.ts",
-  "backend/src/server/socketRoomEvent.ts",
-  "backend/src/snapshots/snapshotCodec.ts",
-  "backend/src/utils/audit.ts",
-]);
+const BASELINE = new Set([]);
 
 const isTestFile = (relative) =>
   /\.test\.tsx?$/.test(relative) ||

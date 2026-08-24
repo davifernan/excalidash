@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../generated/client";
 import type { Server } from "socket.io";
+import { logger } from "../logger";
 
 export const DRAWING_NAME_EVENT = "drawing-name-update";
 
@@ -34,7 +35,7 @@ export const publishDrawingName = ({
   } catch (error) {
     // Persistence already committed. A transient live-delivery failure must
     // not turn that successful write into a misleading HTTP failure.
-    console.error("Drawing name broadcast failed after persistence:", error);
+    logger.error("Drawing name broadcast failed after persistence", { drawingId, error });
     return false;
   }
 };
@@ -55,7 +56,7 @@ export const loadDrawingNameSnapshot = async ({
   } catch (error) {
     // Joining the collaboration room is still useful if this tiny snapshot is
     // temporarily unavailable; the normal drawing load already has a name.
-    console.error("Drawing name snapshot failed while joining a board:", error);
+    logger.error("Drawing name snapshot failed while joining a board", { drawingId, error });
     return null;
   }
 };

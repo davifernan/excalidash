@@ -9,6 +9,7 @@ import type {
   FileCapability,
 } from "../../integrations/excalidraw/capabilities";
 import { hasRenderableElements } from "./shared";
+import { log } from "../../logging";
 
 const capabilityError = (failure: { seam: string; code: string }) =>
   new Error(`${failure.seam} failed (${failure.code})`);
@@ -137,7 +138,10 @@ export const useEditorCommands = ({
         try {
           await api.updateDrawing(drawingId, { name: newName });
         } catch (err) {
-          console.error("Failed to rename", err);
+          // notify: default -- setDrawingName above already updated the
+          // visible name optimistically; with no rollback and no other
+          // signal, a failed rename otherwise looks like it succeeded.
+          log.error("Failed to rename", { error: err });
         }
       }
     },
@@ -183,7 +187,7 @@ export const useEditorCommands = ({
         }
       }
     } catch (err) {
-      console.error("Failed to save on back navigation", err);
+      log.error("Failed to save on back navigation", { error: err }, { notify: false });
       toast.error("Failed to save changes. Please retry before leaving.");
     } finally {
       setIsSavingOnLeave(false);
@@ -202,14 +206,19 @@ export const useEditorCommands = ({
     setIsSavingOnLeave,
   ]);
 
-  const handleExportClick = useCallback(() => {
-    if (!refs.excalidrawAPI.current) return;
-    const elements = refs.latestElements.current;
-    const appState = readBoardSettings();
-    const files = readFiles();
-    exportFromEditor(drawingName, elements, appState, files);
-    toast.success("Drawing exported");
-  }, [drawingName, readBoardSettings, readFiles, refs]);
+  const handleExportClick = useCallback(async () => {
+    if (!drawingId || !refs.excalidrawAPI.current) return;
+    try {
+      const elements = refs.latestElements.current;
+      const appState = readBoardSettings();
+      const files = readFiles();
+      await exportFromEditor(drawingId, drawingName, elements, appState, files);
+      toast.success("Drawing exported");
+    } catch (error) {
+      log.error("Failed to export drawing", { error }, { notify: false });
+      toast.error("Export cancelled because one or more drawing images could not be bundled.");
+    }
+  }, [drawingId, drawingName, readBoardSettings, readFiles, refs]);
 
   const handleRenameStart = useCallback(() => {
     if (!canEdit) return;

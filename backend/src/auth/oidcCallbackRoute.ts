@@ -16,6 +16,7 @@ import {
   readStringClaim,
 } from "./oidcRouteHelpers";
 import { getOwnedCollection } from "../authz/collections";
+import { logger } from "../logger";
 
 type OidcUser = {
   id: string;
@@ -125,9 +126,10 @@ export const registerOidcCallbackRoute = (deps: RegisterOidcCallbackRouteDeps) =
         if (!canRetryWithObservedAlg) {
           throw error;
         }
-        console.warn(
-          `OIDC callback id_token alg mismatch (expected ${mismatch.expected}, got ${mismatch.got}); retrying once with ${mismatch.got}.`,
-        );
+        logger.warn("OIDC callback id_token alg mismatch, retrying once", {
+          expected: mismatch.expected,
+          got: mismatch.got,
+        });
         const retryClient = await buildOidcClient(mismatch.got);
         tokenSet = await retryClient.callback(config.oidc.redirectUri as string, params, checks);
       }
@@ -140,10 +142,9 @@ export const registerOidcCallbackRoute = (deps: RegisterOidcCallbackRouteDeps) =
         try {
           userinfoClaims = (await client.userinfo(tokenSet)) as Record<string, unknown>;
         } catch (userinfoError) {
-          console.error(
-            "OIDC: userinfo request failed, falling back to ID token claims only:",
-            userinfoError,
-          );
+          logger.error("OIDC userinfo request failed, falling back to ID token claims only", {
+            error: userinfoError,
+          });
         }
       }
       const claims: Record<string, unknown> = {
@@ -314,7 +315,7 @@ export const registerOidcCallbackRoute = (deps: RegisterOidcCallbackRouteDeps) =
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         return redirectToLoginWithError(req, res, "callback_failed", flow.returnTo);
       }
-      console.error("OIDC callback error:", error);
+      logger.error("OIDC callback error", { error });
       return redirectToLoginWithError(req, res, "callback_failed", flow.returnTo);
     }
   });

@@ -15,6 +15,7 @@ import { DataFailureNotice } from "../components/DataFailureNotice";
 import { displayFontFamily } from "../utils/displayFont";
 import { useSearchPageData } from "./search/useSearchPageData";
 import type { SearchResult } from "../api";
+import { log } from "../logging";
 
 const ACCESS_LABEL: Record<string, string> = {
   owner: "Owner",
@@ -128,7 +129,7 @@ export const SearchPage: React.FC = () => {
       toast.success("Board restored");
       retry();
     } catch (err) {
-      console.error("Failed to restore drawing:", err);
+      log.error("Failed to restore drawing", { error: err }, { notify: false });
       toast.error("Couldn't restore this board. Try again.");
     } finally {
       setRestoringIds((prev) => {
@@ -145,7 +146,7 @@ export const SearchPage: React.FC = () => {
       toast.success("Board archived");
       retry();
     } catch (err) {
-      console.error("Failed to archive drawing:", err);
+      log.error("Failed to archive drawing", { error: err }, { notify: false });
       toast.error("Couldn't archive this board. Try again.");
     }
   };

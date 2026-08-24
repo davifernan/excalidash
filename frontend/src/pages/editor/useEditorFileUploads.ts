@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { FileCapability } from "../../integrations/excalidraw/capabilities";
 import type { FileId } from "../../integrations/excalidraw/types";
 import * as api from "../../api";
+import { log } from "../../logging";
 
 const FLUSH_INTERVAL_MS = 800;
 const UPLOAD_CONCURRENCY = 3;
@@ -80,7 +81,10 @@ export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFil
           confirmedRef.current.add(file.id);
         })
         .catch((err) => {
-          console.warn("[Editor] Background file upload failed, will retry:", file.id, err);
+          log.warn("[Editor] Background file upload failed, will retry", {
+            fileId: file.id,
+            error: err,
+          });
         })
         .finally(() => {
           inFlightRef.current.delete(file.id);

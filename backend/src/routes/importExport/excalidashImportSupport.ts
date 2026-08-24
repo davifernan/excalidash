@@ -117,6 +117,19 @@ export const validateManifestReferences = (
     if (drawingAssetKeys.has(key)) throw new ImportValidationError("Duplicate drawing asset link");
     drawingAssetKeys.add(key);
   }
+  if (manifest.formatVersion === 3) {
+    const drawingFileKeys = new Set<string>();
+    for (const link of manifest.drawingFiles) {
+      if (!drawingIds.has(link.drawingId) || !blobIds.has(link.blobId)) {
+        throw new ImportValidationError("Drawing file link references an unknown record");
+      }
+      const key = `${link.drawingId}\0${link.fileId}`;
+      if (drawingFileKeys.has(key)) {
+        throw new ImportValidationError("Duplicate drawing file link");
+      }
+      drawingFileKeys.add(key);
+    }
+  }
   for (const snapshot of manifest.snapshots) {
     requireEntry(archive, snapshot.filePath);
     if (!drawingIds.has(snapshot.drawingId)) {
@@ -140,7 +153,7 @@ export const assertSceneMemoryBudget = (
   for (const drawing of manifest.drawings) {
     admittedBytes += requireEntry(archive, drawing.filePath).uncompressedSize;
   }
-  if (manifest.formatVersion === 2) {
+  if (manifest.formatVersion !== 1) {
     for (const snapshot of manifest.snapshots) {
       admittedBytes += requireEntry(archive, snapshot.filePath).uncompressedSize;
     }

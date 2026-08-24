@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "0.5.1",
+  "version": "0.7.0",
   "description": "",
   "main": "index.js",
   "engines": {
@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "prisma generate && tsc",
+    "typecheck": "tsc --noEmit",
     "predev": "node scripts/predev-migrate.cjs",
     "dev": "nodemon src/index.ts",
     "start": "node dist/index.js",

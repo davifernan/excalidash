@@ -17,6 +17,7 @@ import * as api from "../api";
 import type { DrawingSummary } from "../types";
 import { useDebounce } from "../hooks/useDebounce";
 import { DataFailureNotice } from "./DataFailureNotice";
+import { log } from "../logging";
 
 type StaticAction = {
   id: string;
@@ -120,7 +121,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
       })
       .catch((err) => {
         if (requestIdRef.current !== requestId) return;
-        console.error("Command palette board search failed", err);
+        log.error("Command palette board search failed", { error: err }, { notify: false });
         setBoards([]);
         setBoardsStatus("error");
       });
@@ -176,7 +177,11 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
           onClose();
           navigate(`/editor/${id}`);
         } catch (err) {
-          console.error("Failed to create drawing from command palette", err);
+          log.error(
+            "Failed to create drawing from command palette",
+            { error: err },
+            { notify: false },
+          );
           toast.error("Couldn't create a new board. Try again.");
         } finally {
           setIsCreatingBoard(false);
@@ -200,7 +205,11 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
       onClose();
       navigate(`/collections?id=${created.id}`);
     } catch (err) {
-      console.error("Failed to create collection from command palette", err);
+      log.error(
+        "Failed to create collection from command palette",
+        { error: err },
+        { notify: false },
+      );
       toast.error("Couldn't create the collection. Try again.");
     } finally {
       setIsCreatingCollection(false);
