@@ -187,7 +187,7 @@ immutable `sha-<commit>` tag instead of `latest`):
 # Download docker-compose.prod.yml and the env template
 curl -OL https://raw.githubusercontent.com/davifernan/excalidash/main/docker-compose.prod.yml
 curl -OL https://raw.githubusercontent.com/davifernan/excalidash/main/.env.production.example
-cp .env.production.example .env   # set FRONTEND_URL, JWT_SECRET, CSRF_SECRET, EXCALIDASH_IMAGE_TAG
+cp .env.production.example .env   # review all four values; fixed secrets are recommended
 
 # Pull images
 docker compose --env-file .env -f docker-compose.prod.yml pull
@@ -202,7 +202,10 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d
 `sha-<commit>` tag) and refuses to start without it, so an upgrade can't silently move both
 images to `latest`.
 
-For single-container deployments, `JWT_SECRET` can be omitted and will be auto-generated and persisted in the backend volume on first start. For portability and most production deployments, set a fixed `JWT_SECRET` explicitly.
+For a single backend instance, `JWT_SECRET` and `CSRF_SECRET` can stay empty: the container
+entrypoint generates and persists both in the backend volume on first start. For portable
+backups or multiple backend instances, set each to a separate fixed value (run
+`openssl rand -hex 32` once per variable).
 
 By default, the provided Compose files set `TRUST_PROXY=false` for safer setup. Only set `TRUST_PROXY` to a positive hop count (for example, `1`) when requests always pass through a trusted reverse proxy that correctly sets forwarded headers.
 
