@@ -4,6 +4,7 @@ import type { DrawingSortField, SortDirection } from "../../api";
 import type { Collection, DrawingSummary } from "../../types";
 import { isLatestRequest, mergeUniqueDrawings } from "./pagination";
 import { resetDashboardDataStatus, setDashboardDataStatus } from "./dashboardDataStatus";
+import { log } from "../../logging";
 
 type SelectedCollectionId = string | null | undefined;
 
@@ -78,7 +79,7 @@ export const useDashboardData = ({
         nextOffsetRef.current = drawingsResult.value.drawings.length;
         onRefreshSuccess?.();
       } else {
-        console.error("Failed to fetch drawings:", drawingsResult.reason);
+        log.error("Failed to fetch drawings", { error: drawingsResult.reason }, { notify: false });
         setDrawingsError(
           "We couldn't load drawings. The server may be restarting or your connection may be offline. Check your connection and try again.",
         );
@@ -87,13 +88,17 @@ export const useDashboardData = ({
       if (collectionsResult.status === "fulfilled") {
         setCollections(collectionsResult.value);
       } else {
-        console.error("Failed to fetch collections:", collectionsResult.reason);
+        log.error(
+          "Failed to fetch collections",
+          { error: collectionsResult.reason },
+          { notify: false },
+        );
         setCollectionsError(
           "We couldn't load collections. The server may be restarting or your connection may be offline. Check your connection and try again.",
         );
       }
     } catch (err) {
-      console.error("Failed to fetch data:", err);
+      log.error("Failed to fetch dashboard data", { error: err }, { notify: false });
       setDrawingsError(
         "We couldn't load drawings. The server may be restarting or your connection may be offline. Check your connection and try again.",
       );
@@ -143,7 +148,7 @@ export const useDashboardData = ({
       setTotalCount(drawingsRes.totalCount);
       nextOffsetRef.current += drawingsRes.drawings.length;
     } catch (err) {
-      console.error("Failed to fetch more data:", err);
+      log.error("Failed to fetch more data", { error: err }, { notify: false });
       if (isLatestRequest(requestVersion, listRequestVersionRef.current)) {
         setLoadMoreError(
           "We couldn't load more drawings. The server may be restarting or your connection may be offline. Try again to continue the list.",

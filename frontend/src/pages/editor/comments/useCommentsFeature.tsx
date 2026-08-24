@@ -10,6 +10,7 @@ import { useComments } from "./useComments";
 import { useCommentPlacement } from "./useCommentPlacement";
 import { CommentPanel } from "./CommentPanel";
 import { CommentMarkers } from "./CommentMarkers";
+import { log } from "../../../logging";
 
 type UseCommentsFeatureInput = {
   drawingId?: string;
@@ -42,7 +43,7 @@ export const useCommentsFeature = ({
 
   const comments = useComments({ drawingId, canComment, socketRef, isReady });
   const reportCapabilityFailure = useCallback((seam: string) => {
-    console.warn("[Comments] capability failed:", seam);
+    log.warn("[Comments] capability failed", { seam });
     toast.error("Could not read the canvas for this comment.");
   }, []);
   const placement = useCommentPlacement({

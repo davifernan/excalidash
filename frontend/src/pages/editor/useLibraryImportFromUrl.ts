@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import * as api from "../../api";
 import type { UiCapability } from "../../integrations/excalidraw/capabilities";
+import { log } from "../../logging";
 
 type UseLibraryImportFromUrlParams = {
   /** The capability, not the handle: this hook has no business knowing the editor. */
@@ -78,7 +79,7 @@ export const useLibraryImportFromUrl = ({ ui, isReady, user }: UseLibraryImportF
         });
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       } catch (err) {
-        console.error("[Editor] Failed to import library:", err);
+        log.error("[Editor] Failed to import library", { error: err }, { notify: false });
         toast.error("Failed to import library", { id: "library-import" });
       }
     };

@@ -9,6 +9,7 @@ import { USER_KEY } from "../utils/impersonation";
 import { displayFontFamily } from "../utils/displayFont";
 import { ApiKeysCard } from "./profile/ApiKeysCard";
 import { PasswordCard } from "./profile/PasswordCard";
+import { log } from "../logging";
 
 export const Profile: React.FC = () => {
   const { user: authUser, logout, authEnabled } = useAuth();
@@ -40,7 +41,7 @@ export const Profile: React.FC = () => {
           setEmail(authUser.email);
         }
       } catch (err) {
-        console.error("Failed to fetch data:", err);
+        log.error("Failed to fetch profile data", { error: err });
       }
     };
     fetchData();

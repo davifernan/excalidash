@@ -17,6 +17,7 @@ import {
   getPersistedAppState,
   hasRenderableElements,
 } from "./shared";
+import { log } from "../../logging";
 
 class DrawingSaveConflictError extends Error {
   constructor(message = "Drawing version conflict") {
@@ -121,14 +122,14 @@ export const useEditorPersistence = ({
       } = resolveSafeSnapshot(candidateElements);
       const persistableElements = Array.from(safeElements);
       if (refs.suspiciousBlankLoad.current && !hasRenderableElements(persistableElements)) {
-        console.warn("[Editor] Blocking non-renderable save due to suspicious blank load", {
+        log.warn("[Editor] Blocking non-renderable save due to suspicious blank load", {
           drawingId,
           elementCount: persistableElements.length,
         });
         return;
       }
       if (staleEmptySnapshot || staleNonRenderableSnapshot) {
-        console.warn("[Editor] Skipping stale snapshot save", {
+        log.warn("[Editor] Skipping stale snapshot save", {
           drawingId,
           candidateElementCount: candidateElements.length,
           fallbackElementCount: persistableElements.length,
@@ -151,7 +152,13 @@ export const useEditorPersistence = ({
           try {
             const added = fileCapability.add(Object.values(persistableFiles) as never);
             if (!added.ok) {
-              console.error("Failed to hand files to the editor", added.code, added.detail);
+              // notify: default -- this does not throw or abort the save, so
+              // nothing else in this path tells the user their images may be
+              // missing from what just got saved.
+              log.error("Failed to hand files to the editor", {
+                code: added.code,
+                detail: added.detail,
+              });
             }
           } finally {
             refs.isSyncing.current = false;
@@ -197,7 +204,13 @@ export const useEditorPersistence = ({
           { capture: "never" },
         );
         if (!replaced.ok) {
-          console.error("Failed to apply the rebased scene", replaced.code, replaced.detail);
+          // notify: default -- execution continues either way (see below),
+          // so this is the only signal that the open editor may now show
+          // something different from what was just merged and saved.
+          log.error("Failed to apply the rebased scene", {
+            code: replaced.code,
+            detail: replaced.detail,
+          });
         }
         refs.latestElements.current = mergedElements;
 
@@ -270,7 +283,7 @@ export const useEditorPersistence = ({
         toast.error("Drawing changed in another tab. Refresh to load latest.");
         throw err;
       }
-      console.error("Failed to save drawing", err);
+      log.error("Failed to save drawing", { error: err }, { notify: false });
       toast.error("Failed to save changes");
       throw err;
     }
@@ -326,7 +339,7 @@ export const useEditorPersistence = ({
         return;
       }
       if (preventedPreviewOverwrite) {
-        console.warn("[Editor] Prevented stale snapshot preview overwrite", {
+        log.warn("[Editor] Prevented stale snapshot preview overwrite", {
           drawingId,
           fallbackElementCount: currentSnapshot.length,
         });
@@ -343,16 +356,19 @@ export const useEditorPersistence = ({
         files: currentFiles,
       });
       if (!rendered.ok) {
-        // Reported rather than returned quietly. The capability catches the
-        // throw that used to reach the catch below, and nothing in this tree
-        // subscribes to the diagnostics sink yet -- so without this line a
-        // failed render leaves a stale preview and says nothing to anybody.
-        console.error("Failed to save preview", rendered.code, rendered.detail);
+        // notify: false -- a stale preview thumbnail is cosmetic, and this
+        // runs on a 30s autosave cadence, so a broken render path would
+        // otherwise raise a toast on every tick instead of once.
+        log.error(
+          "Failed to save preview",
+          { code: rendered.code, detail: rendered.detail },
+          { notify: false },
+        );
         return;
       }
       await api.updateDrawing(drawingId, { preview: rendered.value.outerHTML });
     } catch (err) {
-      console.error("Failed to save preview", err);
+      log.error("Failed to save preview", { error: err }, { notify: false });
     }
   };
 
@@ -361,7 +377,7 @@ export const useEditorPersistence = ({
     try {
       await api.updateLibrary(items);
     } catch (err) {
-      console.error("Failed to save library", err);
+      log.error("Failed to save library", { error: err }, { notify: false });
       if (api.isAxiosError(err) && err.response?.status === 401) return;
       toast.error("Failed to save library");
     }

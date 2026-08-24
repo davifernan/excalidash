@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../../api";
 import type { Collection } from "../../types";
 import type { SearchResult } from "../../api";
+import { log } from "../../logging";
 
 const FAILURE_MESSAGE =
   "We couldn't load this. The server may be restarting or your connection may be offline. Check your connection and try again.";
@@ -46,7 +47,7 @@ export const useSearchPageData = (initialMode: SearchMode = "search"): SearchPag
       .then((result) => {
         if (!cancelled) setCollections(result);
       })
-      .catch((error) => console.error("Failed to fetch collections:", error));
+      .catch((error) => log.error("Failed to fetch collections", { error }));
     return () => {
       cancelled = true;
     };
@@ -76,7 +77,7 @@ export const useSearchPageData = (initialMode: SearchMode = "search"): SearchPag
       setStatus("idle");
     } catch (error) {
       if (requestVersion !== requestVersionRef.current) return;
-      console.error("Search failed:", error);
+      log.error("Search failed", { error }, { notify: false });
       setStatus("error");
       setErrorMessage(FAILURE_MESSAGE);
     }

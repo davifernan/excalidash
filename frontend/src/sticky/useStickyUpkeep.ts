@@ -15,6 +15,7 @@ import type {
   SceneCapability,
 } from "../integrations/excalidraw/capabilities";
 import { normaliseStickyNotes } from "./stickyNormalise";
+import { log } from "../logging";
 
 type Options = {
   canEdit: boolean;
@@ -86,7 +87,11 @@ export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
           ],
           { capture: "never" },
         );
-        if (!applied.ok) console.error("[Sticky] Failed to normalise notes", applied);
+        // notify: false -- this upkeep pass runs automatically on every
+        // qualifying scene change, not from a direct user action; a toast
+        // per occurrence would spam rather than inform if it kept failing.
+        if (!applied.ok)
+          log.error("[Sticky] Failed to normalise notes", { result: applied }, { notify: false });
       };
 
       // Closing the text editor is the one moment this cannot hear about.

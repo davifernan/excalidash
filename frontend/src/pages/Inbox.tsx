@@ -6,6 +6,7 @@ import * as api from "../api";
 import type { Collection } from "../types";
 import type { NotificationDTO } from "../api/comments";
 import { displayFontFamily } from "../utils/displayFont";
+import { log } from "../logging";
 
 /**
  * The Inbox has its own top-level route, deliberately not woven into
@@ -51,7 +52,7 @@ export const Inbox: React.FC = () => {
     api
       .getCollections()
       .then(setCollections)
-      .catch((err) => console.error("Failed to fetch collections:", err));
+      .catch((err) => log.error("Failed to fetch collections", { error: err }));
   }, []);
 
   const refresh = useCallback(async () => {

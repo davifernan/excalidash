@@ -150,10 +150,11 @@ describe("history preview persistence guard", () => {
     await Promise.resolve();
 
     expect(isHistoryPreviewing.current).toBe(false);
-    expect(error).toHaveBeenCalledWith(
-      "[Editor] Failed to begin history preview",
-      expect.objectContaining({ ok: false, seam: "history.beginPreview" }),
-    );
+    const logged = JSON.parse(error.mock.calls[0][0] as string);
+    expect(logged).toMatchObject({
+      message: "[Editor] Failed to begin history preview",
+      result: { ok: false, seam: "history.beginPreview" },
+    });
     error.mockRestore();
   });
 });

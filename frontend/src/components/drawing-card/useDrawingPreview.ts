@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Drawing, DrawingSummary } from "../../types";
 import { previewHasEmbeddedImages } from "../../utils/previewSvg";
 import * as api from "../../api";
+import { log } from "../../logging";
 
 export type HydratedDrawingData = {
   elements: any[];
@@ -114,7 +115,10 @@ export const useDrawingPreview = (
         onPreviewGenerated?.(drawing.id, previewHtml);
       } catch (e) {
         if (!cancelled) {
-          console.error("Failed to generate preview", e);
+          // notify: false -- a missing thumbnail is cosmetic and every card on
+          // the dashboard runs this independently, so a broken render path
+          // would otherwise stack a toast per card instead of surfacing once.
+          log.error("Failed to generate preview", { error: e }, { notify: false });
         }
       }
     };

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import * as api from "../../api";
 import { getPersistedAppState, hasRenderableElements, resolveObjectsSnapMode } from "./shared";
 import { computeElementOrderSig } from "./useEditorElementTracking";
+import { log } from "../../logging";
 
 type AccessLevel = "none" | "view" | "comment" | "edit" | "owner";
 
@@ -110,7 +111,7 @@ export const useEditorSceneLoader = ({
       try {
         const libraryItemsPromise = user
           ? api.getLibrary().catch((err) => {
-              console.warn("Failed to load library, using empty:", err);
+              log.warn("Failed to load library, using empty", { error: err });
               return [];
             })
           : Promise.resolve([]);
@@ -137,16 +138,14 @@ export const useEditorSceneLoader = ({
         const loadedRenderable = hasRenderableElements(elements);
         refs.suspiciousBlankLoad.current = !loadedRenderable && hasPreview;
         refs.hasSceneChangesSinceLoad.current = false;
-        if (import.meta.env.DEV) {
-          console.log("[Editor] Loaded drawing", {
-            drawingId: id,
-            elementCount: elements.length,
-            loadedRenderable,
-            hasPreview,
-            version: data.version ?? null,
-            suspiciousBlankLoad: refs.suspiciousBlankLoad.current,
-          });
-        }
+        log.debug("[Editor] Loaded drawing", {
+          drawingId: id,
+          elementCount: elements.length,
+          loadedRenderable,
+          hasPreview,
+          version: data.version ?? null,
+          suspiciousBlankLoad: refs.suspiciousBlankLoad.current,
+        });
         refs.latestElements.current = elements;
         refs.initialSceneElements.current = elements;
         refs.latestFiles.current = files;
@@ -177,7 +176,7 @@ export const useEditorSceneLoader = ({
           libraryItems,
         });
       } catch (err) {
-        console.error("Failed to load drawing", err);
+        log.error("Failed to load drawing", { error: err }, { notify: false });
         let message = "Failed to load drawing";
         if (api.isAxiosError(err)) {
           const responseMessage =
