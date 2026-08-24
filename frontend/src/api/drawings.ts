@@ -153,12 +153,25 @@ export type DrawingLinkShareRow = {
   lastUsedAt: string | null;
 };
 
+/** NIL-291: who has a standing claim on this board, direct or via a collection. */
+export type DrawingRosterRow = {
+  userId: string;
+  name: string;
+  level: "view" | "comment" | "edit" | "owner";
+  via: "drawing" | "collection";
+};
+
 export const getDrawingSharing = async (
   drawingId: string,
-): Promise<{ permissions: DrawingPermissionRow[]; linkShares: DrawingLinkShareRow[] }> => {
+): Promise<{
+  permissions: DrawingPermissionRow[];
+  linkShares: DrawingLinkShareRow[];
+  roster: DrawingRosterRow[];
+}> => {
   const response = await api.get<{
     permissions: DrawingPermissionRow[];
     linkShares: DrawingLinkShareRow[];
+    roster: DrawingRosterRow[];
   }>(`/drawings/${drawingId}/sharing`);
   return response.data;
 };
@@ -232,6 +245,21 @@ export const deleteDrawing = async (id: string) => {
 export const duplicateDrawing = async (id: string) => {
   const response = await api.post<Drawing>(`/drawings/${id}/duplicate`);
   return deserializeDrawing(response.data);
+};
+
+/** NIL-365: reversible, controller-only. See archiveRoutes.ts for the rights gate. */
+export const archiveDrawing = async (id: string) => {
+  const response = await api.post<{ id: string; archivedAt: string | null }>(
+    `/drawings/${id}/archive`,
+  );
+  return response.data;
+};
+
+export const restoreDrawing = async (id: string) => {
+  const response = await api.post<{ id: string; archivedAt: string | null }>(
+    `/drawings/${id}/restore`,
+  );
+  return response.data;
 };
 
 export type DrawingSnapshotSummary = { id: string; version: number; createdAt: string };

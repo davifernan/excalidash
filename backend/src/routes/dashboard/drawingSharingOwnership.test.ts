@@ -46,6 +46,16 @@ const buildApp = (actingUserId: string) => {
     },
     collectionShare: { findMany: vi.fn().mockResolvedValue([]) },
     drawingLinkShare: { findMany: vi.fn().mockResolvedValue([]) },
+    // getDrawingRosters (NIL-291: the sharing endpoint now also returns the
+    // roster, not just direct grants) resolves display names for whoever
+    // holds a claim -- here, "editor" (drew the board) and
+    // "collection-owner" (owns the collection it lives in).
+    user: {
+      findMany: vi.fn().mockResolvedValue([
+        { id: "editor", name: "Editor" },
+        { id: "collection-owner", name: "Collection Owner" },
+      ]),
+    },
   };
   const app = express();
   registerDrawingSharingRoutes(app, {

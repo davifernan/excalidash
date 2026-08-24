@@ -10,6 +10,8 @@ import { registerDrawingHistoryRoutes } from "./drawingHistoryRoutes";
 import { registerCommentRoutes } from "./commentRoutes";
 import { registerInboxRoutes } from "./inboxRoutes";
 import { registerActivityRoutes } from "./activityRoutes";
+import { registerSearchRoutes } from "./searchRoutes";
+import { registerArchiveRoutes } from "./archiveRoutes";
 
 export const registerDrawingRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
   const context = createDrawingRouteContext(deps);
@@ -23,4 +25,6 @@ export const registerDrawingRoutes = (app: express.Express, deps: DashboardRoute
   registerCommentRoutes(app, context);
   registerInboxRoutes(app, context);
   registerActivityRoutes(app, context);
+  registerSearchRoutes(app, context);
+  registerArchiveRoutes(app, context);
 };

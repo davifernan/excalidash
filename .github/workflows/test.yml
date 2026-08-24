@@ -27,6 +27,13 @@ jobs:
           node-version: '24'
       - run: node --test scripts/*.test.cjs
       - run: node scripts/delivery-routing-probe.cjs
+      # Named explicitly rather than left to the counterprobe, same reasoning
+      # as adapter-boundary.cjs in frontend-typecheck: `node --test
+      # scripts/*.test.cjs` above does pick real-auth-boundary.test.cjs up,
+      # but that is a glob happening to match a filename, and a rule that
+      # holds by accident stops holding the moment somebody renames a file.
+      - name: Check the real-auth E2E spec isolation list
+        run: node scripts/real-auth-boundary.cjs
 
   frontend-typecheck:
     name: Frontend Typecheck
@@ -609,6 +616,139 @@ jobs:
           path: e2e/test-results/
           retention-days: 7
 
+  # discovery-permission-matrix.spec.ts (NIL-326) toggles real auth on the
+  # same way comments-two-account.spec.ts does, for the same reason it needs
+  # its own job here rather than running inside e2e-shards -- and this is not
+  # a hypothetical either: it broke every spec sharing its shard the first
+  # time it ran (45 unrelated failures, all "401 Authentication token
+  # required"), the exact e2e-two-account incident above repeating itself
+  # because that spec's isolation is hand-maintained, not derived (see
+  # scripts/real-auth-boundary.cjs, added the same time as this job, so a
+  # third spec doing this gets caught at write time instead). Deliberately
+  # its own job and its own ports/database rather than sharing
+  # e2e-two-account's: two real-auth specs racing the same backend's
+  # bootstrap-admin registration concurrently would be exactly the kind of
+  # cross-spec interference this isolation exists to rule out.
+  e2e-permission-matrix:
+    name: E2E Permission Matrix (NIL-326)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma client
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: Setup backend database
+        run: |
+          cd backend
+          node scripts/provider-prisma.cjs migrate deploy
+        env:
+          DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-permission-matrix.db
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Install E2E test dependencies
+        run: |
+          cd e2e
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          cd e2e
+          npx playwright install chromium --with-deps
+
+      - name: Start servers and run E2E tests
+        run: |
+          # Own ports so this never collides with a shard's, the cross-engine
+          # job's, or e2e-two-account's if runners ever share a host.
+          BACKEND_LOG="${{ github.workspace }}/backend-permission-matrix.log"
+
+          cd backend
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/e2e-permission-matrix.db" \
+            PORT=8853 \
+            FRONTEND_URL="http://localhost:6853" \
+            CSRF_SECRET="e2e-permission-matrix-csrf" \
+            CSRF_MAX_REQUESTS=100000 \
+            RATE_LIMIT_MAX_REQUESTS=100000 \
+            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-permission-matrix-assets" \
+            npm run dev > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          cd ..
+
+          echo "Waiting for backend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8853/health > /dev/null; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 2
+          done
+
+          cd frontend
+          VITE_DEV_BACKEND_URL="http://localhost:8853" npm run dev -- --host --port 6853 &
+          FRONTEND_PID=$!
+          cd ..
+
+          echo "Waiting for frontend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:6853 > /dev/null; then
+              echo "Frontend is ready!"
+              break
+            fi
+            echo "Attempt $i: Frontend not ready yet..."
+            sleep 2
+          done
+
+          cd e2e
+          NO_SERVER=true CI=true \
+            API_URL="http://localhost:8853" \
+            BASE_URL="http://localhost:6853" \
+            E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
+            npx playwright test --project=permission-matrix
+          TEST_EXIT_CODE=$?
+
+          kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+
+          exit $TEST_EXIT_CODE
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-permission-matrix
+          path: e2e/playwright-report/
+          retention-days: 7
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-permission-matrix
+          path: e2e/test-results/
+          retention-days: 7
+
 
   # Carries the name the branch ruleset requires. The shards run under their
   # own names, so without this the required context 'E2E Browser Tests' would
@@ -620,18 +760,20 @@ jobs:
     name: E2E Browser Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [e2e-shards, e2e-two-account]
+    needs: [e2e-shards, e2e-two-account, e2e-permission-matrix]
     if: always()
 
     steps:
-      - name: Require every shard and the two-account suite to have passed
+      - name: Require every shard and the isolated real-auth suites to have passed
         run: |
           shards="${{ needs.e2e-shards.result }}"
           two_account="${{ needs.e2e-two-account.result }}"
+          permission_matrix="${{ needs.e2e-permission-matrix.result }}"
           echo "Shard results: ${shards}"
           echo "Two-account result: ${two_account}"
-          if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ]; then
-            echo "At least one E2E shard or the two-account suite did not pass."
+          echo "Permission-matrix result: ${permission_matrix}"
+          if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ] || [ "${permission_matrix}" != "success" ]; then
+            echo "At least one E2E shard or an isolated real-auth suite did not pass."
             exit 1
           fi
 

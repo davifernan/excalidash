@@ -20,6 +20,7 @@ import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
 import { publishDrawingName } from "../../server/socketDrawingName";
 import { getCollectionShareLevel, getOwnedCollection } from "../../authz/collections";
 import { isCollectionCreator } from "../../authz/boards";
+import { computeSearchText } from "../../search/searchIndex";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -128,6 +129,7 @@ export const registerDrawingCreateUpdateRoutes = (
           collectionId: targetCollectionId,
           preview: typeof processedPreview === "string" ? processedPreview : null,
           files: JSON.stringify(processedFiles),
+          searchText: computeSearchText(drawingName, payload.elements),
         },
       });
       invalidateDrawingsCache();
@@ -220,6 +222,12 @@ export const registerDrawingCreateUpdateRoutes = (
       }
       if (payload.elements !== undefined) data.elements = JSON.stringify(payload.elements);
       if (payload.appState !== undefined) data.appState = JSON.stringify(payload.appState);
+      if (payload.name !== undefined || payload.elements !== undefined) {
+        data.searchText = computeSearchText(
+          payload.name ?? existingDrawing.name,
+          payload.elements ?? parseJsonField(existingDrawing.elements, []),
+        );
+      }
       let processedFilesForUpdate: Record<string, unknown> | undefined;
       if (payload.files !== undefined) {
         processedFilesForUpdate = await processFilesForS3(payload.files, ownerUserId, id);

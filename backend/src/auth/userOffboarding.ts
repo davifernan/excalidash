@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "../generated/client";
 import { revokeUserCredentials } from "./userCredentialRevocation";
 import { reassignGrantAuthorshipOps } from "../authz/grants";
 import { transferOwnedBoards } from "../authz/boards";
+import { transferOwnedLibraryItems } from "../authz/libraryItems";
 import { reassignCommentAuthorshipOps } from "../comments/commentsDomain";
 
 export const COMPANY_ARCHIVE_USER_EMAIL = "deleted-boards@placeholder.excalidash.invalid";
@@ -151,7 +152,15 @@ export const offboardUserAndTransferBoards = async (params: {
         fromUserId: params.userId,
         toUserId: successorUserId,
       }),
-      tx.library.deleteMany({ where: { id: `user_${params.userId}` } }),
+      // Team Library items (NIL-364) are owned resources like boards and
+      // collections now, not a blob keyed to this account's id -- they
+      // transfer to the successor instead of being deleted with the row
+      // that used to hold them.
+      transferOwnedLibraryItems({
+        db: tx,
+        fromUserId: params.userId,
+        toUserId: successorUserId,
+      }),
       tx.auditLog.deleteMany({
         where: { OR: personalAuditClauses },
       }),

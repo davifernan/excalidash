@@ -47,6 +47,11 @@ describe("admin account deactivation", () => {
       drawingPermission: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       drawingLinkShare: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       collectionShare: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      libraryItem: {
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
     };
     prisma.$transaction = vi.fn(async (callback: (tx: any) => unknown) => callback(prisma));
 
@@ -129,6 +134,11 @@ describe("admin account deactivation", () => {
       drawingPermission: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       drawingLinkShare: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       collectionShare: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      libraryItem: {
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
     };
     prisma.$transaction = vi.fn(async (callback: (tx: any) => unknown) => callback(prisma));
 
@@ -242,6 +252,11 @@ describe("admin account deactivation", () => {
       drawingPermission: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       drawingLinkShare: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       collectionShare: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      libraryItem: {
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
     };
     prisma.$transaction = vi.fn(async (callback: (tx: any) => unknown) => callback(prisma));
 

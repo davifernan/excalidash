@@ -2,9 +2,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { CommandPalette } from "./CommandPalette";
 
-const { navigate, getDrawings, createDrawing, createCollection, toastError } = vi.hoisted(() => ({
+const { navigate, search, createDrawing, createCollection, toastError } = vi.hoisted(() => ({
   navigate: vi.fn(),
-  getDrawings: vi.fn(),
+  search: vi.fn(),
   createDrawing: vi.fn(),
   createCollection: vi.fn(),
   toastError: vi.fn(),
@@ -13,7 +13,7 @@ const { navigate, getDrawings, createDrawing, createCollection, toastError } = v
 vi.mock("react-router-dom", () => ({ useNavigate: () => navigate }));
 vi.mock("sonner", () => ({ toast: { error: toastError, success: vi.fn() } }));
 vi.mock("../api", () => ({
-  getDrawings,
+  search,
   createDrawing,
   createCollection,
 }));
@@ -24,17 +24,22 @@ const board = (
   id: "b1",
   name: "Roadmap",
   collectionId: null,
+  archivedAt: null,
   updatedAt: 0,
   createdAt: 0,
   version: 1,
   creatorName: "Ada",
+  accessLevel: "owner" as const,
+  matchKind: "name" as const,
+  elementId: null,
+  snippet: null,
   ...overrides,
 });
 
 describe("CommandPalette", () => {
   beforeEach(() => {
     navigate.mockReset();
-    getDrawings.mockReset().mockResolvedValue({ drawings: [], totalCount: 0 });
+    search.mockReset().mockResolvedValue({ results: [], totalCount: 0, limit: 8, offset: 0 });
     createDrawing.mockReset();
     createCollection.mockReset();
     toastError.mockReset();
@@ -72,23 +77,27 @@ describe("CommandPalette", () => {
   });
 
   it("searches boards as the user types and lists permission-filtered results", async () => {
-    getDrawings.mockResolvedValue({
-      drawings: [board({ id: "b1", name: "Roadmap" })],
+    search.mockResolvedValue({
+      results: [board({ id: "b1", name: "Roadmap" })],
       totalCount: 1,
+      limit: 8,
+      offset: 0,
     });
     render(<CommandPalette isOpen onClose={vi.fn()} />);
     fireEvent.change(screen.getByPlaceholderText(/search boards/i), {
       target: { value: "road" },
     });
-    await waitFor(() => expect(getDrawings).toHaveBeenCalledWith("road", undefined, { limit: 8 }));
+    await waitFor(() => expect(search).toHaveBeenCalledWith({ q: "road", limit: 8 }));
     expect(await screen.findByText("Roadmap")).toBeInTheDocument();
     expect(screen.getByText("by Ada")).toBeInTheDocument();
   });
 
   it("opens the highlighted board and closes on Enter", async () => {
-    getDrawings.mockResolvedValue({
-      drawings: [board({ id: "b1", name: "Roadmap" })],
+    search.mockResolvedValue({
+      results: [board({ id: "b1", name: "Roadmap" })],
       totalCount: 1,
+      limit: 8,
+      offset: 0,
     });
     const onClose = vi.fn();
     render(<CommandPalette isOpen onClose={onClose} />);
@@ -111,12 +120,14 @@ describe("CommandPalette", () => {
     // instead of "Roadwork"). highlightedIndex must not still point at
     // position 1 meaning "whatever board is there now" -- Enter must not
     // silently open a board the user never highlighted.
-    getDrawings.mockResolvedValueOnce({
-      drawings: [
+    search.mockResolvedValueOnce({
+      results: [
         board({ id: "b-inn", name: "Inn Notes" }),
         board({ id: "b-work", name: "Roadwork" }),
       ],
       totalCount: 2,
+      limit: 8,
+      offset: 0,
     });
     const onClose = vi.fn();
     render(<CommandPalette isOpen onClose={onClose} />);
@@ -126,12 +137,14 @@ describe("CommandPalette", () => {
     await screen.findByText("Roadwork");
     fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight index 1: "Roadwork"
 
-    getDrawings.mockResolvedValueOnce({
-      drawings: [
+    search.mockResolvedValueOnce({
+      results: [
         board({ id: "b-side", name: "Roadside" }),
         board({ id: "b-ster", name: "Roadster" }),
       ],
       totalCount: 2,
+      limit: 8,
+      offset: 0,
     });
     fireEvent.change(input, { target: { value: "roads" } });
     await screen.findByText("Roadster");
@@ -145,43 +158,58 @@ describe("CommandPalette", () => {
   });
 
   it("shows a compact retry-able error when board search fails", async () => {
-    getDrawings.mockRejectedValue(new Error("network down"));
+    search.mockRejectedValue(new Error("network down"));
     render(<CommandPalette isOpen onClose={vi.fn()} />);
     fireEvent.change(screen.getByPlaceholderText(/search boards/i), {
       target: { value: "road" },
     });
     expect((await screen.findAllByText("Couldn't search boards.")).length).toBeGreaterThan(0);
 
-    getDrawings.mockResolvedValue({ drawings: [board()], totalCount: 1 });
+    search.mockResolvedValue({
+      results: [board()],
+      totalCount: 1,
+      limit: 8,
+      offset: 0,
+    });
     fireEvent.click(screen.getByText("Try again"));
     expect(await screen.findByText("Roadmap")).toBeInTheDocument();
   });
 
   it("ignores a slow, now-stale search response that resolves after a newer one (NIL-323/NIL-345)", async () => {
-    let resolveStale: (value: { drawings: ReturnType<typeof board>[]; totalCount: number }) => void;
-    const stale = new Promise<{ drawings: ReturnType<typeof board>[]; totalCount: number }>(
+    let resolveStale: (value: { results: ReturnType<typeof board>[]; totalCount: number }) => void;
+    const stale = new Promise<{ results: ReturnType<typeof board>[]; totalCount: number }>(
       (resolve) => {
         resolveStale = resolve;
       },
     );
-    getDrawings.mockImplementation((query: string) => {
-      if (query === "aaa") return stale;
-      return Promise.resolve({ drawings: [board({ id: "b2", name: "Fresher" })], totalCount: 1 });
+    search.mockImplementation(({ q }: { q: string }) => {
+      if (q === "aaa") return stale;
+      return Promise.resolve({
+        results: [board({ id: "b2", name: "Fresher" })],
+        totalCount: 1,
+        limit: 8,
+        offset: 0,
+      });
     });
 
     render(<CommandPalette isOpen onClose={vi.fn()} />);
     const input = screen.getByPlaceholderText(/search boards/i);
 
     fireEvent.change(input, { target: { value: "aaa" } });
-    await waitFor(() => expect(getDrawings).toHaveBeenCalledWith("aaa", undefined, { limit: 8 }));
+    await waitFor(() => expect(search).toHaveBeenCalledWith({ q: "aaa", limit: 8 }));
 
     fireEvent.change(input, { target: { value: "bbb" } });
-    await waitFor(() => expect(getDrawings).toHaveBeenCalledWith("bbb", undefined, { limit: 8 }));
+    await waitFor(() => expect(search).toHaveBeenCalledWith({ q: "bbb", limit: 8 }));
     expect(await screen.findByText("Fresher")).toBeInTheDocument();
 
     // The slow "aaa" search finally resolves after "bbb" already rendered --
     // it must not overwrite the newer, already-displayed result.
-    resolveStale!({ drawings: [board({ id: "b1", name: "Stale" })], totalCount: 1 });
+    resolveStale!({
+      results: [board({ id: "b1", name: "Stale" })],
+      totalCount: 1,
+      limit: 8,
+      offset: 0,
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.queryByText("Stale")).not.toBeInTheDocument();
     expect(screen.getByText("Fresher")).toBeInTheDocument();
@@ -258,9 +286,11 @@ describe("CommandPalette", () => {
   });
 
   it("announces search status to screen readers via a live region (NIL-323/NIL-346)", async () => {
-    getDrawings.mockResolvedValue({
-      drawings: [board(), board({ id: "b2", name: "Retro" })],
+    search.mockResolvedValue({
+      results: [board(), board({ id: "b2", name: "Retro" })],
       totalCount: 2,
+      limit: 8,
+      offset: 0,
     });
     render(<CommandPalette isOpen onClose={vi.fn()} />);
     const liveRegion = document.querySelector('[aria-live="polite"]')!;
@@ -277,7 +307,7 @@ describe("CommandPalette", () => {
     // user-event here) -- this exercises the two boundary-wrap branches the
     // handler actually implements; a real browser's own default handling
     // covers ordinary forward/backward moves between stops in between.
-    getDrawings.mockRejectedValue(new Error("network down"));
+    search.mockRejectedValue(new Error("network down"));
     render(<CommandPalette isOpen onClose={vi.fn()} />);
     const input = screen.getByPlaceholderText(/search boards/i);
     fireEvent.change(input, { target: { value: "road" } });

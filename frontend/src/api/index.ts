@@ -9,3 +9,5 @@ export * from "./auth";
 export * from "./assets";
 export * from "./shareToken";
 export * from "./comments";
+export * from "./search";
+export * from "./libraryItems";
