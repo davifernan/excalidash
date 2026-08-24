@@ -620,6 +620,33 @@ conclusion once (NIL-489). Read occurrences; do not count them.
   - Route or component entry point
   - Why this logic exists based on existing defaults/constraints
 
+## Ein Verdikt hat ein Verfallsdatum
+
+Wenn du den Status eines Tickets aufgrund einer Messung aenderst, pruefe zuerst, ob `main` sich
+zwischen der Messung und deiner Handlung bewegt hat. Falls ja: **miss neu**, statt die alte
+Messung in die Statuskorrektur zu uebernehmen.
+
+```bash
+# Hat sich main seit dem Messzeitpunkt bewegt?
+git log own/main --since="<Zeitpunkt der Messung>" --oneline | head
+```
+
+Bewegt sich dort etwas, das dasselbe Slice beruehren koennte, ist die alte Messung eine Aussage
+ueber einen Stand, den es nicht mehr gibt.
+
+**Warum das hier steht** (24.08.2026, NIL-524): ein Kassensturz mass um 07:46 fuenf Slices als
+`NICHT GELIEFERT`. Um 14:13 lieferte PR #75 genau diese fuenf, mit Review, nach `main`. Um 16:00
+setzte die Statuskorrektur alle fuenf auf `todo` zurueck -- unter Verweis auf die 07:46-Messung,
+ohne den Merge dazwischen zu pruefen. Vier von sechs Ruecksetzungen waren dadurch falsch.
+
+Der Fehler ist verfuehrerisch, weil beide Schritte fuer sich korrekt sind: die Messung war zu
+ihrem Zeitpunkt richtig, und "Status folgt dem Urteil" ist die richtige Regel. Falsch ist nur,
+die beiden ueber einen Merge hinweg zu verbinden.
+
+Dasselbe gilt fuer die Gegenrichtung: ein Ticket zu **schliessen**, weil ein Commit seine Nummer
+nennt, ist keine Pruefung. Eine Erwaehnung ist kein Nachweis -- miss den Zustand, den das Ticket
+beschreibt, gegen den aktuellen `main`.
+
 ## Safe first actions for unknown issues
 
 - Confirm env file presence and variables
