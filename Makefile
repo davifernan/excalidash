@@ -1,10 +1,8 @@
 .PHONY: help install dev build test test-frontend test-backend test-e2e test-e2e-docker \
         lint lint-frontend lint-backend clean docker-build docker-run docker-down docker-logs \
         lab-build lab-up lab-down lab-reset lab-status lab-logs lab-smoke lab-open \
-        release pre-release version-bump changelog changelog-open changelog-keep db-migrate db-reset
+        version version-bump changelog db-migrate db-reset
 
-DOCKER_USERNAME := zimengxiong
-IMAGE_NAME := excalidash
 VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
 LAB_COMPOSE := docker compose -f docker-compose.lab.yml
 
@@ -274,44 +272,24 @@ version-bump: ## Interactive version bump
 		sed -i "s/\"version\": \".*\"/\"version\": \"$$NEW_VERSION\"/" backend/package.json; \
 	echo "Version bumped to $$NEW_VERSION"
 
-changelog: ## Prepare RELEASE.md from template or keep existing content, then open it
-	@read -p "Prepare release notes for editing? [y/N]: " CHOICE; \
-	CHOICE_LOWER=$$(printf '%s' "$$CHOICE" | tr '[:upper:]' '[:lower:]'); \
-	if [ "$$CHOICE_LOWER" = "y" ] || [ "$$CHOICE_LOWER" = "yes" ]; then \
-		echo "Generating fresh RELEASE.md..."; \
-		if [ "$(PRERELEASE)" = "1" ]; then \
-			node scripts/reset-release-notes.cjs --prerelease; \
-		else \
-			node scripts/reset-release-notes.cjs; \
-		fi; \
-	else \
-		echo "Keeping current RELEASE.md."; \
-	fi
-	@$(MAKE) changelog-open
-
-changelog-open: ## Open current RELEASE.md without resetting
-	@echo "Opening RELEASE.md for editing..."
+changelog: ## Open CHANGELOG.md for editing (see docs/architecture/RELEASE_PROCESS.md)
+	@echo "Opening CHANGELOG.md for editing..."
 	@if [ -n "$$EDITOR" ]; then \
-		$$EDITOR RELEASE.md; \
+		$$EDITOR CHANGELOG.md; \
 	elif command -v code >/dev/null 2>&1; then \
-		code --wait RELEASE.md; \
+		code --wait CHANGELOG.md; \
 	elif command -v open >/dev/null 2>&1; then \
-		open RELEASE.md; \
-		echo "Edit RELEASE.md in your GUI editor, then press Enter to continue..."; \
+		open CHANGELOG.md; \
+		echo "Edit CHANGELOG.md in your GUI editor, then press Enter to continue..."; \
 		read _; \
 	elif command -v xdg-open >/dev/null 2>&1; then \
-		xdg-open RELEASE.md; \
-		echo "Edit RELEASE.md in your GUI editor, then press Enter to continue..."; \
+		xdg-open CHANGELOG.md; \
+		echo "Edit CHANGELOG.md in your GUI editor, then press Enter to continue..."; \
 		read _; \
 	else \
 		echo "No GUI opener found. Falling back to vi."; \
-		vi RELEASE.md; \
+		vi CHANGELOG.md; \
 	fi
-
-changelog-keep: ## Alias: open current RELEASE.md without resetting
-	@$(MAKE) changelog-open
-
-include make/release.mk
 
 db-migrate: ## Run database migrations
 	@echo "Running database migrations..."

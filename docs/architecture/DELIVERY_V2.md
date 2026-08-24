@@ -86,11 +86,23 @@ Delivery-Slices: NIL-410, NIL-411
 Package-Session: 01a02bc5-fe01-7ce3-b520-387137968d9a
 Impact-Manifest: generated from git diff
 Visual-Evidence: provided
+User-Facing: Boards can now be starred and pinned to the top of the dashboard.
 ```
 
 Use `Delivery-Slices: none` for package-only control-plane work. A slice cannot equal the
 primary package, and duplicate slices are invalid. The Package Session is the canonical owner
 session recorded on the package.
+
+`User-Facing` is release-note raw material (NIL-507), not bookkeeping: one plain sentence
+naming what a user of ExcaliDash notices, or `User-Facing: none` for a package that only
+touches guards, tests, or internal plumbing. It must not contain a ticket or PR reference
+(`NIL-\d+` or `#\d+`, checked and rejected by `parsePrDeliveryContract`) -- the release notes
+generated from this line are read by people with no Multica access, and a bare ticket number
+means nothing to them. This line exists because a note generated from commit titles after the
+fact ("fix(dashboard): add drawing favorites, backend") is not something anyone reads; the
+only person who reliably knows what a user will notice is the implementer, at the moment they
+write the PR, so the contract captures it there instead of trying to reconstruct it later. See
+`docs/architecture/RELEASE_PROCESS.md` for how these lines are collected into release notes.
 
 The admission gate requires these exact labels at the start of checked lines:
 

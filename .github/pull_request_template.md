@@ -3,6 +3,7 @@ Delivery-Slices: none
 Package-Session: REAL-SESSION-ID
 Impact-Manifest: generated from git diff
 Visual-Evidence: skipped: no visible frontend product delta
+User-Facing: none
 
 ## Outcome
 
@@ -15,6 +16,21 @@ Visual-Evidence: skipped: no visible frontend product delta
 ## Delivery slices
 
 <!-- Explain how each Delivery-Slices identifier is satisfied. Use `none` for a package-only PR. -->
+
+## User-facing summary
+
+<!--
+The User-Facing line above is release-note raw material, collected verbatim at tag time
+(see docs/architecture/RELEASE_PROCESS.md) -- it is never rewritten or invented later, so
+write it now while you know what actually shipped.
+
+- One plain sentence describing what a person using ExcaliDash notices. No ticket numbers,
+  no PR numbers, no internal names -- the reader has no Multica access and doesn't know what
+  NIL-292 is. "Boards can now be starred and pinned to the top of the dashboard." not
+  "Implements favorites backend + UI (NIL-292)."
+- `User-Facing: none` for a package that only changes guards, tests, CI, or internal
+  plumbing nobody using the app would ever notice.
+-->
 
 ## Contracts and data
 
