@@ -14,7 +14,7 @@ vi.mock("@excalidraw/excalidraw", () => ({
 }));
 
 import { createViewportCapability } from "../../integrations/excalidraw/viewport";
-import { bindInviteHere } from "./inviteHere";
+import { bindInviteHere, boundsOverlap, isAlreadyThere } from "./inviteHere";
 
 const setup = () => {
   const handlers = new Map<string, (payload: any) => void>();
@@ -41,12 +41,14 @@ const setup = () => {
   const viewport = createViewportCapability(() => api);
   const onInvitationChange = vi.fn();
   const onStatusChange = vi.fn();
+  const onAlreadyThere = vi.fn();
   const controller = bindInviteHere({
     socket: socket as any,
     drawingId: "drawing-1",
     viewport,
     onInvitationChange,
     onStatusChange,
+    onAlreadyThere,
   });
   const receive = (invitationId: string, sceneBounds = [0, 0, 100, 100]) =>
     handlers.get("invite-here")?.({
@@ -56,7 +58,7 @@ const setup = () => {
       sceneBounds,
       expiresAt: Date.now() + 15_000,
     });
-  return { api, controller, handlers, onInvitationChange, socket, state, receive };
+  return { api, controller, handlers, onAlreadyThere, onInvitationChange, socket, state, receive };
 };
 
 describe("invite here client", () => {
@@ -120,5 +122,45 @@ describe("invite here client", () => {
 
     controller.dispose();
     vi.useRealTimers();
+  });
+
+  it("does not jump, but still counts the accept, when the view is already the same", () => {
+    // The mocked own view is [-50, -25, 450, 275] (getVisibleSceneBounds
+    // above). An invitation to almost exactly that rectangle is the "already
+    // there" case this test targets.
+    const { api, controller, onAlreadyThere, socket, receive } = setup();
+    receive("invite-a", [-48, -24, 448, 274]);
+
+    controller.accept();
+
+    expect(onAlreadyThere).toHaveBeenCalledTimes(1);
+    expect(excalidrawMocks.zoomToFitBounds).not.toHaveBeenCalled();
+    expect(api.updateScene).not.toHaveBeenCalled();
+    // The accept still has to reach the inviter -- "already there" is
+    // feedback about the jump, not a silent decline.
+    expect(socket.emit).toHaveBeenCalledWith("invite-here-response", {
+      drawingId: "drawing-1",
+      invitationId: "invite-a",
+      decision: "accepted",
+    });
+
+    controller.dispose();
+    vi.useRealTimers();
+  });
+});
+
+describe("boundsOverlap / isAlreadyThere", () => {
+  it("is 1 for identical rectangles and 0 for rectangles that do not touch", () => {
+    expect(boundsOverlap([0, 0, 100, 100], [0, 0, 100, 100])).toBe(1);
+    expect(boundsOverlap([0, 0, 100, 100], [200, 200, 300, 300])).toBe(0);
+  });
+
+  it("treats a small, ordinary difference in two viewports as the same place", () => {
+    expect(isAlreadyThere([-50, -25, 450, 275], [-48, -24, 448, 274])).toBe(true);
+  });
+
+  it("treats a different part of the same board as a different place", () => {
+    expect(isAlreadyThere([-50, -25, 450, 275], [-100, -50, 500, 350])).toBe(false);
+    expect(isAlreadyThere([0, 0, 100, 100], [1000, 1000, 1100, 1100])).toBe(false);
   });
 });

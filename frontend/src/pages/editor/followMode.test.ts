@@ -19,7 +19,22 @@ vi.mock("@excalidraw/excalidraw", () => ({
   zoomToFitBounds: excalidrawMocks.zoomToFitBounds,
 }));
 
-import { bindFollowMode, parseFollowSceneBounds } from "./followMode";
+import { bindFollowMode, getFollowInterruptionMessage, parseFollowSceneBounds } from "./followMode";
+
+describe("getFollowInterruptionMessage", () => {
+  it("names the mutual-follow and self-follow cases instead of a generic fallback", () => {
+    expect(getFollowInterruptionMessage("cycle-detected")).toBe(
+      "You can't follow someone who is already following you.",
+    );
+    expect(getFollowInterruptionMessage("self-follow")).toBe("You can't follow yourself.");
+    expect(getFollowInterruptionMessage("queue-full")).toBe(
+      "Too many follow commands at once; try again in a moment.",
+    );
+    expect(getFollowInterruptionMessage("something-unmapped")).toBe(
+      "Follow mode ended on the server.",
+    );
+  });
+});
 
 describe("follow viewport bounds", () => {
   beforeEach(() => {

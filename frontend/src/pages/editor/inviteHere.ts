@@ -4,6 +4,39 @@ import type { ViewportCapability } from "../../integrations/excalidraw/capabilit
 import type { SceneBounds } from "../../integrations/excalidraw/types";
 import { parseFollowSceneBounds, type FollowSceneBounds } from "./followMode";
 
+/**
+ * How much two scene rectangles overlap, as intersection over union: 1 for
+ * identical rectangles, 0 for rectangles that do not touch at all.
+ *
+ * Exported and unit-tested on its own because "already there" is a product
+ * decision (NIL-372's "Feedback, wenn Ansichten bereits ähnlich sind") with a
+ * threshold someone can reasonably want to move, not an implementation detail
+ * worth hiding inside `respond`.
+ */
+export const boundsOverlap = (a: FollowSceneBounds, b: FollowSceneBounds): number => {
+  const ix1 = Math.max(a[0], b[0]);
+  const iy1 = Math.max(a[1], b[1]);
+  const ix2 = Math.min(a[2], b[2]);
+  const iy2 = Math.min(a[3], b[3]);
+  if (ix2 <= ix1 || iy2 <= iy1) return 0;
+  const intersection = (ix2 - ix1) * (iy2 - iy1);
+  const areaOf = ([x1, y1, x2, y2]: FollowSceneBounds) => (x2 - x1) * (y2 - y1);
+  const union = areaOf(a) + areaOf(b) - intersection;
+  return union > 0 ? intersection / union : 0;
+};
+
+/**
+ * High enough that a jump between two genuinely different parts of a large
+ * board never counts as "the same place" merely because both views happen to
+ * be zoomed out to a similar scale, low enough that ordinary pixel-level
+ * differences in two people's own viewport (window size, a few frames of
+ * scroll momentum) do not defeat the check it exists to make.
+ */
+const ALREADY_THERE_OVERLAP = 0.85;
+
+export const isAlreadyThere = (own: FollowSceneBounds, target: FollowSceneBounds): boolean =>
+  boundsOverlap(own, target) >= ALREADY_THERE_OVERLAP;
+
 export type ViewportInvitation = {
   invitationId: string;
   inviterName: string;
@@ -50,12 +83,20 @@ export const bindInviteHere = ({
   viewport,
   onInvitationChange,
   onStatusChange,
+  onAlreadyThere,
 }: {
   socket: Socket;
   drawingId: string;
   viewport: ViewportAccess;
   onInvitationChange: (invitation: ViewportInvitation | null) => void;
   onStatusChange: (status: InviteHereStatus | null) => void;
+  /**
+   * Accepted, but this browser's own view already overlaps the inviter's
+   * closely enough that jumping would be indistinguishable from doing
+   * nothing. Called instead of moving the viewport -- the accept itself
+   * still counts, so the inviter's arrived-count still increments.
+   */
+  onAlreadyThere?: () => void;
 }) => {
   let activeInvitation: ViewportInvitation | null = null;
   let invitationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -119,7 +160,15 @@ export const bindInviteHere = ({
     const invitation = activeInvitation;
     if (!invitation || Date.now() >= invitation.expiresAt) return;
     closeInvitation();
-    if (decision === "accepted") viewport.showBounds(invitation.sceneBounds as SceneBounds);
+    if (decision === "accepted") {
+      const own = viewport.visibleBounds();
+      const ownBounds = own.ok ? parseFollowSceneBounds(own.value) : null;
+      if (ownBounds && isAlreadyThere(ownBounds, invitation.sceneBounds)) {
+        onAlreadyThere?.();
+      } else {
+        viewport.showBounds(invitation.sceneBounds as SceneBounds);
+      }
+    }
     socket.emit("invite-here-response", {
       drawingId,
       invitationId: invitation.invitationId,
