@@ -1,0 +1,114 @@
+#!/usr/bin/env node
+"use strict";
+
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const {
+  categorize,
+  collect,
+  extractPrNumber,
+  extractUserFacingSentence,
+  renderNotesMarkdown,
+} = require("./release-notes-collect.cjs");
+
+test("extractPrNumber takes the last #NNN in a merge subject", () => {
+  assert.equal(extractPrNumber("merge: dashboard presence, provenance and favorites (NIL-501, #75)"), 75);
+  assert.equal(extractPrNumber("Merge pull request #42 from davifernan/fix/nil-321-operations-guardrails"), 42);
+  assert.equal(extractPrNumber("no pr number here"), null);
+});
+
+test("categorize picks the majority conventional prefix, and ties go to Changed", () => {
+  assert.equal(categorize(["feat(dashboard): add favorites", "feat(dashboard): star UI"]), "Added");
+  assert.equal(categorize(["fix(editor): protect the real label", "fix(authz): route through grants"]), "Fixed");
+  assert.equal(categorize(["feat(a): x", "fix(a): y", "fix(a): z"]), "Fixed");
+  assert.equal(categorize(["feat(a): x", "fix(a): y"]), "Changed");
+  assert.equal(categorize(["chore: bump deps", "refactor: rename thing"]), "Changed");
+  assert.equal(categorize([]), "Changed");
+});
+
+test("extractUserFacingSentence returns the sentence, and null for none/missing/malformed", () => {
+  assert.equal(
+    extractUserFacingSentence("User-Facing: Boards can now be starred."),
+    "Boards can now be starred.",
+  );
+  assert.equal(extractUserFacingSentence("User-Facing: none"), null);
+  assert.equal(extractUserFacingSentence("no such line at all"), null);
+  assert.equal(
+    extractUserFacingSentence("User-Facing: one\nUser-Facing: two"),
+    null,
+    "a duplicated field is ambiguous, not a value to pick from",
+  );
+});
+
+test("RED: extractUserFacingSentence never invents text -- an unparseable body yields nothing, not a guess", () => {
+  assert.equal(extractUserFacingSentence(""), null);
+  assert.equal(extractUserFacingSentence(undefined), null);
+});
+
+test("renderNotesMarkdown groups by bucket and omits empty groups", () => {
+  const markdown = renderNotesMarkdown({
+    added: ["Boards can now be starred."],
+    fixed: ["Fixed a crash on empty boards."],
+    changed: [],
+  });
+  assert.match(markdown, /### Added/);
+  assert.match(markdown, /- Boards can now be starred\./);
+  assert.match(markdown, /### Fixed/);
+  assert.doesNotMatch(markdown, /### Changed/);
+});
+
+test("renderNotesMarkdown says so honestly when nothing was collected", () => {
+  const markdown = renderNotesMarkdown({ added: [], fixed: [], changed: [] });
+  assert.match(markdown, /No `User-Facing:` entries were collected/);
+});
+
+test("collect walks merges, skips what it can't use, and never fabricates a sentence", () => {
+  const merges = [
+    { sha: "1".repeat(40), subject: "merge: add favorites (NIL-292, #10)" },
+    { sha: "2".repeat(40), subject: "merge: internal refactor only (NIL-300, #11)" },
+    { sha: "3".repeat(40), subject: "merge: no pr number in this one" },
+    { sha: "4".repeat(40), subject: "merge: fetch fails (NIL-301, #12)" },
+  ];
+  const bodies = {
+    10: "User-Facing: Boards can now be starred from the dashboard.",
+    11: "User-Facing: none",
+  };
+  const commits = {
+    10: ["feat(dashboard): add favorites backend", "feat(dashboard): star UI"],
+  };
+
+  const result = collect({
+    listMerges: () => merges,
+    getPrBody: (n) => {
+      if (n === 12) throw new Error("gh: pull request not found");
+      return bodies[n];
+    },
+    getPrCommitSubjects: (n) => commits[n] || [],
+  });
+
+  assert.deepEqual(result.added, ["Boards can now be starred from the dashboard."]);
+  assert.deepEqual(result.fixed, []);
+  assert.deepEqual(result.changed, []);
+  assert.equal(result.mergesScanned, 4);
+  assert.equal(result.warnings.length, 3);
+  assert.match(result.warnings.find((w) => w.includes("#11")), /"none"/);
+  assert.match(result.warnings.find((w) => w.includes("no PR number")), /no PR number/);
+  assert.match(result.warnings.find((w) => w.includes("#12")), /could not fetch/);
+});
+
+test("RED: a PR whose User-Facing line contains a ticket reference never reaches this collector in the first place -- the contract check rejects it at admission (scripts/delivery-v2.test.cjs), so collect() cannot see or launder one", () => {
+  // Documents the boundary: this file only proves collect() does not invent
+  // text on its own. The no-ticket-numbers rule is enforced upstream, once,
+  // in parsePrDeliveryContract -- duplicating that regex here would let the
+  // two checks drift apart instead of sharing one source of truth.
+  const result = collect({
+    listMerges: () => [{ sha: "5".repeat(40), subject: "merge: whatever (#20)" }],
+    getPrBody: () => "User-Facing: Fixes the bug from NIL-292.",
+    getPrCommitSubjects: () => [],
+  });
+  // collect() is deliberately not the enforcement point: it copies whatever
+  // string is present. This assertion pins that division of labor down so a
+  // future change cannot silently start "fixing up" text here instead.
+  assert.deepEqual(result.added.length + result.fixed.length + result.changed.length, 1);
+});
