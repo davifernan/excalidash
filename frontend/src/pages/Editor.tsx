@@ -142,6 +142,25 @@ export const Editor: React.FC = () => {
       result.ok ? result.value : fallback;
     const openDocument = (result: ReturnType<typeof adapter.scene.readDocument>) =>
       (result.ok ? (openSceneDocument(result.value)?.elements ?? []) : []) as readonly unknown[];
+    let viewportTraceTrigger = "editor-ready";
+    let previousViewport = unwrap(adapter.viewport.read(), null);
+    let viewportTrace: Array<{
+      at: number;
+      source: "editor.onScrollChange";
+      trigger: string;
+      previous: typeof previousViewport;
+      current: typeof previousViewport;
+    }> = [];
+    const unsubscribeViewportTrace = adapter.viewport.subscribeScroll((current) => {
+      viewportTrace.push({
+        at: performance.now(),
+        source: "editor.onScrollChange",
+        trigger: viewportTraceTrigger,
+        previous: previousViewport,
+        current,
+      });
+      previousViewport = current;
+    });
     (window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__ = {
       // The document, not the projection. `summaries()` is a read model -- it
       // names geometry, frames, links and customData, and deliberately not
@@ -156,6 +175,18 @@ export const Editor: React.FC = () => {
       getSceneElementsIncludingDeleted: () =>
         openDocument(adapter.scene.readDocument({ includeDeleted: true })),
       getFiles: () => unwrap(adapter.files.read(), {} as Record<string, unknown>),
+      getViewport: () => unwrap(adapter.viewport.read(), null),
+      showViewportBounds: (bounds: readonly number[]) =>
+        adapter.viewport.showBounds(bounds as never),
+      markViewportTrace: (trigger: string) => {
+        viewportTraceTrigger = trigger;
+      },
+      resetViewportTrace: (trigger: string) => {
+        viewportTraceTrigger = trigger;
+        previousViewport = unwrap(adapter.viewport.read(), null);
+        viewportTrace = [];
+      },
+      getViewportTrace: () => viewportTrace,
       /**
        * Writing, too. Some specs plant an element or a file to drive a live
        * path; going through `scene.apply` and `files.add` means they take the
@@ -238,6 +269,7 @@ export const Editor: React.FC = () => {
       }),
     };
     return () => {
+      unsubscribeViewportTrace();
       delete (window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__;
     };
   }, [adapter, isReady]);
