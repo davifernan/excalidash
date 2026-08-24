@@ -273,6 +273,14 @@ export const registerDrawingCreateUpdateRoutes = (
 
       try {
         if (isSceneUpdate) {
+          // Prisma's 5s default interactive-transaction timeout: this
+          // transaction snapshots and rewrites the whole scene, files
+          // included, and SQLite is a single writer -- several
+          // near-simultaneous large-image saves (NIL-330's integrated
+          // acceptance run reproduced it with three overlapping ~15-40MB
+          // PUTs) queue on the writer lock long enough to expire it,
+          // failing an otherwise-legitimate save with a 500 rather than a
+          // client-caused conflict.
           updatedDrawing = await prisma.$transaction(async (tx) => {
             const compress = config.enableSnapshotCompression;
             const snapshot = await tx.drawingSnapshot.create({
@@ -309,7 +317,7 @@ export const registerDrawingCreateUpdateRoutes = (
             await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
 
             return tx.drawing.findFirst({ where: { id } });
-          });
+          }, { timeout: 15_000 });
         } else {
           const updateResult = await prisma.drawing.updateMany({
             where: updateWhere,
