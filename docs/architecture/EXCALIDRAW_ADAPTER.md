@@ -321,6 +321,13 @@ Ein separater regelmaessiger Lauf installiert bewusst die naechste zu pruefende
 Excalidraw-Version und fuehrt Contract plus kritische Browserpfade aus. Canary-Fehler blockieren
 nicht automatisch die aktuelle Entwicklung, erzeugen aber ein sichtbares Upgrade-Issue.
 
+Der Contract-Teil mountet die installierte Excalidraw-Komponente wirklich. DOM-Seams werden in
+den Layoutzustaenden geprueft, in denen ExcaliDash sie konsumiert (Desktop, Zen und Mobile), und
+die imperative API wird mit nebenwirkungsfreien Probes aufgerufen. Reads muessen synchron die
+vom Adapter konsumierte Form liefern, Subscriptions einen Unsubscribe-Callback und
+`updateLibrary` einen erfuellbaren Promise. Nur benannte Paketexports duerfen ohne Renderung als
+reine Existenzpruefung behandelt werden.
+
 ## Definition of Done
 
 - ein aktiver Integrationspfad, keine Legacy-Duplikate

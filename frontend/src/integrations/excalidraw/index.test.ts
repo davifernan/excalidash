@@ -12,7 +12,7 @@ const handle = () => ({
   onChange: vi.fn(() => () => {}),
   onPointerDown: vi.fn(() => () => {}),
   setActiveTool: vi.fn(),
-  updateLibrary: vi.fn(),
+  updateLibrary: vi.fn(async () => {}),
   onUserFollow: vi.fn(() => () => {}),
   onScrollChange: vi.fn(() => () => {}),
 });
@@ -186,13 +186,13 @@ describe("the assembled adapter", () => {
     });
   });
 
-  it("reports every seam as missing when there is no editor at all", () => {
+  it("reports every seam as missing when there is no editor at all", async () => {
     const adapter = createExcalidrawAdapter({
       api: () => null,
       container: () => null,
       canEdit: () => true,
     });
-    const report = adapter.compatibility.verifySeams();
+    const report = await adapter.compatibility.verifySeams();
     expect(report.ok).toBe(true);
     if (report.ok) {
       expect(report.value.missing).toContain("api:updateScene");
@@ -200,13 +200,13 @@ describe("the assembled adapter", () => {
     }
   });
 
-  it("finds nothing missing when handed a complete handle", () => {
+  it("finds nothing missing when handed a complete handle", async () => {
     const adapter = createExcalidrawAdapter({
       api: handle,
       container: () => null,
       canEdit: () => true,
     });
-    const report = adapter.compatibility.verifySeams();
+    const report = await adapter.compatibility.verifySeams();
     expect(report.ok && report.value.missing).toEqual([]);
   });
 

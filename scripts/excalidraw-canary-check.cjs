@@ -34,6 +34,7 @@ const REPO_ROOT = path.join(__dirname, "..");
 const FRONTEND_DIR = path.join(REPO_ROOT, "frontend");
 const SEAM_TEST_FILES = [
   "src/integrations/excalidraw/compatibility/seams.test.ts",
+  "src/integrations/excalidraw/compatibility/seams.integration.test.tsx",
   "src/integrations/excalidraw/index.test.ts",
 ];
 

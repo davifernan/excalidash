@@ -15,6 +15,7 @@ const writeExecutable = (file, source) => {
 const runWithFakeCommands = ({ installExitCode, npxExitCode }) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "excalidraw-canary-test-"));
   const npmLog = path.join(tempDir, "npm-calls.jsonl");
+  const npxLog = path.join(tempDir, "npx-calls.jsonl");
 
   try {
     writeExecutable(
@@ -26,13 +27,28 @@ fs.appendFileSync(process.env.CANARY_NPM_LOG, JSON.stringify(args) + "\\n");
 process.exit(args[0] === "install" ? ${installExitCode} : 0);
 `,
     );
-    writeExecutable(path.join(tempDir, "npx"), `process.exit(${npxExitCode});\n`);
+    writeExecutable(
+      path.join(tempDir, "npx"),
+      `
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.CANARY_NPX_LOG, JSON.stringify(args) + "\\n");
+if (${npxExitCode} === 0) {
+  const outputArg = args.find((arg) => arg.startsWith("--outputFile="));
+  if (outputArg) {
+    fs.writeFileSync(outputArg.slice("--outputFile=".length), JSON.stringify({ testResults: [] }));
+  }
+}
+process.exit(${npxExitCode});
+`,
+    );
 
     const result = spawnSync(process.execPath, [SCRIPT, "0.18.0"], {
       encoding: "utf8",
       env: {
         ...process.env,
         CANARY_NPM_LOG: npmLog,
+        CANARY_NPX_LOG: npxLog,
         PATH: `${tempDir}${path.delimiter}${process.env.PATH}`,
       },
     });
@@ -42,8 +58,16 @@ process.exit(args[0] === "install" ? ${installExitCode} : 0);
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
+    const npxCalls = fs.existsSync(npxLog)
+      ? fs
+          .readFileSync(npxLog, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : [];
 
-    return { npmCalls, result };
+    return { npmCalls, npxCalls, result };
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -74,5 +98,16 @@ test("restores the pinned install when the seam suite fails before producing a r
       ["ci", "--no-audit", "--no-fund"],
     ],
     "restore npm ci must run after the seam suite aborts",
+  );
+});
+
+test("runs the real-render compatibility test against the swapped package", () => {
+  const { npxCalls, result } = runWithFakeCommands({ installExitCode: 0, npxExitCode: 0 });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(npxCalls.length, 1);
+  assert.ok(
+    npxCalls[0].includes("src/integrations/excalidraw/compatibility/seams.integration.test.tsx"),
+    "the Canary must execute the test that mounts the real Excalidraw component",
   );
 });

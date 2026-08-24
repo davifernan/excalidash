@@ -9,7 +9,20 @@ import {
   verifySelectors,
 } from "./seams";
 
-const fullApi = Object.fromEntries(EXPECTED_API_METHODS.map((name) => [name, () => {}]));
+const fullApi = {
+  getAppState: () => ({}),
+  getSceneElements: () => [],
+  getSceneElementsIncludingDeleted: () => [],
+  getFiles: () => ({}),
+  addFiles: () => {},
+  updateScene: () => {},
+  onChange: () => () => {},
+  onPointerDown: () => () => {},
+  setActiveTool: () => {},
+  updateLibrary: async () => {},
+  onUserFollow: () => () => {},
+  onScrollChange: () => () => {},
+} satisfies Record<(typeof EXPECTED_API_METHODS)[number], (...args: never[]) => unknown>;
 
 describe("checking the installed package", () => {
   it("finds every export this application calls in the pinned version", () => {
@@ -25,23 +38,29 @@ describe("checking the installed package", () => {
 });
 
 describe("checking the imperative handle", () => {
-  it("accepts a handle that has everything", () => {
-    expect(verifyApiMethods(fullApi)).toEqual([]);
+  it("accepts a handle whose calls return every consumed shape", async () => {
+    await expect(verifyApiMethods(fullApi)).resolves.toEqual([]);
   });
 
-  it("names exactly the method that is gone", () => {
+  it("names exactly the method that is gone", async () => {
     const { onScrollChange: _dropped, ...withoutOne } = fullApi;
-    expect(verifyApiMethods(withoutOne)).toEqual(["onScrollChange"]);
+    await expect(verifyApiMethods(withoutOne)).resolves.toEqual(["onScrollChange"]);
   });
 
-  it("names a property that is present but is not callable", () => {
-    expect(verifyApiMethods({ ...fullApi, updateScene: "no longer a function" })).toEqual([
-      "updateScene",
-    ]);
+  it("names a property that is present but is not callable", async () => {
+    await expect(
+      verifyApiMethods({ ...fullApi, updateScene: "no longer a function" }),
+    ).resolves.toEqual(["updateScene"]);
   });
 
-  it("reports everything for a handle that is not there at all", () => {
-    expect(verifyApiMethods(null)).toEqual([...EXPECTED_API_METHODS]);
+  it("names a callable method whose return shape changed", async () => {
+    await expect(
+      verifyApiMethods({ ...fullApi, getAppState: () => Promise.resolve({}) }),
+    ).resolves.toEqual(["getAppState"]);
+  });
+
+  it("reports everything for a handle that is not there at all", async () => {
+    await expect(verifyApiMethods(null)).resolves.toEqual([...EXPECTED_API_METHODS]);
   });
 });
 
@@ -56,20 +75,20 @@ describe("checking the markup", () => {
 });
 
 describe("the whole surface at once", () => {
-  it("separates what is gone from what merely stopped matching", () => {
+  it("separates what is gone from what merely stopped matching", async () => {
     const container = document.createElement("div");
     container.innerHTML = '<div class="excalidraw"></div>';
     const { onUserFollow: _gone, ...withoutOne } = fullApi;
 
-    const report = verifySeams(withoutOne, container);
+    const report = await verifySeams(withoutOne, container);
 
     expect(report.missing).toContain("api:onUserFollow");
     expect(report.changed).toContain("selector:toolbar");
     expect(report.checked).toBeGreaterThan(EXPECTED_API_METHODS.length);
   });
 
-  it("counts everything it checked, so a shrinking check is visible", () => {
-    const report = verifySeams(fullApi, null);
+  it("counts everything it checked, so a shrinking check is visible", async () => {
+    const report = await verifySeams(fullApi, null);
     expect(report.checked).toBe(
       EXPECTED_EXPORTS.length + EXPECTED_API_METHODS.length + report.changed.length,
     );
