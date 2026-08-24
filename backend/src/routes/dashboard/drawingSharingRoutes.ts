@@ -261,6 +261,11 @@ export const registerDrawingSharingRoutes = (
         }),
       );
       await collaborationAccess.recheckDrawingAccess(id);
+      // NIL-290: /drawings now reports whether a board has an active link
+      // share (linkShared), so a change here is no longer invisible to that
+      // cache -- same invalidation every other mutation in this file already
+      // does.
+      invalidateDrawingsCache();
 
       if (config.enableAuditLogging) {
         await logAuditEvent({
@@ -295,6 +300,7 @@ export const registerDrawingSharingRoutes = (
       const revoked = await revokeDrawingLinkShare({ db: prisma, drawingId: id, shareId });
       if (revoked) {
         await collaborationAccess.recheckDrawingAccess(id);
+        invalidateDrawingsCache();
       }
 
       if (config.enableAuditLogging) {

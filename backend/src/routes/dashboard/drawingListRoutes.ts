@@ -62,6 +62,17 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
         where.name = { contains: searchTerm };
       }
 
+      // NIL-290: how the viewer reaches these boards, for the provenance
+      // badge. Every board a plain "/drawings" listing returns is the
+      // viewer's own *except* when browsing a collection someone else
+      // owns -- board ownership always equals the collection's owner
+      // inside it ("a board drawn inside someone else's collection is
+      // controlled by the collection's owner"), so that one branch is the
+      // only place `accessVia` is not "it's yours" and the only place
+      // `linkShared` (an owner-only exposure signal) is skipped.
+      let accessVia: "collection" | undefined;
+      let computeLinkShared = true;
+
       let collectionFilterKey = "default";
       if (collectionId === "null") {
         where.collectionId = null;
@@ -92,6 +103,10 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
           }
           // Always fetch all drawings in the collection regardless of who created them
           delete (where as any).userId;
+          if (collectionAccess !== "owner") {
+            accessVia = "collection";
+            computeLinkShared = false;
+          }
 
           where.collectionId = normalizedCollectionId;
           collectionFilterKey = `id:${normalizedCollectionId}`;
@@ -211,6 +226,27 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
         }
       }
 
+      if (accessVia) {
+        for (const drawing of responsePayload) drawing.accessVia = accessVia;
+      } else if (computeLinkShared && responsePayload.length > 0) {
+        // Batched, not one query per card: an active link (not revoked, not
+        // expired) is an exposure signal for the owner, same predicate as
+        // authz/sharing.ts's getActiveLinkShareAccess.
+        const now = new Date();
+        const linkShared = await prisma.drawingLinkShare.findMany({
+          where: {
+            drawingId: { in: responsePayload.map((d) => d.id) },
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
+          select: { drawingId: true },
+        });
+        const linkSharedIds = new Set(linkShared.map((row) => row.drawingId));
+        for (const drawing of responsePayload) {
+          drawing.linkShared = linkSharedIds.has(drawing.id);
+        }
+      }
+
       const finalResponse = {
         drawings: responsePayload,
         totalCount,
@@ -324,6 +360,12 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
           // Collections are owner-scoped; don't leak the owner's collection ids to viewers.
           collectionId: null,
           accessLevel: perm,
+          // NIL-290: every board this endpoint returns matched
+          // boardsSharedWithWhere -- a direct DrawingPermission grant on the
+          // drawing itself, never a collection-derived one (those are
+          // excluded above via sharedColIds). "direct" is a fact about this
+          // endpoint's own filter, not a per-board lookup.
+          accessVia: "direct" as const,
         };
       };
 

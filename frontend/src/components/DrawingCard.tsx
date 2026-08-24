@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { PenTool, Check, Clock, MoreVertical, Globe } from "lucide-react";
+import { PenTool, Check, Clock, MoreVertical, Globe, FolderOpen, Share2, Link2 } from "lucide-react";
 import type { DrawingSummary, Collection } from "../types";
 import { formatDistanceToNow } from "date-fns";
 import clsx from "clsx";
@@ -282,6 +282,35 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
               >
                 {drawing.name}
               </h3>
+            )}
+            {(drawing.accessVia || drawing.linkShared) && (
+              <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                {drawing.accessVia === "collection" && (
+                  <span
+                    data-testid="provenance-badge-collection"
+                    className="flex items-center gap-1 rounded-full border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:text-neutral-400"
+                  >
+                    <FolderOpen size={9} aria-hidden="true" /> Via collection
+                  </span>
+                )}
+                {drawing.accessVia === "direct" && (
+                  <span
+                    data-testid="provenance-badge-direct"
+                    className="flex items-center gap-1 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400"
+                  >
+                    <Share2 size={9} aria-hidden="true" /> Shared directly
+                  </span>
+                )}
+                {drawing.linkShared && (
+                  <span
+                    data-testid="provenance-badge-link"
+                    title="This board has an active share link"
+                    className="flex items-center gap-1 rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400"
+                  >
+                    <Link2 size={9} aria-hidden="true" /> Link
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
