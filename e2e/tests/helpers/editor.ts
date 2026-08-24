@@ -270,18 +270,28 @@ export const peerFile = (page: Page, fileId: string): Promise<PeerFile | null> =
     const dataURL: unknown = file?.dataURL;
     if (typeof dataURL !== "string" || dataURL.length === 0) return null;
     const source = dataURL.startsWith("data:") ? "inline" : "store";
-    const response = await fetch(dataURL, { credentials: "include" });
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    const bytes = await blob.arrayBuffer();
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    const hash = Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-    const bitmap = await createImageBitmap(blob);
-    const { width, height } = bitmap;
-    bitmap.close();
-    return { source, hash, width, height, byteLength: bytes.byteLength };
+    // Anything that is not yet a complete image reads as "not there yet",
+    // never as a throw: a store copy can be served while its WebP is still
+    // being written, and `createImageBitmap` rejects (InvalidStateError)
+    // rather than returning null on bytes it cannot decode. A throw here
+    // would end the caller's `expect.poll` on the spot instead of letting it
+    // wait out its ceiling -- the poll only retries on a falsy value.
+    try {
+      const response = await fetch(dataURL, { credentials: "include" });
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      const bytes = await blob.arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const hash = Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+      const bitmap = await createImageBitmap(blob);
+      const { width, height } = bitmap;
+      bitmap.close();
+      return { source, hash, width, height, byteLength: bytes.byteLength };
+    } catch {
+      return null;
+    }
   }, fileId);
 
 /**
