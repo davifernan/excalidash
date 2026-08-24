@@ -153,7 +153,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
   test("large files, concurrent page turns, a mid-transfer drop and a vanished widget all land correctly on one board", async ({
     browser,
     request,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(600_000);
 
     const drawing = await createDrawing(request, {
@@ -363,6 +363,21 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
             message: "expected the refused page request to surface as an error toast on guestB",
           })
           .toBeGreaterThan(beforeErrors);
+
+        // Visual evidence for this package's HANDOFF: the fix in
+        // EditorView.tsx (surfacing a refused document-page request) is a
+        // frontend product change, and this is the one point in the run
+        // where its effect is actually on screen. sonner mounts the toast
+        // and then animates it in (translateY + opacity); the poll above
+        // resolves the instant the DOM node attaches, mid-animation, so a
+        // screenshot taken immediately after it caught nothing visible.
+        await guestB.waitForTimeout(500);
+        const screenshotPath = testInfo.outputPath("guestB-refused-page-request-toast.png");
+        await guestB.screenshot({ path: screenshotPath });
+        await testInfo.attach("guestB-refused-page-request-toast", {
+          path: screenshotPath,
+          contentType: "image/png",
+        });
 
         // Not hung, not crashed: guestB's harness is still responsive.
         const stillResponsive = await guestB.evaluate(
