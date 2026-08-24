@@ -123,6 +123,14 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
           },
         });
         await syncDrawingDocumentState(tx, id, trimPlan.activeElements);
+        // DrawingFile rows (NIL-381) are this drawing's own storage-backed
+        // image references, the same relationship S3File has above --
+        // deleting the row does not delete the underlying blob immediately;
+        // collectExpired (assetService.ts) reclaims it once nothing else
+        // references it, after its own grace period.
+        await tx.drawingFile.deleteMany({
+          where: { drawingId: id, fileId: { notIn: [...trimPlan.survivingFileIds] } },
+        });
       });
       invalidateDrawingsCache();
       notifyServerStateChange(id);
@@ -270,6 +278,11 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
           },
         });
         await syncDrawingDocumentState(tx, id, deletePlan.cleanedElements);
+        // Same relationship as S3File above, for DrawingFile rows (NIL-381):
+        // deleting the reference does not delete the underlying blob
+        // immediately -- collectExpired (assetService.ts) reclaims it once
+        // nothing else references it, after its own grace period.
+        await tx.drawingFile.deleteMany({ where: { drawingId: id, fileId: { in: fileIds } } });
       });
       invalidateDrawingsCache();
       notifyServerStateChange(id);

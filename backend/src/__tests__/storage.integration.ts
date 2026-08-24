@@ -206,6 +206,48 @@ describe("Storage management routes", () => {
 
       expect(res.status).toBe(404);
     });
+
+    it("deletes DrawingFile rows (NIL-381) for orphaned fileIds, keeps them for surviving ones", async () => {
+      const blob = await prisma.storedBlob.create({
+        data: {
+          sha256: "b".repeat(64),
+          sizeBytes: 10,
+          storedBytes: 10,
+          storageKey: "originals/bb/cc/trim-test-blob",
+          purpose: "IMAGE",
+          state: "READY",
+        },
+      });
+      const drawing = await createDrawing(owner.id, {
+        name: "Trim DrawingFile",
+        elements: [
+          imageElement("el-keep", "file-keep"),
+          imageElement("el-drop", "file-drop", true),
+        ],
+        files: {
+          "file-keep": fileEntry("file-keep"),
+          "file-drop": fileEntry("file-drop"),
+        },
+        version: 1,
+      });
+      await prisma.drawingFile.createMany({
+        data: [
+          { drawingId: drawing.id, fileId: "file-keep", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
+          { drawingId: drawing.id, fileId: "file-drop", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
+        ],
+      });
+
+      const res = await agent
+        .post(`/drawings/${drawing.id}/trim`)
+        .set("User-Agent", userAgent)
+        .set(csrfHeaderName, csrfToken)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ confirmName: "Trim DrawingFile" });
+      expect(res.status).toBe(200);
+
+      const remaining = await prisma.drawingFile.findMany({ where: { drawingId: drawing.id } });
+      expect(remaining.map((r) => r.fileId)).toEqual(["file-keep"]);
+    });
   });
 
   describe("DELETE /drawings/:id/files/orphans", () => {
@@ -244,6 +286,48 @@ describe("Storage management routes", () => {
       expect(elements.map((e) => e.id)).toEqual(["el-active"]);
       // Version should bump so concurrent editors reload.
       expect(after.version).toBe(4);
+    });
+
+    it("deletes DrawingFile rows (NIL-381) for the removed fileIds only", async () => {
+      const blob = await prisma.storedBlob.create({
+        data: {
+          sha256: "c".repeat(64),
+          sizeBytes: 10,
+          storedBytes: 10,
+          storageKey: "originals/cc/dd/orphans-test-blob",
+          purpose: "IMAGE",
+          state: "READY",
+        },
+      });
+      const drawing = await createDrawing(owner.id, {
+        name: "Orphan DrawingFile",
+        elements: [
+          imageElement("el-active", "file-active"),
+          imageElement("el-deleted", "file-orphan", true),
+        ],
+        files: {
+          "file-active": fileEntry("file-active"),
+          "file-orphan": fileEntry("file-orphan"),
+        },
+        version: 1,
+      });
+      await prisma.drawingFile.createMany({
+        data: [
+          { drawingId: drawing.id, fileId: "file-active", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
+          { drawingId: drawing.id, fileId: "file-orphan", blobId: blob.id, ownerUserId: owner.id, mimeType: "image/png" },
+        ],
+      });
+
+      const res = await agent
+        .delete(`/drawings/${drawing.id}/files/orphans`)
+        .set("User-Agent", userAgent)
+        .set(csrfHeaderName, csrfToken)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ confirmName: "Orphan DrawingFile", fileIds: ["file-orphan"] });
+      expect(res.status).toBe(200);
+
+      const remaining = await prisma.drawingFile.findMany({ where: { drawingId: drawing.id } });
+      expect(remaining.map((r) => r.fileId)).toEqual(["file-active"]);
     });
 
     it("rejects deletion of fileIds still referenced by active elements", async () => {
