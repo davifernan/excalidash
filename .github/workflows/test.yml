@@ -45,6 +45,15 @@ jobs:
         run: node scripts/release-tag-guard.cjs
       - name: Prove the release tag guard rejects what it claims to
         run: node scripts/release-tag-guard.test.cjs
+      # Runs against the real GitHub API (main's own tip and its real
+      # check-runs), not a fixture -- Davi, PR #79: a test that only covers
+      # the single-page case would stay green and prove nothing, since the
+      # bug it guards only appears once a commit's check-runs genuinely span
+      # more than one page.
+      - name: Prove release-check-runs.sh merges real multi-page results correctly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release-check-runs.test.sh
 
   frontend-typecheck:
     name: Frontend Typecheck

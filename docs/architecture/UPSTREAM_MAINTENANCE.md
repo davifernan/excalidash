@@ -245,7 +245,7 @@ Gesetzt ueber `ops/repository-rules.sh apply` (Stand 2026-08-23):
 | `allow_squash_merge: false` | Squash ueber die Oberflaeche schreibt den Commit dem zusammenfuehrenden Konto zu und zerstoert die Nilo-Autorschaft. Den lokalen Mergeweg beruehrt die Einstellung nicht. |
 | `non_fast_forward` auf `main` | Kein Force-Push. Ein umgeschriebener `main` wuerde jeden Worktree und jede offene PR-Basis entwurzeln. |
 | `deletion` auf `main` | `main` laesst sich nicht loeschen. |
-| `required_status_checks` auf `main` | Alle acht `Tests`-Jobs muessen gruen sein. |
+| `required_status_checks` auf `main` | Alle als Pflicht markierten `Tests`-Jobs muessen gruen sein (Stand 24.08.2026: neun -- die Zahl waechst mit jedem neuen Waechter; siehe `ops/repository-rules.sh show` fuer den aktuellen Stand statt einer Zahl hier). |
 
 ### Warum Pflichtchecks den lokalen Merge NICHT blockieren
 

@@ -59,8 +59,8 @@ eine eigene Pruefung, am Ort, an dem der jeweilige Fakt ueberhaupt bekannt ist:
 Ein frueher Entwurf liess `release.yml` die volle Suite erneut laufen, bevor es etwas
 veroeffentlicht. Verworfen, aus zwei Gruenden:
 
-- **Es ist redundant.** Branch Protection auf `main` verlangt bereits, dass alle acht
-  `Tests`-Jobs gruen sind, bevor ein Merge-Commit ueberhaupt ankommt
+- **Es ist redundant.** Branch Protection auf `main` verlangt bereits, dass alle als Pflicht
+  markierten `Tests`-Jobs gruen sind, bevor ein Merge-Commit ueberhaupt ankommt
   (UPSTREAM_MAINTENANCE.md, "Was GitHub erzwingt"). Ein getaggter Commit auf `main` hat diese
   Pruefung also strukturell schon bestanden.
 - **Es exponiert das Release unnoetig gegen Flakiness.** Gemessen 24.08.2026: der Spec
@@ -77,6 +77,17 @@ veroeffentlicht. Verworfen, aus zwei Gruenden:
   ein zweites Mal gelesen statt ein zweites Mal erzeugt. Ein Commit, der es aus irgendeinem
   Grund ohne Check-Runs auf `main` geschafft hat (Ruleset-Luecke, manuell gepushter Commit),
   wird trotzdem abgelehnt: `TOTAL=0` ist im Workflow ein harter Fehler, kein stiller Pass.
+
+  Diese Lese-Logik lebt in `scripts/release-check-runs.sh`, nicht inline im Workflow: Hans-
+  Friedrich fand auf PR #79, dass `gh api --paginate --jq FILTER` den Filter pro Seite
+  ausfuehrt statt auf dem zusammengefuehrten Ergebnis -- ab mehr als einer Seite (heute >30
+  Check-Runs) waeren `TOTAL`/`INCOMPLETE`/`FAILED_COUNT` mehrzeilige Strings statt Zahlen
+  gewesen, und ein laengst gruenes Release haette der Workflow faelschlich verweigern koennen.
+  Behoben mit `--paginate --slurp` plus einem einzigen zusammenfuehrenden `jq`-Aufruf. Die
+  Gegenprobe (`scripts/release-check-runs.test.sh`) laeuft bewusst gegen die echte GitHub-API
+  und einen echten, laengst gemergten Commit mit `per_page=2` erzwungen, statt gegen eine
+  Attrappe -- ein Test, der nur den Ein-Seiten-Fall prueft, waere gruen geblieben und haette
+  nichts bewiesen, weil der Fehler erst jenseits einer Seite ueberhaupt auftritt.
 
   Die Flakiness selbst ist damit nicht geloest, nur nicht dupliziert. Sie ist als eigener Fund
   gemeldet: siehe die zugehoerige Multica-Karte fuer den aktuellen Stand.

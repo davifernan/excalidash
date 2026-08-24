@@ -104,22 +104,21 @@ jobs:
         # not a new gate, in case a tag ever gets pushed at something that
         # branch protection didn't actually cover (a stray branch tip, a
         # manually pushed commit).
+        #
+        # The actual counting is scripts/release-check-runs.sh, not inlined
+        # here -- it needs to be independently testable against the real API
+        # with a forced small page size (scripts/release-check-runs.test.sh),
+        # because the bug this exists to catch (Hans-Friedrich, PR #79: `gh
+        # api --paginate --jq` runs the filter per page, not on the merged
+        # result) only appears once a commit's check-runs genuinely span more
+        # than one page -- a single-page test would stay green and prove
+        # nothing.
         run: |
           SHA="$(git rev-parse HEAD)"
-          # `--paginate --jq FILTER` runs FILTER once PER PAGE, not on the
-          # merged result (verified live against the real API, Hans-Friedrich
-          # PR #79: `gh api --paginate ".../commits?per_page=2" --jq 'length'`
-          # printed "2\n2" for two pages, not "4"). This endpoint returns an
-          # object (`{check_runs: [...]}`), not a top-level array, so
-          # `--paginate` alone cannot concatenate pages either -- `--slurp` is
-          # gh's own documented answer for that case: collect the raw pages
-          # into one array, then flatten `.check_runs` across all of them in
-          # a single downstream jq call.
-          RUNS_JSON="$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" --paginate --slurp | jq '[.[].check_runs[]]')"
-          INCOMPLETE="$(echo "$RUNS_JSON" | jq '[.[] | select(.status != "completed")] | length')"
-          FAILED="$(echo "$RUNS_JSON" | jq '[.[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral"))]')"
-          FAILED_COUNT="$(echo "$FAILED" | jq 'length')"
-          TOTAL="$(echo "$RUNS_JSON" | jq 'length')"
+          RESULT="$(scripts/release-check-runs.sh "${{ github.repository }}" "$SHA")"
+          TOTAL="$(echo "$RESULT" | jq '.total')"
+          INCOMPLETE="$(echo "$RESULT" | jq '.incomplete')"
+          FAILED_COUNT="$(echo "$RESULT" | jq '.failed')"
           echo "Checked $TOTAL check-run(s) on $SHA: $INCOMPLETE incomplete, $FAILED_COUNT failed."
           if [ "$TOTAL" = "0" ]; then
             echo "::error::No check-runs recorded for $SHA at all -- cannot confirm CI passed. Refusing to release."
@@ -131,7 +130,7 @@ jobs:
           fi
           if [ "$FAILED_COUNT" != "0" ]; then
             echo "::error::$FAILED_COUNT check-run(s) on $SHA did not pass:"
-            echo "$FAILED" | jq -r '.[] | "  - \(.name): \(.conclusion)"'
+            echo "$RESULT" | jq -r '.failed_names[] | "  - \(.)"'
             exit 1
           fi
           echo "All check-runs on $SHA passed."
