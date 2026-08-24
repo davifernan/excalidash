@@ -23,6 +23,7 @@ const path = require("node:path");
 const { createSandbox, removeSandbox } = require("./test-helpers/sandbox-tree.cjs");
 
 const repoRoot = path.resolve(__dirname, "..");
+const { SRC: REAL_SRC } = require("./authz-boundary.cjs");
 
 /**
  * adapter-boundary.cjs's legacy-key sweep also reads backend/src, so this
@@ -31,8 +32,15 @@ const repoRoot = path.resolve(__dirname, "..");
  * private copy -- including the check script itself, so its own root
  * resolves inside the copy -- means nothing outside this process ever sees
  * these probes.
+ *
+ * Derived from SRC (Hans-Friedrich, PR #64) rather than a hard-coded
+ * "backend/src" string, for the same reason as adapter-boundary.test.cjs.
  */
-const root = createSandbox(repoRoot, ["backend/src", "scripts/authz-boundary.cjs"], "authz-boundary-sandbox-");
+const root = createSandbox(
+  repoRoot,
+  [path.relative(repoRoot, REAL_SRC).split(path.sep).join("/"), "scripts/authz-boundary.cjs"],
+  "authz-boundary-sandbox-",
+);
 const CHECK = path.join(root, "scripts", "authz-boundary.cjs");
 const PROBE_DIR = path.join(root, "backend", "src", "__authz_probe__");
 
@@ -315,7 +323,9 @@ const assertStaleExceptionCaught = () => {
 };
 
 const assertNoExceptionsRemain = () => {
-  const { RULES } = require("./authz-boundary.cjs");
+  // RULES's content is identical either way (same bytes, just copied), but
+  // requiring the sandboxed module consistently avoids relying on that.
+  const { RULES } = require(CHECK);
   const listed = RULES.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
   if (listed.length > 0) {
     throw new Error(

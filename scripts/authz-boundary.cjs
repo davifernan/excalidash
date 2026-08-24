@@ -523,6 +523,6 @@ const main = () => {
   process.exit(1);
 };
 
-module.exports = { RULES };
+module.exports = { RULES, SRC };
 
 if (require.main === module) main();

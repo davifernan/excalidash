@@ -17,6 +17,7 @@ const path = require("node:path");
 const { createSandbox, removeSandbox } = require("./test-helpers/sandbox-tree.cjs");
 
 const repoRoot = path.resolve(__dirname, "..");
+const { SRC: REAL_SRC, LEGACY_SCAN_ROOTS } = require("./adapter-boundary.cjs");
 
 /**
  * This check's own scan reaches past frontend/src -- the legacy-key sweep also
@@ -25,10 +26,15 @@ const repoRoot = path.resolve(__dirname, "..");
  * backend/src/__authz_probe__ (NIL-493). Copying every directory the check can
  * read, plus the check script itself so its own root resolves inside the
  * copy, is what actually stops the two files from meeting.
+ *
+ * Derived from SRC and LEGACY_SCAN_ROOTS (Hans-Friedrich, PR #64) rather than
+ * a second hard-coded list: a directory added to either constant is copied
+ * here automatically instead of silently staying unswept in the sandbox
+ * while the real check on CI keeps reading it.
  */
 const root = createSandbox(
   repoRoot,
-  ["frontend/src", "backend/src", "e2e/tests", "scripts/adapter-boundary.cjs"],
+  [...new Set([path.relative(repoRoot, REAL_SRC).split(path.sep).join("/"), ...LEGACY_SCAN_ROOTS, "scripts/adapter-boundary.cjs"])],
   "adapter-boundary-sandbox-",
 );
 const CHECK = path.join(root, "scripts", "adapter-boundary.cjs");
@@ -277,7 +283,13 @@ const assertNonInteractionReceiverNamesRejected = () => {
  * ENOENT for one specific path scanForLegacyKeys/walk is mid-scanning.
  */
 const assertLegacyKeyScanToleratesADisappearingFile = () => {
-  const { scanForLegacyKeys } = require("./adapter-boundary.cjs");
+  // Must be the sandboxed copy, not the real "./adapter-boundary.cjs": that
+  // module's own root resolves from its OWN file location, and requiring the
+  // real one here would make scanForLegacyKeys walk the real frontend/src --
+  // which never contains PROBE_DIR now that probes only exist inside the
+  // sandbox. Without this, the stub below never intercepts a real read and
+  // this test passes without ever exercising the ENOENT path it names.
+  const { scanForLegacyKeys } = require(CHECK);
   if (fs.existsSync(PROBE_DIR)) {
     throw new Error(`Refusing to reuse an existing probe directory: ${PROBE_DIR}`);
   }
@@ -306,7 +318,10 @@ const assertLegacyKeyScanToleratesADisappearingFile = () => {
 };
 
 const assertWalkToleratesADisappearingDirectory = () => {
-  const { walk } = require("./adapter-boundary.cjs");
+  // Same reason as assertLegacyKeyScanToleratesADisappearingFile: use the
+  // sandboxed copy consistently, even though this call happens to pass an
+  // explicit directory and would work with either module reference today.
+  const { walk } = require(CHECK);
   if (fs.existsSync(PROBE_DIR)) {
     throw new Error(`Refusing to reuse an existing probe directory: ${PROBE_DIR}`);
   }
@@ -335,7 +350,9 @@ const assertWalkToleratesADisappearingDirectory = () => {
 };
 
 const assertNoExceptionsRemain = () => {
-  const { RULES } = require("./adapter-boundary.cjs");
+  // RULES's content is identical either way (same bytes, just copied), but
+  // requiring the sandboxed module consistently avoids relying on that.
+  const { RULES } = require(CHECK);
   const listed = RULES.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
   if (listed.length > 0) {
     throw new Error(
