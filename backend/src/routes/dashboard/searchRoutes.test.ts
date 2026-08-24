@@ -175,6 +175,34 @@ describe("GET /search", () => {
     expect(res.payload.results[0].name).toBe("Team payments board");
   });
 
+  it("finds a board via collection ownership even when the board's own Drawing.userId belongs to someone else (Hans-Friedrich, PR #66: the post-transfer state)", async () => {
+    // transferOwnedCollections (authz/boards.ts) moves Collection.userId to
+    // a successor but deliberately leaves Drawing.userId on the boards
+    // inside it untouched -- so after a departed member's collection is
+    // reassigned, its boards can have an owner (`collection.userId`)
+    // different from their own creator (`drawing.userId`). Only the
+    // `{ collection: ownedCollectionsWhere(...) }` branch of the search
+    // where-clause keeps such a board visible to the new owner;
+    // `ownedBoardsWhere` alone would miss it entirely, and every other test
+    // in this file creates its boards with `userId` already equal to the
+    // acting account, which is exactly why this case needs its own test.
+    await prisma.drawing.create({
+      data: {
+        name: "Inherited payments dashboard",
+        elements: "[]",
+        appState: "{}",
+        userId: stranger.id, // the departed original creator
+        collectionId, // owned by `owner` (set up in beforeEach)
+        searchText: "inherited payments dashboard",
+      },
+    });
+
+    const res = await invoke(buildApp(), owner.id, { q: "payments" });
+
+    expect(res.payload.totalCount).toBe(1);
+    expect(res.payload.results[0].name).toBe("Inherited payments dashboard");
+  });
+
   it("excludes an archived board by default, and only that board under archivedOnly", async () => {
     await prisma.drawing.create({
       data: {

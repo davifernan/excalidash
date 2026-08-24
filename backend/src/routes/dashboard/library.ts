@@ -127,10 +127,19 @@ export const registerLibraryRoutes = (app: express.Express, deps: DashboardRoute
           select: { id: true, excalidrawItemId: true },
         }),
       ]);
-      const existingByItemId = new Map(
-        existingForIncoming.map((row) => [row.excalidrawItemId, row]),
-      );
+      // `excalidrawItemId` is only unique per owner (`@@unique([ownerUserId,
+      // excalidrawItemId])`), not globally -- two accounts can each have an
+      // item with the same id (a shared template imported independently by
+      // both, for instance). A single `Map` keyed by itemId alone collapses
+      // those rows to whichever one `existingForIncoming` happened to list
+      // last, so "is this itemId already mine" was answered from a row that
+      // could belong to a stranger -- silently dropping the caller's own
+      // update whenever the collision landed the wrong way (Hans-Friedrich,
+      // PR #66: 200 OK, change discarded). `myRowByItemId` -- already scoped
+      // to `ownerUserId: userId` -- is the one source of truth for "do I own
+      // this id"; `existingItemIds` only ever answers "does *anyone*".
       const myRowByItemId = new Map(myRows.map((row) => [row.excalidrawItemId, row]));
+      const existingItemIds = new Set(existingForIncoming.map((row) => row.excalidrawItemId));
 
       const toCreate: {
         id: string;
@@ -141,22 +150,23 @@ export const registerLibraryRoutes = (app: express.Express, deps: DashboardRoute
       const toUpdate: { id: string; name: string; excalidrawData: string }[] = [];
 
       for (const [itemId, item] of incomingById) {
-        const existing = existingByItemId.get(itemId);
+        const mine = myRowByItemId.get(itemId);
         const name =
           typeof item.name === "string" && item.name.trim() ? item.name : "Untitled item";
         const excalidrawData = JSON.stringify(item);
         if (excalidrawData.length > MAX_ITEM_DATA_LENGTH) continue;
 
-        if (!existing) {
-          toCreate.push({ id: uuidv4(), excalidrawItemId: itemId, name, excalidrawData });
-        } else if (existing.ownerUserId === userId) {
+        if (mine) {
           // Owned by me: refresh the element data, but never overwrite a
           // name the Team Library manager already gave this item -- that
           // metadata lives independently of what the panel happens to send.
-          toUpdate.push({ id: existing.id, name, excalidrawData });
+          toUpdate.push({ id: mine.id, name, excalidrawData });
+        } else if (!existingItemIds.has(itemId)) {
+          toCreate.push({ id: uuidv4(), excalidrawItemId: itemId, name, excalidrawData });
         }
-        // Owned by someone else (a team item): present in my panel because
-        // GET already merged it in, but this sync never writes it.
+        // Owned by someone else (a team item, or another account's item with
+        // a colliding id): present in my panel because GET already merged it
+        // in, but this sync never writes a row it does not own.
       }
 
       const toDeleteIds = myRows

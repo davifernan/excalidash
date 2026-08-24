@@ -117,11 +117,16 @@ PRAGMA foreign_keys=ON;
 PRAGMA defer_foreign_keys=OFF;
 
 -- DataMigration: backfill NIL-363's search text for every board that
--- existed before this column did. Same `json_valid` guard as above -- a
--- board with a corrupt `elements` string (should not exist; every writer
--- goes through `JSON.stringify`) is skipped rather than failing the whole
--- migration, and simply stays name-only searchable until its next save
--- recomputes it via `computeSearchText` (`search/searchIndex.ts`).
+-- existed before this column did. A board with a corrupt `elements` string
+-- (should not exist; every writer goes through `JSON.stringify`) does not
+-- fail the whole migration -- but it must still end up name-only
+-- searchable, not silently invisible to search entirely. The two UPDATEs
+-- below are that split: `json_valid("elements")` computes name + content
+-- exactly as before; its complement (Hans-Friedrich, PR #66) is the
+-- fallback that the postgresql migration's per-row EXCEPTION handler
+-- already provided and this one did not -- a row skipped by the first
+-- UPDATE stayed at the column default `''`, invisible even by its own
+-- name, not merely missing its content match.
 UPDATE "Drawing"
 SET "searchText" = lower(trim(
   "name" || ' ' || COALESCE((
@@ -133,6 +138,10 @@ SET "searchText" = lower(trim(
   ), '')
 ))
 WHERE json_valid("elements");
+
+UPDATE "Drawing"
+SET "searchText" = lower(trim("name"))
+WHERE NOT json_valid("elements");
 
 -- CreateIndex
 CREATE INDEX "LibraryItem_visibility_category_idx" ON "LibraryItem"("visibility", "category");

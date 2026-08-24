@@ -146,6 +146,54 @@ describe("Team Library (NIL-364)", () => {
     expect(stillThere?.excalidrawData).toBe(libItem("team-item", "Team template"));
   });
 
+  it("PUT /library updates the caller's own item even when another account owns a row with the same excalidrawItemId (Hans-Friedrich, PR #66)", async () => {
+    // excalidrawItemId is unique only per owner (@@unique([ownerUserId,
+    // excalidrawItemId])), not globally -- two independent accounts can each
+    // have their own row for the same id (e.g. both imported the same
+    // shared template). Bob's row is created first, Alice's second: an
+    // unordered `findMany` returns SQLite rows in insertion order, so
+    // Alice's row lands last and is the one a single itemId-keyed `Map`
+    // (last write wins) would keep -- clobbering the entry that should have
+    // answered "does Bob already own this id".
+    await prisma.libraryItem.create({
+      data: {
+        id: "row-bob",
+        excalidrawItemId: "collide",
+        name: "Bob's copy",
+        visibility: "personal",
+        ownerUserId: bob.id,
+        excalidrawData: libItem("collide", "Bob's copy"),
+      },
+    });
+    await prisma.libraryItem.create({
+      data: {
+        id: "row-alice",
+        excalidrawItemId: "collide",
+        name: "Alice's copy",
+        visibility: "personal",
+        ownerUserId: alice.id,
+        excalidrawData: libItem("collide", "Alice's copy"),
+      },
+    });
+
+    const res = await invoke(
+      buildApp(),
+      bob.id,
+      "USER",
+      "put",
+      "/library",
+      {},
+      { items: [{ id: "collide", status: "published", elements: [{ type: "diamond" }] }] },
+    );
+
+    expect(res.statusCode).toBe(200);
+    const bobsRow = await prisma.libraryItem.findUnique({ where: { id: "row-bob" } });
+    expect(bobsRow?.excalidrawData).toContain("diamond");
+    // Alice's own, separately-owned row must be untouched by Bob's sync.
+    const alicesRow = await prisma.libraryItem.findUnique({ where: { id: "row-alice" } });
+    expect(alicesRow?.excalidrawData).toBe(libItem("collide", "Alice's copy"));
+  });
+
   it("PUT /library deletes an item the caller owns when it is removed from their panel", async () => {
     await prisma.libraryItem.create({
       data: {
