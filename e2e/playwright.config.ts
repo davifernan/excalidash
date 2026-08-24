@@ -34,12 +34,28 @@ const MOBILE_SPECS = ["**/sticky-notes.spec.ts", "**/small-windows.spec.ts"];
  * own header comment and helpers/authLifecycle.ts). Running one of these
  * against the shared backend/database every other spec and shard uses breaks
  * every one of them the moment it runs: the toggle is real and backend-wide,
- * not scoped to this spec's own session. Each gets its own project so the
- * default `chromium` project (the one CI's shared shards run) never picks it
- * up, and CI runs it in a separate job against its own isolated backend,
- * frontend, and SQLite file instead.
+ * not scoped to this spec's own session.
+ *
+ * Each real-auth spec gets its OWN project and its own CI job against its
+ * own isolated backend/frontend/SQLite file -- not just excluded from
+ * `chromium` and lumped into whichever real-auth project came first.
+ * discovery-permission-matrix.spec.ts briefly shared `two-account` in an
+ * earlier draft of this list; that would have raced its own bootstrap-admin
+ * registration against comments-two-account.spec.ts's the moment CI ran both
+ * projects concurrently. One project name per spec keeps the blast radius --
+ * and the ownership of who tears the toggle back down in its own afterAll --
+ * exactly as narrow as the spec that needs it.
+ *
+ * `REAL_AUTH_SPECS` (the union of every list below) is what `chromium`'s
+ * `testIgnore` reads and what `scripts/real-auth-boundary.cjs` checks against:
+ * a spec that imports `toggleAuthEnabled` from `helpers/authLifecycle` but is
+ * missing here would otherwise poison every spec sharing its shard the
+ * moment it runs -- exactly what happened twice (NIL-356, then NIL-326)
+ * before that check existed.
  */
-const REAL_AUTH_SPECS = ["**/comments-two-account.spec.ts"];
+const COMMENTS_TWO_ACCOUNT_SPECS = ["**/comments-two-account.spec.ts"];
+const DISCOVERY_PERMISSION_MATRIX_SPECS = ["**/discovery-permission-matrix.spec.ts"];
+const REAL_AUTH_SPECS = [...COMMENTS_TWO_ACCOUNT_SPECS, ...DISCOVERY_PERMISSION_MATRIX_SPECS];
 
 /**
  * Playwright configuration for E2E browser testing
@@ -124,7 +140,19 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
       },
-      testMatch: REAL_AUTH_SPECS,
+      testMatch: COMMENTS_TWO_ACCOUNT_SPECS,
+    },
+    {
+      // Isolated on purpose, and deliberately its OWN project rather than
+      // matched into "two-account" above: see REAL_AUTH_SPECS. Only ever
+      // invoked explicitly (`--project=permission-matrix`) against a
+      // backend/frontend/DB this project's caller stood up itself.
+      name: "permission-matrix",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: DISCOVERY_PERMISSION_MATRIX_SPECS,
     },
     {
       name: "firefox",
