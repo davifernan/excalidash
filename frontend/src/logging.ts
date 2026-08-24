@@ -51,14 +51,12 @@ const newRef = (): string => {
 const errorReplacer = (_key: string, value: unknown) =>
   value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value;
 
-const consoleFor = (level: "error" | "warn" | "info" | "debug") =>
-  level === "error"
-    ? console.error
-    : level === "warn"
-      ? console.warn
-      : level === "debug"
-        ? console.debug
-        : console.info;
+// A live property lookup, not a captured reference -- console[level] re-reads
+// console.error/warn/info/debug on every call, the same way the code this
+// replaced did. A lookup table built once at module load would freeze in
+// whatever those methods were at import time, which breaks any test (or
+// runtime patch) that replaces console.error after this module first loads.
+const consoleFor = (level: "error" | "warn" | "info" | "debug") => console[level];
 
 const write = (level: "error" | "warn" | "info" | "debug", message: string, fields?: LogFields) => {
   const line = { time: new Date().toISOString(), level, message, ...fields };
