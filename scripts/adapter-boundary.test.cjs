@@ -14,8 +14,23 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { createSandbox, removeSandbox } = require("./test-helpers/sandbox-tree.cjs");
 
-const root = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(__dirname, "..");
+
+/**
+ * This check's own scan reaches past frontend/src -- the legacy-key sweep also
+ * reads backend/src and e2e/tests -- so a probe cycle that only isolated
+ * frontend/src would still race authz-boundary.test.cjs writing into
+ * backend/src/__authz_probe__ (NIL-493). Copying every directory the check can
+ * read, plus the check script itself so its own root resolves inside the
+ * copy, is what actually stops the two files from meeting.
+ */
+const root = createSandbox(
+  repoRoot,
+  ["frontend/src", "backend/src", "e2e/tests", "scripts/adapter-boundary.cjs"],
+  "adapter-boundary-sandbox-",
+);
 const CHECK = path.join(root, "scripts", "adapter-boundary.cjs");
 const PROBE_DIR = path.join(root, "frontend", "src", "__adapter_probe__");
 
@@ -365,4 +380,8 @@ const main = () => {
   console.log("Adapter boundary check proved in both directions.");
 };
 
-main();
+try {
+  main();
+} finally {
+  removeSandbox(root);
+}

@@ -20,8 +20,19 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { createSandbox, removeSandbox } = require("./test-helpers/sandbox-tree.cjs");
 
-const root = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(__dirname, "..");
+
+/**
+ * adapter-boundary.cjs's legacy-key sweep also reads backend/src, so this
+ * test's probe cycle in the real tree could be observed mid-write by that
+ * other check running in parallel (NIL-493). Working entirely inside a
+ * private copy -- including the check script itself, so its own root
+ * resolves inside the copy -- means nothing outside this process ever sees
+ * these probes.
+ */
+const root = createSandbox(repoRoot, ["backend/src", "scripts/authz-boundary.cjs"], "authz-boundary-sandbox-");
 const CHECK = path.join(root, "scripts", "authz-boundary.cjs");
 const PROBE_DIR = path.join(root, "backend", "src", "__authz_probe__");
 
@@ -346,4 +357,8 @@ const main = () => {
   console.log("Authz boundary check proved in both directions.");
 };
 
-main();
+try {
+  main();
+} finally {
+  removeSandbox(root);
+}
