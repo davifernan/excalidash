@@ -73,6 +73,29 @@ type ElementUpdateAck = {
   warning?: { code?: string; message?: string };
 };
 
+/**
+ * What the outbound queue is doing right now, for a test harness that wants
+ * to wait for a *state* instead of a number of seconds. Every field is read
+ * straight off the refs the delivery loop already keeps; nothing here is
+ * computed for the harness's benefit or kept in sync separately.
+ *
+ * - `inFlight`: either delivery lane currently has a packet on the wire.
+ * - `parked`: file or scene work is queued but not on the wire yet.
+ * - `retrying`: either lane failed or timed out and is waiting for, or
+ *   performing, a retry.
+ * - `acknowledgedFileIds`: every file id the server has acked on this
+ *   drawing, in ack order. "Sent" and "acked" are different facts; a spec
+ *   that only checks the receiving peer cannot tell which of the two failed.
+ * - `rejectedFileIds`: files refused locally as too large for live delivery.
+ */
+export type DeliveryState = {
+  inFlight: boolean;
+  parked: boolean;
+  retrying: boolean;
+  acknowledgedFileIds: readonly string[];
+  rejectedFileIds: readonly string[];
+};
+
 const fileContentAttempt = (file: any): FileContentAttempt => {
   if (!file || typeof file !== "object") {
     return { dataURL: undefined, metadata: JSON.stringify(file) ?? String(file) };
@@ -127,6 +150,7 @@ export const useEditorBroadcast = ({
   const rejectedFilesDrawingIdRef = useRef<string | undefined>(drawingId);
   const drainFileDeliveriesRef = useRef<() => void>(() => undefined);
   const drainSceneDeliveryRef = useRef<() => void>(() => undefined);
+  const acknowledgedFileIdsRef = useRef<string[]>([]);
   const lastRunAtRef = useRef(0);
   const trailingArgsRef = useRef<[readonly any[], Record<string, any> | undefined] | null>(null);
   const canDeliverToRoom = useCallback(() => {
@@ -353,6 +377,7 @@ export const useEditorBroadcast = ({
         ...lastSyncedFilesRef.current,
         ...attemptFiles,
       };
+      acknowledgedFileIdsRef.current = [...acknowledgedFileIdsRef.current, ...attemptFileIds];
       const warning = response.warning?.message;
       if (typeof warning === "string") toast.error(warning);
       for (const fileId of attemptFileIds) {
@@ -518,6 +543,7 @@ export const useEditorBroadcast = ({
 
       if (rejectedFilesDrawingIdRef.current !== drawingId) {
         rejectedFileAttemptsRef.current.clear();
+        acknowledgedFileIdsRef.current = [];
         rejectedFilesDrawingIdRef.current = drawingId;
       }
       for (const fileId of rejectedFileAttemptsRef.current.keys()) {
@@ -669,5 +695,18 @@ export const useEditorBroadcast = ({
     [],
   );
 
-  return { broadcastChanges, broadcastFiles };
+  const getDeliveryState = useCallback((): DeliveryState => {
+    const fileStates = [...fileDeliveryStatesRef.current.values()];
+    return {
+      inFlight: activeFileDeliveryRef.current !== null || sceneSendingRef.current,
+      parked: fileDeliveryQueueRef.current.length > 0 || pendingSceneUpdateRef.current !== null,
+      retrying:
+        sceneRetryTimeoutRef.current !== null ||
+        fileStates.some((state) => state.retrying || state.retryTimeout !== null),
+      acknowledgedFileIds: acknowledgedFileIdsRef.current,
+      rejectedFileIds: [...rejectedFileAttemptsRef.current.keys()],
+    };
+  }, []);
+
+  return { broadcastChanges, broadcastFiles, getDeliveryState };
 };

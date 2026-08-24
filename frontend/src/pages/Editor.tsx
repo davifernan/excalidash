@@ -20,7 +20,7 @@ import { useEditorCanvasHandlers } from "./editor/useEditorCanvasHandlers";
 import { useStickyNotesFeature } from "../sticky";
 import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
-import { useEditorBroadcast } from "./editor/useEditorBroadcast";
+import { useEditorBroadcast, type DeliveryState } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useEditorFileUploads } from "./editor/useEditorFileUploads";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
@@ -132,6 +132,9 @@ export const Editor: React.FC = () => {
    * that observes through the adapter exercises it as well, which is more than
    * the raw handle ever did.
    */
+  // The delivery hook is created further down; the harness reads it through
+  // this ref so the effect below neither has to move nor depend on it.
+  const deliveryStateRef = useRef<(() => DeliveryState) | null>(null);
   useEffect(() => {
     // Only once the editor has actually handed its handle over. The suite uses
     // this global as its readiness signal -- the old one was set at exactly that
@@ -187,6 +190,14 @@ export const Editor: React.FC = () => {
         viewportTrace = [];
       },
       getViewportTrace: () => viewportTrace,
+      /**
+       * The outbound queue, as a state a spec can wait for. "The peer does
+       * not have the file yet" is one observation that hides three
+       * different failures (never sent, sent but not acked, acked but not
+       * fanned out); this lets a spec confirm each hop instead of timing
+       * the last one.
+       */
+      getDeliveryState: () => deliveryStateRef.current?.() ?? null,
       /**
        * Writing, too. Some specs plant an element or a file to drive a live
        * path; going through `scene.apply` and `files.add` means they take the
@@ -376,7 +387,7 @@ export const Editor: React.FC = () => {
   const markSceneChangedSinceLoad = useCallback(() => {
     hasSceneChangesSinceLoadRef.current = true;
   }, []);
-  const { broadcastChanges, broadcastFiles } = useEditorBroadcast({
+  const { broadcastChanges, broadcastFiles, getDeliveryState } = useEditorBroadcast({
     drawingId: id,
     files: adapter.files,
     lastLocalChangeAtRef,
@@ -395,6 +406,9 @@ export const Editor: React.FC = () => {
     recordElementVersion,
     setHasSceneChangesSinceLoad: markSceneChangedSinceLoad,
   });
+  useEffect(() => {
+    deliveryStateRef.current = getDeliveryState;
+  }, [getDeliveryState]);
   const { emitFilesDeltaIfNeeded, setExcalidrawAPI } = useEditorAddFilesBridge({
     fileCapability: adapter.files,
     drawingId: id,

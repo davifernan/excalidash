@@ -105,6 +105,9 @@ export const dropMarkdown = async (page: Page, source: string, name = "notes.md"
  * deliberately, so a multi-MB data URL never crosses the Playwright RPC
  * boundary just to be hashed in Node. Without it (team-readiness's pressure-
  * only use), `elementId` doubles as the file id and no hash is computed.
+ *
+ * `peerFile` is the receiving side of the same contract: the file as the
+ * peer's editor holds it, decoded the same native way.
  */
 export const injectNoiseImage = (
   page: Page,
@@ -119,7 +122,13 @@ export const injectNoiseImage = (
     position?: { x: number; y: number };
     withHash?: boolean;
   },
-): Promise<{ fileId: string; dataURLLength: number; dataHash?: string }> =>
+): Promise<{
+  fileId: string;
+  dataURLLength: number;
+  dataHash?: string;
+  width: number;
+  height: number;
+}> =>
   page.evaluate(
     async ({ targetBytes, elementId, position, withHash }) => {
       const pixelCount = Math.ceil(targetBytes / 4);
@@ -143,8 +152,14 @@ export const injectNoiseImage = (
       let fileId = elementId;
       let dataHash: string | undefined;
       if (withHash) {
-        const binary = atob(dataURL.slice(dataURL.indexOf(",") + 1));
-        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        // `fetch` decodes the data URL natively. The previous `atob` +
+        // `Uint8Array.from(binary, c => c.charCodeAt(0))` was a JavaScript
+        // loop over every byte -- twenty million iterations for the 20 MB
+        // case, on the page's main thread, with three peers doing the same.
+        // On a shared CI runner that froze the page for longer than some of
+        // the spec's own waits (NIL-546's `navigator.onLine` poll timed out
+        // against exactly this).
+        const bytes = await (await fetch(dataURL)).arrayBuffer();
         const digest = await crypto.subtle.digest("SHA-256", bytes);
         dataHash = Array.from(new Uint8Array(digest), (byte) =>
           byte.toString(16).padStart(2, "0"),
@@ -198,7 +213,7 @@ export const injectNoiseImage = (
           },
         ],
       });
-      return { fileId, dataURLLength: dataURL.length, dataHash };
+      return { fileId, dataURLLength: dataURL.length, dataHash, width, height };
     },
     { targetBytes, elementId, position, withHash },
   );
@@ -223,6 +238,66 @@ export const waitForPeerFile = async (page: Page, fileId: string, timeout = 30_0
 
 export const peerHasFile = (page: Page, fileId: string) =>
   page.evaluate((id) => Boolean((window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id]), fileId);
+
+/**
+ * A file as a peer's editor holds it, resolved the way the editor would
+ * render it.
+ *
+ * Since NIL-381 a board image has two legitimate shapes on a peer. Delivered
+ * live over the socket it is the sender's inline `data:` URL, byte for byte.
+ * Once the peer has rebased its scene from the server (any 409 on its own
+ * autosave does that), the same file id carries the blob store's URL
+ * (`/api/files/<drawing>/<file>`) instead, and the store serves a lossy
+ * WebP re-encode -- deliberately, that is what keeps the scene JSON small.
+ * "Hash-identical on every peer" was the contract when this helper's
+ * callers were written and is no longer one the product makes; a spec that
+ * asserts it goes red or green depending on whether a rebase happened to
+ * land before its check. `source` tells the caller which shape it got, so
+ * it can assert byte identity for `inline` and image identity (it decodes,
+ * and its dimensions are the original's) for `store`.
+ */
+export type PeerFile = {
+  source: "inline" | "store";
+  hash: string;
+  width: number;
+  height: number;
+  byteLength: number;
+};
+
+export const peerFile = (page: Page, fileId: string): Promise<PeerFile | null> =>
+  page.evaluate(async (id) => {
+    const file = (window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id];
+    const dataURL: unknown = file?.dataURL;
+    if (typeof dataURL !== "string" || dataURL.length === 0) return null;
+    const source = dataURL.startsWith("data:") ? "inline" : "store";
+    const response = await fetch(dataURL, { credentials: "include" });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    const bytes = await blob.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const hash = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const bitmap = await createImageBitmap(blob);
+    const { width, height } = bitmap;
+    bitmap.close();
+    return { source, hash, width, height, byteLength: bytes.byteLength };
+  }, fileId);
+
+/**
+ * `__EXCALIDASH_TEST__.getDeliveryState()`, typed. What the sending peer's
+ * outbound queue is doing; see useEditorBroadcast.ts's `DeliveryState`.
+ */
+export type DeliveryState = {
+  inFlight: boolean;
+  parked: boolean;
+  retrying: boolean;
+  acknowledgedFileIds: readonly string[];
+  rejectedFileIds: readonly string[];
+};
+
+export const deliveryState = (page: Page): Promise<DeliveryState | null> =>
+  page.evaluate(() => (window as any).__EXCALIDASH_TEST__?.getDeliveryState?.() ?? null);
 
 export const documentPageLabel = (page: Page) => page.locator(".text-document-widget__page-number");
 
