@@ -306,10 +306,11 @@ describe("sticky consumers at the Excalidraw boundary", () => {
       adapter.interaction as any,
     );
 
-    expect(error).toHaveBeenCalledWith(
-      "[Sticky] Failed to insert note",
-      expect.objectContaining({ ok: false, seam: "scene.apply" }),
-    );
+    const logged = JSON.parse(error.mock.calls[0][0] as string);
+    expect(logged).toMatchObject({
+      message: "[Sticky] Failed to insert note",
+      result: { ok: false, seam: "scene.apply" },
+    });
     expect(frame).not.toHaveBeenCalled();
     frame.mockRestore();
     error.mockRestore();
@@ -360,10 +361,11 @@ describe("sticky consumers at the Excalidraw boundary", () => {
     act(() => result.current.onSceneChange([note], {}));
     await act(async () => Promise.resolve());
 
-    expect(error).toHaveBeenCalledWith(
-      "[Sticky] Failed to normalise notes",
-      expect.objectContaining({ ok: false, seam: "scene.apply" }),
-    );
+    const logged = JSON.parse(error.mock.calls[0][0] as string);
+    expect(logged).toMatchObject({
+      message: "[Sticky] Failed to normalise notes",
+      result: { ok: false, seam: "scene.apply" },
+    });
     error.mockRestore();
   });
 });

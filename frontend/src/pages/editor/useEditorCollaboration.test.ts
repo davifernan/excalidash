@@ -388,14 +388,15 @@ describe("editor collaboration reconnect state", () => {
 
     expect(mocks.roomLifecycleInput.getFollowTargetPresenceId()).toBeNull();
     expect(error).toHaveBeenCalledWith("Live collaboration could not update the editor.");
-    expect(warn).toHaveBeenCalledWith(
-      "[Editor] Excalidraw capability failed:",
-      expect.objectContaining({
+    const logged = JSON.parse(warn.mock.calls[0][0] as string);
+    expect(logged).toMatchObject({
+      message: "[Editor] Excalidraw capability failed",
+      failure: {
         ok: false,
         code: "not-ready",
         seam: "collaboration.readFollowState",
-      }),
-    );
+      },
+    });
     unmount();
   });
 

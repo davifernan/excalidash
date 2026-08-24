@@ -2,6 +2,7 @@ import React from "react";
 import * as api from "../../api";
 import type { Collection } from "../../types";
 import { toast } from "sonner";
+import { log } from "../../logging";
 
 type UseDashboardCollectionActionsParams = {
   selectedCollectionId: string | null | undefined;
@@ -23,7 +24,7 @@ export const useDashboardCollectionActions = ({
       setCollections((current) => [...current, created]);
       toast.success(`Collection “${name}” created.`, { id: toastId });
     } catch (err) {
-      console.error("Failed to create collection:", err);
+      log.error("Failed to create collection", { error: err }, { notify: false });
       toast.error(
         `Couldn't create “${name}”. The server did not complete the request. Check your connection and try again.`,
         { id: toastId },
@@ -47,7 +48,7 @@ export const useDashboardCollectionActions = ({
       await api.updateCollection(id, name);
       toast.success(`Collection renamed to “${name}”.`, { id: toastId });
     } catch (err) {
-      console.error("Failed to rename collection:", err);
+      log.error("Failed to rename collection", { error: err }, { notify: false });
       if (previousName !== undefined) {
         setCollections((current) =>
           current.map((collection) =>
@@ -81,7 +82,7 @@ export const useDashboardCollectionActions = ({
         id: toastId,
       });
     } catch (err) {
-      console.error("Failed to delete collection:", err);
+      log.error("Failed to delete collection", { error: err }, { notify: false });
       if (removed) {
         setCollections((current) => {
           if (current.some((collection) => collection.id === id)) return current;

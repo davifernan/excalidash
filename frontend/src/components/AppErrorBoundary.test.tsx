@@ -54,7 +54,15 @@ describe("AppErrorBoundary", () => {
     expect(reference).toBeTruthy();
 
     const logged = (console.error as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-      (call: unknown[]) => typeof call[0] === "string" && call[0] === `[crash ${reference}]`,
+      (call: unknown[]) => {
+        if (typeof call[0] !== "string") return false;
+        try {
+          const line = JSON.parse(call[0]);
+          return line.message === `[crash ${reference}]`;
+        } catch {
+          return false;
+        }
+      },
     );
     expect(logged).toBe(true);
   });

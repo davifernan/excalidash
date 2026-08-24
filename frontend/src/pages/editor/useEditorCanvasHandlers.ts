@@ -18,6 +18,7 @@ import {
   isStaleNonRenderableSnapshot,
   isSuspiciousEmptySnapshot,
 } from "./shared";
+import { log } from "../../logging";
 
 const capabilityError = (failure: { seam: string; code: string }) =>
   new Error(`${failure.seam} failed (${failure.code})`);
@@ -254,7 +255,7 @@ export const useEditorCanvasHandlers = ({
         );
         if (!applied.ok) throw capabilityError(applied);
       } catch (err) {
-        console.error("[Editor] Failed to import dropped images", err);
+        log.error("[Editor] Failed to import dropped images", { error: err }, { notify: false });
         toast.error("Failed to import dropped images");
       }
     },

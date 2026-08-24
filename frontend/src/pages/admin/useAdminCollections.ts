@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { NavigateFunction } from "react-router-dom";
 import * as api from "../../api";
 import type { Collection } from "../../types";
+import { log } from "../../logging";
 
 export const useAdminCollections = (navigate: NavigateFunction) => {
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -11,7 +12,7 @@ export const useAdminCollections = (navigate: NavigateFunction) => {
       const data = await api.getCollections();
       setCollections(data);
     } catch (err) {
-      console.error("Failed to fetch collections:", err);
+      log.error("Failed to fetch collections", { error: err });
     }
   };
 

@@ -8,6 +8,7 @@ import { Layout } from "../components/Layout";
 import { DataFailureNotice } from "../components/DataFailureNotice";
 import { displayFontFamily } from "../utils/displayFont";
 import type { Collection } from "../types";
+import { log } from "../logging";
 
 const FAILURE_MESSAGE =
   "We couldn't load this. The server may be restarting or your connection may be offline. Check your connection and try again.";
@@ -37,7 +38,7 @@ export const TeamLibrary: React.FC = () => {
       setItems(result);
       setStatus("idle");
     } catch (err) {
-      console.error("Failed to load Team Library:", err);
+      log.error("Failed to load Team Library", { error: err }, { notify: false });
       setStatus("error");
     }
   }, []);
@@ -47,7 +48,7 @@ export const TeamLibrary: React.FC = () => {
     api
       .getCollections()
       .then(setCollections)
-      .catch((err) => console.error("Failed to fetch collections:", err));
+      .catch((err) => log.error("Failed to fetch collections", { error: err }));
   }, [load]);
 
   const withBusy = async (id: string, fn: () => Promise<void>) => {
@@ -70,7 +71,7 @@ export const TeamLibrary: React.FC = () => {
         const updated = await api.updateLibraryItem(item.id, { visibility: next });
         setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
       } catch (err) {
-        console.error("Failed to update visibility:", err);
+        log.error("Failed to update visibility", { error: err }, { notify: false });
         toast.error("Couldn't change visibility. Try again.");
       }
     });
@@ -81,7 +82,7 @@ export const TeamLibrary: React.FC = () => {
         await api.deleteLibraryItem(item.id);
         setItems((prev) => prev.filter((row) => row.id !== item.id));
       } catch (err) {
-        console.error("Failed to delete library item:", err);
+        log.error("Failed to delete library item", { error: err }, { notify: false });
         toast.error("Couldn't delete this item. Try again.");
       }
     });
@@ -101,7 +102,7 @@ export const TeamLibrary: React.FC = () => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Failed to export Team Library:", err);
+      log.error("Failed to export Team Library", { error: err }, { notify: false });
       toast.error("Couldn't export the library. Try again.");
     }
   };
@@ -115,7 +116,7 @@ export const TeamLibrary: React.FC = () => {
       toast.success(`Imported ${result.imported} item${result.imported === 1 ? "" : "s"}`);
       load();
     } catch (err) {
-      console.error("Failed to import library file:", err);
+      log.error("Failed to import library file", { error: err }, { notify: false });
       toast.error("Couldn't import this file. Is it a valid .excalidrawlib file?");
     } finally {
       setIsImporting(false);

@@ -9,6 +9,7 @@ import type {
   FileCapability,
 } from "../../integrations/excalidraw/capabilities";
 import { hasRenderableElements } from "./shared";
+import { log } from "../../logging";
 
 const capabilityError = (failure: { seam: string; code: string }) =>
   new Error(`${failure.seam} failed (${failure.code})`);
@@ -137,7 +138,10 @@ export const useEditorCommands = ({
         try {
           await api.updateDrawing(drawingId, { name: newName });
         } catch (err) {
-          console.error("Failed to rename", err);
+          // notify: default -- setDrawingName above already updated the
+          // visible name optimistically; with no rollback and no other
+          // signal, a failed rename otherwise looks like it succeeded.
+          log.error("Failed to rename", { error: err });
         }
       }
     },
@@ -183,7 +187,7 @@ export const useEditorCommands = ({
         }
       }
     } catch (err) {
-      console.error("Failed to save on back navigation", err);
+      log.error("Failed to save on back navigation", { error: err }, { notify: false });
       toast.error("Failed to save changes. Please retry before leaving.");
     } finally {
       setIsSavingOnLeave(false);

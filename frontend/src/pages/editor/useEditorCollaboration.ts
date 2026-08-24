@@ -40,6 +40,7 @@ import type {
   SelectionCapability,
   ViewportCapability,
 } from "../../integrations/excalidraw/capabilities";
+import { log } from "../../logging";
 export type { Peer } from "./socketCollaborators";
 
 type UseEditorCollaborationInput = {
@@ -138,7 +139,7 @@ export const useEditorCollaboration = ({
   const remoteFlushRafIdRef = useRef<number | null>(null);
   const shareToken = getShareLinkToken();
   const reportCapabilityFailure = useCallback((failure: CapabilityFailure) => {
-    console.warn("[Editor] Excalidraw capability failed:", failure);
+    log.warn("[Editor] Excalidraw capability failed", { failure });
     toast.error("Live collaboration could not update the editor.");
   }, []);
   useEffect(() => {
@@ -244,7 +245,7 @@ export const useEditorCollaboration = ({
     selectionPublisherRef.current = remoteSelection.publish;
     socket.on("error", (payload: any) => {
       const message = typeof payload?.message === "string" ? payload.message : null;
-      console.warn("[Editor] Socket error:", payload);
+      log.warn("[Editor] Socket error", { payload });
       if (message === "You do not have access to this drawing") {
         onAccessDenied();
         return;
@@ -254,7 +255,7 @@ export const useEditorCollaboration = ({
     socket.on("room-event-error", (payload: any) => {
       const message = typeof payload?.error?.message === "string" ? payload.error.message : null;
       if (!message) return;
-      console.warn("[Editor] Room event rejected:", payload);
+      log.warn("[Editor] Room event rejected", { payload });
       if (payload?.error?.code === "rate-limited") toast.info(message);
       else toast.error(message);
     });

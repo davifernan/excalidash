@@ -3,6 +3,7 @@ import type { NavigateFunction } from "react-router-dom";
 import * as api from "../../api";
 import type { Collection, DrawingSummary } from "../../types";
 import { toast } from "sonner";
+import { log } from "../../logging";
 
 type UseDashboardDrawingActionsParams = {
   drawings: DrawingSummary[];
@@ -98,7 +99,7 @@ export const useDashboardDrawingActions = ({
       toast.success("Drawing created. Opening editor...", { id: toastId });
       navigate(`/editor/${id}`);
     } catch (err) {
-      console.error(err);
+      log.error("Failed to create drawing", { error: err }, { notify: false });
       const message =
         "Couldn't create a drawing. The server did not complete the request. Check your connection and try again.";
       handleViewerActionError(message);
@@ -126,7 +127,7 @@ export const useDashboardDrawingActions = ({
     try {
       await api.updateDrawing(id, { name });
     } catch (err) {
-      console.error("Failed to rename drawing:", err);
+      log.error("Failed to rename drawing", { error: err }, { notify: false });
       refreshData();
       handleViewerActionError(
         `Couldn’t rename ${quoteNames([id], drawings)}. The original name was restored; check your connection and try again.`,
@@ -164,7 +165,7 @@ export const useDashboardDrawingActions = ({
     try {
       await api.updateDrawing(id, { collectionId: "trash" });
     } catch (err) {
-      console.error("Failed to move to trash", err);
+      log.error("Failed to move to trash", { error: err }, { notify: false });
       refreshData();
       handleViewerActionError(
         `Couldn’t move ${quoteNames([id], drawings)} to Trash. The list was refreshed; check your connection and try again.`,
@@ -187,7 +188,7 @@ export const useDashboardDrawingActions = ({
         return next;
       });
     } catch (err) {
-      console.error("Failed to delete drawing", err);
+      log.error("Failed to delete drawing", { error: err }, { notify: false });
       refreshData();
       handleViewerActionError(
         `Couldn’t permanently delete ${quoteNames([id], drawings)}. Nothing was removed; check your connection and try again.`,
@@ -271,7 +272,7 @@ export const useDashboardDrawingActions = ({
       await api.duplicateDrawing(id);
       refreshData();
     } catch (err) {
-      console.error("Failed to duplicate drawing:", err);
+      log.error("Failed to duplicate drawing", { error: err }, { notify: false });
       handleViewerActionError(
         `Couldn’t duplicate ${quoteNames([id], drawings)}. Check your connection and try again.`,
       );
@@ -303,7 +304,7 @@ export const useDashboardDrawingActions = ({
     try {
       await api.updateDrawing(id, { collectionId });
     } catch (error) {
-      console.error("Failed to move drawing:", error);
+      log.error("Failed to move drawing", { error }, { notify: false });
       refreshData();
       handleViewerActionError(
         `Couldn’t move ${quoteNames([id], drawings)}. The list was refreshed; check your connection and try again.`,
@@ -392,7 +393,7 @@ export const useDashboardDrawingActions = ({
     try {
       await api.setDrawingFavorite(id, next);
     } catch (err) {
-      console.error("Failed to update favorite", err);
+      log.error("Failed to update favorite", { error: err }, { notify: false });
       setDrawings((current) =>
         current.map((drawing) => (drawing.id === id ? { ...drawing, isFavorite: !next } : drawing)),
       );

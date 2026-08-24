@@ -9,6 +9,7 @@ import {
   makeSvgPreview,
   type LegacyExportDrawing,
 } from "./importHelpers";
+import { log } from "../logging";
 
 export const importDrawings = async (
   files: File[],
@@ -77,7 +78,7 @@ export const importDrawings = async (
         if (onProgress) onProgress(fileIndex, "success", 100);
         successCount++;
       } catch (err: any) {
-        console.error(`Failed to import ${file.name}:`, err);
+        log.error(`Failed to import ${file.name}`, { error: err }, { notify: false });
         failCount++;
         const errorMessage =
           err?.response?.data?.message ||
@@ -236,7 +237,7 @@ export const importLegacyFiles = async (
 
         throw new Error(`Invalid file structure: ${file.name}`);
       } catch (err: any) {
-        console.error(`Failed to import ${file.name}:`, err);
+        log.error(`Failed to import ${file.name}`, { error: err }, { notify: false });
         failCount += 1;
         const errorMessage =
           err?.response?.data?.message ||
