@@ -94,129 +94,188 @@ export const dropMarkdown = async (page: Page, source: string, name = "notes.md"
  * pressure with no peer to check.
  *
  * Random pixels are incompressible, so the encoded PNG lands close to
- * `targetBytes` regardless of what the browser's deflate pass does.
- * `crypto.getRandomValues` fills the pixel buffer in 64KiB chunks (its own
- * per-call cap) rather than a JS-level per-pixel loop, which matters once
- * `targetBytes` reaches double digits of MB.
+ * `targetBytes` regardless of what the browser's deflate pass does. The
+ * random fill, canvas write, PNG encoding and hashes all run in a dedicated
+ * worker: Playwright evaluates its waits on the page's main thread, so doing
+ * this work there made unrelated predicates miss their complete timeout on
+ * the two-core CI runner (NIL-551).
  *
  * `withHash: true` (team-acceptance's peer-verification use) derives the
- * file id from a SHA-1 of the raw bytes and returns a SHA-256 `dataHash` a
- * peer's own received copy can be compared against -- computed in-browser
- * deliberately, so a multi-MB data URL never crosses the Playwright RPC
- * boundary just to be hashed in Node. Without it (team-readiness's pressure-
- * only use), `elementId` doubles as the file id and no hash is computed.
+ * file id from a SHA-1 of the encoded PNG and returns a SHA-256 `dataHash` a
+ * peer's own received copy can be compared against. The bytes stay inside
+ * the browser rather than crossing Playwright's RPC boundary. Without it
+ * (team-readiness's pressure-only use), `elementId` doubles as the file id
+ * and no hash is computed.
  *
  * `peerFile` is the receiving side of the same contract: the file as the
  * peer's editor holds it, decoded the same native way.
  */
-export const injectNoiseImage = (
-  page: Page,
-  {
-    targetBytes,
-    elementId,
-    position,
-    withHash = false,
-  }: {
-    targetBytes: number;
-    elementId: string;
-    position?: { x: number; y: number };
-    withHash?: boolean;
-  },
-): Promise<{
+export type NoiseImageInput = {
+  targetBytes: number;
+  elementId: string;
+  position?: { x: number; y: number };
+  withHash?: boolean;
+};
+
+export type InjectedNoiseImage = {
   fileId: string;
   dataURLLength: number;
   dataHash?: string;
   width: number;
   height: number;
-}> =>
+};
+
+export const injectNoiseImageBatch = (
+  page: Page,
+  images: readonly NoiseImageInput[],
+): Promise<InjectedNoiseImage[]> =>
   page.evaluate(
-    async ({ targetBytes, elementId, position, withHash }) => {
-      const pixelCount = Math.ceil(targetBytes / 4);
-      const width = Math.ceil(Math.sqrt(pixelCount));
-      const height = Math.ceil(pixelCount / width);
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Missing 2D canvas context");
-      const pixels = context.createImageData(width, height);
-      const CHUNK = 65536;
-      for (let offset = 0; offset < pixels.data.length; offset += CHUNK) {
-        crypto.getRandomValues(
-          pixels.data.subarray(offset, Math.min(offset + CHUNK, pixels.data.length)),
-        );
+    async (inputs) => {
+      const workerMain = () => {
+        const workerScope = globalThis as any;
+        const hex = (digest: ArrayBuffer) =>
+          Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        workerScope.onmessage = async (event: MessageEvent) => {
+          try {
+            const generated = [];
+            for (const input of event.data.inputs) {
+              const pixelCount = Math.ceil(input.targetBytes / 4);
+              const width = Math.ceil(Math.sqrt(pixelCount));
+              const height = Math.ceil(pixelCount / width);
+              const canvas = new OffscreenCanvas(width, height);
+              const context = canvas.getContext("2d");
+              if (!context) throw new Error("Missing worker 2D canvas context");
+              const pixels = context.createImageData(width, height);
+              const chunkBytes = 65_536;
+              for (let offset = 0; offset < pixels.data.length; offset += chunkBytes) {
+                crypto.getRandomValues(
+                  pixels.data.subarray(offset, Math.min(offset + chunkBytes, pixels.data.length)),
+                );
+              }
+              context.putImageData(pixels, 0, 0);
+              const blob = await canvas.convertToBlob({ type: "image/png" });
+              const bytes = await blob.arrayBuffer();
+              const dataURL = new workerScope.FileReaderSync().readAsDataURL(blob);
+              const dataHash = input.withHash
+                ? hex(await crypto.subtle.digest("SHA-256", bytes))
+                : undefined;
+              const fileHash = input.withHash
+                ? hex(await crypto.subtle.digest("SHA-1", bytes))
+                : undefined;
+              generated.push({ dataURL, dataHash, fileHash, width, height });
+            }
+            workerScope.postMessage({ generated });
+          } catch (error) {
+            workerScope.postMessage({
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        };
+      };
+      const workerUrl = URL.createObjectURL(
+        new Blob([`(${workerMain.toString()})()`], { type: "text/javascript" }),
+      );
+      let response: {
+        generated?: Array<{
+          dataURL: string;
+          dataHash?: string;
+          fileHash?: string;
+          width: number;
+          height: number;
+        }>;
+        error?: string;
+      };
+      const worker = new Worker(workerUrl);
+      try {
+        response = await new Promise((resolve, reject) => {
+          worker.onmessage = (event) => resolve(event.data);
+          worker.onerror = (event) => reject(new Error(event.message));
+          worker.postMessage({ inputs });
+        });
+      } finally {
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
       }
-      context.putImageData(pixels, 0, 0);
-      const dataURL = canvas.toDataURL("image/png");
-
-      let fileId = elementId;
-      let dataHash: string | undefined;
-      if (withHash) {
-        // `fetch` decodes the data URL natively. The previous `atob` +
-        // `Uint8Array.from(binary, c => c.charCodeAt(0))` was a JavaScript
-        // loop over every byte -- twenty million iterations for the 20 MB
-        // case, on the page's main thread, with three peers doing the same.
-        // On a shared CI runner that froze the page for longer than some of
-        // the spec's own waits (NIL-546's `navigator.onLine` poll timed out
-        // against exactly this).
-        const bytes = await (await fetch(dataURL)).arrayBuffer();
-        const digest = await crypto.subtle.digest("SHA-256", bytes);
-        dataHash = Array.from(new Uint8Array(digest), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ).join("");
-        const fileDigest = await crypto.subtle.digest("SHA-1", bytes);
-        fileId = Array.from(new Uint8Array(fileDigest), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ).join("");
+      if (response.error) throw new Error(response.error);
+      if (!response.generated || response.generated.length !== inputs.length) {
+        throw new Error("Noise worker returned an incomplete batch");
       }
-
-      const created = Date.now();
+      const generatedImages = response.generated;
       const api = (window as any).__EXCALIDASH_TEST__;
       if (!api) throw new Error("Missing __EXCALIDASH_TEST__");
-      api.addFiles({
-        [fileId]: { id: fileId, mimeType: "image/png", dataURL, created, lastRetrieved: created },
-      });
+      const files: Record<string, any> = {};
+      const elements: any[] = [];
+      const results: InjectedNoiseImage[] = [];
+      for (let index = 0; index < inputs.length; index += 1) {
+        const input = inputs[index];
+        const generatedImage = generatedImages[index];
+        const dataURL = generatedImage.dataURL;
+        const fileId = generatedImage.fileHash ?? input.elementId;
+        const created = Date.now();
+        files[fileId] = {
+          id: fileId,
+          mimeType: "image/png",
+          dataURL,
+          created,
+          lastRetrieved: created,
+        };
+        elements.push({
+          id: input.elementId,
+          type: "image",
+          x: input.position?.x ?? 40,
+          y: input.position?.y ?? 100,
+          width: input.position ? 100 : 120,
+          height: input.position ? 80 : 90,
+          angle: 0,
+          strokeColor: "#1e1e1e",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          roundness: null,
+          roughness: 0,
+          opacity: 100,
+          groupIds: [],
+          frameId: null,
+          seed: Math.floor(Math.random() * 1e9),
+          version: 1,
+          versionNonce: Math.floor(Math.random() * 1e9),
+          isDeleted: false,
+          boundElements: null,
+          link: null,
+          locked: false,
+          index: `nil330_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`,
+          updated: created,
+          status: "saved",
+          fileId,
+          scale: [1, 1],
+          crop: null,
+        });
+        results.push({
+          fileId,
+          dataURLLength: dataURL.length,
+          dataHash: generatedImage.dataHash,
+          width: generatedImage.width,
+          height: generatedImage.height,
+        });
+      }
+      api.addFiles(files);
       api.updateScene({
-        elements: [
-          ...api.getSceneElementsIncludingDeleted(),
-          {
-            id: elementId,
-            type: "image",
-            x: position?.x ?? 40,
-            y: position?.y ?? 100,
-            width: position ? 100 : 120,
-            height: position ? 80 : 90,
-            angle: 0,
-            strokeColor: "#1e1e1e",
-            backgroundColor: "transparent",
-            fillStyle: "solid",
-            strokeWidth: 1,
-            strokeStyle: "solid",
-            roundness: null,
-            roughness: 0,
-            opacity: 100,
-            groupIds: [],
-            frameId: null,
-            seed: Math.floor(Math.random() * 1e9),
-            version: 1,
-            versionNonce: Math.floor(Math.random() * 1e9),
-            isDeleted: false,
-            boundElements: null,
-            link: null,
-            locked: false,
-            index: `nil330_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-            updated: created,
-            status: "saved",
-            fileId,
-            scale: [1, 1],
-            crop: null,
-          },
-        ],
+        elements: [...api.getSceneElementsIncludingDeleted(), ...elements],
       });
-      return { fileId, dataURLLength: dataURL.length, dataHash, width, height };
+      return results;
     },
-    { targetBytes, elementId, position, withHash },
+    images.map((image) => ({ ...image, withHash: image.withHash ?? false })),
   );
+
+export const injectNoiseImage = async (
+  page: Page,
+  image: NoiseImageInput,
+): Promise<InjectedNoiseImage> => {
+  const [injected] = await injectNoiseImageBatch(page, [image]);
+  if (!injected) throw new Error("Noise image batch returned no image");
+  return injected;
+};
 
 /** Wait for a peer's editor to receive one file and return its SHA-256 content hash. */
 export const waitForPeerFile = async (page: Page, fileId: string, timeout = 30_000) => {

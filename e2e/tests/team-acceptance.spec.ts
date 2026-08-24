@@ -9,6 +9,7 @@ import {
   type DeliveryState,
   type PeerFile,
   injectNoiseImage,
+  injectNoiseImageBatch,
   openEditor as openEditorReady,
 } from "./helpers/editor";
 
@@ -54,8 +55,6 @@ import {
 const CEILING = {
   /** Server-side ack of a file the sender queued. */
   ack: 120_000,
-  /** The sender's queue idle again (no in-flight, parked or retrying packet). */
-  drained: 120_000,
   /** A file present on a peer after the server acked it. */
   peer: 60_000,
   /** A toast, a label, a button state -- anything rendered locally. */
@@ -149,13 +148,6 @@ const waitForLocalRejection = (page: Page, fileId: string, label: string) =>
   waitForDelivery(page, (state) => state.rejectedFileIds.includes(fileId), {
     label: `${label}: the sender never recorded file ${fileId} as rejected`,
     timeout: CEILING.ui,
-  });
-
-/** The sender's queue has nothing in flight, parked, or waiting to retry. */
-const waitForQueueDrained = (page: Page, label: string) =>
-  waitForDelivery(page, (state) => !state.inFlight && !state.parked && !state.retrying, {
-    label: `${label}: the sender's delivery queue never drained`,
-    timeout: CEILING.drained,
   });
 
 /**
@@ -341,24 +333,33 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
       });
 
       await test.step("three files split across packets are all confirmed on every peer", async () => {
-        const batch = await Promise.all(
-          [6, 6.25, 6.5].map((megabytes, i) =>
-            injectNoiseImage(host, {
-              withHash: true,
-              // Three sizes, so three different image dimensions: a peer
-              // holding the right bytes under the wrong id shows up as a
-              // dimension mismatch instead of passing three identical checks.
-              targetBytes: Math.round(megabytes * 1024 * 1024),
-              elementId: `nil330_split_${i}`,
-            }),
-          ),
+        const batch = await injectNoiseImageBatch(
+          host,
+          [4.25, 4.5, 4.75].map((megabytes, i) => ({
+            withHash: true,
+            // Three sizes, so three different image dimensions: a peer
+            // holding the right bytes under the wrong id shows up as a
+            // dimension mismatch instead of passing three identical checks.
+            targetBytes: Math.round(megabytes * 1024 * 1024),
+            elementId: `nil330_split_${i}`,
+            position: { x: 40 + i * 140, y: 240 },
+          })),
         );
-        // Sender first: every packet acked, queue idle. Only then does a
-        // missing file on a peer mean what it says.
+        const dataUrlLengths = batch.map((file) => file.dataURLLength).sort((a, b) => a - b);
+        expect(dataUrlLengths).toHaveLength(3);
+        expect(Math.max(...dataUrlLengths)).toBeLessThan(10 * 1024 * 1024);
+        // The live packet ceiling is 11 MiB. Even the two smallest files do
+        // not fit together, so this one atomic addFiles call must become at
+        // least three packets; the assertion keeps reduced fixture sizes from
+        // silently weakening the split contract.
+        expect(dataUrlLengths[0] + dataUrlLengths[1]).toBeGreaterThan(11 * 1024 * 1024);
+        // Sender first: every target packet acked. Only then does a missing
+        // target file on a peer mean what it says. #98 intentionally lets
+        // later metadata refreshes continue independently; global queue idle
+        // is not part of this file-delivery contract.
         for (const file of batch) {
           await waitForServerAck(host, file.fileId, "split batch");
         }
-        await waitForQueueDrained(host, "host after the split batch");
         for (const file of batch) {
           await expectPeerFile(guestA, file, "split batch on guestA");
           await expectPeerFile(guestB, file, "split batch on guestB");
@@ -471,14 +472,11 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
 
         // Hop by hop. The probe was queued while the socket died; after the
         // reconnect the server has to ack it (a resend from a clean marker,
-        // not a ghost), the sender's queue has to go idle (nothing left
-        // parked or retrying behind it -- NIL-533's head-of-line property,
-        // observed here rather than raced), and only then is the peer's copy
-        // compared. A red run names the hop: no ack means the resend never
-        // completed; ack but no drain means something is wedged behind it;
-        // drained but absent on guestA means fan-out, not delivery, failed.
+        // not a ghost), and then the peer's copy is compared. #98 replaced
+        // global queue-idle with per-file fairness: the fresh follow-up below
+        // passing all three hops is the observable proof that nothing older
+        // can head-of-line-block it.
         await waitForServerAck(host, probe.fileId, "reconnect probe");
-        await waitForQueueDrained(host, "host after reconnect");
         await expectPeerFile(guestA, probe, "reconnect probe on guestA");
 
         // The reconnect must not have wedged future delivery: a fresh file
