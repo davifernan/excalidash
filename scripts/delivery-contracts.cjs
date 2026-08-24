@@ -193,6 +193,32 @@ function isValidFixRecipe(recipe) {
     );
   }
 
+  // NIL-492: a behaviour-preserving refactor has no failing side by definition
+  // -- "test" (from.exit_code !== 0) and "configuration" (from.output !==
+  // to.output) both require a real difference this recipe never has. `from`
+  // and `to` are deliberately BOTH required green here; what proves the
+  // record means anything is `coverage_probe`, a third, separate observation
+  // where `subject` -- the exact code the finding touched -- was deliberately
+  // broken (by file copy, per docs/architecture/FIX_VERIFICATION.md's
+  // red-proof convention, never by reverting the real fix commit) and the
+  // SAME instrument, unmodified, went red on it. Without that third
+  // observation, two green runs of an instrument that never touches the
+  // changed path would satisfy this schema and prove nothing.
+  if (recipe.kind === "equivalence") {
+    return Boolean(
+      isNonEmptyString(recipe.instrument?.path) &&
+      LOWER_SHA_PATTERN.test(recipe.instrument?.blob_sha || "") &&
+      isNonEmptyString(recipe.subject?.path) &&
+      isNonEmptyString(recipe.subject?.description) &&
+      recipe.from.exit_code === 0 &&
+      recipe.to.exit_code === 0 &&
+      isCommandResult(recipe.coverage_probe) &&
+      recipe.coverage_probe.exit_code !== 0 &&
+      isNonEmptyString(recipe.coverage_probe.assertion) &&
+      recipe.coverage_probe.output.includes(recipe.coverage_probe.assertion),
+    );
+  }
+
   return false;
 }
 

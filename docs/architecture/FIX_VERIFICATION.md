@@ -129,6 +129,68 @@ mandatory and must differ.
 }
 ```
 
+### Equivalence recipe (NIL-492)
+
+A behaviour-preserving refactor -- Hans found duplication or an unnecessary abstraction, the
+fix changes structure without changing behaviour -- has no failing side by construction. Its
+test stays green before and after; that is the entire point of the change. Neither the test
+recipe (`from.exit_code !== 0`) nor the configuration recipe (`from.output !== to.output`)
+can be satisfied honestly, and encoding this as either one would mean fabricating a red state
+that never existed. Measured on PR #59: three inlined `[...ENTRIES].sort(byOrder).map(...)`
+calls collapsed into one `renderSorted`, `chromeSlots.test.tsx` green on both `e3ce77ad` and
+`72e1860c`.
+
+A green/green pair alone proves nothing by itself, though: a test that never touches the
+changed function is also green on both sides. What closes that gap is a third, separate
+observation -- `coverage_probe` -- where `subject` (the exact code the finding touched) was
+deliberately broken by file copy, per this document's red-proof convention (**never** by
+reverting the actual fix commit -- that would test the wrong tree), and the *same*,
+unmodified instrument went red on it, naming the assertion that actually failed. That is the
+proof the instrument would have caught a real regression at this exact spot, not just that it
+ran and passed.
+
+```html
+<!-- excalidash-fix-verification:v1
+{
+  "schema": 1,
+  "from_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "to_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "evidence_type": "objective-red-green",
+  "finding": {
+    "id": "PR-59-R42",
+    "url": "https://github.com/davifernan/excalidash/pull/59#discussion_r42"
+  },
+  "recorded_by": { "role": "pr-overseer", "actor": "davi" },
+  "recipe": {
+    "kind": "equivalence",
+    "command": "npx vitest run frontend/src/pages/editor/chromeSlots.test.tsx",
+    "instrument": {
+      "path": "frontend/src/pages/editor/chromeSlots.test.tsx",
+      "blob_sha": "dddddddddddddddddddddddddddddddddddddddd"
+    },
+    "subject": {
+      "path": "frontend/src/pages/editor/chromeSlots.tsx",
+      "description": "the three inlined [...ENTRIES].sort(byOrder).map(...) calls collapsed into renderSorted"
+    },
+    "from": { "exit_code": 0, "output": "tests 6; pass 6; fail 0" },
+    "to": { "exit_code": 0, "output": "tests 6; pass 6; fail 0" },
+    "coverage_probe": {
+      "exit_code": 1,
+      "assertion": "expected slot order [main-menu, comments] to equal [comments, main-menu]",
+      "output": "AssertionError: expected slot order [main-menu, comments] to equal [comments, main-menu]"
+    }
+  }
+}
+-->
+```
+
+`instrument.blob_sha` is a single value, same as the test recipe: `from`, `to` and
+`coverage_probe` all run the identical, unmodified instrument -- only the source tree under
+test changes between the three runs. `coverage_probe.output` must literally contain
+`coverage_probe.assertion`, the same non-paraphrased rule the test recipe's `from` observation
+uses and for the same reason: a hand-typed summary of what failed is not evidence that
+anything actually failed there.
+
 Do not encode an otherwise unsupported measurement as an unstructured prose recipe. Add a
 new schema version through a reviewed contract change instead.
 

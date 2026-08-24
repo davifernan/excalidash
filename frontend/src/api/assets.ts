@@ -1,5 +1,6 @@
 import { API_URL, api } from "./client";
 import { addShareTokenToUrl } from "./shareToken";
+import type { WidgetKind } from "../integrations/excalidraw/customData";
 
 export type PdfAsset = {
   id: string;
@@ -18,7 +19,14 @@ export type TextAsset = {
 };
 
 export type DocumentAsset = PdfAsset | TextAsset;
-export type UploadDocumentKind = "pdf" | "markdown" | "text";
+/**
+ * Which of the three uploadable document kinds this is -- the same question
+ * `WidgetKind` answers once the upload becomes a canvas widget. One source
+ * (`integrations/excalidraw/customData.ts`); this module imports it rather
+ * than keeping its own copy, which is how `UploadDocumentKind` and
+ * `WidgetKind` ended up independently identical (NIL-489, Klasse 2).
+ */
+export type UploadDocumentKind = WidgetKind;
 
 const assetPath = (drawingId: string, assetId: string) =>
   `/drawings/${encodeURIComponent(drawingId)}/assets/${encodeURIComponent(assetId)}`;

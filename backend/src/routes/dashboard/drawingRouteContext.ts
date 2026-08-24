@@ -80,6 +80,14 @@ export const createDrawingRouteContext = (deps: DashboardRouteDeps): DrawingRout
     return true;
   };
 
+  /**
+   * `userId` in `cleanupS3FilesForDrawing` and `cloneS3FileReferences` below is an S3 path
+   * key, not an ownership filter: it namespaces the object prefix (`drawingS3Prefix`,
+   * `buildS3Key`) and the `S3File` row lookup, and neither function decides who may act on
+   * the drawing -- callers resolve that through backend/src/authz/ before reaching here.
+   * Counting the `userId` occurrences below and reading them as an authz boundary check
+   * misreads the file (NIL-489); the occurrence count says nothing about what each one does.
+   */
   const cleanupS3FilesForDrawing = async (drawingId: string, userId: string): Promise<void> => {
     if (!isS3Enabled()) return;
 

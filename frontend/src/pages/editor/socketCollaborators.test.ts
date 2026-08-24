@@ -71,7 +71,7 @@ const fakeCollaboration = (initial: Record<string, any> = {}) => {
       follow: () => ({ ok: true as const, value: undefined }),
       setFollowedBy: () => ({ ok: true as const, value: undefined }),
       onFollowIntent: () => () => {},
-      onPointerUpdate: () => () => {},
+      onLocalPointerBroadcast: () => () => {},
     } as any,
   };
 };

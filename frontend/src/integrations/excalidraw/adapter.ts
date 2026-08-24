@@ -378,12 +378,12 @@ export const createSceneCapability = (getApi: () => RawApi | null): SceneCapabil
       return ok(seal(opened));
     },
 
-    reconcile() {
+    rebaseOntoServer() {
       // Deliberately unimplemented until the persistence consumer migrates:
       // reconciliation has to reuse the editor's own merge, and wiring it
       // before there is a caller would be guessing at the shape.
       return report(
-        fail("unsupported", "scene.reconcile", {
+        fail("unsupported", "scene.rebaseOntoServer", {
           detail: "arrives with the persistence migration",
         }),
       );

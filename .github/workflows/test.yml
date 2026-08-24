@@ -95,6 +95,27 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/authz-boundary.test.cjs
 
+  type-collision-inventory:
+    name: Type Collision Inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No dependency install, same reasoning as Authz Boundary: this reads
+      # frontend/src and backend/src with node:fs and nothing else.
+      - name: Check the string-union type inventory (NIL-489)
+        run: node scripts/type-collision-inventory.cjs
+
+      - name: Prove the inventory rejects what it claims to
+        run: node scripts/type-collision-inventory.test.cjs
+
   frontend-format:
     name: Frontend Format
     runs-on: ubuntu-latest
