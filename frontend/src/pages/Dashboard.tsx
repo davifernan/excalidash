@@ -8,6 +8,7 @@ import { useUpload } from "../context/UploadContext";
 import { DragOverlayPortal } from "./dashboard/shared";
 import { DashboardToolbar } from "./dashboard/DashboardToolbar";
 import { CollectionTeamBar } from "./dashboard/CollectionTeamBar";
+import { CurrentlyOpenStrip } from "./dashboard/CurrentlyOpenStrip";
 import { useCollectionPresence, useDashboardPresence } from "./dashboard/useDashboardPresence";
 import {
   DragPreview,
@@ -198,6 +199,13 @@ export const Dashboard: React.FC = () => {
         collection={actions.currentCollection}
         onlineKeys={collectionPresence?.keys ?? null}
       />{" "}
+      {!actions.isTrashView && (
+        <CurrentlyOpenStrip
+          drawings={sortedDrawings}
+          presence={presence}
+          onOpenDrawing={(id) => navigate(`/editor/${id}`)}
+        />
+      )}{" "}
       <ViewerActionToast message={actions.viewerActionError} />{" "}
       <DashboardToolbar
         search={search}
