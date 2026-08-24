@@ -1,0 +1,229 @@
+name: Team Acceptance
+
+# team-acceptance.spec.ts (NIL-330's integrated M0 acceptance soak) runs
+# here, on its own schedule, and not as part of `Tests`.
+#
+# Why not in the merge gate: the test is one ~4-10 minute sequence of five
+# steps, three browser contexts and ~50 MB of synthetic image data, with zero
+# retries. It has to win every timing bet in every step on a shared runner to
+# come out green -- and on 2026-08-24 it did so in 2 of 52 runs, failing at
+# five different places (NIL-519, NIL-526, NIL-533, NIL-546, NIL-548), each
+# one filed as its own symptom. As the required `E2E Browser Tests` context it
+# blocked twenty pull requests, including the three trying to repair it. A
+# gate nobody can pass trains everyone to override red; that is worse than
+# no gate. The test still finds real collisions (it surfaced NIL-533 and the
+# post-rejection autosave 400 the same day), so it keeps running -- as a
+# detector that files an issue, not as a lock on `main`.
+#
+# Returning to the gate is a deliberate step, not a default: three serial
+# green nightly runs first, then add the job back to `Tests` and to the
+# `e2e-tests` aggregator's `needs`.
+on:
+  schedule:
+    # 03:00 UTC nightly against main -- the same hour the self-development
+    # cycle runs, so a red result is waiting when the next work day starts.
+    - cron: "0 3 * * *"
+  # `gh workflow run team-acceptance.yml --ref <branch>`: a package working on
+  # the collaboration or delivery path runs it on its own branch before
+  # asking for review, instead of waiting for the night.
+  workflow_dispatch:
+
+# Read-only for the workflow; the one job that files an issue raises its own
+# permission below. `npm ci` and `playwright install` in the test job run
+# with no write access to anything.
+permissions:
+  contents: read
+
+concurrency:
+  group: team-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-team-acceptance:
+    name: E2E Team Acceptance (NIL-330)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma client
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: Setup backend database
+        run: |
+          cd backend
+          node scripts/provider-prisma.cjs migrate deploy
+        env:
+          DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-team-acceptance.db
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Install E2E test dependencies
+        run: |
+          cd e2e
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          cd e2e
+          npx playwright install chromium --with-deps
+
+      - name: Start servers and run E2E tests
+        run: |
+          # Own ports so this never collides with a shard's, the cross-engine
+          # job's, or the other isolated jobs' if runners ever share a host.
+          BACKEND_LOG="${{ github.workspace }}/backend-team-acceptance.log"
+
+          cd backend
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/e2e-team-acceptance.db" \
+            PORT=8864 \
+            FRONTEND_URL="http://localhost:6864" \
+            CSRF_SECRET="e2e-team-acceptance-csrf" \
+            CSRF_MAX_REQUESTS=100000 \
+            RATE_LIMIT_MAX_REQUESTS=100000 \
+            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-team-acceptance-assets" \
+            npm run dev > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          cd ..
+
+          # Cleanup via trap, not a line after the test command: under
+          # `bash -e` (this step's default shell) a nonzero exit from that
+          # command ends the script immediately, so a cleanup line placed
+          # after it never runs in exactly the case it exists for. A trap
+          # fires on every exit path -- success, `-e` abort, or the explicit
+          # `exit` below -- so it actually keeps the promise its name makes.
+          FRONTEND_PID=""
+          cleanup() {
+            echo "Cleanup: stopping backend/frontend servers"
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          echo "Waiting for backend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8864/health > /dev/null; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 2
+          done
+
+          cd frontend
+          VITE_DEV_BACKEND_URL="http://localhost:8864" npm run dev -- --host --port 6864 &
+          FRONTEND_PID=$!
+          cd ..
+
+          echo "Waiting for frontend server..."
+          for i in {1..30}; do
+            if curl -s http://localhost:6864 > /dev/null; then
+              echo "Frontend is ready!"
+              break
+            fi
+            echo "Attempt $i: Frontend not ready yet..."
+            sleep 2
+          done
+
+          # Run E2E tests. Wrapped in our own `timeout` rather than trusting
+          # the job's 20-minute cancellation to leave a report behind: that
+          # cancellation does not reliably give Playwright the chance to
+          # write one (verified locally -- SIGTERM kills the process before
+          # it can write anything, SIGINT lets it finish the run as
+          # "interrupted" and write report/trace/video for what already ran).
+          # `--preserve-status` keeps the real pass/fail exit code instead of
+          # always reporting 124. 720s is the same budget every other E2E job
+          # uses even though this job's single test takes ~2.5 minutes on its
+          # own -- the whole point of giving it its own job is that it no
+          # longer has to share that budget with anything else.
+          cd e2e
+          TEST_EXIT_CODE=0
+          NO_SERVER=true CI=true \
+            API_URL="http://localhost:8864" \
+            BASE_URL="http://localhost:6864" \
+            E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
+            timeout --signal=INT --kill-after=30s --preserve-status 720 \
+            npx playwright test --project=team-acceptance \
+            || TEST_EXIT_CODE=$?
+          cd ..
+
+          exit "$TEST_EXIT_CODE"
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-team-acceptance
+          path: e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-team-acceptance
+          path: e2e/test-results/
+          retention-days: 7
+          if-no-files-found: error
+
+
+  # A scheduled red run has nobody watching it. This turns it into a piece of
+  # work: one open issue per streak, appended per run, so the trace links
+  # collect in one place instead of one issue per night. Manual runs skip it
+  # -- whoever dispatched one is already looking at the result.
+  report-nightly-red:
+    name: File the nightly-red issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    needs: e2e-team-acceptance
+    if: always() && github.event_name == 'schedule' && needs.e2e-team-acceptance.result != 'success'
+    steps:
+      - name: Open or extend the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.e2e-team-acceptance.result }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          label="team-acceptance-nightly"
+          gh label create "$label" --force --color B60205 \
+            --description "Nightly team-acceptance soak did not pass" > /dev/null
+          body="$(printf '%s\n\n%s' \
+            "Nightly \`E2E Team Acceptance (NIL-330)\` finished **${RESULT}** on \`${HEAD_SHA:0:8}\`: ${RUN_URL}" \
+            "The Playwright report and, for a failed run, \`test-results/\` (trace, screenshots, error-context) are attached to that run as artifacts.")"
+          existing="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+            echo "Appended to #$existing"
+          else
+            gh issue create \
+              --title "Nightly team-acceptance soak is red" \
+              --label "$label" \
+              --body "$(printf '%s\n\n%s' "$body" \
+                "This issue stays open for the whole red streak; each further red night is appended as a comment. Close it when a night is green again.")"
+            echo "Opened a new tracking issue"
+          fi
