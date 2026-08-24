@@ -1,8 +1,30 @@
 # What this fork adds
 
-Tracks [ZimengXiong/ExcaliDash](https://github.com/ZimengXiong/ExcaliDash) and carries four changes that
-are also open upstream as separate pull requests. `main` here is the running,
-self-hostable combination of all of them.
+This fork started by tracking
+[ZimengXiong/ExcaliDash](https://github.com/ZimengXiong/ExcaliDash) and carrying a handful of
+patches upstream wanted too. It has since grown well past that: `main` here is a canvas-first
+project space for a small team (around ten people) built on top of Excalidraw — see
+[docs/product/PRODUCT_VISION.md](docs/product/PRODUCT_VISION.md) for the product thesis this
+fork is being built toward. Roughly, on top of upstream's single-user dashboard, this fork adds:
+
+- **Team Home** — recent/favorite boards, who's working where, team activity, search and a
+  command palette
+- **Comments, mentions and an inbox** — asynchronous discussion anchored to a board or element,
+  notifications, "what happened since you were last here"
+- **Workshops and presentations** — a frame navigator, presenter notes, a workshop timer and
+  moderation actions, hidden voting
+- **A shared Team Library**, board archive/lifecycle, and deep links to a board/element/position
+- **A typed boundary in front of the Excalidraw editor** (`frontend/src/integrations/
+  excalidraw/`) and a server-side authz boundary (`backend/src/authz/`), so an Excalidraw
+  package upgrade or an ownership decision touches one seam instead of the whole app — see
+  [docs/architecture/EXCALIDRAW_ADAPTER.md](docs/architecture/EXCALIDRAW_ADAPTER.md) and
+  [docs/architecture/OWNERSHIP_MODEL.md](docs/architecture/OWNERSHIP_MODEL.md)
+- Board-scoped agent access, invite-by-email account creation, and the smaller
+  reliability/UX patches below — some of which are also open upstream as separate pull requests
+
+This document only covers day-to-day hosting and configuration. For what's actually built and
+why, start with `docs/product/` and `docs/architecture/`; Multica project `ExcaliDash Fork` is
+the live roadmap and issue tracker behind it (see `AGENTS.md`).
 
 | Upstream PR | What it does |
 | --- | --- |
@@ -11,7 +33,7 @@ self-hostable combination of all of them.
 | [#249](https://github.com/ZimengXiong/ExcaliDash/pull/249) | Reveal toggle on password fields, live match feedback, opt-in longer sessions |
 | [#250](https://github.com/ZimengXiong/ExcaliDash/pull/250) | The E2E job stops locking itself out with HTTP 429 |
 | not upstream yet | Admin-created accounts can be invited by email instead of handing a password over by chat |
-| not upstream yet | Agents authenticate with an API key: the websocket accepts them too, and an admin tab lists and revokes them |
+| not upstream yet | Agents authenticate with an API key (the websocket accepts them too, an admin tab lists and revokes them), optionally bound to a single board with an enforced expiry |
 
 ## Hosting it
 
@@ -131,6 +153,12 @@ keys under **Profile → API keys**; admins see and revoke every key under **Adm
 Beyond the default scopes, a key can be granted `drawings:history` and `drawings:share`.
 Both are opt-in: an ordinary key can neither read a drawing's history nor hand it to another
 account.
+
+A key can also be bound to a single board instead of the whole account: set, it confines the
+key to `drawing:read`/`drawing:ops` on that one board, refused on every other route (HTTP and
+the websocket handshake both go through the same check), with an enforced expiry of at most 30
+days. There is no account-wide agent permission as a legacy fallback for this — a board-scoped
+key is scoped, full stop.
 
 ### Session length
 
