@@ -50,13 +50,34 @@ export const createPostgresClient = async (): Promise<Client> => {
   return client;
 };
 
+/** Schema names this helper is allowed to drop/create -- see resetPostgresSchema. */
+const SAFE_SCHEMA_NAME = /^[a-z][a-z0-9_]{0,62}$/;
+
 /**
- * Drops and recreates the `public` schema so each test starts from the same
- * empty database a fresh `:memory:` sqlite handle gives the sqlite side --
- * this connection is to a real, persistent server, not a throwaway process.
+ * Drops and recreates `schemaName`, then points this connection's
+ * `search_path` at it, so each test starts from the same empty database a
+ * fresh `:memory:` sqlite handle gives the sqlite side -- this connection is
+ * to a real, persistent server, not a throwaway process.
+ *
+ * `schemaName` is required, not defaulted to `public`: the whole backend
+ * test suite runs as one `vitest run` in CI (`singleFork: true`, but that
+ * only bounds the OS process count -- test *files* still run concurrently
+ * within it, see vitest.config.ts) against one shared Postgres service
+ * container. Two migration test files both resetting `public` at once race
+ * on the same DDL and fail with things like `duplicate key value violates
+ * unique constraint "pg_type_typname_nsp_index"` -- not a flaky test, a
+ * shared-mutable-schema bug this helper had until NIL-382 added the second
+ * caller of it. Each test file names its own schema so concurrent files
+ * never see each other's tables.
  */
-export const resetPostgresSchema = async (client: Client): Promise<void> => {
-  await client.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+export const resetPostgresSchema = async (client: Client, schemaName: string): Promise<void> => {
+  if (!SAFE_SCHEMA_NAME.test(schemaName)) {
+    throw new Error(`Unsafe Postgres schema name for a test: ${JSON.stringify(schemaName)}`);
+  }
+  await client.query(
+    `DROP SCHEMA IF EXISTS "${schemaName}" CASCADE; CREATE SCHEMA "${schemaName}";`,
+  );
+  await client.query(`SET search_path TO "${schemaName}"`);
 };
 
 /** Executes one migration folder's migration.sql (which may itself carry several statements, including DO $$ blocks) as-is. */

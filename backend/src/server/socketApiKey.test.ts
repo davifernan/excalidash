@@ -318,6 +318,66 @@ describe("socket API key authorization", () => {
     expect(io.wasDeliveredTo(agent, "presence-update")).toBe(false);
   });
 
+  it("refuses a drawing-bound agent token (NIL-382) at the handshake -- no principal, no join, nothing threaded through per-handler scope checks", async () => {
+    const generated = generateApiKey();
+    const io = new FakeIo();
+    const prisma = {
+      apiKey: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "agent-key",
+          keyId: generated.keyId,
+          tokenHash: generated.tokenHash,
+          // Deliberately the ACCOUNT-WIDE scope strings, not "drawing:read" /
+          // "drawing:ops" -- this isolates the drawingId refusal itself. With
+          // the disjoint drawing:*/drawings:* scope namespace, a real agent
+          // row could never carry these, but if this test used the real
+          // agent scopes instead, socket.ts's own apiKeyHasScope() would
+          // already reject the join on the scope-string mismatch alone,
+          // proving nothing about the drawingId guard specifically. Row
+          // shape aside, the refusal below must come from `drawingId` being
+          // set, not from an unrelated scope check that happens to also fail.
+          scopes: serializeApiKeyScopes(["drawings:read", "drawings:write"]),
+          drawingId: "drawing-1",
+          expiresAt: null,
+          revokedAt: null,
+          user: { id: "owner", isActive: true },
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      user: {
+        findUnique: vi.fn().mockResolvedValue({ id: "owner", isActive: true }),
+      },
+      // Account-owner access would say "owner" for drawing-1 if this token were
+      // (wrongly) treated as an account-wide credential -- so a join succeeding
+      // here would prove the refusal is missing, not that access was denied for
+      // an unrelated reason.
+      drawing: {
+        findUnique: vi.fn().mockResolvedValue({ userId: "owner", collectionId: null }),
+      },
+      drawingLinkShare: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    registerSocketHandlers({
+      io: io as any,
+      prisma: prisma as any,
+      authModeService: { getAuthEnabled: async () => true } as any,
+      jwtSecret: "test-secret",
+    });
+
+    const agent = await io.connect("agent-socket", generated.token);
+    let joinAck: any;
+    await agent.trigger("join-room", { drawingId: "drawing-1", user: {} }, (value: any) => {
+      joinAck = value;
+    });
+    expect(joinAck?.ok).not.toBe(true);
+    expect(agent.rooms.has("drawing_drawing-1")).toBe(false);
+
+    // Never even authenticated as bytes on the wire from the account: the
+    // lastUsedAt bookkeeping write on the mock still fires (resolveApiKeyUser
+    // ran and validated the token), but no principal was attached, so no
+    // scope check anywhere had a chance to get it wrong.
+    expect(prisma.apiKey.update).toHaveBeenCalled();
+  });
+
   it("cannot let a handshake finish after its API key was revoked", async () => {
     const generated = generateApiKey();
     let revokedAt: Date | null = null;

@@ -27,6 +27,24 @@ export const DEFAULT_API_KEY_SCOPES = [
   "collections:write",
 ] as const;
 
+/**
+ * Scopes exclusive to a drawing-bound agent token (`ApiKey.drawingId` set,
+ * NIL-382). Deliberately a disjoint namespace from the account-wide
+ * `drawings:*`/`collections:*` scopes above -- `drawing:` singular vs
+ * `drawings:` plural -- so the two families can never be confused by a
+ * shared string, in a grep, or by a caller that copy-pastes a scope from one
+ * key type onto the other. `DRAWING_READ_SCOPE` alone is a read-only agent
+ * token; `DRAWING_OPS_SCOPE` is required to call the ops-apply route.
+ * Account-wide keys must never carry either (enforced in
+ * `accountApiKeyRoutes.ts#normalizeApiKeyScopes`).
+ */
+export const DRAWING_READ_SCOPE = "drawing:read";
+export const DRAWING_OPS_SCOPE = "drawing:ops";
+export const AGENT_TOKEN_SCOPES = [DRAWING_READ_SCOPE, DRAWING_OPS_SCOPE] as const;
+
+/** Enforced (not advisory) upper bound on an agent token's lifetime, and its default when none shorter is requested. */
+export const AGENT_TOKEN_MAX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export const generateApiKey = (): {
   token: string;
   keyId: string;
@@ -108,12 +126,24 @@ type ApiKeyClient = {
  *
  * Shared by the HTTP middleware and the websocket handshake so both accept
  * exactly the same credentials — a key that works for REST but not for live
- * updates would be worse than one that works nowhere.
+ * updates would be worse than one that works nowhere. This single function is
+ * also where `drawingId` and `expiresAt` are read: a second, drifted copy of
+ * this lookup is exactly how a board-bound agent token would end up treated
+ * as an account-wide key on whichever entry point forgot to carry the field
+ * (NIL-382) -- there is deliberately only one lookup to forget it in, and
+ * every caller (HTTP `middleware/auth.ts`, socket `server/socketAuth.ts`)
+ * goes through it rather than querying `prisma.apiKey` itself.
  */
 export const resolveApiKeyUser = async (
   prisma: ApiKeyClient,
   token: string,
-): Promise<{ user: any; apiKeyId: string; scopes: string[] } | null> => {
+  now: Date = new Date(),
+): Promise<{
+  user: any;
+  apiKeyId: string;
+  scopes: string[];
+  drawingId: string | null;
+} | null> => {
   const keyId = extractApiKeyId(token);
   if (!keyId) return null;
 
@@ -124,6 +154,7 @@ export const resolveApiKeyUser = async (
   if (!apiKey || apiKey.revokedAt) return null;
   if (!apiKeyHashMatches(token, apiKey.tokenHash)) return null;
   if (!apiKey.user.isActive) return null;
+  if (apiKey.expiresAt && apiKey.expiresAt.getTime() <= now.getTime()) return null;
 
   try {
     await prisma.apiKey.update({
@@ -139,5 +170,6 @@ export const resolveApiKeyUser = async (
     user: apiKey.user,
     apiKeyId: apiKey.id,
     scopes: parseApiKeyScopes(apiKey.scopes),
+    drawingId: apiKey.drawingId ?? null,
   };
 };

@@ -1,25 +1,30 @@
 /**
- * Utility for scanning drawing file records and uploading base64 dataURLs to S3.
- * This is the single interception point for all image uploads on the backend.
+ * Utility for scanning drawing file records and moving embedded base64
+ * dataURLs into the shared content-addressed blob store (NIL-381). This is
+ * the single interception point for every embedded image on the backend --
+ * an explicit PUT /files/:drawingId/:fileId upload (routes/files.ts) is the
+ * other, and both end up as the same DrawingFile row through the same
+ * assetService.ts#storeDrawingFile, never a second write path.
  */
+import { Readable } from "node:stream";
 import type { PrismaClient } from "./generated/client";
-import { isS3Enabled, getS3Config, uploadBuffer, getPublicUrl, buildS3Key } from "./s3";
+import { storeDrawingFile, type StoreDrawingFileInput } from "./assets/assetService";
 
 /**
- * Reject anything that could escape the per-user/per-drawing S3 prefix.
- * Same shape used by `/files/:drawingId/:fileId` validation.
+ * Reject anything that could escape the per-drawing storage prefix. Same
+ * shape used by `/files/:drawingId/:fileId` route validation.
  */
 const VALID_FILE_ID = /^[\w-]{1,200}$/;
 
-const MIME_TO_EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/avif": "avif",
-  "image/bmp": "bmp",
-  "image/svg+xml": "svg",
-};
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/bmp",
+  "image/svg+xml",
+]);
 
 /**
  * Decode a base64 data URL into a Buffer and its MIME type.
@@ -40,36 +45,44 @@ export const decodeDataURL = (dataURL: string): { buffer: Buffer; mimeType: stri
   }
 };
 
-/**
- * Scan a drawing's files record for base64 dataURLs, upload them to S3,
- * and replace the dataURL with the S3 access URL.
- *
- * When S3 is disabled the files record is returned unchanged.
- */
-export const processFilesForS3 = async (
-  files: Record<string, any>,
-  userId: string,
-  drawingId: string,
-  prisma: Pick<PrismaClient, "s3File">,
-): Promise<Record<string, any>> => {
-  if (!isS3Enabled()) {
-    return files;
-  }
+export type ProcessEmbeddedImagesDeps = {
+  prisma: Pick<PrismaClient, "drawingFile" | "asset" | "storedBlob">;
+  storageDir: string;
+  maxUploadBytes: number;
+  maxPerUserBytes: number;
+};
 
-  const cfg = getS3Config()!;
+/**
+ * Scan a drawing's files record for base64 dataURLs, move them into the blob
+ * store, and replace the dataURL with the access URL
+ * (`/api/files/:drawingId/:fileId`) the frontend already knows how to load
+ * from `/files/:drawingId/:fileId` (routes/files.ts).
+ *
+ * An entry whose bytes are too large, whose declared MIME type is not an
+ * accepted image type, or whose owner is over quota is left as a base64
+ * dataURL rather than failing the whole save -- the same "skip this one
+ * entry" tolerance the old S3 path had for an invalid file id. It is not
+ * silently dropped from the scene; the client keeps whatever it already had.
+ */
+export const processEmbeddedImages = async (
+  deps: ProcessEmbeddedImagesDeps,
+  files: Record<string, any>,
+  ownerUserId: string,
+  drawingId: string,
+): Promise<Record<string, any>> => {
   const result: Record<string, any> = { ...files };
 
-  // Bound parallel S3 PUTs. Without this, a paste of N images fires N
-  // parallel uploads, which can spike S3 connection pools and produce
-  // inconsistent partial-failure states on shaky networks.
+  // Bound parallel uploads. Without this, a paste of N images fires N
+  // parallel blob-store writes, which serializes anyway per owner
+  // (withOwnerUploadAdmission) but would otherwise queue unboundedly.
   const UPLOAD_CONCURRENCY = 8;
 
   const processFile = async ([fileId, file]: [string, any]): Promise<void> => {
     if (!VALID_FILE_ID.test(fileId)) {
-      // Reject path-traversal candidates rather than silently uploading
-      // them under a forged S3 key. Drop from output so the bad entry
-      // never reaches the database either.
-      console.warn(`[s3] Skipping file with invalid id: ${JSON.stringify(fileId)}`);
+      // Reject path-traversal candidates rather than silently storing them
+      // under a forged key. Drop from output so the bad entry never reaches
+      // the database either.
+      console.warn(`[files] Skipping file with invalid id: ${JSON.stringify(fileId)}`);
       delete result[fileId];
       return;
     }
@@ -82,26 +95,32 @@ export const processFilesForS3 = async (
 
     const decoded = decodeDataURL(dataURL);
     if (!decoded) return;
+    if (!ALLOWED_IMAGE_MIME_TYPES.has(decoded.mimeType)) {
+      console.warn(`[files] Skipping unsupported embedded MIME type: ${decoded.mimeType}`);
+      return;
+    }
 
-    const ext = MIME_TO_EXT[decoded.mimeType] ?? "bin";
-    const s3Key = buildS3Key(userId, drawingId, fileId, ext);
+    const input: StoreDrawingFileInput = {
+      drawingId,
+      fileId,
+      ownerUserId,
+      mimeType: decoded.mimeType,
+      source: Readable.from(decoded.buffer),
+    };
 
-    await uploadBuffer(s3Key, decoded.buffer, decoded.mimeType);
+    try {
+      await storeDrawingFile(deps, input);
+    } catch (error) {
+      // Too large or over quota: leave this one entry embedded rather than
+      // failing the whole scene save. The client still has a working board;
+      // it just did not get the storage benefit for this one image.
+      console.warn(`[files] Could not move embedded image "${fileId}" to storage:`, error);
+      return;
+    }
 
-    // Drawing-scoped access URL: a file id alone would be ambiguous
-    // because the same content hash legitimately repeats across drawings.
-    const accessUrl = cfg.publicUrl ? getPublicUrl(s3Key) : `/api/files/${drawingId}/${fileId}`;
-
-    // Persist the S3File record so private-bucket deployments can serve it.
-    // Composite (drawingId, fileId) PK so re-uploading the same image into
-    // another drawing creates a separate row instead of overwriting.
-    await prisma.s3File.upsert({
-      where: { drawingId_fileId: { drawingId, fileId } },
-      create: { drawingId, fileId, userId, s3Key, mimeType: decoded.mimeType },
-      update: { s3Key, mimeType: decoded.mimeType },
-    });
-
-    result[fileId] = { ...file, dataURL: accessUrl };
+    // Drawing-scoped access URL: a file id alone would be ambiguous because
+    // the same content hash legitimately repeats across drawings.
+    result[fileId] = { ...file, dataURL: `/api/files/${drawingId}/${fileId}` };
   };
 
   const entries = Object.entries(files);
@@ -113,23 +132,21 @@ export const processFilesForS3 = async (
 };
 
 /**
- * Rewrite an Excalidraw preview SVG so any base64 dataURL that has just
- * been uploaded to S3 is replaced by the resulting S3 / redirect URL.
+ * Rewrite an Excalidraw preview SVG so any base64 dataURL that has just been
+ * moved to storage is replaced by the resulting access URL.
  *
- * The frontend generates the preview SVG from the canvas state at save
- * time, *before* the round-trip to the backend uploads the files; the
- * SVG embeds whatever dataURL the file currently has in `Drawing.files`.
- * Without this rewrite, every save produces a megabyte-scale preview
- * with the full image base64 inlined, even though the image itself is
- * already in S3 (the diff between Drawing.files's processed entries
- * and the preview field gets ever larger over time).
+ * The frontend generates the preview SVG from the canvas state at save time,
+ * *before* the round-trip to the backend processes the files; the SVG embeds
+ * whatever dataURL the file currently has in `Drawing.files`. Without this
+ * rewrite, every save produces a megabyte-scale preview with the full image
+ * base64 inlined, even though the image itself is already in storage.
  *
- * Best-effort string substitution: works because the same dataURL
- * string is character-identical in both `files[fileId].dataURL` and
- * the preview SVG's `<image href="...">` attribute. If frontend
- * encoding ever diverges, the worst case is the preview is left as-is.
+ * Best-effort string substitution: works because the same dataURL string is
+ * character-identical in both `files[fileId].dataURL` and the preview SVG's
+ * `<image href="...">` attribute. If frontend encoding ever diverges, the
+ * worst case is the preview is left as-is.
  */
-export const rewritePreviewForS3 = (
+export const rewritePreviewFileReferences = (
   preview: unknown,
   originalFiles: Record<string, any>,
   processedFiles: Record<string, any>,

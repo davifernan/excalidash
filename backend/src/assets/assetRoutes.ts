@@ -138,7 +138,7 @@ export function contentDisposition(kind: "inline" | "attachment", filename: stri
  * from disk — a partial restore, a file removed by hand, a write that failed —
  * would put every user off the board, so the error is answered instead.
  */
-function streamStoredFile(res: Response, path: string): void {
+export function streamStoredFile(res: Response, path: string): void {
   const stream = createReadStream(path);
   stream.on("error", (err) => {
     console.error(`[assets] cannot read ${path}: ${err}`);

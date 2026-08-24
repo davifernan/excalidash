@@ -54,7 +54,7 @@ if (process.env.CI === "true" && !getPostgresTestUrl()) {
 
       const seedPreMigrationDb = async (): Promise<Client> => {
         const handle = await createPostgresClient();
-        await resetPostgresSchema(handle);
+        await resetPostgresSchema(handle, "nil326_search_text_backfill_test");
         await applyPostgresMigrationsBefore(handle, TARGET_MIGRATION);
 
         await handle.query(

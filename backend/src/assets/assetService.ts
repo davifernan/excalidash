@@ -65,7 +65,7 @@ export async function storeBlob(
     source: Readable;
     limitBytes: number;
     compress?: boolean;
-    purpose?: "ASSET" | "LINK_PREVIEW";
+    purpose?: "ASSET" | "LINK_PREVIEW" | "IMAGE";
     prepareStored?: (
       stored: Readonly<StoredFile & { path: string }>,
     ) => Promise<{ note: string | null }>;
@@ -180,19 +180,27 @@ async function withOwnerUploadAdmission<T>(ownerUserId: string, work: () => Prom
 }
 
 /**
- * How many bytes of disk this owner's documents occupy.
- *
- * Counted per blob and by what is actually written, so an owner who put the
- * same file on two boards pays for it once, and a file stored compressed costs
- * what it costs rather than what it would have cost.
+ * How many bytes of disk this owner's documents AND board images (NIL-381)
+ * occupy, combined -- one quota pool, not two. Counted per blob and by what
+ * is actually written, so an owner who put the same file on two boards (or
+ * the same image both as a document and pasted onto a canvas) pays for it
+ * once, and a file stored compressed costs what it costs rather than what it
+ * would have cost.
  */
 export async function usedBytesFor(prisma: any, ownerUserId: string): Promise<number> {
-  const assets = await prisma.asset.findMany({
-    where: { ownerUserId },
-    select: { blobId: true, blob: { select: { storedBytes: true } } },
-  });
+  const [assets, drawingFiles] = await Promise.all([
+    prisma.asset.findMany({
+      where: { ownerUserId },
+      select: { blobId: true, blob: { select: { storedBytes: true } } },
+    }),
+    prisma.drawingFile.findMany({
+      where: { ownerUserId },
+      select: { blobId: true, blob: { select: { storedBytes: true } } },
+    }),
+  ]);
   const byBlob = new Map<string, number>();
   for (const asset of assets) byBlob.set(asset.blobId, asset.blob?.storedBytes ?? 0);
+  for (const file of drawingFiles) byBlob.set(file.blobId, file.blob?.storedBytes ?? 0);
   return [...byBlob.values()].reduce((sum, bytes) => sum + bytes, 0);
 }
 
@@ -271,6 +279,110 @@ async function createAssetAdmitted(deps: Deps, input: CreateAssetInput) {
     storedBytes: stored.storedBytes,
     note: preparation?.note ?? null,
   };
+}
+
+export type StoreDrawingFileInput = {
+  drawingId: string;
+  fileId: string;
+  ownerUserId: string;
+  mimeType: string;
+  source: Readable;
+};
+
+/**
+ * Store a board image's bytes and bind them to (drawingId, fileId) (NIL-381).
+ *
+ * Idempotent by design, not by a special case: the same bytes uploaded twice
+ * dedupe to the same blob in storeBlob, and upserting the DrawingFile row
+ * with that same blobId is a no-op write. Different bytes under the same
+ * fileId (a re-upload) simply repoint the reference at the new blob -- this
+ * should be rare, since Excalidraw fileIds are themselves content hashes,
+ * but is not treated as an error.
+ *
+ * No DrawingAsset-style PENDING state: unlike a document, an image upload is
+ * always in direct response to the client about to reference it (a paste, a
+ * drop, the background uploader flushing a queued file), never a
+ * maybe-referenced-later upload flow. A row nothing ends up referencing is
+ * cleaned up the same way an orphaned S3File row is today -- through the
+ * existing files/orphans flow (routes/storage.ts), not a second pending-TTL
+ * mechanism.
+ */
+export async function storeDrawingFile(deps: Deps, input: StoreDrawingFileInput) {
+  return withOwnerUploadAdmission(input.ownerUserId, () => storeDrawingFileAdmitted(deps, input));
+}
+
+async function storeDrawingFileAdmitted(deps: Deps, input: StoreDrawingFileInput) {
+  const used = await usedBytesFor(deps.prisma, input.ownerUserId);
+  if (used >= deps.maxPerUserBytes) {
+    throw new QuotaExceededError(used, deps.maxPerUserBytes);
+  }
+
+  const { blob, stored } = await storeBlob(deps, {
+    source: input.source,
+    limitBytes: Math.min(deps.maxUploadBytes, deps.maxPerUserBytes - used),
+    compress: shouldCompress(input.mimeType),
+    purpose: "IMAGE",
+  });
+
+  const drawingFile = await deps.prisma.drawingFile.upsert({
+    where: { drawingId_fileId: { drawingId: input.drawingId, fileId: input.fileId } },
+    create: {
+      drawingId: input.drawingId,
+      fileId: input.fileId,
+      blobId: blob.id,
+      ownerUserId: input.ownerUserId,
+      mimeType: input.mimeType,
+    },
+    update: {
+      blobId: blob.id,
+      ownerUserId: input.ownerUserId,
+      mimeType: input.mimeType,
+    },
+  });
+
+  return { drawingFile, blob, sizeBytes: stored.sizeBytes, storedBytes: stored.storedBytes };
+}
+
+/**
+ * Point a new board at the same board images an existing one has (NIL-503
+ * review fix, board duplicate).
+ *
+ * Never copies bytes: DrawingFile rows are content-addressed references, so
+ * duplicating a board only ever needs a second reference row at the same
+ * blobId -- the same reasoning storeDrawingFile's own idempotent upsert
+ * relies on. `ownerUserId` is the target board's owner (whoever ends up
+ * charged for the quota), not necessarily who is clicking "duplicate".
+ */
+export async function cloneDrawingFiles(
+  prisma: any,
+  sourceDrawingId: string,
+  targetDrawingId: string,
+  ownerUserId: string,
+): Promise<string[]> {
+  const records = await prisma.drawingFile.findMany({ where: { drawingId: sourceDrawingId } });
+  if (records.length === 0) return [];
+
+  await Promise.all(
+    records.map((record: { fileId: string; blobId: string; mimeType: string }) =>
+      prisma.drawingFile.upsert({
+        where: { drawingId_fileId: { drawingId: targetDrawingId, fileId: record.fileId } },
+        create: {
+          drawingId: targetDrawingId,
+          fileId: record.fileId,
+          blobId: record.blobId,
+          ownerUserId,
+          mimeType: record.mimeType,
+        },
+        update: {
+          blobId: record.blobId,
+          ownerUserId,
+          mimeType: record.mimeType,
+        },
+      }),
+    ),
+  );
+
+  return records.map((record: { fileId: string }) => record.fileId);
 }
 
 /**
@@ -376,7 +488,31 @@ export async function sweepUnclaimed(deps: Deps): Promise<{ pending: number; mar
     });
   }
 
-  return { pending: stale.length, marked: orphans.length };
+  // A blob only a DrawingFile ever pointed at has no Asset row to carry a
+  // grace period for it -- DrawingFile itself deliberately has none (see
+  // storeDrawingFile's docstring). StoredBlob.deleteAfter exists precisely
+  // for this ("set when the last reference goes away"); collectExpired
+  // below already knows how to recheck and remove a blob marked here, the
+  // same way it rechecks one an expired Asset touched.
+  const orphanBlobs = await deps.prisma.storedBlob.findMany({
+    where: {
+      deleteAfter: null,
+      state: "READY",
+      assets: { none: {} },
+      drawingFiles: { none: {} },
+      linkPreviewImages: { none: {} },
+      linkPreviewFavicons: { none: {} },
+    },
+    select: { id: true },
+  });
+  for (const row of orphanBlobs) {
+    await deps.prisma.storedBlob.update({
+      where: { id: row.id },
+      data: { deleteAfter: new Date(now + BLOB_GRACE_MS) },
+    });
+  }
+
+  return { pending: stale.length, marked: orphans.length + orphanBlobs.length };
 }
 
 /** Delete assets whose grace period has run out, and the bytes they were the last to hold. */
@@ -391,14 +527,29 @@ export async function collectExpired(deps: Deps): Promise<{ assets: number; blob
     await deps.prisma.asset.delete({ where: { id: asset.id } });
   }
 
-  const touchedBlobs = [...new Set(expired.map((a: any) => a.blobId))] as string[];
+  // Two ways a blob becomes a candidate: an expired Asset touched it, or its
+  // own deleteAfter (set by sweepUnclaimed, above, for a blob only a
+  // DrawingFile ever pointed at) has itself run out. Either way the same
+  // recheck below decides whether it is actually safe to remove.
+  const expiredBlobs = await deps.prisma.storedBlob.findMany({
+    where: { deleteAfter: { lt: new Date(now) } },
+    select: { id: true },
+  });
+  const touchedBlobs = [
+    ...new Set([...expired.map((a: any) => a.blobId), ...expiredBlobs.map((b: any) => b.id)]),
+  ] as string[];
   let removed = 0;
   for (const blobId of touchedBlobs) {
     const stillUsed = await deps.prisma.asset.count({ where: { blobId } });
     const usedByPreview = await deps.prisma.linkPreview.count({
       where: { OR: [{ imageBlobId: blobId }, { faviconBlobId: blobId }] },
     });
-    if (stillUsed > 0 || usedByPreview > 0) continue;
+    // A blob a DrawingFile row still points at (NIL-381) is exactly as live
+    // as one an Asset row points at -- the same "somebody else still needs
+    // these bytes" check the Asset/LinkPreview counts already make, extended
+    // to the reference kind this function did not know about before.
+    const usedByDrawingFile = await deps.prisma.drawingFile.count({ where: { blobId } });
+    if (stillUsed > 0 || usedByPreview > 0 || usedByDrawingFile > 0) continue;
     const blob = await deps.prisma.storedBlob.findUnique({ where: { id: blobId } });
     if (!blob) continue;
     // Disk first, row second: a missing file with a row left over is a broken

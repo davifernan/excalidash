@@ -134,6 +134,11 @@ export type RegisterImportExportDeps = {
   MAX_IMPORT_ENTRY_BYTES: number;
   MAX_IMPORT_TOTAL_EXTRACTED_BYTES: number;
   MAX_IMPORT_SCENE_MEMORY_BYTES?: number;
+  processEmbeddedImages: (
+    files: Record<string, any>,
+    userId: string,
+    drawingId: string,
+  ) => Promise<Record<string, any>>;
 };
 
 export const normalizeArchivePath = (filePath: string): string =>

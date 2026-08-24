@@ -138,6 +138,19 @@ export const mustResetPasswordSchema = z.object({
 export const apiKeyCreateSchema = z.object({
   name: z.string().trim().min(1).max(100),
   scopes: z.array(z.string()).optional(),
+  /**
+   * Set to mint a drawing-bound agent token instead of an account-wide key
+   * (NIL-382). The caller's edit access to this drawing is re-checked
+   * server-side in accountApiKeyRoutes.ts -- a name here is a claim, not a
+   * grant.
+   */
+  drawingId: z.string().trim().min(1).optional(),
+  /**
+   * Agent tokens only. Enforced (not advisory) upper bound of 30 days --
+   * AGENT_TOKEN_MAX_TTL_MS in auth/apiKeys.ts -- so the shortest of "caller
+   * asked for less" and "30 days" always wins.
+   */
+  expiresInDays: z.number().int().positive().max(30).optional(),
 });
 
 export const userPreferencesSchema = z

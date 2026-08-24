@@ -22,6 +22,7 @@ import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
 import { useEditorBroadcast } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
+import { useEditorFileUploads } from "./editor/useEditorFileUploads";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
@@ -338,6 +339,7 @@ export const Editor: React.FC = () => {
     normalizeImageElementStatus,
     resolveSafeSnapshot,
   });
+  useEditorFileUploads({ drawingId: id, fileCapability: adapter.files });
   const markSceneChangedSinceLoad = useCallback(() => {
     hasSceneChangesSinceLoadRef.current = true;
   }, []);

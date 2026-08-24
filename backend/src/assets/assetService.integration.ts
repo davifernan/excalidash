@@ -18,6 +18,7 @@ import {
   captureSnapshotAssets,
   collectExpired,
   createAsset,
+  storeDrawingFile,
   syncDrawingAssets,
   sweepUnclaimed,
   usedBytesFor,
@@ -74,6 +75,7 @@ describe("document bookkeeping", () => {
     await prisma.drawingSnapshotAsset.deleteMany({});
     await prisma.drawingAsset.deleteMany({});
     await prisma.asset.deleteMany({});
+    await prisma.drawingFile.deleteMany({});
     await prisma.storedBlob.deleteMany({});
     await prisma.drawingSnapshot.deleteMany({});
     await prisma.drawing.deleteMany({});
@@ -333,6 +335,65 @@ describe("document bookkeeping", () => {
       expect(again.blob.id).toBe(first.blob.id);
       const blob = await prisma.storedBlob.findUnique({ where: { id: first.blob.id } });
       expect(blob?.deleteAfter).toBeNull();
+    });
+
+    it("REAL BUG: reclaims bytes whose only reference was a DrawingFile row that got deleted (NIL-503 review)", async () => {
+      const { blob } = await storeDrawingFile(deps(), {
+        drawingId,
+        fileId: "img-1",
+        ownerUserId: userId,
+        mimeType: "image/png",
+        source: Readable.from([Buffer.from("board-image-bytes")]),
+      });
+      const key = originalKey(blob.id);
+      expect(await storedSize(storageDir, key)).toBe("board-image-bytes".length);
+
+      // The board image is no longer referenced by anything -- the same
+      // state a trim, an orphan cleanup, or a board delete's cascade leaves
+      // behind. No PENDING/deleteAfter state on DrawingFile itself (see its
+      // own docstring): the row is just gone.
+      await prisma.drawingFile.delete({
+        where: { drawingId_fileId: { drawingId, fileId: "img-1" } },
+      });
+
+      const later = Date.now() + 25 * 60 * 60 * 1000;
+      await sweepUnclaimed(deps({ now: () => later }));
+      const result = await collectExpired(deps({ now: () => later + 25 * 60 * 60 * 1000 }));
+
+      expect(result.blobs).toBe(1);
+      expect(await storedSize(storageDir, key)).toBeNull();
+      expect(await prisma.storedBlob.findUnique({ where: { id: blob.id } })).toBeNull();
+    });
+
+    it("keeps board-image bytes another DrawingFile row still points at", async () => {
+      const { blob } = await storeDrawingFile(deps(), {
+        drawingId,
+        fileId: "img-shared",
+        ownerUserId: userId,
+        mimeType: "image/png",
+        source: Readable.from([Buffer.from("shared board bytes")]),
+      });
+      const otherDrawing = await prisma.drawing.create({
+        data: { name: "Other board", elements: "[]", appState: "{}", userId },
+      });
+      await storeDrawingFile(deps(), {
+        drawingId: otherDrawing.id,
+        fileId: "img-shared",
+        ownerUserId: userId,
+        mimeType: "image/png",
+        source: Readable.from([Buffer.from("shared board bytes")]),
+      });
+
+      await prisma.drawingFile.delete({
+        where: { drawingId_fileId: { drawingId, fileId: "img-shared" } },
+      });
+
+      const later = Date.now() + 25 * 60 * 60 * 1000;
+      await sweepUnclaimed(deps({ now: () => later }));
+      const result = await collectExpired(deps({ now: () => later + 25 * 60 * 60 * 1000 }));
+
+      expect(result.blobs).toBe(0);
+      expect(await storedSize(storageDir, originalKey(blob.id))).toBe("shared board bytes".length);
     });
   });
 });
