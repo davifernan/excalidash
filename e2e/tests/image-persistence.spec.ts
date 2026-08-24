@@ -53,7 +53,10 @@ test.describe("Image Persistence - Browser E2E Tests", () => {
   });
 
   test("should create a new drawing via UI", async ({ page }) => {
-    await page.goto("/");
+    // /collections always shows the toolbar's "New Drawing" button; Team
+    // Home (now "/") only shows one in its empty state, which would leave
+    // this test silently no-op-ing once any board exists.
+    await page.goto("/collections");
 
     const newDrawingBtn = page.getByRole("button", { name: /new|create/i }).first();
 

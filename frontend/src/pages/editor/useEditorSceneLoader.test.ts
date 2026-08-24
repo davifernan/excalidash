@@ -48,6 +48,8 @@ const loadScene = async (id: string | undefined, refs = buildRefs()) => {
       refs,
       setAccessLevel: vi.fn(),
       setDrawingName: vi.fn(),
+      setCollectionId: vi.fn(),
+      setCollectionName: vi.fn(),
       setInitialData,
       setIsReady: vi.fn(),
       setIsSceneLoading: vi.fn(),
@@ -102,5 +104,67 @@ describe("the appState a board opens with", () => {
     const { refs } = await loadScene("abc");
 
     expect(refs.lastSyncedElementOrderSig.current).not.toBe("");
+  });
+});
+
+describe("workspace context loaded alongside the board (NIL-323/NIL-344)", () => {
+  beforeEach(() => {
+    vi.mocked(api.getDrawing).mockReset();
+  });
+
+  it("passes the fetched collectionId/collectionName straight through", async () => {
+    vi.mocked(api.getDrawing).mockResolvedValue({
+      ...storedDrawing({}),
+      collectionId: "c1",
+      collectionName: "Roadmap",
+    } as any);
+    const setCollectionId = vi.fn();
+    const setCollectionName = vi.fn();
+    renderHook(() =>
+      useEditorSceneLoader({
+        id: "abc",
+        user: null,
+        location: { pathname: "/editor/abc", search: "", hash: "" },
+        navigate: vi.fn() as any,
+        refs: buildRefs(),
+        setAccessLevel: vi.fn(),
+        setDrawingName: vi.fn(),
+        setCollectionId,
+        setCollectionName,
+        setInitialData: vi.fn(),
+        setIsReady: vi.fn(),
+        setIsSceneLoading: vi.fn(),
+        setLoadError: vi.fn(),
+        recordElementVersion: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(setCollectionId).toHaveBeenCalledWith("c1"));
+    expect(setCollectionName).toHaveBeenCalledWith("Roadmap");
+  });
+
+  it("defaults both to null for a board the response sends neither for", async () => {
+    vi.mocked(api.getDrawing).mockResolvedValue(storedDrawing({}) as any);
+    const setCollectionId = vi.fn();
+    const setCollectionName = vi.fn();
+    renderHook(() =>
+      useEditorSceneLoader({
+        id: "abc",
+        user: null,
+        location: { pathname: "/editor/abc", search: "", hash: "" },
+        navigate: vi.fn() as any,
+        refs: buildRefs(),
+        setAccessLevel: vi.fn(),
+        setDrawingName: vi.fn(),
+        setCollectionId,
+        setCollectionName,
+        setInitialData: vi.fn(),
+        setIsReady: vi.fn(),
+        setIsSceneLoading: vi.fn(),
+        setLoadError: vi.fn(),
+        recordElementVersion: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(setCollectionId).toHaveBeenCalledWith(null));
+    expect(setCollectionName).toHaveBeenCalledWith(null);
   });
 });

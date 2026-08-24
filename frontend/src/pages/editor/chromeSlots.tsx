@@ -61,6 +61,31 @@
  * the header control slot. Overlay entries are on their own to stay usable at
  * every width -- WorkshopTimerCorner clamps against the live container size
  * for exactly this reason.
+ *
+ * ## Growing the context (NIL-323/NIL-344)
+ *
+ * `ChromeSlotContext` is shared infrastructure now, not one package's file:
+ * #59 (NIL-376) merged and its slot contract is done, so a package that
+ * needs a field it does not carry yet adds the field here rather than
+ * fetching the data a second way from inside its own slot component --
+ * the same rule as a missing capability in capabilities.ts. Ground rules,
+ * so the next addition does not have to guess whether its case qualifies:
+ *
+ * - **Additive only.** Add a field; never rename or restructure an existing
+ *   one. `ChromeSlotContext` is consumed by every registered entry across
+ *   every package that has one, so a rename is the same shared-file
+ *   conflict this contract exists to avoid.
+ * - **Same gate as the backend, not a new one.** `collectionId` and
+ *   `collectionName` (added by NIL-323/NIL-344, for the board/team context
+ *   entry) carry exactly the visibility rule `drawingReadRoutes.ts`
+ *   already enforces for `collectionId` -- both `null` for anyone who is
+ *   not the board's creator. A slot field is not the place to invent a
+ *   second, looser access rule for data a route already decided how to
+ *   gate.
+ * - **Say why here.** NIL-324 (comment entry point) and NIL-372
+ *   (follow/follower display) are expected to read from this same object
+ *   next; this section exists so whoever adds the next field can see what
+ *   was decided and why, instead of re-deriving it.
  */
 import React from "react";
 import { ArrowLeft, Download, History, LocateFixed, Share2 } from "lucide-react";
@@ -70,6 +95,8 @@ import {
 } from "../../integrations/excalidraw/slots";
 import { LanguageSelector } from "../../components/LanguageSelector";
 import { BoardNameMenuEntry } from "./slots/boardNameMenuEntry";
+import { WorkspaceContextMenuEntry } from "./slots/workspaceContextMenuEntry";
+import { SearchBoardsMenuEntry } from "./slots/searchBoardsMenuEntry";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
@@ -80,6 +107,9 @@ export type ChromeSlotContext = {
   canEdit: boolean;
   mobile: boolean;
   drawingName: string;
+  /** Which collection this board sits in, or null (unorganized, or hidden -- see "Growing the context" above). */
+  collectionId: string | null;
+  collectionName: string | null;
   isRenaming: boolean;
   isSavingOnLeave: boolean;
   newName: string;
@@ -118,12 +148,39 @@ const describeFollowers = (followers: readonly Follower[]): string | null => {
 };
 
 /**
- * The hamburger, top to bottom. Order 10-25 is this package's new lead-in
- * (board name, back route); everything from 100 on is what already lived in
- * the menu, renumbered with gaps so a later package can slot something
- * between two existing entries without renumbering the rest. Help sits last
- * on purpose (NIL-374): Excalidraw's own floating "?" is hidden in
- * editorChrome.css, so this is the only way to it.
+ * The hamburger, top to bottom. Order 10-25 is the lead-in (board name, the
+ * board's workspace context, back route); everything from 100 on is what
+ * already lived in the menu, renumbered with gaps so a later package can
+ * slot something between two existing entries without renumbering the rest
+ * -- workspace-context (order 15, NIL-323/NIL-344) is exactly that: slotted
+ * between board-name and back-to-dashboard without moving either.
+ *
+ * workspace-context sits ABOVE back-to-dashboard on purpose, not just
+ * because order 15 fell between 10 and 20: the lead-in reads as a
+ * breadcrumb -- board name, then which collection it lives in, then the
+ * navigation actions that leave the board. Context belongs with the
+ * identity it describes, before the actions, the same order a page title
+ * and its breadcrumb trail would read in any other part of the app. If a
+ * future package wants navigation actions to lead instead, that is a
+ * deliberate reordering to argue for here, not an accident to route around
+ * in a test.
+ *
+ * search-boards (order 22, NIL-323/NIL-345) sits right after
+ * back-to-dashboard for the same "leave this board" reason: both are
+ * navigation, so they sit together ahead of the separator rather than
+ * down with the canvas actions.
+ *
+ * This ordering is a registry, not a fixed list -- a test asserting an
+ * entry's exact index (`menuItems.nth(1)`) breaks on every legitimate
+ * insertion, which is the whole reason this file exists. Assert relative
+ * order between two testids (or their presence) instead; see
+ * `e2e/tests/canvas-chrome.spec.ts`'s "back to dashboard" test for the
+ * pattern, and `menu-back-to-dashboard`/`menu-search-boards`/
+ * `menu-board-name`/`menu-workspace-context`'s `data-testid`s below for the
+ * hooks to assert against.
+ *
+ * Help sits last on purpose (NIL-374): Excalidraw's own floating "?" is
+ * hidden in editorChrome.css, so this is the only way to it.
  */
 export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
   {
@@ -136,13 +193,38 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
     ),
   },
   {
+    id: "workspace-context",
+    order: 15,
+    // Checked here, not only inside the component: `renderedIds`-style
+    // null-detection (used by this file's own tests, and by any future
+    // slot inspecting what actually rendered) looks at what `render`
+    // returns, not what a child component nested inside it decides. A
+    // render that always returns `<MainMenu.ItemCustom>` and lets the
+    // child go empty would report "rendered" even when nothing showed.
+    render: (ctx) =>
+      ctx.collectionId && ctx.collectionName ? (
+        <MainMenu.ItemCustom>
+          <WorkspaceContextMenuEntry ctx={ctx} />
+        </MainMenu.ItemCustom>
+      ) : null,
+  },
+  {
     id: "back-to-dashboard",
     order: 20,
     render: (ctx) => (
-      <MainMenu.Item onSelect={ctx.onBackClick} icon={<ArrowLeft size={16} />}>
+      <MainMenu.Item
+        onSelect={ctx.onBackClick}
+        icon={<ArrowLeft size={16} />}
+        data-testid="menu-back-to-dashboard"
+      >
         Back to dashboard
       </MainMenu.Item>
     ),
+  },
+  {
+    id: "search-boards",
+    order: 22,
+    render: () => <SearchBoardsMenuEntry />,
   },
   { id: "lead-in-separator", order: 25, render: () => <MainMenu.Separator /> },
   { id: "toggle-theme", order: 100, render: () => <MainMenu.DefaultItems.ToggleTheme /> },

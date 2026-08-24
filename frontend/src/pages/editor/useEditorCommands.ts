@@ -188,7 +188,7 @@ export const useEditorCommands = ({
     } finally {
       setIsSavingOnLeave(false);
     }
-    if (shouldNavigate) navigate("/");
+    if (shouldNavigate) navigate("/collections");
   }, [
     canEdit,
     drawingId,

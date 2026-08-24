@@ -1,6 +1,7 @@
 import express from "express";
 import { getTeam, listTeamMembers } from "../../authz/team";
 import { subjectKey } from "../../authz/subjectKey";
+import { derivePresenceColor, toPresenceInitials } from "../../server/socketPresence";
 import { DashboardRouteDeps } from "./types";
 
 /** Exported so tests can prove this scope actually differs from others -- not just that a key comes back. */
@@ -31,6 +32,8 @@ export const registerTeamRoutes = (app: express.Express, deps: DashboardRouteDep
         members: members.map((member) => ({
           subjectKey: subjectKey(subjectKeySecret, TEAM_SUBJECT_SCOPE, member.userId),
           name: member.name,
+          initials: toPresenceInitials(member.name),
+          color: derivePresenceColor(member.userId),
           role: member.role,
           isSelf: member.userId === req.user!.id,
         })),

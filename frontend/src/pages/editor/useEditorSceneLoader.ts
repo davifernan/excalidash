@@ -38,6 +38,8 @@ type SceneLoaderParams = {
   };
   setAccessLevel: (accessLevel: AccessLevel) => void;
   setDrawingName: (name: string) => void;
+  setCollectionId: (id: string | null) => void;
+  setCollectionName: (name: string | null) => void;
   setInitialData: (data: any) => void;
   setIsReady: (ready: boolean) => void;
   setIsSceneLoading: (loading: boolean) => void;
@@ -65,6 +67,8 @@ export const useEditorSceneLoader = ({
   refs,
   setAccessLevel,
   setDrawingName,
+  setCollectionId,
+  setCollectionName,
   setInitialData,
   setIsReady,
   setIsSceneLoading,
@@ -112,6 +116,8 @@ export const useEditorSceneLoader = ({
           : Promise.resolve([]);
         const [data, libraryItems] = await Promise.all([api.getDrawing(id), libraryItemsPromise]);
         setDrawingName(data.name);
+        setCollectionId(data.collectionId ?? null);
+        setCollectionName(data.collectionName ?? null);
         setAccessLevel(
           data.accessLevel === "view" || data.accessLevel === "edit" || data.accessLevel === "owner"
             ? data.accessLevel
@@ -215,6 +221,8 @@ export const useEditorSceneLoader = ({
     resetRefs,
     setAccessLevel,
     setDrawingName,
+    setCollectionId,
+    setCollectionName,
     setInitialData,
     setIsReady,
     setIsSceneLoading,

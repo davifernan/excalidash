@@ -13,7 +13,7 @@ type MemberAvatarProps = {
   title?: string;
 };
 
-const MemberAvatar: React.FC<MemberAvatarProps> = ({
+export const MemberAvatar: React.FC<MemberAvatarProps> = ({
   name,
   initials,
   color,

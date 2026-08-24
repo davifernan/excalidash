@@ -6,14 +6,12 @@ type UseDashboardSelectionParams = {
   drawings: DrawingSummary[];
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-  searchInputRef: React.RefObject<HTMLInputElement>;
 };
 
 export const useDashboardSelection = ({
   drawings,
   selectedIds,
   setSelectedIds,
-  searchInputRef,
 }: UseDashboardSelectionParams) => {
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [isDragSelecting, setIsDragSelecting] = useState(false);
@@ -71,6 +69,10 @@ export const useDashboardSelection = ({
     };
   }, [isDragSelecting, dragStart, dragCurrent, drawings, selectedIds, setSelectedIds]);
 
+  // Cmd/Ctrl+K used to focus this page's own search box; it is now the
+  // global Command Palette shortcut (CommandPaletteContext, NIL-323/NIL-345)
+  // instead, so it is not handled here anymore -- one shortcut, not two
+  // competing listeners on the same key.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "a") {
@@ -88,14 +90,10 @@ export const useDashboardSelection = ({
         setSelectedIds(new Set());
         setLastSelectedId(null);
       }
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
-        event.preventDefault();
-        searchInputRef.current?.focus();
-      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drawings, searchInputRef, setSelectedIds]);
+  }, [drawings, setSelectedIds]);
 
   const handleMouseDown = (event: React.MouseEvent) => {
     if ((event.target as HTMLElement).closest("button, a, input, textarea, .drawing-card")) {

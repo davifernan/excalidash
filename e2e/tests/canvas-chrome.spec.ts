@@ -55,15 +55,25 @@ test.describe("the hamburger carries the board's identity and the way back", () 
     );
   });
 
-  test("back to dashboard sits directly under the name and returns home", async ({ page }) => {
+  test("back to dashboard comes after the board name and returns to the drawings list", async ({
+    page,
+  }) => {
     await openEditor(page, drawingId);
     await openMenu(page);
 
-    const menuItems = page.locator('[data-testid="dropdown-menu"] .dropdown-menu-container > *');
-    await expect(menuItems.nth(1)).toContainText("Back to dashboard");
+    // Relative order, not a fixed index: the lead-in is a registry (see
+    // chromeSlots.tsx's own comment) -- a later package's entry sliding in
+    // between board-name and back-to-dashboard (workspace-context,
+    // NIL-323/NIL-344) is a legitimate insertion, not a regression, and
+    // must not fail this test.
+    const boardNameBox = await page.getByTestId("menu-board-name").boundingBox();
+    const backToDashboardBox = await page.getByTestId("menu-back-to-dashboard").boundingBox();
+    expect(boardNameBox).not.toBeNull();
+    expect(backToDashboardBox).not.toBeNull();
+    expect(boardNameBox!.y).toBeLessThan(backToDashboardBox!.y);
 
-    await page.getByText("Back to dashboard").click();
-    await page.waitForURL("/");
+    await page.getByTestId("menu-back-to-dashboard").click();
+    await page.waitForURL("/collections");
     await expect(page.getByPlaceholder("Search drawings...")).toBeVisible();
   });
 

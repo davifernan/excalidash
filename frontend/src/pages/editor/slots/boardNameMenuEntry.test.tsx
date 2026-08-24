@@ -9,6 +9,8 @@ const baseCtx: ChromeSlotContext = {
   canEdit: true,
   mobile: false,
   drawingName: "Sprint Retro",
+  collectionId: null,
+  collectionName: null,
   isRenaming: false,
   isSavingOnLeave: false,
   newName: "",

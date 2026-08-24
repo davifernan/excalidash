@@ -11,6 +11,8 @@ export interface DrawingSummary {
   id: string;
   name: string;
   collectionId: string | null;
+  /** Only sent by the single-drawing fetch (GET /drawings/:id), same gate as collectionId (NIL-344). */
+  collectionName?: string | null;
   updatedAt: number;
   createdAt: number;
   version: number;

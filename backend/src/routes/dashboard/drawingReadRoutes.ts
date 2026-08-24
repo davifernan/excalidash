@@ -62,6 +62,7 @@ export const registerDrawingReadRoutes = (app: express.Express, context: Drawing
           createdAt: true,
           updatedAt: true,
           createdBy: { select: { name: true } },
+          collection: { select: { name: true } },
         },
       });
       if (!drawing) {
@@ -99,6 +100,10 @@ export const registerDrawingReadRoutes = (app: express.Express, context: Drawing
         collectionId: isCreator
           ? toPublicTrashCollectionId(drawing.collectionId, drawing.userId)
           : null,
+        // Same gate as collectionId, on purpose: a name is exactly as much of a
+        // leak as the id it names (NIL-323/NIL-344 -- Canvas Shell workspace
+        // context reads this to label which collection a board sits in).
+        collectionName: isCreator ? (drawing.collection?.name ?? null) : null,
         elements: parseJsonField(drawing.elements, []),
         appState: parseJsonField(drawing.appState, {}),
         files: parseJsonField(drawing.files, {}),

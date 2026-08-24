@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { LayoutGrid, Folder, Plus, Archive, FolderOpen, Shield, Users } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { LayoutGrid, Folder, Plus, Archive, FolderOpen, Shield, Users, Home } from "lucide-react";
 import type { Collection } from "../types";
 import clsx from "clsx";
 import { ConfirmModal } from "./ConfirmModal";
@@ -31,6 +32,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDrop,
 }) => {
   const { logout, user, authEnabled } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isCreating, setIsCreating] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -173,6 +176,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="flex-1 overflow-y-auto py-3 sm:py-4 space-y-4 sm:space-y-8 custom-scrollbar"
           onContextMenu={handleBackgroundContextMenu}
         >
+          <div className="space-y-1">
+            <div className="pl-3 pr-2">
+              <SidebarItem
+                id="team-home"
+                icon={<Home size={18} />}
+                label="Team Home"
+                isActive={location.pathname === "/team"}
+                onClick={() => navigate("/team")}
+              />
+            </div>
+          </div>
           <div className="space-y-1">
             <div className="px-6 pb-2 text-[11px] font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-wider">
               Library
