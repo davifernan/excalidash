@@ -95,27 +95,27 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
 const RAW_API_EXCEPTIONS = new Set([]);
 
 /**
- * Receiver names the raw-API-call pattern must not fire on: `ExcalidrawAdapter`'s
- * own property names (capabilities.ts). A capability call reads
- * `interaction.onPointerDown(...)`; the raw handle this rule exists to catch is
- * never bound to one of these names anywhere in the product (see `api` in the
- * `updateLibrary` note above, and in every migrated file's own history).
+ * Receiver names the raw-API-call pattern must not fire on.
+ *
+ * Deliberately NOT every property `ExcalidrawAdapter` has (capabilities.ts).
+ * This list is a text-only exemption -- it cannot tell a real
+ * `InteractionCapability` bound to a local named `interaction` from an
+ * unrelated raw handle that happens to share the name (Hans-Friedrich,
+ * PR #61: exempting by name alone, with no type or scope information, lets a
+ * same-named non-adapter variable bypass the rule undetected). It stays
+ * proportionate by exempting only the receivers where that risk is real:
+ * checked mechanically against every capability interface in capabilities.ts,
+ * `InteractionCapability` is the ONLY one with a method name that collides
+ * with RAW_API_PATTERNS's list below (`onPointerDown`, `setActiveTool`) --
+ * `SceneCapability`, `TextContainerCapability`, `SelectionCapability`,
+ * `FileCapability`, `ViewportCapability`, `CollaborationCapability`,
+ * `WidgetCapability`, `ExportCapability`, `HistoryCapability`,
+ * `UiCapability`, `BoardSettingsCapability` and `CompatibilityCapability`
+ * name nothing in that list, so exempting their receiver names bought
+ * nothing and only widened the hole. Narrowing to just `interaction` closes
+ * twelve of the thirteen names this rule used to wave through by text alone.
  */
-const CAPABILITY_RECEIVER_NAMES = [
-  "scene",
-  "text",
-  "boardSettings",
-  "selection",
-  "files",
-  "viewport",
-  "collaboration",
-  "interaction",
-  "widgets",
-  "export",
-  "history",
-  "ui",
-  "compatibility",
-];
+const CAPABILITY_RECEIVER_NAMES = ["interaction"];
 
 /**
  * The imperative handle's methods, as measured on the pinned version.

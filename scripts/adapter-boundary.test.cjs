@@ -203,37 +203,50 @@ const assertLegacyKeyCaught = () => {
 /**
  * NIL-324: `interaction.onPointerDown(...)` used to match the raw-API-call
  * pattern exactly as readily as a real raw call, because the pattern had no
- * receiver awareness at all. Every CAPABILITY_RECEIVER_NAMES entry is proved
- * here in one probe file -- one bare call per capability, the exact call
- * shape a consumer writes -- so a future edit narrowing that list still has
- * to keep every one of them accepted, not just the one this bug was found on.
+ * receiver awareness at all. `interaction` is the one real capability call
+ * shape this rule must keep accepting -- the receiver whose real methods
+ * (`onPointerDown`, `setActiveTool`) actually collide with RAW_API_PATTERNS.
  */
 const assertCapabilityCallsAccepted = () => {
-  // Property access, not bare identifiers -- `export` is a reserved word and
-  // could never be a bare local name anyway, but `adapter.export.toSvg(...)`
-  // is exactly how a real consumer reaches it, and the lookbehind only looks
-  // at the text immediately before the matched `.method(`, so this exercises
-  // the same receiver check a bare `interaction.onPointerDown(...)` does.
-  const lines = [
-    "adapter.scene.getSceneElements();",
-    "adapter.text.getAppState();",
-    "adapter.boardSettings.getAppState();",
-    "adapter.selection.getAppState();",
-    "adapter.files.getFiles();",
-    "adapter.viewport.getAppState();",
-    "adapter.collaboration.onChange();",
-    "adapter.interaction.onPointerDown();",
-    "adapter.widgets.getAppState();",
-    "adapter.export.getAppState();",
-    "adapter.history.getAppState();",
-    "adapter.ui.getAppState();",
-    "adapter.compatibility.getAppState();",
-  ];
   assertAccepted(
-    "capability calls with names the raw-API rule must not treat as the raw handle",
+    "a capability call the raw-API rule must not treat as the raw handle",
     "capabilityReceiverNames.ts",
-    `export const probe = (adapter: any) => {\n  ${lines.join("\n  ")}\n};\n`,
+    'export const probe = (adapter: any) => {\n  adapter.interaction.onPointerDown();\n};\n',
   );
+};
+
+/**
+ * PR #61 (Hans-Friedrich): CAPABILITY_RECEIVER_NAMES used to exempt all
+ * thirteen of ExcalidrawAdapter's property names by text alone, with no way
+ * to tell a real capability from a same-named unrelated variable. Checked
+ * mechanically against capabilities.ts, only `InteractionCapability` names a
+ * method that collides with RAW_API_PATTERNS -- the other twelve receiver
+ * names never needed the exemption, so narrowing the list to `interaction`
+ * only closes a hole the rule never should have had open. This probe is the
+ * direction that proves it stayed closed: a raw-shaped call through any of
+ * the other twelve names is a real violation again, not a silent pass.
+ */
+const assertNonInteractionReceiverNamesRejected = () => {
+  const lines = [
+    "scene.getSceneElements();",
+    "text.getAppState();",
+    "boardSettings.getAppState();",
+    "selection.getAppState();",
+    "files.getFiles();",
+    "viewport.getAppState();",
+    "collaboration.onChange();",
+    "widgets.getAppState();",
+    "history.getAppState();",
+    "ui.getAppState();",
+    "compatibility.getAppState();",
+  ];
+  for (const line of lines) {
+    assertRejects(
+      `a raw-shaped call through a non-interaction receiver name (${line})`,
+      "nonInteractionReceiver.ts",
+      `export const probe = (scene: any, text: any, boardSettings: any, selection: any, files: any, viewport: any, collaboration: any, widgets: any, history: any, ui: any, compatibility: any) => {\n  ${line}\n};\n`,
+    );
+  }
 };
 
 const assertNoExceptionsRemain = () => {
@@ -270,6 +283,7 @@ const main = () => {
   assertLegacyKeyCaught();
   assertNoExceptionsRemain();
   assertCapabilityCallsAccepted();
+  assertNonInteractionReceiverNamesRejected();
 
   const after = run();
   if (after.status !== 0) {
