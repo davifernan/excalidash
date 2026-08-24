@@ -46,10 +46,7 @@ const openEditor = async (page: Page, drawingId: string) => {
 };
 
 // The same clip invite-here.spec.ts uses: clear of the tool row, the
-// properties panel and the header notice. `panBy` always parks the target's
-// cursor well outside this rectangle afterwards (see below) -- the only thing
-// that can change these pixels is then the viewport itself moving, not a
-// remote cursor rendering inside the clip.
+// properties panel and the header notice.
 const CANVAS_PATCH = { x: 520, y: 140, width: 560, height: 340 };
 const look = (page: Page) => page.screenshot({ clip: CANVAS_PATCH });
 
@@ -63,12 +60,34 @@ const panBy = async (page: Page, dx: number, dy: number) => {
   await page.mouse.down();
   await page.mouse.move(760 + dx, 400 + dy, { steps: 12 });
   await page.mouse.up();
-  // Off the canvas entirely (over the hamburger, well above and left of
-  // CANVAS_PATCH) so the target's own remote cursor -- rendered on the
-  // follower's screen independently of which tool is active -- can never be
-  // the thing a pixel diff inside the clip is actually detecting.
-  await page.mouse.move(20, 20);
   await page.waitForTimeout(600);
+};
+
+/**
+ * A fixed screen point to rest the target's pointer at before comparing two
+ * of the follower's screenshots.
+ *
+ * The root cause CI caught: cursor sharing between peers is independent of
+ * Follow, so the target's remote cursor renders on the follower's screen
+ * regardless of follow state -- and *causing* a real pan requires moving the
+ * target's mouse, which is itself a new cursor-move broadcast. A raw
+ * before/after screenshot diff cannot tell "the viewport moved" apart from
+ * "the target's cursor moved", because panning by dragging always does both.
+ * Parking the pointer at the same screen coordinate before each of the two
+ * captures makes the cursor's rendered appearance identical on both sides,
+ * so a remaining diff can only be the viewport.
+ *
+ * The wait before the move matters as much as the move itself: a pointer
+ * update inside the sender's own 50ms throttle window (`lastCursorEmit` in
+ * useEditorCollaboration.ts) is dropped rather than queued, so parking
+ * right after another move can silently land on that earlier position
+ * instead of this one.
+ */
+const REST_POINT = { x: 900, y: 300 };
+const parkCursor = async (page: Page) => {
+  await page.waitForTimeout(120);
+  await page.mouse.move(REST_POINT.x, REST_POINT.y);
+  await page.waitForTimeout(300);
 };
 
 test.describe("Follow mode", () => {
@@ -134,10 +153,15 @@ test.describe("Follow mode", () => {
       await expect(follower.locator(".follow-mode__badge")).toBeHidden({ timeout: 5000 });
 
       // And it really stopped: the target moving again leaves the follower's
-      // view untouched, the same "not a leash" proof invite-here.spec.ts uses.
+      // view untouched, the same "not a leash" proof invite-here.spec.ts
+      // uses -- with the target's cursor parked at the same screen point
+      // before each capture (see parkCursor's own comment), so a real pan
+      // cannot hide inside what would otherwise also be a new cursor
+      // position.
+      await parkCursor(target);
       const afterStop = await look(follower);
-      await panBy(target, 400, 260);
-      await follower.waitForTimeout(1200);
+      await panBy(target, 500, 300);
+      await parkCursor(target);
       expect(Buffer.compare(await look(follower), afterStop)).toBe(0);
     } finally {
       await followerCtx.close();
