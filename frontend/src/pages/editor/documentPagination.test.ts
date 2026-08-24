@@ -73,6 +73,41 @@ describe("document source pagination", () => {
     expect(pages.join("")).toBe(source);
   });
 
+  // NIL-484: a document with no natural break point inside a chunk (no blank
+  // line, no fence, no heading -- a run-on paragraph, or a TEXT document with
+  // no newlines at all) used to become one unpaginated page however large.
+  // WebKit's text layout for one unbroken multi-megabyte run blocks the main
+  // thread for roughly 1s (measured); every other engine handles the same
+  // content in a fraction of that. The fix hard-splits splittable content at
+  // the budget instead of leaving it whole.
+  it("splits an unbroken plain-text line that has no newline at all", () => {
+    const source = "word ".repeat(20_000); // ~100,000 chars, one line, no \n
+
+    const pages = paginateDocumentSource(source, "TEXT", DOCUMENT_PAGE_CHAR_BUDGET);
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((page) => page.length <= DOCUMENT_PAGE_CHAR_BUDGET)).toBe(true);
+    expect(pages.join("")).toBe(source);
+  });
+
+  it("splits a run-on markdown paragraph with no blank line to break on", () => {
+    const source = "word ".repeat(20_000); // one atomic block, far over budget
+
+    const pages = paginateDocumentSource(source, "MARKDOWN", DOCUMENT_PAGE_CHAR_BUDGET);
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((page) => page.length <= DOCUMENT_PAGE_CHAR_BUDGET)).toBe(true);
+    expect(pages.join("")).toBe(source);
+  });
+
+  it("still keeps an oversized fenced code block on one page (not hard-split)", () => {
+    const fence = `\`\`\`text\n${"x".repeat(200)}\n\`\`\`\n`;
+
+    const pages = paginateDocumentSource(fence, "MARKDOWN", 80);
+
+    expect(pages).toEqual([fence]);
+  });
+
   it("bounds pages from a pathological 500,000-row table in linear time", () => {
     const header = "| Value |\n| --- |\n";
     const source = `${header}${"| cell |\n".repeat(500_000)}`;
