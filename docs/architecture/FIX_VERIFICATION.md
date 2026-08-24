@@ -191,6 +191,77 @@ test changes between the three runs. `coverage_probe.output` must literally cont
 uses and for the same reason: a hand-typed summary of what failed is not evidence that
 anything actually failed there.
 
+### Instrument-repair recipe (NIL-522)
+
+Some fixes have no production-code lever at all: the finding and its repair live entirely in
+the test's own measurement methodology, and the production code the finding is *about* is
+provably unaffected. Measured on PR #78 (NIL-506): `audit.test.ts`'s `logAuditEvent` tests
+wrote zero rows because the test toggled `ENABLE_AUDIT_LOGGING` via `process.env` in
+`beforeAll`, racing `config.ts`'s one-time env snapshot. The accompanying change to
+`audit.ts` (dropping a dead `await import("../config")` workaround) looked like the fix, but
+holding it fixed and swapping only the test file's blob proved otherwise: the new test passed
+10/10 against *both* the old and the new `audit.ts`, and the old test failed against *both* --
+no production-code delta exists that flips the outcome. Neither the `test` recipe (needs a
+from/to production-code delta under one fixed instrument) nor the `equivalence` recipe (needs
+the *same* instrument on both sides, and this repair changes the instrument by definition)
+can represent this honestly.
+
+This recipe is `test` mirrored: production code (`subject`) is the constant, deliberately
+broken by file copy and identical on both runs -- never by reverting the actual fix commit,
+the same red-proof convention every other recipe in this document uses. The instrument is the
+only variable, and the two instrument blobs must **differ** -- the literal inversion of the
+`test` recipe's same-blob-both-sides rule, and a reader must see that immediately. It proves
+not just "the new test passes" but "the old test was blind to a real bug the new one catches",
+which is the property that actually made the repair necessary.
+
+```html
+<!-- excalidash-fix-verification:v1
+{
+  "schema": 1,
+  "from_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "to_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "evidence_type": "objective-red-green",
+  "finding": {
+    "id": "PR-78-C5398252784",
+    "url": "https://github.com/davifernan/excalidash/pull/78#issuecomment-5398252784"
+  },
+  "recorded_by": { "role": "pr-overseer", "actor": "davifernan" },
+  "recipe": {
+    "kind": "instrument-repair",
+    "command": "cd backend && npx vitest run src/utils/__tests__/audit.test.ts",
+    "subject": {
+      "path": "backend/src/utils/audit.ts",
+      "description": "config.enableAuditLogging check replaced with a direct process.env.ENABLE_AUDIT_LOGGING read, bypassing config.ts -- held identical for both instrument runs, never committed"
+    },
+    "old_instrument": {
+      "path": "backend/src/utils/__tests__/audit.test.ts",
+      "blob_sha": "0aef1bf4d73d1963d57a25e97eb5fccf7003523c"
+    },
+    "new_instrument": {
+      "path": "backend/src/utils/__tests__/audit.test.ts",
+      "blob_sha": "b1d467a667ed03a4f871d0731e6cfcf8896acd8e"
+    },
+    "from": { "exit_code": 0, "output": "Test Files  1 passed (1)\n     Tests  10 passed (10)" },
+    "to": {
+      "exit_code": 1,
+      "assertion": "AssertionError: expected +0 to be 1",
+      "output": "AssertionError: expected +0 to be 1 // Object.is equality\n\n Test Files  1 failed (1)\n      Tests  9 failed | 1 passed (10)"
+    }
+  }
+}
+-->
+```
+
+`subject` has no `blob_sha`, the same as `equivalence`'s subject: the broken state is
+deliberately never committed, so there is no stable git blob to pin -- `description` is the
+record of what was changed and why, read by a human replaying the two runs. `old_instrument`
+and `new_instrument` each pin their own blob, and `checkFixVerificationCoverage` rejects a
+record where they match: same blob on both sides is not an instrument repair, it is nothing.
+`from` (old instrument) must stay green (`exit_code === 0`) despite the broken subject; `to`
+(new instrument) must go red, with its own `assertion` appearing verbatim in its `output` --
+the identical non-paraphrased rule the `test` recipe's `from` and the `equivalence` recipe's
+`coverage_probe` both already enforce.
+
 Do not encode an otherwise unsupported measurement as an unstructured prose recipe. Add a
 new schema version through a reviewed contract change instead.
 
