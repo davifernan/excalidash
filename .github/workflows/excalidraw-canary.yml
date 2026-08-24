@@ -1,0 +1,52 @@
+name: Excalidraw Canary
+
+# NIL-340: whether a different @excalidraw/excalidraw version breaks the
+# adapter boundary (frontend/src/integrations/excalidraw/), per
+# docs/architecture/EXCALIDRAW_ADAPTER.md's own "Canary" section -- "a
+# separate, regular run... deliberately installs the next version to check
+# and runs the contract". Deliberately a SEPARATE, non-required workflow, not
+# a step inside Tests: this checks a version we have not adopted yet, so a
+# failure here is a real, actionable finding about upstream, not a gate on
+# ordinary product work -- the opposite case from adapter-boundary.cjs (see
+# that job's own comment in test.yml), which guards code already in this
+# repo and must block merges.
+#
+# Weekly, not on every push: `scripts/excalidraw-canary-check.cjs` resolves
+# npm's current `latest` and exits immediately, doing nothing, whenever
+# that's still the pinned version -- so this only ever does real work (and
+# can only ever fail) on the actual event that matters: upstream publishing
+# something we have not measured against. Also runnable on demand with an
+# explicit version/dist-tag for a real forward-looking check anytime, or to
+# rehearse an upgrade decision without waiting for the schedule.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version or dist-tag to check (default: npm "latest")'
+        required: false
+        type: string
+
+jobs:
+  canary:
+    name: Excalidraw Canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Check a different Excalidraw version against our adapter
+        run: node scripts/excalidraw-canary-check.cjs ${{ inputs.version }}
