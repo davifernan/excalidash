@@ -3,6 +3,13 @@
 Hans-Friedrich reviews one admitted PR head. A finding fix moves the head, so the resulting
 `hans_sha..fix_sha` delta needs its own evidence without causing a second general review.
 That evidence is a GitHub PR comment containing one `excalidash-fix-verification:v1` marker.
+This is not just a style preference: `checkFixVerificationCoverage` (`scripts/
+delivery-contracts.cjs`) treats a comment with more than one marker as invalid **in its
+entirety**, not just the extra records. `parseFixVerificationMarker` throws on a second match,
+and the catch increments `invalidRecords` for the whole comment -- none of its markers, including
+an otherwise-correct one, ever reach `matchingRecords`. Two markers in one comment measured
+`covered:false, invalidRecords:1`; the identical evidence split across two comments measured
+`covered:true, invalidRecords:0`. One marker per comment, always.
 
 The marker is a replay recipe, not an approval flag. It deliberately has no `verified: true`
 field. A consumer can establish only that an exact SHA delta has a structurally valid,

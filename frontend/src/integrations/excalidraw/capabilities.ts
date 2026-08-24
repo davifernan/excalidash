@@ -93,6 +93,12 @@ export interface SceneCapability {
    * `protect` names elements a gesture is currently holding -- what is being
    * typed, dragged, drawn or resized right now. A rebase mid-gesture that does
    * not honour them pulls the element out from under the person doing it.
+   *
+   * Currently always reports `unsupported` -- arrives with the persistence
+   * migration. Do not plan on this being live until then. Not to be confused
+   * with `reconcileElements` in `utils/sync.ts`, which is live today
+   * (`useEditorPersistence.ts`, `pages/editor/shared.ts`) -- same word, a
+   * different merge, at a different layer.
    */
   reconcile(
     local: SceneDocument,
@@ -106,6 +112,9 @@ export interface SceneCapability {
    * The sticky upkeep resizes containers and needs their bound labels laid out
    * the way the editor would lay them out, not the way this application guesses
    * it would. Without this the upkeep keeps a raw path into the package.
+   *
+   * Currently always reports `unsupported` -- arrives with the sticky
+   * migration. Do not plan on this being live until then.
    */
   relayout(document: SceneDocument): CapabilityResult<SceneDocument>;
 }
@@ -207,7 +216,13 @@ export interface CollaborationCapability {
    */
   onFollowIntent(listener: (intent: FollowIntent) => void): Unsubscribe;
 
-  /** The local pointer stream this client broadcasts. */
+  /**
+   * The local pointer stream this client broadcasts.
+   *
+   * Currently always reports `unsupported` -- arrives with the host prop
+   * migration. The real pointer stream today is a direct prop on the host
+   * (see `useEditorCollaboration.ts`'s `onPointerUpdate`), not this method.
+   */
   onPointerUpdate(listener: (update: PointerUpdate) => void): Unsubscribe;
 }
 

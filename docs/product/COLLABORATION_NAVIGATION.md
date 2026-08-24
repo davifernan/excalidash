@@ -153,6 +153,19 @@ zurueckspringt.
 Reine Client-Arbeit wie im Ticket verlangt: keine neuen Events, keine zusaetzliche Netzlast — die
 Interpolation rechnet ausschliesslich mit Positionen, die ohnehin schon eintreffen.
 
+## Wire-Validierung und Missbrauchsschutz
+
+Die urspruengliche Planung dafuer stand in `docs/follow-mode.md` (vor der M6-Konsistenzpruefung
+geloescht, da veraltet und teils falsch); die Invarianten selbst sind laengst umgesetzt und in
+`backend/src/server/socket.test.ts` durchgesetzt, nicht nur beschrieben: Feld-Whitelist fuer
+`cursor-move` und Element-Relay (`"whitelists cursor and element relay fields"`), nur endliche
+Viewport-Werte an einen registrierten Follower geroutet
+(`"routes finite viewport bounds only to a registered follower"`), Drosselung ueber
+`SELECTION_LIMITS`/`CURSOR_CHAT_LIMITS` (`socketSelection.ts`/`socketCursorChat.ts`), und beide
+Richtungen einer Follow-Beziehung werden bei fehlgeschlagener Rechtepruefung aufgeraeumt. Ein
+Test, der umfallen kann, ist der verbindliche Vertrag hier — dieser Abschnitt ist nur der
+Wegweiser dorthin.
+
 ## Bewusst nicht gebaut in diesem Paket
 
 - Eine eigene serverseitige Inaktivitaets-Verfallsuhr (siehe oben).
