@@ -352,6 +352,11 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         // guestB reconnects, against a server that has already committed the
         // deletion.
         const beforeErrors = await errorToasts(guestB).count();
+        // Re-activate: Excalidraw deactivates an embeddable's own controls
+        // once the pointer interacts with anything else on the canvas
+        // (several other steps above did), the same way it guards an
+        // embedded video. Purely local, so this works the same offline.
+        await activateDocumentWidget(guestB).catch(() => {});
         await guestB.getByRole("button", { name: "Next page" }).click({ timeout: 5_000 }).catch(() => {});
 
         await guestBCtx.setOffline(false);
