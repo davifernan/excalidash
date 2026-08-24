@@ -44,7 +44,9 @@ describe("useEditorFileUploads", () => {
       "file-1": { mimeType: "image/png", dataURL: "data:image/png;base64,aaaa" },
     });
     mockUpload.mockResolvedValue(undefined);
-    renderHook(() => useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }));
+    renderHook(() =>
+      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+    );
 
     act(() => fireFilesAdded());
     expect(mockUpload).not.toHaveBeenCalled();
@@ -52,7 +54,12 @@ describe("useEditorFileUploads", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(800);
     });
-    expect(mockUpload).toHaveBeenCalledWith("d1", "file-1", "data:image/png;base64,aaaa", "image/png");
+    expect(mockUpload).toHaveBeenCalledWith(
+      "d1",
+      "file-1",
+      "data:image/png;base64,aaaa",
+      "image/png",
+    );
   });
 
   it("marks a file uploaded only after the PUT resolves, not merely after it is sent", async () => {
@@ -108,7 +115,9 @@ describe("useEditorFileUploads", () => {
     const fileCapability = makeFileCapability({
       "file-1": { mimeType: "image/png", dataURL: "/api/files/d1/file-1" },
     });
-    renderHook(() => useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }));
+    renderHook(() =>
+      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+    );
 
     act(() => fireFilesAdded());
     await act(async () => {
@@ -125,7 +134,9 @@ describe("useEditorFileUploads", () => {
       "file-4": { mimeType: "image/png", dataURL: "data:image/png;base64,d" },
     });
     mockUpload.mockImplementation(() => new Promise(() => {})); // never resolves
-    renderHook(() => useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }));
+    renderHook(() =>
+      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+    );
 
     act(() => fireFilesAdded());
     await act(async () => {

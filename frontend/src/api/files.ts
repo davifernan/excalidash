@@ -20,9 +20,7 @@ export const uploadDrawingFile = async (
   mimeType: string,
 ): Promise<void> => {
   const blob = await (await fetch(dataURL)).blob();
-  await api.put(
-    `/files/${encodeURIComponent(drawingId)}/${encodeURIComponent(fileId)}`,
-    blob,
-    { headers: { "Content-Type": mimeType } },
-  );
+  await api.put(`/files/${encodeURIComponent(drawingId)}/${encodeURIComponent(fileId)}`, blob, {
+    headers: { "Content-Type": mimeType },
+  });
 };
