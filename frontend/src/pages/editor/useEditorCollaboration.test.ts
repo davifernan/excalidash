@@ -399,7 +399,7 @@ describe("editor collaboration reconnect state", () => {
     unmount();
   });
 
-  it("forgets confirmed file markers when the room lifecycle resets for reconnect", () => {
+  it("keeps confirmed file markers when the room lifecycle resets for reconnect", () => {
     const confirmedFiles = {
       image: { id: "image", dataURL: "data:image/png;base64,bytes" },
     };
@@ -432,7 +432,7 @@ describe("editor collaboration reconnect state", () => {
     expect(mocks.resetConnectionState).toBeTypeOf("function");
     act(() => mocks.resetConnectionState?.());
 
-    expect(lastSyncedFilesRef.current).toEqual({});
+    expect(lastSyncedFilesRef.current).toBe(confirmedFiles);
     unmount();
   });
 });
