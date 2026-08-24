@@ -20,6 +20,20 @@
  *   own collaborator avatars and Library trigger. Hidden entirely on mobile
  *   (EditorTopRight stands down there; its entry points live in the menu
  *   instead -- see EditorTopRight.tsx's own file comment for why).
+ *
+ *   This slot has a factual upper limit: a third icon here, alongside
+ *   invite-everyone-here and share, pushes `.layer-ui__wrapper__top-right`
+ *   past the width where Excalidraw's own collaborator-avatar list collapses
+ *   individual avatars into a "+N" badge. Whoever triggers this does not see
+ *   it at their own entry -- they see collaboration.spec.ts's presence, sync,
+ *   and cursor tests lose the `.UserList__collaborator .Avatar` node, or
+ *   follow-mode.spec.ts's avatar-click test with it. Two packages hit this
+ *   independently as a full third header-control entry -- a "comments" one
+ *   (PR #61) and this package's own "present" one (PR #65) -- each first
+ *   read as an unrelated regression in someone else's spec before being
+ *   traced back here. The way out is the same one Mobile (below) already
+ *   uses: a MainMenu entry or an overlay instead of a header control, once
+ *   this group is full.
  * - **Footer** (`FooterSlotEntry`) -- Excalidraw's Footer tunnel, which mounts
  *   only on desktop; Excalidraw renders no Footer at all on the mobile
  *   layout. A footer entry that also needs to exist on mobile has to bring
