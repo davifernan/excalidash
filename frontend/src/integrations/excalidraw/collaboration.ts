@@ -251,12 +251,12 @@ export const createCollaborationCapability = (
       });
     },
 
-    onPointerUpdate() {
+    onLocalPointerBroadcast() {
       // The local pointer stream is a prop on the host, not a method on the
       // handle. It is wired when EditorView migrates; subscribing here before
       // then would report an event that never arrives.
       reportFailure(
-        fail("unsupported", "collaboration.onPointerUpdate", {
+        fail("unsupported", "collaboration.onLocalPointerBroadcast", {
           detail: "arrives with the host prop migration",
         }),
         packageVersion(),

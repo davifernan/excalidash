@@ -546,9 +546,11 @@ export const useEditorCollaboration = ({
     viewport,
     reportCapabilityFailure,
   ]);
-  // Not `CollaborationCapability.onPointerUpdate()` in capabilities.ts/collaboration.ts --
-  // that method always reports unsupported today. This is the live pointer stream, wired
-  // through Editor.tsx as a direct prop, not through that capability method.
+  // Not `CollaborationCapability.onLocalPointerBroadcast()` in
+  // capabilities.ts/collaboration.ts -- that method always reports unsupported today. This
+  // is the live pointer stream, wired through Editor.tsx as a direct prop, not through that
+  // capability method. This local name stays `onPointerUpdate` because it is what the
+  // Excalidraw `onPointerUpdate` prop it implements is called.
   const onPointerUpdate = useCallback(
     (payload: any) => {
       const now = Date.now();

@@ -61,7 +61,7 @@ const fakeScene = () =>
     subscribe: vi.fn(() => () => {}),
     toPersisted: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
     fromPersisted: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
-    reconcile: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
+    rebaseOntoServer: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
     relayout: vi.fn(() => okv({ elements: [], appState: {}, files: {} })),
   }) as any;
 

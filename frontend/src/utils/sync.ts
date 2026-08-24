@@ -88,8 +88,8 @@ export type ReconcileOptions = {
   protect?: ReadonlySet<string> | null;
 };
 
-// Not `SceneCapability.reconcile()` in capabilities.ts/adapter.ts -- that method always
-// reports unsupported today. This is the live element-merge, called directly from
+// Not `SceneCapability.rebaseOntoServer()` in capabilities.ts/adapter.ts -- that method
+// always reports unsupported today. This is the live element-merge, called directly from
 // useEditorPersistence.ts and pages/editor/shared.ts.
 export const reconcileElements = (
   localElements: readonly any[],

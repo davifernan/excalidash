@@ -95,12 +95,13 @@ export interface SceneCapability {
    * not honour them pulls the element out from under the person doing it.
    *
    * Currently always reports `unsupported` -- arrives with the persistence
-   * migration. Do not plan on this being live until then. Not to be confused
-   * with `reconcileElements` in `utils/sync.ts`, which is live today
-   * (`useEditorPersistence.ts`, `pages/editor/shared.ts`) -- same word, a
-   * different merge, at a different layer.
+   * migration. Do not plan on this being live until then. Named apart from
+   * `reconcileElements` in `utils/sync.ts`, which is live today
+   * (`useEditorPersistence.ts`, `pages/editor/shared.ts`) -- that is a
+   * different merge, at a different layer, and shared no more than the
+   * concept with this one.
    */
-  reconcile(
+  rebaseOntoServer(
     local: SceneDocument,
     remote: PersistedScene,
     options?: { protect?: readonly ElementId[] },
@@ -220,10 +221,12 @@ export interface CollaborationCapability {
    * The local pointer stream this client broadcasts.
    *
    * Currently always reports `unsupported` -- arrives with the host prop
-   * migration. The real pointer stream today is a direct prop on the host
-   * (see `useEditorCollaboration.ts`'s `onPointerUpdate`), not this method.
+   * migration. Named apart from `useEditorCollaboration.ts`'s
+   * `onPointerUpdate`, which is the real pointer stream today, wired as a
+   * direct prop on the host (`EditorView.tsx`, `Editor.tsx`) -- that name is
+   * fixed by the Excalidraw prop it implements, so this one moved instead.
    */
-  onPointerUpdate(listener: (update: PointerUpdate) => void): Unsubscribe;
+  onLocalPointerBroadcast(listener: (update: PointerUpdate) => void): Unsubscribe;
 }
 
 export interface InteractionCapability {
