@@ -546,6 +546,9 @@ export const useEditorCollaboration = ({
     viewport,
     reportCapabilityFailure,
   ]);
+  // Not `CollaborationCapability.onPointerUpdate()` in capabilities.ts/collaboration.ts --
+  // that method always reports unsupported today. This is the live pointer stream, wired
+  // through Editor.tsx as a direct prop, not through that capability method.
   const onPointerUpdate = useCallback(
     (payload: any) => {
       const now = Date.now();

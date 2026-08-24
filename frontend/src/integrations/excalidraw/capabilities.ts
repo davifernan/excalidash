@@ -95,7 +95,10 @@ export interface SceneCapability {
    * not honour them pulls the element out from under the person doing it.
    *
    * Currently always reports `unsupported` -- arrives with the persistence
-   * migration. Do not plan on this being live until then.
+   * migration. Do not plan on this being live until then. Not to be confused
+   * with `reconcileElements` in `utils/sync.ts`, which is live today
+   * (`useEditorPersistence.ts`, `pages/editor/shared.ts`) -- same word, a
+   * different merge, at a different layer.
    */
   reconcile(
     local: SceneDocument,
