@@ -142,3 +142,8 @@ Thumbs.db
 # artefact from the repo root was committed once because only
 # frontend/ and backend/ were listed.
 node_modules/
+
+# scripts/excalidraw-canary.sh (NIL-340) writes these at repo root only when
+# it finds a real deviation -- a report worth reading in the run's own
+# terminal output, not a file the repo should carry between runs.
+excalidraw-canary-*-report.log
