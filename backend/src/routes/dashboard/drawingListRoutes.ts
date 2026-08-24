@@ -8,6 +8,7 @@ import type { DrawingRouteContext } from "./drawingRouteContext";
 import { getCollectionAccess, listSharedCollectionIds } from "../../authz/collections";
 import { boardsSharedWithWhere, grantedLevelSelect, ownedBoardsWhere } from "../../authz/boards";
 import { getFavoriteDrawingIds } from "../../authz/favorites";
+import { getBoardsWithActiveLinkShare } from "../../authz/grants";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -242,19 +243,10 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       if (accessVia) {
         for (const drawing of responsePayload) drawing.accessVia = accessVia;
       } else if (computeLinkShared && responsePayload.length > 0) {
-        // Batched, not one query per card: an active link (not revoked, not
-        // expired) is an exposure signal for the owner, same predicate as
-        // authz/sharing.ts's getActiveLinkShareAccess.
-        const now = new Date();
-        const linkShared = await prisma.drawingLinkShare.findMany({
-          where: {
-            drawingId: { in: responsePayload.map((d) => d.id) },
-            revokedAt: null,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-          },
-          select: { drawingId: true },
+        const linkSharedIds = await getBoardsWithActiveLinkShare({
+          db: prisma,
+          drawingIds: responsePayload.map((d) => d.id),
         });
-        const linkSharedIds = new Set(linkShared.map((row) => row.drawingId));
         for (const drawing of responsePayload) {
           drawing.linkShared = linkSharedIds.has(drawing.id);
         }

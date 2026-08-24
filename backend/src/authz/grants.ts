@@ -103,6 +103,33 @@ export const listDrawingLinkShares = async (params: { db: AuthzDb; drawingId: st
   });
 
 /**
+ * Which of these boards currently have an active (not revoked, not expired)
+ * link share -- the owner-only exposure signal `drawingListRoutes.ts` shows
+ * as `linkShared` (NIL-290). Batched for a whole list response, same
+ * "five queries for a page, not one per card" reasoning as
+ * `authz/roster.ts`'s `getDrawingRosters`. Same "active" predicate as
+ * `authz/sharing.ts`'s `getActiveLinkShareAccess` -- kept as a second,
+ * batched query rather than reused directly because that one is scoped to a
+ * single board and a single token.
+ */
+export const getBoardsWithActiveLinkShare = async (params: {
+  db: AuthzDb;
+  drawingIds: readonly string[];
+  now?: Date;
+}): Promise<Set<string>> => {
+  if (params.drawingIds.length === 0) return new Set();
+  const rows = await params.db.drawingLinkShare.findMany({
+    where: {
+      drawingId: { in: [...params.drawingIds] },
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: params.now ?? new Date() } }],
+    },
+    select: { drawingId: true },
+  });
+  return new Set(rows.map((row) => row.drawingId));
+};
+
+/**
  * Issue a link share, revoking whatever was active before it.
  *
  * Both halves are one transaction on purpose: a reissued link must be
