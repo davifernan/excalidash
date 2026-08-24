@@ -7,6 +7,12 @@ This file helps two kinds of agents work on ExcaliDash.
 ExcaliDash is a self-hosted dashboard and organizer for Excalidraw drawings, with persistent storage and live collaboration.
 Core user-facing features include organizing drawings into collections, search, export/import for backup, and configurable authentication (local and optional OIDC).
 
+This fork builds ExcaliDash further into a canvas-first project space for a small team (around
+ten people): Team Home with presence and activity, comments/mentions/notifications, a shared
+Team Library, workshop/presentation mode for frames, and board-scoped agent access — see
+`docs/product/PRODUCT_VISION.md` for the product thesis and `FORK.md` for what's actually
+shipped versus tracked from upstream.
+
 ## ExcaliDash fork execution protocol
 
 The Multica project `ExcaliDash Fork` is the operational source of truth for roadmap work.
@@ -206,14 +212,24 @@ Review focus: <what an independent reviewer should attack>
 
 ## Helpers (Operations)
 
+These are **this fork's** own operational helpers — `davifernan/excalidash`, published to
+GHCR, not upstream's Docker Hub images or `docker-compose.prod.yml`. Pointing any of this at
+`ZimengXiong/ExcaliDash` instead pulls upstream's images, which carry none of this fork's
+features (snapshot compression, transactional password-reset mail, board-scoped agent tokens,
+Team/Comments/Workshop/Discovery, the Excalidraw adapter and authz boundary, ...) — see
+`FORK.md` and `docs/product/PRODUCT_VISION.md` for what's actually in here.
+
 - Official supported deployment flow (production): `docker-compose.prod.yml`
-  - `curl -OL https://raw.githubusercontent.com/ZimengXiong/ExcaliDash/main/docker-compose.prod.yml`
+  - `curl -OL https://raw.githubusercontent.com/davifernan/excalidash/main/docker-compose.prod.yml`
   - `docker compose -f docker-compose.prod.yml pull`
   - `docker compose -f docker-compose.prod.yml up -d`
 - Production hardening quick checklist:
-  - Pin images to a specific release tag (or digest) instead of `:latest` for reproducible upgrades/rollbacks.
-  - Stable tags are published as `zimengxiong/excalidash-backend:<VERSION>` and `zimengxiong/excalidash-frontend:<VERSION>` (and also `:latest`).
-  - Pre-release tags are published as `:dev` and `:<VERSION>-dev` (and do not update `:latest`).
+  - `.github/workflows/publish-images.yml` publishes exactly two tags per green build on
+    `main`: `latest` and `sha-<7-char-commit>` — there is no semver-tagged image, no `:dev`
+    channel, and no Docker Hub mirror. Pin to a specific `sha-<commit>` (see "Pinning And
+    Switching Docker Tags" below) instead of `:latest` for reproducible upgrades/rollbacks.
+  - `docker-compose.prod.yml` requires `EXCALIDASH_IMAGE_TAG` in `.env` and refuses to start
+    without it, precisely so an upgrade can't silently move both images to `latest`.
   - Set fixed `JWT_SECRET` and `CSRF_SECRET` for portability and multi-instance/redeploy scenarios.
   - Set `FRONTEND_URL` to your public URL(s) and keep `TRUST_PROXY=false` unless you are behind a trusted proxy hop.
   - Ensure the backend volume is backed up (SQLite DB + persisted secrets).
@@ -221,56 +237,34 @@ Review focus: <what an independent reviewer should attack>
   - `docker compose -f docker-compose.prod.yml ps`
   - `docker compose -f docker-compose.prod.yml logs backend --tail=200`
   - `docker compose -f docker-compose.prod.yml logs -f backend`
-- Upgrade production:
-  - `docker compose -f docker-compose.prod.yml down` (if needed)
+- Upgrade production: see `FORK.md`'s "Upgrade and rollback" for the full verify-both-images-
+  before-switching procedure. Short form:
   - `docker compose -f docker-compose.prod.yml pull`
   - `docker compose -f docker-compose.prod.yml up -d`
 - Check bootstrap/setup signal if onboarding blocks access:
   - `docker compose -f docker-compose.prod.yml logs backend --tail=200 | grep "BOOTSTRAP SETUP"`
-- For local helper debugging with compose (repo checkout): `docker compose up -d` (uses `docker-compose.yml`; use `-f docker-compose.prod.yml` if you deployed from Docker Hub images)
+- For local helper debugging with compose (repo checkout): `docker compose up -d` (uses `docker-compose.yml`; use `-f docker-compose.prod.yml` if you deployed from the published GHCR images)
 - Must-read first for common user issues: `README.md`
 
 ### Pinning And Switching Docker Tags
 
-Pin to a stable release (recommended for production):
+Pin to an immutable build (recommended for production) — take the commit's short SHA from
+`docker/build-push-action`'s output, GitHub Actions' run summary, or `git rev-parse
+--short=7 <commit>`:
 
 ```yaml
 services:
   backend:
-    image: zimengxiong/excalidash-backend:0.4.18
+    image: ghcr.io/davifernan/excalidash-backend:sha-54cdcc9
   frontend:
-    image: zimengxiong/excalidash-frontend:0.4.18
+    image: ghcr.io/davifernan/excalidash-frontend:sha-54cdcc9
 ```
 
-Switch to pre-release images (rolling `:dev` tag):
-
-```yaml
-services:
-  backend:
-    image: zimengxiong/excalidash-backend:dev
-  frontend:
-    image: zimengxiong/excalidash-frontend:dev
-```
-
-Switch to a specific pre-release build (pinned `:<VERSION>-dev` tag):
-
-```yaml
-services:
-  backend:
-    image: zimengxiong/excalidash-backend:0.4.18-dev
-  frontend:
-    image: zimengxiong/excalidash-frontend:0.4.18-dev
-```
-
-Switch to a one-off custom dev tag (published by `make dev-release NAME=...`):
-
-```yaml
-services:
-  backend:
-    image: zimengxiong/excalidash-backend:0.4.18-dev-issue38
-  frontend:
-    image: zimengxiong/excalidash-frontend:0.4.18-dev-issue38
-```
+There is no rolling pre-release/`:dev` channel and no `make dev-release` publishing path —
+every build that reaches GHCR came from a green `Tests` run on `main` and carries only
+`latest` and its own `sha-<commit>` tag. To run something that isn't on `main` yet, build from
+source instead (see "Quick setup: local development" below), or check out that commit and run
+`docker compose up -d --build`.
 
 ## Contributors (Code Changes)
 
@@ -292,15 +286,21 @@ Prioritize operational steps, then point to the exact commands or files.
 
 For setup and troubleshooting, start here.
 
-- Goal check: confirm whether the user needs local dev, Docker Compose from Docker Hub images, locally built Docker, or E2E.
-- Check whether the problem is already known:
+- Goal check: confirm whether the user needs local dev, Docker Compose from the published GHCR images, locally built Docker, or E2E.
+- Check whether the problem is already known. This fork's own issue history is the first place
+  to look — most of what's built here (Team/Comments/Workshop/Discovery, the Excalidraw
+  adapter, the authz boundary, board-scoped agent tokens, ...) doesn't exist upstream at all, so
+  an upstream search will miss it. Upstream is still worth a second look for a bug that lives in
+  the parts we still share with `ZimengXiong/ExcaliDash` (see `docs/architecture/
+  UPSTREAM_MAINTENANCE.md` for what that boundary is right now).
   - If the agent has GitHub access, search issues for the exact error text/symptom and link the closest match.
   - If the agent cannot browse, ask the user to search and share the issue link (or paste issue text).
   - Note: `git` does not provide a native way to browse GitHub Issues. Use the web UI or GitHub CLI (`gh`).
-  - Issue tracker: `https://github.com/ZimengXiong/ExcaliDash/issues`
-  - Search tip: `https://github.com/ZimengXiong/ExcaliDash/issues?q=is%3Aissue+<paste+error+snippet>`
+  - Issue tracker (this fork): `https://github.com/davifernan/excalidash/issues`
+  - Search tip: `https://github.com/davifernan/excalidash/issues?q=is%3Aissue+<paste+error+snippet>`
+  - Upstream issue tracker (for editor/core behavior this fork didn't change): `https://github.com/ZimengXiong/ExcaliDash/issues`
   - If `gh` is available:
-    - Set repo: `gh repo set-default ZimengXiong/ExcaliDash`
+    - Set repo: `gh repo set-default davifernan/excalidash`
     - Search/list: `gh issue list --search "<error snippet>"`
     - View: `gh issue view <number> -w`
     - Create (guided): `gh issue create`
@@ -309,7 +309,7 @@ For setup and troubleshooting, start here.
 - If the question is about one error, find the nearest environment or script path before proposing code changes.
 - Encourage filing an issue when needed (new bug / unclear docs / missing troubleshooting):
   - Ask the user to include:
-    - Their deployment mode: Docker Hub compose (`docker-compose.prod.yml`) vs repo compose (`docker-compose.yml`) vs `make` vs direct `npm`
+    - Their deployment mode: published-image compose (`docker-compose.prod.yml`, GHCR) vs repo compose (`docker-compose.yml`) vs `make` vs direct `npm`
     - App version tag(s) and image tags (or `VERSION` if built from source)
     - OS/arch (for example `linux/arm64`) and whether a reverse proxy is used
     - Sanitized relevant env vars: `AUTH_MODE`, `TRUST_PROXY`, `FRONTEND_URL` (do not share secrets)
@@ -317,8 +317,8 @@ For setup and troubleshooting, start here.
     - Repro steps and expected vs actual behavior
   - If the agent can reproduce or pinpoint the root cause, summarize findings and link relevant files/lines.
 - If startup is blocked, collect these values from the user first:
-  - Are they using Docker Hub compose (`docker-compose.prod.yml`), repo compose (`docker-compose.yml`), `make`, or direct `npm`?
-  - If using Docker Hub compose: `docker compose -f docker-compose.prod.yml ps` and `docker compose -f docker-compose.prod.yml logs backend --tail=200`
+  - Are they using published-image compose (`docker-compose.prod.yml`), repo compose (`docker-compose.yml`), `make`, or direct `npm`?
+  - If using published-image compose: `docker compose -f docker-compose.prod.yml ps` and `docker compose -f docker-compose.prod.yml logs backend --tail=200`
   - If using repo compose: `docker compose ps` and `docker compose logs backend --tail=200`
   - If using a git clone: `git status`
   - Which auth mode is configured (`AUTH_MODE`)?
