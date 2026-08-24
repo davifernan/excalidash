@@ -90,6 +90,22 @@ const REAL_AUTH_SPECS = [...COMMENTS_TWO_ACCOUNT_SPECS, ...DISCOVERY_PERMISSION_
 const SOAK_SPECS = ["**/team-readiness.spec.ts"];
 
 /**
+ * team-acceptance.spec.ts (NIL-330's integrated M0 acceptance test) is
+ * deliberately one long test (~2.5 minutes alone) rather than several short
+ * ones -- see its own header for why. That single fact makes it a poor fit
+ * for a chromium shard budgeted to clear 48-65 short tests inside a 720s
+ * wall-clock window: PR #76's own CI hit exactly this, shard 2 timing out
+ * (SIGKILL after the 30s SIGINT grace period, `playwright-report/` lost,
+ * NIL-488's failure mode) with team-acceptance.spec.ts queued to start right
+ * as the clock ran out. two-account and permission-matrix already get their
+ * own job for a different reason (a real-auth toggle that would poison
+ * whatever shard runs beside them); this gets one for a budget reason -- an
+ * integration test long enough to matter is long enough to need a job whose
+ * timeout is sized for it alone, not shared with everything else in a shard.
+ */
+const TEAM_ACCEPTANCE_SPECS = ["**/team-acceptance.spec.ts"];
+
+/**
  * Playwright configuration for E2E browser testing
  * 
  * Environment variables:
@@ -173,7 +189,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
       },
-      testIgnore: [...REAL_AUTH_SPECS, ...SOAK_SPECS],
+      testIgnore: [...REAL_AUTH_SPECS, ...SOAK_SPECS, ...TEAM_ACCEPTANCE_SPECS],
     },
     {
       // Isolated on purpose: see REAL_AUTH_SPECS above. Only ever invoked
@@ -198,6 +214,17 @@ export default defineConfig({
         viewport: { width: 1280, height: 720 },
       },
       testMatch: DISCOVERY_PERMISSION_MATRIX_SPECS,
+    },
+    {
+      // Isolated on purpose: see TEAM_ACCEPTANCE_SPECS above. Only ever
+      // invoked explicitly (`--project=team-acceptance`) against a
+      // backend/frontend this project's caller stood up itself.
+      name: "team-acceptance",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: TEAM_ACCEPTANCE_SPECS,
     },
     {
       name: "firefox",
