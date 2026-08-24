@@ -5,7 +5,7 @@ import { DrawingCard } from "../../components/DrawingCard";
 import { DataFailureNotice } from "../../components/DataFailureNotice";
 import type { Collection, DrawingSummary } from "../../types";
 import { useDashboardDataStatus } from "./dashboardDataStatus";
-import type { PresenceByDrawing } from "./useDashboardPresence";
+import { presenceKeysFor, type PresenceByDrawing } from "./useDashboardPresence";
 
 type DragPreviewProps = {
   drawings: DrawingSummary[];
@@ -231,7 +231,7 @@ export const DrawingsGrid: React.FC<DrawingsGridProps> = ({
                 onMouseDown={onMouseDown}
                 onDragStart={onDragStart}
                 onPreviewGenerated={onPreviewGenerated}
-                onlineKeys={presence ? (presence.get(drawing.id)?.keys ?? new Set()) : null}
+                onlineKeys={presenceKeysFor(presence, drawing.id)}
                 guestCount={presence?.get(drawing.id)?.guestCount ?? 0}
               />
             );

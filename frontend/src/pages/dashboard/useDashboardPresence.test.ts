@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { useDashboardPresence } from "./useDashboardPresence";
+import { presenceKeysFor, useDashboardPresence } from "./useDashboardPresence";
 
 const getDashboardPresence = vi.fn();
 
@@ -69,5 +69,47 @@ describe("useDashboardPresence", () => {
     rerender({ ids: [] });
 
     expect(result.current).toBeNull();
+  });
+
+  it("warns once when the board list is truncated, not at all when it isn't", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ids = Array.from({ length: 80 }, (_, index) => `d${index}`);
+    const { rerender } = renderHook(({ ids }) => useDashboardPresence(ids), {
+      initialProps: { ids: ["d1"] },
+    });
+    await waitFor(() => expect(getDashboardPresence).toHaveBeenCalledTimes(1));
+    expect(warn).not.toHaveBeenCalled();
+
+    rerender({ ids });
+    await waitFor(() => expect(getDashboardPresence).toHaveBeenCalledTimes(2));
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // A later poll for the same still-truncated list must not warn again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+  });
+});
+
+describe("presenceKeysFor", () => {
+  it("returns null while presence hasn't loaded at all", () => {
+    expect(presenceKeysFor(null, "d1")).toBeNull();
+  });
+
+  it("returns the board's keys once presence has loaded", () => {
+    const presence = new Map([["d1", { keys: new Set(["k1"]), guestCount: 0 }]]);
+    expect(presenceKeysFor(presence, "d1")).toEqual(new Set(["k1"]));
+  });
+
+  it("returns null -- not an empty set -- for a board past the watch limit", () => {
+    // Presence loaded (the map is non-null), but this board was never asked
+    // about because the dashboard watches at most MAX_WATCHED boards. An
+    // empty set here would read as "confirmed nobody online" instead of
+    // "unknown" -- the silent-cutoff bug from NIL-305.
+    const presence = new Map([["d1", { keys: new Set(["k1"]), guestCount: 0 }]]);
+    expect(presenceKeysFor(presence, "d51-beyond-the-cutoff")).toBeNull();
   });
 });

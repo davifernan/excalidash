@@ -17,9 +17,14 @@ vi.mock("./team/useTeamHomeData", () => ({
   useTeamHomeData: () => mockUseTeamHomeData(),
 }));
 
-vi.mock("./dashboard/useDashboardPresence", () => ({
-  useDashboardPresence: (...args: unknown[]) => mockUseDashboardPresence(...args),
-}));
+vi.mock("./dashboard/useDashboardPresence", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./dashboard/useDashboardPresence")>();
+  return {
+    ...actual,
+    useDashboardPresence: (...args: unknown[]) => mockUseDashboardPresence(...args),
+  };
+});
 
 vi.mock("../components/Layout", () => ({
   Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
