@@ -488,7 +488,31 @@ export async function sweepUnclaimed(deps: Deps): Promise<{ pending: number; mar
     });
   }
 
-  return { pending: stale.length, marked: orphans.length };
+  // A blob only a DrawingFile ever pointed at has no Asset row to carry a
+  // grace period for it -- DrawingFile itself deliberately has none (see
+  // storeDrawingFile's docstring). StoredBlob.deleteAfter exists precisely
+  // for this ("set when the last reference goes away"); collectExpired
+  // below already knows how to recheck and remove a blob marked here, the
+  // same way it rechecks one an expired Asset touched.
+  const orphanBlobs = await deps.prisma.storedBlob.findMany({
+    where: {
+      deleteAfter: null,
+      state: "READY",
+      assets: { none: {} },
+      drawingFiles: { none: {} },
+      linkPreviewImages: { none: {} },
+      linkPreviewFavicons: { none: {} },
+    },
+    select: { id: true },
+  });
+  for (const row of orphanBlobs) {
+    await deps.prisma.storedBlob.update({
+      where: { id: row.id },
+      data: { deleteAfter: new Date(now + BLOB_GRACE_MS) },
+    });
+  }
+
+  return { pending: stale.length, marked: orphans.length + orphanBlobs.length };
 }
 
 /** Delete assets whose grace period has run out, and the bytes they were the last to hold. */
@@ -503,7 +527,17 @@ export async function collectExpired(deps: Deps): Promise<{ assets: number; blob
     await deps.prisma.asset.delete({ where: { id: asset.id } });
   }
 
-  const touchedBlobs = [...new Set(expired.map((a: any) => a.blobId))] as string[];
+  // Two ways a blob becomes a candidate: an expired Asset touched it, or its
+  // own deleteAfter (set by sweepUnclaimed, above, for a blob only a
+  // DrawingFile ever pointed at) has itself run out. Either way the same
+  // recheck below decides whether it is actually safe to remove.
+  const expiredBlobs = await deps.prisma.storedBlob.findMany({
+    where: { deleteAfter: { lt: new Date(now) } },
+    select: { id: true },
+  });
+  const touchedBlobs = [
+    ...new Set([...expired.map((a: any) => a.blobId), ...expiredBlobs.map((b: any) => b.id)]),
+  ] as string[];
   let removed = 0;
   for (const blobId of touchedBlobs) {
     const stillUsed = await deps.prisma.asset.count({ where: { blobId } });
@@ -511,8 +545,7 @@ export async function collectExpired(deps: Deps): Promise<{ assets: number; blob
       where: { OR: [{ imageBlobId: blobId }, { faviconBlobId: blobId }] },
     });
     // A blob a DrawingFile row still points at (NIL-381) is exactly as live
-    // as one an Asset row points at -- this sweep only ever runs on blobs an
-    // expired Asset touched, so this is the same "somebody else still needs
+    // as one an Asset row points at -- the same "somebody else still needs
     // these bytes" check the Asset/LinkPreview counts already make, extended
     // to the reference kind this function did not know about before.
     const usedByDrawingFile = await deps.prisma.drawingFile.count({ where: { blobId } });
