@@ -14,6 +14,9 @@ type UseDashboardDataOptions = {
   sortDirection: SortDirection;
   pageSize: number;
   onRefreshSuccess?: () => void;
+  /** NIL-292. A server-side filter on /drawings only -- ignored for the
+   * "Shared with me" view, which /drawings/shared does not support yet. */
+  favoritesOnly?: boolean;
 };
 
 export const useDashboardData = ({
@@ -23,6 +26,7 @@ export const useDashboardData = ({
   sortDirection,
   pageSize,
   onRefreshSuccess,
+  favoritesOnly = false,
 }: UseDashboardDataOptions) => {
   const [drawings, setDrawings] = useState<DrawingSummary[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -59,6 +63,7 @@ export const useDashboardData = ({
             offset: 0,
             sortField,
             sortDirection,
+            favoritesOnly,
           });
 
       const [drawingsResult, collectionsResult] = await Promise.allSettled([
@@ -100,7 +105,15 @@ export const useDashboardData = ({
         setIsLoading(false);
       }
     }
-  }, [debouncedSearch, selectedCollectionId, pageSize, sortField, sortDirection, onRefreshSuccess]);
+  }, [
+    debouncedSearch,
+    selectedCollectionId,
+    pageSize,
+    sortField,
+    sortDirection,
+    favoritesOnly,
+    onRefreshSuccess,
+  ]);
 
   const fetchMore = useCallback(async () => {
     if (isFetchingMore || !hasMore || isLoading) return;
@@ -123,6 +136,7 @@ export const useDashboardData = ({
             offset: nextOffsetRef.current,
             sortField,
             sortDirection,
+            favoritesOnly,
           }));
       if (!isLatestRequest(requestVersion, listRequestVersionRef.current)) return;
       setDrawings((prev) => mergeUniqueDrawings(prev, drawingsRes.drawings));
@@ -147,6 +161,7 @@ export const useDashboardData = ({
     pageSize,
     sortField,
     sortDirection,
+    favoritesOnly,
   ]);
 
   useEffect(() => {

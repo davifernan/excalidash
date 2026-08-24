@@ -6,6 +6,7 @@ import { TeamHome } from "./TeamHome";
 
 const mockUseTeamHomeData = vi.fn();
 const mockUseDashboardPresence = vi.fn();
+const mockUseTeamPresence = vi.fn();
 const mockNavigate = vi.fn();
 
 vi.mock("react-router-dom", async () => {
@@ -22,6 +23,7 @@ vi.mock("./dashboard/useDashboardPresence", async (importOriginal) => {
   return {
     ...actual,
     useDashboardPresence: (...args: unknown[]) => mockUseDashboardPresence(...args),
+    useTeamPresence: (...args: unknown[]) => mockUseTeamPresence(...args),
   };
 });
 
@@ -52,6 +54,7 @@ describe("TeamHome", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseDashboardPresence.mockReturnValue(null);
+    mockUseTeamPresence.mockReturnValue(null);
     mockUseTeamHomeData.mockReturnValue(baseData);
   });
 
@@ -111,6 +114,50 @@ describe("TeamHome", () => {
     expect(screen.getByText("Member Max")).toBeInTheDocument();
     expect(screen.getByText("(you)")).toBeInTheDocument();
     expect(screen.getByText("Owner")).toBeInTheDocument();
+  });
+
+  it("says which board a team member is currently on, but only for a member with a known location", () => {
+    mockUseTeamHomeData.mockReturnValue({
+      ...baseData,
+      recentBoards: [
+        {
+          id: "d1",
+          name: "Roadmap Q4",
+          collectionId: null,
+          updatedAt: Date.now(),
+          createdAt: Date.now(),
+          version: 1,
+          preview: null,
+        },
+      ],
+      team: {
+        name: "Team",
+        members: [
+          {
+            subjectKey: "k1",
+            name: "Davi",
+            initials: "D",
+            color: "#6366f1",
+            role: "owner",
+            isSelf: false,
+          },
+          {
+            subjectKey: "k2",
+            name: "Someone Else",
+            initials: "SE",
+            color: "#f59e0b",
+            role: "member",
+            isSelf: true,
+          },
+        ],
+      },
+    });
+    mockUseTeamPresence.mockReturnValue(new Map([["k1", "d1"]]));
+
+    renderTeamHome();
+
+    expect(screen.getByText("Currently in Roadmap Q4")).toBeInTheDocument();
+    expect(screen.getAllByText("Currently in Roadmap Q4")).toHaveLength(1);
   });
 
   it("shows a per-section error with retry when recent boards fail to load, without blanking the roster", () => {

@@ -43,6 +43,21 @@ export const guestCountFor = (
 };
 
 /**
+ * Whether a board is *confirmed* to have someone on it right now -- true
+ * only when presence has actually answered for it with a non-empty result.
+ * A board presence hasn't answered for yet (unknown) is `false` here, same
+ * as a board confirmed empty -- this answers "should this count as open",
+ * not "do we know". Shared by `CurrentlyOpenStrip` and the dashboard's
+ * "Open now" filter (NIL-292/NIL-293) so both use exactly one definition of
+ * "open".
+ */
+export const isConfirmedOpen = (presence: PresenceByDrawing | null, drawingId: string): boolean => {
+  const keys = presenceKeysFor(presence, drawingId);
+  const guests = guestCountFor(presence, drawingId);
+  return (keys !== null && keys.size > 0) || (guests ?? 0) > 0;
+};
+
+/**
  * Who is on the boards currently listed.
  *
  * Polled rather than pushed: a dashboard does not need to know within a second,
@@ -94,6 +109,126 @@ export const useDashboardPresence = (drawingIds: readonly string[]): PresenceByD
       } catch {
         // Presence is decoration: a failed poll leaves the last answer standing
         // rather than blanking the page.
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [watchKey]);
+
+  return presence;
+};
+
+export type CollectionPresence = { keys: ReadonlySet<string>; guestCount: number };
+
+/**
+ * Who from one collection is on any of its boards, right now -- the
+ * collection-scoped sibling of `useDashboardPresence`. `null` while
+ * unknown (no collection selected, or the first poll has not answered
+ * yet), same null-vs-empty-set distinction as `presenceKeysFor`: a
+ * `CollectionTeamBar` must not read "we haven't asked yet" as "confirmed
+ * nobody online" (NIL-272).
+ */
+export const useCollectionPresence = (
+  collectionId: string | undefined,
+): CollectionPresence | null => {
+  const [presence, setPresence] = useState<CollectionPresence | null>(null);
+
+  useEffect(() => {
+    // Switching collections must read as "unknown", not as the previous
+    // collection's keys held over until the first poll for the new one
+    // resolves -- a stale cross-collection Set is a worse lie than no
+    // answer at all.
+    setPresence(null);
+    if (!collectionId) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const result = await api.getCollectionPresence(collectionId);
+        if (cancelled) return;
+        setPresence({ keys: new Set(result.connectedMemberKeys), guestCount: result.guestCount });
+      } catch {
+        // Presence is decoration here too: keep the last answer standing.
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [collectionId]);
+
+  return presence;
+};
+
+/** subjectKey (team scope) -> the drawing id that member is currently on. */
+export type TeamPresenceByMember = ReadonlyMap<string, string>;
+
+/**
+ * Which team members are on which of these boards, right now -- the
+ * by-person sibling of `useDashboardPresence`'s by-board answer, for the
+ * Sidebar's "Team" panel (NIL-294). `null` while unknown, same contract as
+ * every other hook here: a `null` map must not be read as "nobody is
+ * anywhere," only as "haven't asked yet."
+ */
+export const useTeamPresence = (drawingIds: readonly string[]): TeamPresenceByMember | null => {
+  const [presence, setPresence] = useState<TeamPresenceByMember | null>(null);
+  const watched = drawingIds.slice(0, MAX_WATCHED);
+  const watchKey = watched.join(",");
+  const truncated = drawingIds.length > MAX_WATCHED;
+  const warnedRef = useRef(false);
+
+  useEffect(() => {
+    // Same silent-truncation risk useDashboardPresence warns about (Hans,
+    // PR #75): a team member on a board past the watch limit must read as
+    // unknown, not as "nowhere" -- the Team panel below silently dropping
+    // that warning was the same bug one layer up, just quieter.
+    if (truncated && !warnedRef.current) {
+      warnedRef.current = true;
+      console.warn(
+        `useTeamPresence: watching only the first ${MAX_WATCHED} of ${drawingIds.length} boards; a team member on one of the rest reads as unknown, not "nowhere".`,
+      );
+    }
+  }, [truncated, drawingIds.length]);
+
+  useEffect(() => {
+    const ids = watchKey ? watchKey.split(",") : [];
+    if (ids.length === 0) {
+      setPresence(null);
+      return;
+    }
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const results = await api.getTeamPresence(ids);
+        if (cancelled) return;
+        setPresence(new Map(results.map((result) => [result.subjectKey, result.drawingId])));
+      } catch {
+        // Presence is decoration here too: keep the last answer standing.
       }
     };
 

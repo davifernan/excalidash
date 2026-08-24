@@ -170,4 +170,35 @@ describe("Link Sharing - Expiry Resolution", () => {
     expect(invalid.status).toBe(400);
     expect(invalid.body.message).toBe("Invalid expiry");
   });
+
+  it("reflects a link share's creation and revocation in /drawings' linkShared flag right away, not after the cache expires (NIL-290)", async () => {
+    const drawing = await createDrawing();
+
+    const listBoard = async () => {
+      const res = await ownerAgent
+        .get("/drawings")
+        .query({ collectionId: "null" })
+        .set("User-Agent", userAgent)
+        .set("Authorization", `Bearer ${ownerToken}`);
+      expect(res.status).toBe(200);
+      return res.body.drawings.find((d: any) => d.id === drawing.id);
+    };
+
+    expect((await listBoard()).linkShared).toBe(false);
+
+    const created = await createLinkShare(drawing.id, "view");
+    // No cache-busting here would still show the answer from the call just
+    // above -- linkShared did not exist on this response until NIL-290, so
+    // nothing needed to invalidate the cache for it before.
+    expect((await listBoard()).linkShared).toBe(true);
+
+    const revoke = await ownerAgent
+      .delete(`/drawings/${drawing.id}/link-shares/${created.body.share.id}`)
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken);
+    expect(revoke.status).toBe(200);
+
+    expect((await listBoard()).linkShared).toBe(false);
+  });
 });

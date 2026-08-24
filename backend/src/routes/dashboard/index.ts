@@ -2,9 +2,11 @@ import express from "express";
 import { registerCollectionRoutes } from "./collections";
 import { registerCollectionMemberRoutes } from "./collectionMemberRoutes";
 import { registerPresenceRoutes } from "./presenceRoutes";
+import { registerCollectionPresenceRoutes } from "./collectionPresenceRoutes";
 import { registerDrawingRoutes } from "./drawings";
 import { registerLibraryRoutes } from "./library";
 import { registerTeamRoutes } from "./team";
+import { registerTeamPresenceRoutes } from "./teamPresenceRoutes";
 import { DashboardRouteDeps } from "./types";
 
 export const registerDashboardRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
@@ -12,8 +14,10 @@ export const registerDashboardRoutes = (app: express.Express, deps: DashboardRou
   registerCollectionRoutes(app, deps);
   registerCollectionMemberRoutes(app, deps);
   registerPresenceRoutes(app, deps);
+  registerCollectionPresenceRoutes(app, deps);
   registerLibraryRoutes(app, deps);
   registerTeamRoutes(app, deps);
+  registerTeamPresenceRoutes(app, deps);
 };
 
 export type { DashboardRouteDeps } from "./types";

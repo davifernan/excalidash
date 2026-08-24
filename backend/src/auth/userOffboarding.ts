@@ -104,11 +104,24 @@ export const offboardUserAndTransferBoards = async (params: {
     const revokedApiKeyIds = await revokeUserCredentials(tx, params.userId, now);
 
     // Collections are personal organization. Boards are retained, detached
-    // from those collections, and assigned to the chosen company custodian.
+    // from those collections, and assigned to the chosen company custodian --
+    // except boards already in the departing account's own trash (NIL-300).
+    // A board's `trash:<userId>` collection id is scoped to the account that
+    // trashed it, not to whoever later comes to own it (same reasoning as
+    // the deactivation path in adminUserRoutes.ts); without excluding it here,
+    // `detachFromCollection`'s default nulls that trash-scoped collectionId
+    // like any other, and the board resurfaces in the successor's "All
+    // Drawings" as a live, organized board -- exactly the thing its own
+    // account had already asked to have removed. Left unmatched here, the
+    // trashed board keeps pointing at the departing user's id and is
+    // permanently removed a few lines down by `Drawing.user`'s
+    // `onDelete: Cascade` when that account row is deleted, alongside the
+    // identity that trashed it.
     const transferredCount = await transferOwnedBoards({
       db: tx,
       fromUserId: params.userId,
       toUserId: successorUserId,
+      excludeTrash: true,
     });
     const auditIdentifiers = [params.userId, target.email, target.username].filter(
       (value): value is string => Boolean(value),

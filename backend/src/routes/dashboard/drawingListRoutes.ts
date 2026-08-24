@@ -7,6 +7,8 @@ import { SortDirection, SortField } from "./types";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import { getCollectionAccess, listSharedCollectionIds } from "../../authz/collections";
 import { boardsSharedWithWhere, grantedLevelSelect, ownedBoardsWhere } from "../../authz/boards";
+import { getFavoriteDrawingIds } from "../../authz/favorites";
+import { getBoardsWithActiveLinkShare } from "../../authz/grants";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -46,6 +48,7 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
         offset,
         sortField,
         sortDirection,
+        favoritesOnly,
       } = req.query;
       // NIL-365: archived boards are excluded from the plain drawing lists by
       // default -- they live in the dedicated Archive view
@@ -61,6 +64,28 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       if (searchTerm) {
         where.name = { contains: searchTerm };
       }
+
+      // NIL-292: a persisted per-viewer flag, so this is a real filter (a
+      // page of "everything but favorites" would otherwise silently leave
+      // favorites further down the list out of the page entirely), unlike
+      // "currently open" -- presence is not something a database query can
+      // join against, so that one stays a client-side filter over the page
+      // already fetched (see CurrentlyOpenStrip.tsx).
+      const isFavoritesOnly = favoritesOnly === "true" || favoritesOnly === "1";
+      if (isFavoritesOnly) {
+        where.favoritedBy = { some: { userId: req.user.id } };
+      }
+
+      // NIL-290: how the viewer reaches these boards, for the provenance
+      // badge. Every board a plain "/drawings" listing returns is the
+      // viewer's own *except* when browsing a collection someone else
+      // owns -- board ownership always equals the collection's owner
+      // inside it ("a board drawn inside someone else's collection is
+      // controlled by the collection's owner"), so that one branch is the
+      // only place `accessVia` is not "it's yours" and the only place
+      // `linkShared` (an owner-only exposure signal) is skipped.
+      let accessVia: "collection" | undefined;
+      let computeLinkShared = true;
 
       let collectionFilterKey = "default";
       if (collectionId === "null") {
@@ -92,6 +117,10 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
           }
           // Always fetch all drawings in the collection regardless of who created them
           delete (where as any).userId;
+          if (collectionAccess !== "owner") {
+            accessVia = "collection";
+            computeLinkShared = false;
+          }
 
           where.collectionId = normalizedCollectionId;
           collectionFilterKey = `id:${normalizedCollectionId}`;
@@ -139,7 +168,7 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
           sortField: parsedSortField,
           sortDirection: parsedSortDirection,
         }) +
-        `:${parsedLimit}:${parsedOffset}:preview=${shouldIncludePreview ? "1" : "0"}:members=${includeMembers ? "1" : "0"}`;
+        `:${parsedLimit}:${parsedOffset}:preview=${shouldIncludePreview ? "1" : "0"}:members=${includeMembers ? "1" : "0"}:favoritesOnly=${isFavoritesOnly ? "1" : "0"}`;
 
       const cachedBody = getCachedDrawingsBody(cacheKey);
       if (cachedBody) {
@@ -211,6 +240,29 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
         }
       }
 
+      if (accessVia) {
+        for (const drawing of responsePayload) drawing.accessVia = accessVia;
+      } else if (computeLinkShared && responsePayload.length > 0) {
+        const linkSharedIds = await getBoardsWithActiveLinkShare({
+          db: prisma,
+          drawingIds: responsePayload.map((d) => d.id),
+        });
+        for (const drawing of responsePayload) {
+          drawing.linkShared = linkSharedIds.has(drawing.id);
+        }
+      }
+
+      if (includeMembers && responsePayload.length > 0) {
+        const favoriteIds = await getFavoriteDrawingIds({
+          prisma,
+          userId: req.user.id,
+          drawingIds: responsePayload.map((d) => d.id),
+        });
+        for (const drawing of responsePayload) {
+          drawing.isFavorite = favoriteIds.has(drawing.id);
+        }
+      }
+
       const finalResponse = {
         drawings: responsePayload,
         totalCount,
@@ -275,11 +327,20 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       const whereDrawing: Prisma.DrawingWhereInput = {
         ...boardsSharedWithWhere(req.user.id),
         archivedAt: null,
-        // Exclude drawings already accessible via a shared collection
+        // Exclude drawings already accessible via a shared collection -- but
+        // `NOT: { collectionId: { in: sharedColIds } }` silently drops every
+        // *unorganized* (collectionId: null) board too, shared or not: SQL's
+        // three-valued logic evaluates `NULL IN (...)` to NULL, and `NOT
+        // NULL` is NULL, which a WHERE clause treats as "exclude" the same
+        // as false. A board directly shared with the viewer that happens to
+        // sit in no collection would vanish from "Shared with me" the moment
+        // the viewer was also given a shared collection -- same pitfall
+        // `authz/boards.ts`'s `excludeTrash` names and works around with an
+        // explicit `OR` for exactly this reason (verified there against
+        // sqlite; the same fix applies here since it is the same SQL
+        // semantics, not a sqlite quirk).
         ...(sharedColIds.length > 0 && {
-          NOT: {
-            collectionId: { in: sharedColIds },
-          },
+          OR: [{ collectionId: null }, { collectionId: { notIn: sharedColIds } }],
         }),
       };
       if (searchTerm) {
@@ -324,6 +385,12 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
           // Collections are owner-scoped; don't leak the owner's collection ids to viewers.
           collectionId: null,
           accessLevel: perm,
+          // NIL-290: every board this endpoint returns matched
+          // boardsSharedWithWhere -- a direct DrawingPermission grant on the
+          // drawing itself, never a collection-derived one (those are
+          // excluded above via sharedColIds). "direct" is a fact about this
+          // endpoint's own filter, not a per-board lookup.
+          accessVia: "direct" as const,
         };
       };
 
@@ -350,6 +417,17 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       });
       for (const drawing of responsePayload) {
         drawing.members = sharedMembers.get(drawing.id) ?? { totalCount: 0, items: [] };
+      }
+
+      if (responsePayload.length > 0) {
+        const favoriteIds = await getFavoriteDrawingIds({
+          prisma,
+          userId: req.user.id,
+          drawingIds: responsePayload.map((d) => d.id),
+        });
+        for (const drawing of responsePayload) {
+          drawing.isFavorite = favoriteIds.has(drawing.id);
+        }
       }
 
       return res.json({

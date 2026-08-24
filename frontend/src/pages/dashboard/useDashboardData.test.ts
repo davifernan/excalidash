@@ -79,12 +79,37 @@ describe("useDashboardData", () => {
       offset: 0,
       sortField: "updatedAt",
       sortDirection: "desc",
+      favoritesOnly: false,
     });
     expect(getCollectionsMock).toHaveBeenCalledTimes(1);
     expect(result.current.drawings.map((drawing) => drawing.id)).toEqual(["d1"]);
     expect(result.current.collections.map((collection) => collection.id)).toEqual(["c1"]);
     expect(result.current.totalCount).toBe(1);
     expect(onRefreshSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes favoritesOnly through to the server-side filter (NIL-292)", async () => {
+    getDrawingsMock.mockResolvedValue({ drawings: [], totalCount: 0, limit: 24, offset: 0 });
+    getCollectionsMock.mockResolvedValue([]);
+
+    const { result } = renderHook(() =>
+      useDashboardData({
+        debouncedSearch: "",
+        selectedCollectionId: undefined,
+        sortField: "updatedAt",
+        sortDirection: "desc",
+        pageSize: 24,
+        favoritesOnly: true,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(getDrawingsMock).toHaveBeenCalledWith(
+      "",
+      undefined,
+      expect.objectContaining({ favoritesOnly: true }),
+    );
   });
 
   it("fetches more drawings and merges unique results", async () => {
@@ -127,6 +152,7 @@ describe("useDashboardData", () => {
       offset: 2,
       sortField: "updatedAt",
       sortDirection: "desc",
+      favoritesOnly: false,
     });
     expect(result.current.drawings.map((drawing) => drawing.id)).toEqual(["d1", "d2", "d3"]);
     expect(result.current.hasMore).toBe(false);

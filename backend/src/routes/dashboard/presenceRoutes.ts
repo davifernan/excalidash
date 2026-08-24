@@ -1,10 +1,10 @@
 import express from "express";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { getDrawingRosters } from "../../authz/roster";
 import { subjectKey } from "../../authz/subjectKey";
+import { accountOrIpRateLimiter } from "./presenceRateLimit";
 import type { DashboardRouteDeps } from "./types";
 
-const MAX_IDS = 50;
+export const MAX_IDS = 50;
 const MAX_QUERY_LENGTH = 4096;
 const ID_MAX_LENGTH = 200;
 
@@ -14,7 +14,9 @@ type PresenceResult = {
   guestCount: number;
 };
 
-const parseIds = (raw: unknown): string[] | null => {
+/** Shared with teamPresenceRoutes.ts: same "board ids the client already has
+ * on screen" trust boundary, so the same validation applies to both. */
+export const parseIds = (raw: unknown): string[] | null => {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_QUERY_LENGTH) return null;
   const ids: string[] = [];
   for (const part of raw.split(",")) {
@@ -41,21 +43,7 @@ const parseIds = (raw: unknown): string[] | null => {
 export const registerPresenceRoutes = (app: express.Express, deps: DashboardRouteDeps) => {
   const { prisma, requireAuth, asyncHandler, subjectKeySecret, presences } = deps;
 
-  const presenceRateLimiter = rateLimit({
-    windowMs: 60_000,
-    max: 60,
-    standardHeaders: true,
-    legacyHeaders: false,
-    // Auth-disabled browsers all act through one bootstrap account, so that
-    // identity cannot distinguish callers. Keep real accounts on one budget
-    // and use the normalized client network for bootstrap/anonymous callers.
-    keyGenerator: (req) => {
-      if (req.user?.id && req.user.authCredentialType !== "bootstrap") {
-        return `account:${req.user.id}`;
-      }
-      return `address:${ipKeyGenerator(req.ip || "") || "anonymous"}`;
-    },
-  });
+  const presenceRateLimiter = accountOrIpRateLimiter(60_000, 60);
 
   app.get(
     "/dashboard/presence",

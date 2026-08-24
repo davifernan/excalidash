@@ -124,4 +124,94 @@ describe("Drawings - Shared With Me", () => {
     expect(ids).toContain(drawingOwnedByB.id);
     expect(ids).not.toContain(drawingOwnedByA.id);
   });
+
+  it("still lists an unorganized board shared directly with you once you also have a shared collection (NIL-501)", async () => {
+    const passwordHash = await bcrypt.hash("password123", 10);
+
+    const viewer = await prisma.user.create({
+      data: {
+        email: "viewer-null-collection@test.local",
+        passwordHash,
+        name: "Viewer",
+        role: "USER",
+        isActive: true,
+      },
+      select: { id: true, email: true },
+    });
+    const boardOwner = await prisma.user.create({
+      data: {
+        email: "board-owner-null-collection@test.local",
+        passwordHash,
+        name: "Board Owner",
+        role: "USER",
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    const collectionOwner = await prisma.user.create({
+      data: {
+        email: "collection-owner-null-collection@test.local",
+        passwordHash,
+        name: "Collection Owner",
+        role: "USER",
+        isActive: true,
+      },
+      select: { id: true },
+    });
+
+    // The board that must still show up: owned by someone else, shared
+    // directly, and unorganized (collectionId: null).
+    const unorganizedSharedBoard = await prisma.drawing.create({
+      data: {
+        name: "Unorganized, shared directly",
+        elements: "[]",
+        appState: "{}",
+        files: "{}",
+        userId: boardOwner.id,
+        collectionId: null,
+        version: 1,
+      },
+      select: { id: true },
+    });
+    await prisma.drawingPermission.create({
+      data: {
+        drawingId: unorganizedSharedBoard.id,
+        granteeUserId: viewer.id,
+        permission: "view",
+        createdByUserId: boardOwner.id,
+      },
+    });
+
+    // A shared collection, unrelated to the board above -- its only role
+    // here is to make sharedColIds non-empty, which is what turns on the
+    // `NOT: { collectionId: { in: sharedColIds } }` clause under test.
+    const sharedCollection = await prisma.collection.create({
+      data: { name: "Some Other Collection", userId: collectionOwner.id },
+      select: { id: true },
+    });
+    await prisma.collectionShare.create({
+      data: {
+        collectionId: sharedCollection.id,
+        granteeUserId: viewer.id,
+        role: "view",
+        createdByUserId: collectionOwner.id,
+      },
+    });
+
+    const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
+    const viewerToken = jwt.sign(
+      { userId: viewer.id, email: viewer.email, type: "access" },
+      config.jwtSecret,
+      signOptions,
+    );
+
+    const response = await request(app)
+      .get("/drawings/shared")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${viewerToken}`);
+
+    expect(response.status).toBe(200);
+    const ids = (response.body.drawings as any[]).map((d) => d.id);
+    expect(ids).toContain(unorganizedSharedBoard.id);
+  });
 });

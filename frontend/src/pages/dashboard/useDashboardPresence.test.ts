@@ -1,11 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { guestCountFor, presenceKeysFor, useDashboardPresence } from "./useDashboardPresence";
+import {
+  guestCountFor,
+  presenceKeysFor,
+  useCollectionPresence,
+  useDashboardPresence,
+  useTeamPresence,
+} from "./useDashboardPresence";
 
 const getDashboardPresence = vi.fn();
+const getCollectionPresence = vi.fn();
+const getTeamPresence = vi.fn();
 
 vi.mock("../../api", () => ({
   getDashboardPresence: (...args: unknown[]) => getDashboardPresence(...args),
+  getCollectionPresence: (...args: unknown[]) => getCollectionPresence(...args),
+  getTeamPresence: (...args: unknown[]) => getTeamPresence(...args),
 }));
 
 describe("useDashboardPresence", () => {
@@ -82,6 +92,129 @@ describe("useDashboardPresence", () => {
 
     rerender({ ids });
     await waitFor(() => expect(getDashboardPresence).toHaveBeenCalledTimes(2));
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // A later poll for the same still-truncated list must not warn again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+  });
+});
+
+describe("useCollectionPresence", () => {
+  beforeEach(() => {
+    getCollectionPresence.mockReset();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports who from the collection is connected", async () => {
+    getCollectionPresence.mockResolvedValue({
+      collectionId: "c1",
+      connectedMemberKeys: ["ck1"],
+      guestCount: 2,
+    });
+    const { result } = renderHook(() => useCollectionPresence("c1"));
+
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(result.current!.keys.has("ck1")).toBe(true);
+    expect(result.current!.guestCount).toBe(2);
+  });
+
+  it("is null while no collection is selected", () => {
+    const { result } = renderHook(() => useCollectionPresence(undefined));
+    expect(result.current).toBeNull();
+    expect(getCollectionPresence).not.toHaveBeenCalled();
+  });
+
+  it("reads as unknown, not as the previous collection's keys, the instant the collection changes", async () => {
+    getCollectionPresence.mockResolvedValue({
+      collectionId: "c1",
+      connectedMemberKeys: ["ck1"],
+      guestCount: 0,
+    });
+    const { result, rerender } = renderHook(({ id }) => useCollectionPresence(id), {
+      initialProps: { id: "c1" as string | undefined },
+    });
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(result.current!.keys.has("ck1")).toBe(true);
+
+    // A slow answer about the collection the viewer just left is worse than
+    // no answer -- switching must clear the old collection's keys
+    // synchronously, before the new collection's first poll resolves.
+    let resolveNext: (value: unknown) => void = () => {};
+    getCollectionPresence.mockReturnValue(new Promise((resolve) => (resolveNext = resolve)));
+    rerender({ id: "c2" });
+
+    expect(result.current).toBeNull();
+    await act(async () => {
+      resolveNext({ collectionId: "c2", connectedMemberKeys: [], guestCount: 0 });
+    });
+  });
+
+  it("leaves the last answer standing when a poll fails", async () => {
+    getCollectionPresence.mockResolvedValue({
+      collectionId: "c1",
+      connectedMemberKeys: ["ck1"],
+      guestCount: 0,
+    });
+    const { result } = renderHook(() => useCollectionPresence("c1"));
+    await waitFor(() => expect(result.current).not.toBeNull());
+
+    getCollectionPresence.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(result.current!.keys.has("ck1")).toBe(true);
+  });
+});
+
+describe("useTeamPresence", () => {
+  beforeEach(() => {
+    getTeamPresence.mockReset();
+    getTeamPresence.mockResolvedValue([{ subjectKey: "tk1", drawingId: "d1" }]);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports which board a team member is on", async () => {
+    const { result } = renderHook(() => useTeamPresence(["d1"]));
+
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(result.current!.get("tk1")).toBe("d1");
+  });
+
+  it("asks about no more boards than the server accepts", async () => {
+    const ids = Array.from({ length: 80 }, (_, index) => `d${index}`);
+    renderHook(() => useTeamPresence(ids));
+
+    await waitFor(() => expect(getTeamPresence).toHaveBeenCalled());
+    expect(getTeamPresence.mock.calls[0][0]).toHaveLength(50);
+  });
+
+  it("warns once when the board list is truncated, not at all when it isn't (Hans, PR #75)", async () => {
+    // Same silent-truncation risk as useDashboardPresence's own warning --
+    // useTeamPresence carried the MAX_WATCHED cutoff without it.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ids = Array.from({ length: 80 }, (_, index) => `d${index}`);
+    const { rerender } = renderHook(({ ids }) => useTeamPresence(ids), {
+      initialProps: { ids: ["d1"] },
+    });
+    await waitFor(() => expect(getTeamPresence).toHaveBeenCalledTimes(1));
+    expect(warn).not.toHaveBeenCalled();
+
+    rerender({ ids });
+    await waitFor(() => expect(getTeamPresence).toHaveBeenCalledTimes(2));
     expect(warn).toHaveBeenCalledTimes(1);
 
     // A later poll for the same still-truncated list must not warn again.

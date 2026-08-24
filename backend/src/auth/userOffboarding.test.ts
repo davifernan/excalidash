@@ -63,8 +63,15 @@ describe("user offboarding", () => {
       where: { userId: "departing", revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     });
+    // NIL-300: a board already in "departing"'s own trash must not be
+    // resurfaced as a live, organized board for the successor -- see the
+    // comment on this call site in userOffboarding.ts and on
+    // `transferOwnedBoards` in authz/boards.ts.
     expect(tx.drawing.updateMany).toHaveBeenCalledWith({
-      where: { userId: "departing" },
+      where: {
+        userId: "departing",
+        OR: [{ collectionId: null }, { collectionId: { not: "trash:departing" } }],
+      },
       data: { userId: "successor", collectionId: null },
     });
     expect(tx.s3File.updateMany).toHaveBeenCalledWith({
@@ -186,7 +193,10 @@ describe("user offboarding", () => {
       select: { id: true },
     });
     expect(tx.drawing.updateMany).toHaveBeenCalledWith({
-      where: { userId: "departing" },
+      where: {
+        userId: "departing",
+        OR: [{ collectionId: null }, { collectionId: { not: "trash:departing" } }],
+      },
       data: { userId: "company-archive", collectionId: null },
     });
   });
