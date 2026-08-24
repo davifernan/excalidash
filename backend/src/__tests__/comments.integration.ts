@@ -302,6 +302,46 @@ describe("Comments, mentions, activity and inbox", () => {
     expect(resolveReply.body.error).toBe("not-a-root");
   });
 
+  it("hides a reply along with its root once the thread is resolved -- a reply's own resolvedAt is never set, so the default unresolved view must follow rootId to the root", async () => {
+    const owner = await makeUser("owner-4b@test.local", "Owner Four B");
+    const commenter = await makeUser("commenter-4b@test.local", "Commenter Four B");
+    const drawing = await makeDrawing(owner.id, "Board 4b");
+    await grant(drawing.id, commenter.id, "comment", owner.id);
+
+    const ownerClient = await clientFor(owner);
+    const commenterClient = await clientFor(commenter);
+
+    const created = await commenterClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "Needs a decision",
+    });
+    const rootId = created.body.comment.id;
+    const reply = await ownerClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "On it",
+      rootId,
+    });
+    const replyId = reply.body.comment.id;
+
+    const resolve = await ownerClient.post(`/drawings/${drawing.id}/comments/${rootId}/resolve`);
+    expect(resolve.status).toBe(200);
+
+    // RED PROBE: the default (unresolved-only) view must drop BOTH the root
+    // and its reply once the thread is resolved -- not leave the reply
+    // behind as an orphan whose rootId points at a comment the same response
+    // never includes.
+    const defaultView = await ownerClient.get(`/drawings/${drawing.id}/comments`);
+    expect(defaultView.status).toBe(200);
+    const defaultIds = defaultView.body.comments.map((c: { id: string }) => c.id);
+    expect(defaultIds).not.toContain(rootId);
+    expect(defaultIds).not.toContain(replyId);
+
+    const includeResolvedView = await ownerClient.get(`/drawings/${drawing.id}/comments`, {
+      includeResolved: "true",
+    });
+    const includeResolvedIds = includeResolvedView.body.comments.map((c: { id: string }) => c.id);
+    expect(includeResolvedIds).toContain(rootId);
+    expect(includeResolvedIds).toContain(replyId);
+  });
+
   it("lets only the author edit a comment, lets the author or an editor delete it (moderation), and tombstones the body", async () => {
     const owner = await makeUser("owner-5@test.local", "Owner Five");
     const commenter = await makeUser("commenter-5@test.local", "Commenter Five");

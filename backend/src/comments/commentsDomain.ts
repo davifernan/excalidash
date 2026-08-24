@@ -90,10 +90,17 @@ export const listComments = async (params: {
   const rows = await params.prisma.comment.findMany({
     where: {
       drawingId: params.drawingId,
+      // A reply's own `resolvedAt` is never set (schema: "Root-only. A reply's
+      // resolved state is read off its root.") -- so filtering unresolved
+      // threads has to follow rootId to the root's resolvedAt for a reply,
+      // and read it off the row itself for a root.
       ...(params.includeResolved
         ? {}
         : {
-            OR: [{ rootId: { not: null } }, { resolvedAt: null }],
+            OR: [
+              { rootId: null, resolvedAt: null },
+              { rootId: { not: null }, root: { resolvedAt: null } },
+            ],
           }),
     },
     select: COMMENT_SELECT,
