@@ -29,6 +29,20 @@ export const presenceKeysFor = (
 };
 
 /**
+ * The guest count for one board, or `null` if the board isn't being watched
+ * (same distinction as `presenceKeysFor`: an unwatched board is "don't know",
+ * not "confirmed zero guests").
+ */
+export const guestCountFor = (
+  presence: PresenceByDrawing | null,
+  drawingId: string,
+): number | null => {
+  if (!presence) return null;
+  const entry = presence.get(drawingId);
+  return entry ? entry.guestCount : null;
+};
+
+/**
  * Who is on the boards currently listed.
  *
  * Polled rather than pushed: a dashboard does not need to know within a second,

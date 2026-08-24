@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { presenceKeysFor, useDashboardPresence } from "./useDashboardPresence";
+import { guestCountFor, presenceKeysFor, useDashboardPresence } from "./useDashboardPresence";
 
 const getDashboardPresence = vi.fn();
 
@@ -111,5 +111,23 @@ describe("presenceKeysFor", () => {
     // "unknown" -- the silent-cutoff bug from NIL-305.
     const presence = new Map([["d1", { keys: new Set(["k1"]), guestCount: 0 }]]);
     expect(presenceKeysFor(presence, "d51-beyond-the-cutoff")).toBeNull();
+  });
+});
+
+describe("guestCountFor", () => {
+  it("returns null while presence hasn't loaded at all", () => {
+    expect(guestCountFor(null, "d1")).toBeNull();
+  });
+
+  it("returns the board's guest count once presence has loaded", () => {
+    const presence = new Map([["d1", { keys: new Set<string>(), guestCount: 3 }]]);
+    expect(guestCountFor(presence, "d1")).toBe(3);
+  });
+
+  it("returns null -- not zero -- for a board past the watch limit", () => {
+    // Same distinction as presenceKeysFor: an unwatched board must not read as
+    // "confirmed zero guests" (Hans-Friedrich review on PR #72, NIL-305).
+    const presence = new Map([["d1", { keys: new Set<string>(), guestCount: 0 }]]);
+    expect(guestCountFor(presence, "d51-beyond-the-cutoff")).toBeNull();
   });
 });
