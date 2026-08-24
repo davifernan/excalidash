@@ -201,4 +201,20 @@ describe("board image file routes (NIL-381)", () => {
     });
     expect(file.blob.sha256).toBe(createHash("sha256").update(png).digest("hex"));
   });
+
+  it("forces an uploaded SVG to download rather than render inline, since it can carry a <script>", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    const put = await request(app).put(`/files/${drawingId}/img-svg`).set("Content-Type", "image/svg+xml").send(svg);
+    expect(put.status).toBe(200);
+
+    const get = await request(app).get(`/files/${drawingId}/img-svg`);
+    expect(get.status).toBe(200);
+    expect(get.headers["content-disposition"]).toBe("attachment");
+  });
+
+  it("serves a non-scriptable image type inline", async () => {
+    await request(app).put(`/files/${drawingId}/img-1`).set("Content-Type", "image/png").send(png);
+    const get = await request(app).get(`/files/${drawingId}/img-1`);
+    expect(get.headers["content-disposition"]).toBe("inline");
+  });
 });

@@ -42,6 +42,10 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/svg+xml",
 ]);
 
+/** SVG (and, defensively, HTML, though it is not an accepted upload type) can carry a <script>. */
+const isScriptableImageType = (mimeType: string): boolean =>
+  mimeType === "image/svg+xml" || mimeType === "text/html";
+
 const requestPrincipal = (req: express.Request) =>
   req.user?.authCredentialType === "bootstrap" && req.user.id
     ? { kind: "user" as const, userId: req.user.id, allowInactive: true }
@@ -186,6 +190,14 @@ export const registerFileRoutes = (app: express.Express, deps: FileRouteDeps): v
       if (drawingFile) {
         const { blob } = drawingFile;
         res.setHeader("Content-Type", drawingFile.mimeType);
+        // SVG can carry a <script>; serving it inline would run that script
+        // in this origin. Forcing a download neutralizes it regardless of
+        // what the file actually contains -- no sanitization needed at
+        // render time because it never renders in the page.
+        res.setHeader(
+          "Content-Disposition",
+          isScriptableImageType(drawingFile.mimeType) ? "attachment" : "inline",
+        );
         res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
         res.setHeader("ETag", `"${blob.sha256}"`);
         // Streamed compressed, not decompressed server-side: Content-Encoding
@@ -206,7 +218,14 @@ export const registerFileRoutes = (app: express.Express, deps: FileRouteDeps): v
         return res.status(404).json({ error: "File not found" });
       }
 
-      const downloadUrl = await generatePresignedDownloadUrl(s3Record.s3Key, DOWNLOAD_EXPIRES_IN);
+      // The redirect bypasses this app's own CSP/nosniff headers entirely --
+      // the browser is talking to S3, not to us -- so both the content type
+      // and (for SVG) forced-download must be pinned here, not left to
+      // whatever the bucket answers.
+      const downloadUrl = await generatePresignedDownloadUrl(s3Record.s3Key, DOWNLOAD_EXPIRES_IN, {
+        contentType: s3Record.mimeType,
+        contentDisposition: isScriptableImageType(s3Record.mimeType) ? "attachment" : "inline",
+      });
       return res.redirect(302, downloadUrl);
     }),
   );
