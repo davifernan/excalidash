@@ -26,6 +26,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
   const [sharing, setSharing] = useState<{
     permissions: api.DrawingPermissionRow[];
     linkShares: api.DrawingLinkShareRow[];
+    roster: api.DrawingRosterRow[];
   } | null>(null);
 
   const [userQuery, setUserQuery] = useState("");
@@ -291,6 +292,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
 
           <SharePeopleSection
             user={user}
+            currentUserId={currentUserId}
             sharing={sharing}
             userQuery={userQuery}
             userResults={userResults}

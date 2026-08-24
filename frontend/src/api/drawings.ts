@@ -153,12 +153,25 @@ export type DrawingLinkShareRow = {
   lastUsedAt: string | null;
 };
 
+/** NIL-291: who has a standing claim on this board, direct or via a collection. */
+export type DrawingRosterRow = {
+  userId: string;
+  name: string;
+  level: "view" | "comment" | "edit" | "owner";
+  via: "drawing" | "collection";
+};
+
 export const getDrawingSharing = async (
   drawingId: string,
-): Promise<{ permissions: DrawingPermissionRow[]; linkShares: DrawingLinkShareRow[] }> => {
+): Promise<{
+  permissions: DrawingPermissionRow[];
+  linkShares: DrawingLinkShareRow[];
+  roster: DrawingRosterRow[];
+}> => {
   const response = await api.get<{
     permissions: DrawingPermissionRow[];
     linkShares: DrawingLinkShareRow[];
+    roster: DrawingRosterRow[];
   }>(`/drawings/${drawingId}/sharing`);
   return response.data;
 };
