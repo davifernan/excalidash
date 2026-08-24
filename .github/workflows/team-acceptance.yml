@@ -28,9 +28,11 @@ on:
   # asking for review, instead of waiting for the night.
   workflow_dispatch:
 
+# Read-only for the workflow; the one job that files an issue raises its own
+# permission below. `npm ci` and `playwright install` in the test job run
+# with no write access to anything.
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: team-acceptance-${{ github.ref }}
@@ -194,6 +196,8 @@ jobs:
     name: File the nightly-red issue
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      issues: write
     needs: e2e-team-acceptance
     if: always() && github.event_name == 'schedule' && needs.e2e-team-acceptance.result != 'success'
     steps:
