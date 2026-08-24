@@ -152,40 +152,34 @@ describe("renderMainMenuEntries", () => {
 });
 
 describe("HEADER_CONTROL_ENTRIES", () => {
-  it("orders invite, then present, then share", () => {
+  it("orders invite before share", () => {
     const ids = [...HEADER_CONTROL_ENTRIES].sort((a, b) => a.order - b.order).map((e) => e.id);
-    expect(ids).toEqual(["invite-everyone-here", "present", "share"]);
+    expect(ids).toEqual(["invite-everyone-here", "share"]);
   });
 
-  it("hides invite and share, but not present, for a solo editor without ownership", () => {
-    const soloEditor: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
-    expect(renderedIds(HEADER_CONTROL_ENTRIES, soloEditor)).toEqual([null, "present", null]);
-  });
-
-  it("hides all three for a read-only viewer", () => {
-    const viewer: ChromeSlotContext = {
-      ...baseCtx,
-      accessLevel: "view",
-      canEdit: false,
-      peers: [],
-    };
-    expect(renderedIds(HEADER_CONTROL_ENTRIES, viewer)).toEqual([null, null, null]);
+  it("hides both controls under the conditions MainMenu also hides its own copies under", () => {
+    const readOnlyEditor: ChromeSlotContext = { ...baseCtx, accessLevel: "edit", peers: [] };
+    expect(renderedIds(HEADER_CONTROL_ENTRIES, readOnlyEditor)).toEqual([null, null]);
   });
 
   /**
-   * Regression guard (PR #61 fix-push): a "comments" HeaderControlSlotEntry
-   * was here briefly. Measured against a real multi-collaborator session, a
-   * third header-control icon (alongside invite/share) pushed
+   * Regression guard (PR #61 fix-push, then NIL-325 fix-push): a "comments"
+   * HeaderControlSlotEntry, and separately this package's own "present" one,
+   * were both here briefly. Measured against a real multi-collaborator
+   * session, a third header-control icon (alongside invite/share) pushes
    * `.layer-ui__wrapper__top-right` past whatever width Excalidraw's own
    * collaborator-avatar list uses to decide between showing avatars and
    * collapsing to a "+N" badge -- collaboration.spec.ts's presence/sync/cursor
-   * tests caught it losing `.UserList__collaborator .Avatar` entirely. Comments
-   * stays a MAIN_MENU_ENTRIES-only entry (see chromeSlots.tsx's own comment
-   * there); this asserts it never quietly comes back to the header group.
+   * tests and follow-mode.spec.ts's avatar-click test both caught it losing
+   * `.UserList__collaborator .Avatar` entirely, the second time by breaking
+   * CI on a PR that had nothing else to do with follow or presence. Both
+   * stay MAIN_MENU_ENTRIES-only entries (see chromeSlots.tsx's own comments
+   * there); this asserts neither quietly comes back to the header group.
    */
-  it("never re-adds a comments entry -- see the regression note above", () => {
+  it("never re-adds a comments or present entry -- see the regression note above", () => {
     const ids = HEADER_CONTROL_ENTRIES.map((e) => e.id);
     expect(ids).not.toContain("comments");
+    expect(ids).not.toContain("present");
   });
 });
 

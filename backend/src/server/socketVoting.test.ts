@@ -22,6 +22,22 @@ const openCommand = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/**
+ * Unlike `.mockResolvedValue("view")`, this actually reads the `requireEdit`
+ * third argument. A regression that changed `socketVoting.ts`'s cast handler
+ * from `requireAccess(socket, drawingId)` to
+ * `requireAccess(socket, drawingId, true)` -- wrongly demanding edit access
+ * to vote, locking viewers out of casting a ballot -- would resolve `null`
+ * here and turn the cast's ack into `{ ok: false }`, instead of staying
+ * invisible behind a mock that returns "view" no matter what it was asked
+ * for (Hans-Friedrich, PR #65).
+ */
+const mockViewOnlyAccess = (requireAccess: ReturnType<typeof vi.fn>) => {
+  requireAccess.mockImplementation((_socket: unknown, _drawingId: string, requireEdit?: boolean) =>
+    Promise.resolve(requireEdit ? null : "view"),
+  );
+};
+
 describe("voting command authorization (isolated manager)", () => {
   const setup = (access: unknown) => {
     const io = new FakeIo();
@@ -68,7 +84,7 @@ describe("voting command authorization (isolated manager)", () => {
     const roundId = stateEmissions(io).at(-1)?.payload.roundId;
     io.emissions.length = 0;
 
-    requireAccess.mockResolvedValue("view");
+    mockViewOnlyAccess(requireAccess);
     const acks: unknown[] = [];
     await socket.trigger(
       VOTING_CAST_EVENT,
@@ -87,7 +103,7 @@ describe("voting command authorization (isolated manager)", () => {
     await socket.trigger(VOTING_COMMAND_EVENT, openCommand());
     const roundId = stateEmissions(io).at(-1)?.payload.roundId;
 
-    requireAccess.mockResolvedValue("view");
+    mockViewOnlyAccess(requireAccess);
     const acks: unknown[] = [];
     await socket.trigger(
       VOTING_CAST_EVENT,

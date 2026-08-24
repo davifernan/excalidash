@@ -105,14 +105,24 @@ describe("VotingRegistry", () => {
     expect(revealed?.participantCount).toBe(3);
   });
 
-  it("reveal is idempotent -- revealing twice keeps the same tally", () => {
+  it("reveal is idempotent -- a second reveal() never recomputes the tally", () => {
+    // A late cast() is already rejected by the "no-open-round" guard once
+    // status leaves "open" (tested above), so votesByVoterId genuinely
+    // cannot change between two reveal() calls through the public API --
+    // asserting the second tally only `toEqual` the first would pass even if
+    // `reveal()` recomputed a fresh object on every call, which is exactly
+    // the regression this test exists to catch (Hans-Friedrich, PR #65): drop
+    // the `if (round.status === "open")` guard in `reveal()` and it still
+    // recomputes to the same values from the same unchanged map. `toBe`
+    // (reference identity) is the one assertion a recompute cannot satisfy
+    // even when its output happens to be equal.
     const registry = new VotingRegistry();
     registry.open("drawing-1", "Prompt", ["A", "B"], 1);
     registry.cast("drawing-1", "voter-1", ["0"]);
     const first = registry.reveal("drawing-1");
     registry.cast("drawing-1", "voter-2", ["1"]); // arrives late, after reveal
     const second = registry.reveal("drawing-1");
-    expect(second?.tally).toEqual(first?.tally);
+    expect(second?.tally).toBe(first?.tally);
   });
 
   it("rejects a cast against a round that is no longer the current one", () => {

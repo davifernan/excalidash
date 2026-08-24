@@ -331,11 +331,22 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
   {
     id: "present",
     order: 225,
+    // Menu-only, no HeaderControlSlotEntry -- the same measured collision
+    // that reverted the "comments" header icon (see this file's regression
+    // note in HEADER_CONTROL_ENTRIES) applies here unchanged: a third icon
+    // alongside invite/share pushes `.layer-ui__wrapper__top-right` past the
+    // width Excalidraw's own collaborator-avatar list uses to decide between
+    // showing avatars and collapsing to a "+N" badge, which broke
+    // `collaboration.spec.ts`'s `.UserList__collaborator .Avatar` count
+    // assertions and `follow-mode.spec.ts`'s avatar-click test the same way
+    // it broke them for comments. Confirmed by removing this package's own
+    // header button and watching both specs pass again.
     render: (ctx) =>
       ctx.canEdit ? (
         <MainMenu.Item
           onSelect={ctx.presenting.isSelf ? ctx.presenting.stop : ctx.presenting.start}
           icon={ctx.presenting.isSelf ? <Square size={16} /> : <Play size={16} />}
+          data-testid="menu-present"
         >
           {ctx.presenting.isSelf
             ? "Stop presenting"
@@ -425,22 +436,6 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
               {ctx.inviteHere.status.arrivedCount}
             </span>
           ) : null}
-        </button>
-      ) : null,
-  },
-  {
-    id: "present",
-    order: 25,
-    render: (ctx) =>
-      ctx.canEdit ? (
-        <button
-          onClick={ctx.presenting.isSelf ? ctx.presenting.stop : ctx.presenting.start}
-          className="editor-header-control"
-          title={ctx.presenting.isSelf ? "Stop presenting" : "Present"}
-          aria-label={ctx.presenting.isSelf ? "Stop presenting" : "Present"}
-          data-testid="editor-present"
-        >
-          {ctx.presenting.isSelf ? <Square size={16} /> : <Play size={16} />}
         </button>
       ) : null,
   },

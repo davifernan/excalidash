@@ -15,6 +15,18 @@ const insertBrainstormingTemplate = async (page: Page) => {
   // Menu closes itself on select; nothing else to wait for here.
 };
 
+/**
+ * "Present" is MainMenu-only, not a HeaderControlSlotEntry: a third header
+ * icon alongside invite/share pushed `.layer-ui__wrapper__top-right` past
+ * the width Excalidraw's own collaborator-avatar list uses before
+ * collapsing to a "+N" badge (chromeSlots.tsx's own regression note, first
+ * measured for the "comments" entry, reproduced here for this one).
+ */
+const clickPresentMenuItem = async (page: Page) => {
+  await page.getByTestId("main-menu-trigger").click();
+  await page.getByTestId("menu-present").click();
+};
+
 const openPresenterPanel = (page: Page) => page.getByTestId("presentation-overlay-presenter");
 const openAudienceBanner = (page: Page) => page.getByTestId("presentation-overlay-audience");
 
@@ -36,7 +48,7 @@ test.describe("presenting converges the room", () => {
     await insertBrainstormingTemplate(presenterPage);
     await presenterPage.waitForTimeout(300);
 
-    await presenterPage.getByTestId("editor-present").click();
+    await clickPresentMenuItem(presenterPage);
     await expect(openPresenterPanel(presenterPage)).toBeVisible();
     await expect(openAudienceBanner(audiencePage)).toBeVisible({ timeout: 8000 });
     await expect(openAudienceBanner(audiencePage)).toContainText("is presenting");
@@ -83,15 +95,15 @@ test.describe("presenting converges the room", () => {
     const secondPage = await secondContext.newPage();
     await openEditor(secondPage, drawing.id, { settleMs: 1000 });
 
-    await firstPage.getByTestId("editor-present").click();
+    await clickPresentMenuItem(firstPage);
     await expect(openPresenterPanel(firstPage)).toBeVisible();
     await expect(openAudienceBanner(secondPage)).toBeVisible({ timeout: 8000 });
 
-    // The header button is still labelled "Present" for the second editor --
-    // clicking it sends `start`, which the server rejects with
-    // presenter-active, and the audience banner (not a presenter panel)
-    // keeps showing on their screen.
-    await secondPage.getByTestId("editor-present").click();
+    // The menu entry now reads "<name> is presenting" for the second editor,
+    // but the testid is stable -- clicking it still sends `start`, which the
+    // server rejects with presenter-active, and the audience banner (not a
+    // presenter panel) keeps showing on their screen.
+    await clickPresentMenuItem(secondPage);
     await secondPage.waitForTimeout(500);
     await expect(openPresenterPanel(secondPage)).toHaveCount(0);
     await expect(openAudienceBanner(secondPage)).toBeVisible();
