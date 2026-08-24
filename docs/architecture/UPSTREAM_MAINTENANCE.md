@@ -44,6 +44,29 @@ einen frischen Branch aus aktuellem `fork/main`. Acceptance Slices erhalten wede
 noch Worktree oder Branch. Der PR Overseer besitzt die Merge-Reihenfolge und integriert lokal
 in `fork/main`; es existiert kein zweiter dauerhafter Integrationsbranch.
 
+### Worauf beim Abgleich mit `alpha` zu achten ist
+
+Volle Bewertung und Kostenuebersicht in NIL-378; hier die drei Punkte, die einen unvorsichtigen
+Merge oder eine unvorsichtige Uebernahme sofort brechen wuerden:
+
+- **`origin/alpha` loescht die Root-`README.md` komplett** (`git show origin/alpha:README.md`
+  schlaegt fehl -- die Datei existiert dort nicht). Dort steht unsere Betriebsdokumentation; ein
+  ungeprueft uebernommener Merge wuerde sie entfernen.
+- **`origin/alpha` entfernt u. a. `backend/src/securityTest.ts`**, das unser Fork aktiv nutzt
+  (`backend/knip.json` fuehrt es als Entry-Point, `.github/workflows/test.yml` ruft es direkt
+  per `npx ts-node src/securityTest.ts` auf). Ein Merge, der die upstream-Loeschung uebernimmt,
+  bricht die CI.
+- **Lizenzwechsel:** `alpha` enthaelt den Commit `3e03110` ("Change license from AGPL to LGPL").
+  Als Fakt festgehalten, nicht bewertet -- eine Entscheidung darueber, ob der Fork mitzieht, ist
+  Davis, keine automatische Sync-Folge.
+- **Release-Notiz-Korrektur:** die dort beworbene 30-Tage-Gueltigkeit von Agenten-Tokens
+  existiert im `alpha`-Code nicht (kein `expiresAt` im Schema, keine Pruefung bei der
+  Authentifizierung) -- vor einer Uebernahme nachpruefen, nicht der Ankuendigung glauben.
+
+Upstreams kritischster ungeloester Punkt: der Live-Pfad hat denselben Fehler wie unserer (vor
+dem Senden gebucht, kein Ack, keine Aufteilung -- `origin/alpha:frontend/src/pages/editor/
+useEditorSceneApi.ts:55-70`). NIL-315 bleibt deshalb noetig, unabhaengig vom Sync-Stand.
+
 ## `nilo/live` vs. `main`
 
 `nilo/live` ist **kein** dritter Aktualisierungskanal und **nicht** die Grundlage der laufenden
