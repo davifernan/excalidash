@@ -215,7 +215,7 @@ export const useEditorCommands = ({
       await exportFromEditor(drawingId, drawingName, elements, appState, files);
       toast.success("Drawing exported");
     } catch (error) {
-      console.error("Failed to export drawing", error);
+      log.error("Failed to export drawing", { error }, { notify: false });
       toast.error("Export cancelled because one or more drawing images could not be bundled.");
     }
   }, [drawingId, drawingName, readBoardSettings, readFiles, refs]);
