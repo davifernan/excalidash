@@ -220,22 +220,37 @@ describe("presenter command authorization (isolated manager)", () => {
   it("refuses to let a non-presenting editor read or write notes", async () => {
     const io = new FakeIo();
     const presenters = new PresenterRegistry();
-    presenters.start("drawing-1", "other-socket", "Ada");
-    const socket = new FakeSocket("bystander", io.emissions);
-    socket.rooms.add(room("drawing-1"));
+    const presenterSocket = new FakeSocket("presenter-socket", io.emissions);
+    presenterSocket.rooms.add(room("drawing-1"));
+    const bystander = new FakeSocket("bystander", io.emissions);
+    bystander.rooms.add(room("drawing-1"));
     const manager = createSocketPresenterManager({
       io: io as any,
       presenters,
-      getPresence: () => ({ name: "Bystander" }) as any,
+      getPresence: () => ({ name: "Ada" }) as any,
       requireAccess: vi.fn().mockResolvedValue("edit"),
     });
     manager.registerHandlers(
-      socket as any,
+      presenterSocket as any,
       () => true,
       () => true,
     );
+    manager.registerHandlers(
+      bystander as any,
+      () => true,
+      () => true,
+    );
+
+    // A real start, through the socket -- not `presenters.start()` called
+    // directly on the registry -- so notes actually go out on the read
+    // channel once, to whichever socket the presenter turns out to be.
+    await presenterSocket.trigger(PRESENTER_COMMAND_EVENT, {
+      drawingId: "drawing-1",
+      action: "start",
+    });
+
     const acks: unknown[] = [];
-    await socket.trigger(
+    await bystander.trigger(
       PRESENTER_NOTES_SET_EVENT,
       { drawingId: "drawing-1", frameId: null, text: "sneaky" },
       (value: unknown) => acks.push(value),
@@ -244,6 +259,19 @@ describe("presenter command authorization (isolated manager)", () => {
       { ok: false, error: { code: "not-presenting", message: expect.any(String) } },
     ]);
     expect(presenters.getNotes("drawing-1", null)).toBe("");
+
+    // The write half above is the easy one to get right; the read half is
+    // where a broadcast-shaped refactor would quietly leak notes to every
+    // editor in the room instead of just the presenter. Check every scope
+    // the bystander can actually observe (its own id and every room it is
+    // in), not just its own id -- a switch from `socket.emit` to
+    // `io.to(room).emit` in pushNotes would not target "bystander" by id,
+    // but the bystander would still receive it as a room member.
+    const bystanderScopes = new Set<string>([bystander.id, ...bystander.rooms]);
+    const notesVisibleToBystander = io.emissions.filter(
+      (emission) => emission.event === PRESENTER_NOTES_EVENT && bystanderScopes.has(emission.scope),
+    );
+    expect(notesVisibleToBystander).toHaveLength(0);
   });
 });
 
