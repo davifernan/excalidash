@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { PrismaClient } from "../generated/client";
+import { logger } from "../logger";
 import { BOOTSTRAP_USER_ID, DEFAULT_SYSTEM_CONFIG_ID } from "./authMode";
 
 const BOOTSTRAP_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -115,9 +116,17 @@ export const issueBootstrapSetupCodeIfRequired = async (
     },
   });
 
-  console.log(
-    `[BOOTSTRAP SETUP] One-time admin setup code (${reason}): ${code} (expires ${expiresAt.toISOString()})`,
-  );
+  // logger.error, not .info: this line is the ONLY place the plaintext code is
+  // ever available (the DB only stores its hash), and README.md documents
+  // grepping the log for "BOOTSTRAP SETUP" as the recovery path when onboarding
+  // is blocked. logger.info/.warn are silenced by LOG_LEVEL=silent; an operator
+  // who set that would otherwise have no way back in. Not a real error, but the
+  // one level logger.ts guarantees always writes.
+  logger.error("BOOTSTRAP SETUP: one-time admin setup code issued", {
+    reason,
+    code,
+    expiresAt: expiresAt.toISOString(),
+  });
 
   return { issued: true, code, expiresAt };
 };

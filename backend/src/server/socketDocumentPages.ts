@@ -7,6 +7,7 @@ import {
   type RoomEventPayload,
   type RoomEventResult,
 } from "./socketRoomEvent";
+import { logger } from "../logger";
 
 export const DOCUMENT_PAGE_EVENT = "document-page-update";
 const DOCUMENT_PAGE_COMMAND_EVENT = "document-page-command";
@@ -118,7 +119,7 @@ export const createDocumentPageManager = ({
       try {
         pageCount = await resolvePageCount(widget.assetId);
       } catch (error) {
-        console.error("Document page count derivation failed:", {
+        logger.error("Document page count derivation failed", {
           drawingId: payload.drawingId,
           assetId: widget.assetId,
           error,

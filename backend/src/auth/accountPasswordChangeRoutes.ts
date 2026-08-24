@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
+import { logger } from "../logger";
 import { logAuditEvent } from "../utils/audit";
 import { changePasswordSchema, mustResetPasswordSchema } from "./schemas";
 import { canUseLocalPasswordFlows } from "./localPassword";
@@ -82,8 +83,8 @@ export const registerAccountPasswordChangeRoutes = (deps: RegisterAccountRoutesD
               data: { revoked: true },
             });
           } catch {
-            if (process.env.NODE_ENV === "development") {
-              console.debug("Refresh token revocation skipped (feature disabled or table missing)");
+            if (config.nodeEnv === "development") {
+              logger.debug("Refresh token revocation skipped (feature disabled or table missing)");
             }
           }
         }
@@ -100,7 +101,7 @@ export const registerAccountPasswordChangeRoutes = (deps: RegisterAccountRoutesD
 
         return res.json({ message: "Password changed successfully" });
       } catch (error) {
-        console.error("Change password error:", error);
+        logger.error("Change password error", { error });
         return res.status(500).json({
           error: "Internal server error",
           message: "Failed to change password",
@@ -175,8 +176,8 @@ export const registerAccountPasswordChangeRoutes = (deps: RegisterAccountRoutesD
               data: { revoked: true },
             });
           } catch {
-            if (process.env.NODE_ENV === "development") {
-              console.debug("Refresh token revocation skipped (feature disabled or table missing)");
+            if (config.nodeEnv === "development") {
+              logger.debug("Refresh token revocation skipped (feature disabled or table missing)");
             }
           }
         }
@@ -194,8 +195,8 @@ export const registerAccountPasswordChangeRoutes = (deps: RegisterAccountRoutesD
               },
             });
           } catch {
-            if (process.env.NODE_ENV === "development") {
-              console.debug("Refresh token storage skipped (feature disabled or table missing)");
+            if (config.nodeEnv === "development") {
+              logger.debug("Refresh token storage skipped (feature disabled or table missing)");
             }
           }
         }
@@ -211,7 +212,7 @@ export const registerAccountPasswordChangeRoutes = (deps: RegisterAccountRoutesD
 
         return res.json({ user: updatedUser });
       } catch (error) {
-        console.error("Must reset password error:", error);
+        logger.error("Must reset password error", { error });
         return res.status(500).json({
           error: "Internal server error",
           message: "Failed to reset password",

@@ -5,6 +5,7 @@ import { isApiKeyToken, resolveApiKeyUser } from "../auth/apiKeys";
 import { BOOTSTRAP_USER_ID, type AuthModeService } from "../auth/authMode";
 import { ACCESS_TOKEN_COOKIE_NAME, parseCookieHeader } from "../auth/cookies";
 import type { DrawingPrincipal } from "../authz/sharing";
+import { logger } from "../logger";
 
 type SocketAuthDeps = {
   prisma: PrismaClient;
@@ -53,7 +54,7 @@ export const createSocketAuthenticator = ({
           apiKey: { id: resolved.apiKeyId, scopes: resolved.scopes },
         };
       } catch (error) {
-        console.error("Socket API key verification failed:", error);
+        logger.error("Socket API key verification failed", { error });
         return null;
       }
     }

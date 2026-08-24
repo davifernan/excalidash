@@ -2,6 +2,7 @@ import { createReadStream, promises as fs } from "node:fs";
 import { Readable } from "node:stream";
 import { createBrotliDecompress } from "node:zlib";
 import archiver from "archiver";
+import { logger } from "../../logger";
 import { resolveStoragePath } from "../../assets/assetStorage";
 import { decodeSnapshotField } from "../../snapshots/snapshotCodec";
 import {
@@ -286,7 +287,7 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
         if (!res.writableEnded) abortArchive();
       });
       archive.on("error", (error) => {
-        console.error("Archive error:", error);
+        logger.error("archive error", { error });
         abortArchive();
         if (res.headersSent) res.destroy(error instanceof Error ? error : undefined);
         else res.status(500).json({ error: "Failed to create archive" });

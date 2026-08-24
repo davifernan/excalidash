@@ -18,6 +18,7 @@ import {
   shareLinkTokenFromRequest,
 } from "../authz/sharing";
 import { resolveStoragePath } from "./assetStorage";
+import { logger } from "../logger";
 import type { StoredFile } from "./assetStorage";
 import { AssetTooLargeError, QuotaExceededError, createAsset, usedBytesFor } from "./assetService";
 import { PdfRejectedError } from "./pdfRenderer";
@@ -141,7 +142,7 @@ export function contentDisposition(kind: "inline" | "attachment", filename: stri
 export function streamStoredFile(res: Response, path: string): void {
   const stream = createReadStream(path);
   stream.on("error", (err) => {
-    console.error(`[assets] cannot read ${path}: ${err}`);
+    logger.error("cannot read stored asset", { path, error: err });
     if (res.headersSent) {
       res.destroy();
       return;

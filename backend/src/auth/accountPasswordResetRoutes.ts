@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { randomUUID } from "crypto";
+import { logger } from "../logger";
 import { logAuditEvent } from "../utils/audit";
 import { passwordResetConfirmSchema, passwordResetRequestSchema } from "./schemas";
 import { canUseLocalPasswordFlows } from "./localPassword";
@@ -43,8 +44,8 @@ export const registerAccountPasswordResetRoutes = (deps: RegisterAccountRoutesDe
         });
       }
       if (isUndeliverable()) {
-        console.error(
-          "[mail] ENABLE_PASSWORD_RESET is on but no mail provider is configured — set RESEND_API_KEY and MAIL_FROM.",
+        logger.error(
+          "ENABLE_PASSWORD_RESET is on but no mail provider is configured — set RESEND_API_KEY and MAIL_FROM",
         );
         return res.status(503).json({
           error: "Service unavailable",
@@ -90,8 +91,7 @@ export const registerAccountPasswordResetRoutes = (deps: RegisterAccountRoutesDe
           const resetUrl = buildResetUrl(resetToken);
 
           if (config.nodeEnv === "development") {
-            console.log(`[DEV] Password reset token for ${email}: ${resetToken}`);
-            console.log(`[DEV] Reset URL: ${resetUrl}`);
+            logger.info("password reset token (dev only)", { email, resetToken, resetUrl });
           }
 
           if (mailer?.enabled) {
@@ -111,7 +111,7 @@ export const registerAccountPasswordResetRoutes = (deps: RegisterAccountRoutesDe
               idempotencyKey: `password-reset/${randomUUID()}`,
             });
             if (result.delivered === false) {
-              console.error(`[mail] Password reset email was not delivered: ${result.reason}`);
+              logger.error("Password reset email was not delivered", { reason: result.reason });
             }
           }
         }
@@ -120,7 +120,7 @@ export const registerAccountPasswordResetRoutes = (deps: RegisterAccountRoutesDe
           message: "If an account with that email exists, a password reset link has been sent.",
         });
       } catch (error) {
-        console.error("Password reset request error:", error);
+        logger.error("Password reset request error", { error });
         return res.status(500).json({
           error: "Internal server error",
           message: "Failed to process password reset request",
@@ -205,8 +205,8 @@ export const registerAccountPasswordResetRoutes = (deps: RegisterAccountRoutesDe
               data: { revoked: true },
             });
           } catch {
-            if (process.env.NODE_ENV === "development") {
-              console.debug("Refresh token revocation skipped (feature disabled or table missing)");
+            if (config.nodeEnv === "development") {
+              logger.debug("Refresh token revocation skipped (feature disabled or table missing)");
             }
           }
         }
@@ -222,7 +222,7 @@ export const registerAccountPasswordResetRoutes = (deps: RegisterAccountRoutesDe
 
         return res.json({ message: "Password has been reset successfully" });
       } catch (error) {
-        console.error("Password reset confirm error:", error);
+        logger.error("Password reset confirm error", { error });
         return res.status(500).json({
           error: "Internal server error",
           message: "Failed to reset password",

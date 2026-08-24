@@ -2,6 +2,8 @@
  * Audit logging utility for security events
  */
 import { prisma } from "../db/prisma";
+import { logger } from "../logger";
+import { config } from "../config";
 
 let prismaProvider: () => typeof prisma = () => prisma;
 
@@ -37,8 +39,13 @@ export interface AuditLogResult {
  */
 export const logAuditEvent = async (data: AuditLogData): Promise<void> => {
   try {
-    const { config } = await import("../config");
-    if (!config.enableAuditLogging) {
+    // Dynamic, not the top-level `config` import: tests set
+    // ENABLE_AUDIT_LOGGING at runtime, after config.ts has already been
+    // imported (and its environment snapshot cached) elsewhere in the module
+    // graph. A fresh `import()` here still resolves to Node's one cached
+    // module instance in production, so this changes nothing outside tests.
+    const { config: liveConfig } = await import("../config");
+    if (!liveConfig.enableAuditLogging) {
       return; // Feature disabled, silently skip
     }
 
@@ -53,8 +60,8 @@ export const logAuditEvent = async (data: AuditLogData): Promise<void> => {
       },
     });
   } catch (error) {
-    if (process.env.NODE_ENV === "development") {
-      console.debug("Audit logging skipped (feature disabled or table missing):", error);
+    if (config.nodeEnv === "development") {
+      logger.debug("audit logging skipped (feature disabled or table missing)", { error });
     }
   }
 };
@@ -68,8 +75,8 @@ export const getAuditLogs = async (
   limit: number = 100,
 ): Promise<AuditLogResult[]> => {
   try {
-    const { config } = await import("../config");
-    if (!config.enableAuditLogging) {
+    const { config: liveConfig } = await import("../config");
+    if (!liveConfig.enableAuditLogging) {
       return []; // Feature disabled, return empty array
     }
 
@@ -100,8 +107,8 @@ export const getAuditLogs = async (
       })(),
     }));
   } catch (error) {
-    if (process.env.NODE_ENV === "development") {
-      console.debug("Failed to retrieve audit logs (feature disabled or table missing):", error);
+    if (config.nodeEnv === "development") {
+      logger.debug("failed to retrieve audit logs (feature disabled or table missing)", { error });
     }
     return [];
   }

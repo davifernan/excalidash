@@ -12,6 +12,7 @@ import {
   getCsrfValidationClientIds,
 } from "../security/csrfClient";
 import { isNonBrowserApiKeyBearerRequest } from "../auth/apiKeys";
+import { logger } from "../logger";
 
 const CSRF_CLIENT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const CSRF_RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
@@ -89,7 +90,7 @@ export const registerCsrfProtection = ({
     if (enableDebugLogging) {
       const validationCandidates = getCsrfValidationClientIds(req);
       const ip = req.ip || req.connection.remoteAddress || "unknown";
-      console.log("[CSRF DEBUG] getClientId", {
+      logger.debug("CSRF getClientId", {
         method: req.method,
         path: req.path,
         ip,

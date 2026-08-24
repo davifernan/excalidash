@@ -63,7 +63,7 @@ describe("live drawing name updates", () => {
     emit.mockImplementationOnce(() => {
       throw new Error("socket transport unavailable");
     });
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     try {
       const response = await request(app)
@@ -72,12 +72,17 @@ describe("live drawing name updates", () => {
 
       expect(response.status).toBe(200);
       expect(response.body.name).toBe(renamedDrawing.name);
-      expect(errorLog).toHaveBeenCalledWith(
-        "Drawing name broadcast failed after persistence:",
-        expect.any(Error),
+      const logged = stderrWrite.mock.calls.map((call) => JSON.parse(call[0] as string));
+      expect(logged).toContainEqual(
+        expect.objectContaining({
+          level: "error",
+          message: "Drawing name broadcast failed after persistence",
+          drawingId: MOCK_DRAWING_ID,
+          error: expect.objectContaining({ message: "socket transport unavailable" }),
+        }),
       );
     } finally {
-      errorLog.mockRestore();
+      stderrWrite.mockRestore();
     }
   });
 });

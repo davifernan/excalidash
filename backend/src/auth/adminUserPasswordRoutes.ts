@@ -1,5 +1,7 @@
 import bcrypt from "bcrypt";
 import { Request, Response } from "express";
+import { logger } from "../logger";
+import { config as appConfig } from "../config";
 import { logAuditEvent } from "../utils/audit";
 import type { RegisterAdminRoutesDeps } from "./adminRoutes";
 
@@ -67,8 +69,8 @@ export const registerAdminUserPasswordRoutes = (deps: RegisterAdminRoutesDeps) =
             data: { revoked: true },
           });
         } catch {
-          if (process.env.NODE_ENV === "development") {
-            console.debug("Refresh token revocation skipped (feature disabled or table missing)");
+          if (appConfig.nodeEnv === "development") {
+            logger.debug("Refresh token revocation skipped (feature disabled or table missing)");
           }
         }
         await resetLoginAttemptKey(target.email.toLowerCase());
@@ -92,7 +94,7 @@ export const registerAdminUserPasswordRoutes = (deps: RegisterAdminRoutesDeps) =
           tempPassword,
         });
       } catch (error) {
-        console.error("Reset password error:", error);
+        logger.error("Reset password error", { error });
         res.status(500).json({
           error: "Internal server error",
           message: "Failed to reset password",

@@ -25,6 +25,7 @@ import { config } from "./config";
 import { authModeService, requireAuth, optionalAuth } from "./middleware/auth";
 import { errorHandler, asyncHandler } from "./middleware/errorHandler";
 import { installProcessGuards } from "./processGuards";
+import { logger } from "./logger";
 import { requestLogger } from "./middleware/requestLog";
 import authRouter from "./auth";
 import { logAuditEvent } from "./utils/audit";
@@ -71,7 +72,7 @@ const redactDatabaseUrl = (value: string | undefined): string => {
     return "<redacted>";
   }
 };
-console.log("Resolved DATABASE_URL:", redactDatabaseUrl(process.env.DATABASE_URL));
+logger.info("Resolved DATABASE_URL", { databaseUrl: redactDatabaseUrl(config.databaseUrl) });
 if (config.s3.bucket) {
   initS3({
     bucket: config.s3.bucket,
@@ -82,7 +83,7 @@ if (config.s3.bucket) {
     accessKeyId: config.s3.accessKeyId ?? undefined,
     secretAccessKey: config.s3.secretAccessKey ?? undefined,
   });
-  console.log("S3 image storage enabled", { bucket: config.s3.bucket, region: config.s3.region });
+  logger.info("S3 image storage enabled", { bucket: config.s3.bucket, region: config.s3.region });
 }
 const normalizeOrigins = (rawOrigins?: string | null): string[] => {
   const fallback = "http://localhost:6767";
@@ -102,8 +103,8 @@ const normalizeOrigins = (rawOrigins?: string | null): string[] => {
   return parsed.length > 0 ? parsed : [fallback];
 };
 const allowedOrigins = normalizeOrigins(config.frontendUrl);
-console.log("Allowed origins:", allowedOrigins);
-const isDev = (process.env.NODE_ENV || "development") !== "production";
+logger.info("Allowed origins", { allowedOrigins });
+const isDev = config.nodeEnv !== "production";
 const isLocalDevOrigin = (origin: string): boolean => {
   return /^http:\/\/localhost:\d+$/i.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/i.test(origin);
 };
@@ -137,25 +138,16 @@ const initializeUploadDir = async () => {
   try {
     await fsPromises.mkdir(uploadDir, { recursive: true });
   } catch (error) {
-    console.error("Failed to create upload directory:", error);
+    logger.error("Failed to create upload directory", { error });
   }
 };
 const app = express();
-const trustProxyConfig = (process.env.TRUST_PROXY ?? "false").trim();
-const parsedProxyHops = Number.parseInt(trustProxyConfig, 10);
-const trustProxyValue =
-  trustProxyConfig === "true"
-    ? true
-    : trustProxyConfig === "false"
-      ? false
-      : Number.isFinite(parsedProxyHops) && parsedProxyHops > 0
-        ? parsedProxyHops
-        : false;
+const trustProxyValue = config.trustProxy;
 app.set("trust proxy", trustProxyValue);
 if (trustProxyValue === true) {
-  console.log("[config] trust proxy: enabled (handles multiple proxy layers)");
+  logger.info("trust proxy: enabled (handles multiple proxy layers)");
 } else {
-  console.log(`[config] trust proxy: ${trustProxyValue}`);
+  logger.info("trust proxy", { trustProxyValue });
 }
 installProcessGuards();
 
@@ -175,17 +167,11 @@ const parseJsonField = <T>(rawValue: string | null | undefined, fallback: T): T 
   try {
     return JSON.parse(rawValue) as T;
   } catch (error) {
-    console.warn("Failed to parse JSON field", { error, valuePreview: rawValue.slice(0, 50) });
+    logger.warn("Failed to parse JSON field", { error, valuePreview: rawValue.slice(0, 50) });
     return fallback;
   }
 };
-const DRAWINGS_CACHE_TTL_MS = (() => {
-  const parsed = Number(process.env.DRAWINGS_CACHE_TTL_MS);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 5_000;
-  }
-  return parsed;
-})();
+const DRAWINGS_CACHE_TTL_MS = config.drawingsCacheTtlMs;
 const {
   buildDrawingsCacheKey,
   getCachedDrawingsBody,
@@ -288,7 +274,7 @@ registerCsrfProtection({
   app,
   isAllowedOrigin,
   maxRequestsPerWindow: config.csrfMaxRequests,
-  enableDebugLogging: process.env.DEBUG_CSRF === "true",
+  enableDebugLogging: config.debugCsrf,
 });
 app.use("/auth", authRouter);
 const filesFieldSchema = z
@@ -314,7 +300,7 @@ const addDrawingSanitizationIssue = (ctx: z.RefinementCtx, error: unknown): void
     return;
   }
 
-  console.error("Sanitization failed:", error);
+  logger.error("Sanitization failed", { error });
   ctx.addIssue({
     code: "custom",
     message: "Invalid or malicious drawing data detected",
@@ -381,7 +367,7 @@ export const sanitizeDrawingUpdateData = (data: DrawingUpdateData): boolean => {
     return true;
   } catch (error) {
     if (!(error instanceof DrawingDataValidationError)) {
-      console.error("Sanitization failed:", error);
+      logger.error("Sanitization failed", { error });
     }
     return false;
   }
@@ -425,7 +411,7 @@ const validateSqliteHeader = (filePath: string): boolean => {
     const bytesRead = fs.readSync(fd, buffer, 0, 16, 0);
     fs.closeSync(fd);
     if (bytesRead < 16) {
-      console.warn("File too small to be a valid SQLite database");
+      logger.warn("File too small to be a valid SQLite database");
       return false;
     }
     const expectedHeader = Buffer.from([
@@ -434,7 +420,7 @@ const validateSqliteHeader = (filePath: string): boolean => {
     ]);
     const isValid = buffer.equals(expectedHeader);
     if (!isValid) {
-      console.warn("Invalid SQLite file header detected", {
+      logger.warn("Invalid SQLite file header detected", {
         filePath,
         header: buffer.toString("hex"),
         expected: expectedHeader.toString("hex"),
@@ -442,7 +428,7 @@ const validateSqliteHeader = (filePath: string): boolean => {
     }
     return isValid;
   } catch (error) {
-    console.error("Failed to validate SQLite header:", error);
+    logger.error("Failed to validate SQLite header", { error });
     return false;
   }
 };
@@ -464,7 +450,7 @@ const verifyDatabaseIntegrityAsync = (filePath: string): Promise<boolean> => {
     };
     worker.on("message", (isValid: boolean) => finish(isValid));
     worker.on("error", (err) => {
-      console.error("Worker error:", err);
+      logger.error("Worker error", { error: err });
       finish(false);
     });
     worker.on("exit", (code) => {
@@ -473,7 +459,7 @@ const verifyDatabaseIntegrityAsync = (filePath: string): Promise<boolean> => {
       }
     });
     timeoutHandle = setTimeout(() => {
-      console.warn("Integrity check worker timed out", { filePath });
+      logger.warn("Integrity check worker timed out", { filePath });
       worker.terminate();
       finish(false);
     }, 10000);
@@ -487,7 +473,7 @@ const removeFileIfExists = async (filePath?: string) => {
     });
     await fsPromises.unlink(filePath);
   } catch (error) {
-    console.error("Failed to remove file", { filePath, error });
+    logger.error("Failed to remove file", { filePath, error });
   }
 };
 // One store, written by the socket server and read by the dashboard routes, so
@@ -514,9 +500,7 @@ registerOperationalHealthRoutes(app, {
   cacheTtlMs: config.readiness.cacheTtlMs,
 });
 const enableOnboardingGate =
-  config.authMode === "local" &&
-  config.nodeEnv === "production" &&
-  process.env.DISABLE_ONBOARDING_GATE !== "true";
+  config.authMode === "local" && config.nodeEnv === "production" && !config.disableOnboardingGate;
 if (enableOnboardingGate) {
   const ONBOARDING_GATE_TTL_MS = 5_000;
   let onboardingGateCache: { required: boolean; fetchedAt: number } | null = null;
@@ -560,7 +544,7 @@ if (enableOnboardingGate) {
         redirectTo: "/auth-setup",
       });
     } catch (error) {
-      console.error("Auth onboarding gate error:", error);
+      logger.error("Auth onboarding gate error", { error });
       return next();
     }
   });
@@ -655,10 +639,9 @@ registerAssetRoutes({
       concurrency: config.assets.pdfShrinkConcurrency,
       maxWaiting: config.assets.pdfShrinkQueueLimit,
       onFailure: (error) => {
-        console.warn(
-          "[assets] PDF rebuild skipped:",
-          error instanceof Error ? error.message : error,
-        );
+        logger.warn("[assets] PDF rebuild skipped", {
+          error: error instanceof Error ? error.message : error,
+        });
       },
     });
     return { note: describeShrink(result) };
@@ -738,14 +721,15 @@ setInterval(async () => {
     const collected = await collectExpired(assetDeps);
     const expiredPreviews = await collectExpiredLinkPreviews(linkPreviewDeps);
     if (swept.pending || collected.assets || expiredPreviews.previews || expiredPreviews.blobs) {
-      console.log(
-        `[assets] released ${swept.pending} unclaimed upload(s), ` +
-          `removed ${collected.assets} document(s), ${expiredPreviews.previews} link preview(s) ` +
-          `and ${collected.blobs + expiredPreviews.blobs} file(s)`,
-      );
+      logger.info("[assets] sweep completed", {
+        releasedUploads: swept.pending,
+        removedDocuments: collected.assets,
+        removedLinkPreviews: expiredPreviews.previews,
+        removedFiles: collected.blobs + expiredPreviews.blobs,
+      });
     }
   } catch (error) {
-    console.error("[assets] sweep failed:", error);
+    logger.error("[assets] sweep failed", { error });
   }
 }, ASSET_SWEEP_INTERVAL_MS).unref();
 
@@ -758,12 +742,12 @@ setInterval(
         where: { createdAt: { lt: cutoff } },
       });
       if (result.count > 0) {
-        console.log(`[Cleanup] Deleted ${result.count} old drawing snapshots`);
+        logger.info("[Cleanup] Deleted old drawing snapshots", { count: result.count });
       }
       // Deleting rows only frees SQLite pages; hand the space back too.
       await reclaimSqliteFreeSpace();
     } catch (err) {
-      console.error("[Cleanup] Snapshot cleanup failed:", err);
+      logger.error("[Cleanup] Snapshot cleanup failed", { error: err });
     }
   },
   60 * 60 * 1000,
@@ -797,11 +781,13 @@ if (isMain) {
           reason: "startup",
         });
       } catch (error) {
-        console.error("Failed to issue bootstrap setup code:", error);
+        logger.error("Failed to issue bootstrap setup code", { error });
       }
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Environment: ${config.nodeEnv}`);
-      console.log(`Frontend URL: ${config.frontendUrl}`);
+      logger.info("Server started", {
+        port: PORT,
+        environment: config.nodeEnv,
+        frontendUrl: config.frontendUrl,
+      });
     });
   })();
 }

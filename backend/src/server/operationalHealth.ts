@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Express } from "express";
 import { freeDiskPercent } from "../assets/pageCache";
+import { logger } from "../logger";
 
 const COMPLETED_BACKUP = /^excalidash-(?:backup-.*\.zip|sqlite-.*\.db)$/;
 
@@ -80,7 +81,7 @@ const checkDatabase = async (database: DatabaseWriteClient): Promise<DatabaseChe
     await assertDatabaseWritable(database);
     return { status: "ok", writable: true };
   } catch (error) {
-    console.error("[readiness] Database check failed:", error);
+    logger.error("Readiness database check failed", { error });
     return { status: "error", writable: false };
   }
 };
@@ -102,7 +103,7 @@ const checkDisk = async (
       minimumFreePercent,
     };
   } catch (error) {
-    console.error("[readiness] Disk check failed:", error);
+    logger.error("Readiness disk check failed", { error });
     return { status: "unknown", freePercent: null, minimumFreePercent };
   }
 };
@@ -155,7 +156,7 @@ const checkBackup = async (
       maximumAgeSeconds,
     };
   } catch (error) {
-    console.error("[readiness] Backup check failed:", error);
+    logger.error("Readiness backup check failed", { error });
     return {
       status: "unavailable",
       scheduled: true,
