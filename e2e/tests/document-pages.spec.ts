@@ -1,6 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
-import { openEditor as openEditorReady } from "./helpers/editor";
+import {
+  openEditor as openEditorReady,
+  dropMarkdown,
+  documentPageLabel as pageLabel,
+  activateDocumentWidget as activateWidget,
+} from "./helpers/editor";
 
 /**
  * Paging through a document in a meeting is only useful if it happens for the
@@ -16,43 +21,6 @@ const MARKDOWN = Array.from(
 
 const openEditor = (page: Page, drawingId: string) =>
   openEditorReady(page, drawingId, { settleMs: 2000 });
-
-const dropMarkdown = async (page: Page, source: string, name = "notes.md") => {
-  await page.evaluate(
-    async ({ text, fileName }) => {
-      const container = document.querySelector<HTMLElement>(".excalidraw")?.closest("div[style]");
-      const target = container ?? document.body;
-      const file = new File([text], fileName, { type: "text/markdown" });
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      const rect = target.getBoundingClientRect();
-      target.dispatchEvent(
-        new DragEvent("drop", {
-          bubbles: true,
-          cancelable: true,
-          dataTransfer: transfer,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-        }),
-      );
-    },
-    { text: source, fileName: name },
-  );
-};
-
-const pageLabel = (page: Page) => page.locator(".text-document-widget__page-number");
-
-/**
- * Excalidraw keeps an embedded element behind its own canvas until you click
- * it, the same way it guards an embedded video. Until then the canvas swallows
- * every click, so the widget's own controls cannot be reached.
- */
-const activateWidget = async (page: Page) => {
-  const box = await page.locator(".text-document-widget").boundingBox();
-  if (!box) throw new Error("The document widget is not on the board.");
-  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForTimeout(300);
-};
 
 test("everyone in the room turns to the same page", async ({ browser, request }) => {
   const drawing = await createDrawing(request, { name: "Shared pages E2E" });

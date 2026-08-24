@@ -971,13 +971,15 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-
   # Carries the name the branch ruleset requires. The shards run under their
   # own names, so without this the required context 'E2E Browser Tests' would
   # never report again and every pull request would block forever.
   #
   # always() matters: a skipped gate never reports either, so it has to run
   # even when a shard failed, and decide from the results.
+  #
+  # team-acceptance.spec.ts is deliberately not in this list: it runs from
+  # team-acceptance.yml on a nightly schedule. See that file for why.
   e2e-tests:
     name: E2E Browser Tests
     runs-on: ubuntu-latest
@@ -986,7 +988,7 @@ jobs:
     if: always()
 
     steps:
-      - name: Require every shard and the isolated real-auth suites to have passed
+      - name: Require every shard and the isolated suites to have passed
         run: |
           shards="${{ needs.e2e-shards.result }}"
           two_account="${{ needs.e2e-two-account.result }}"
@@ -995,7 +997,7 @@ jobs:
           echo "Two-account result: ${two_account}"
           echo "Permission-matrix result: ${permission_matrix}"
           if [ "${shards}" != "success" ] || [ "${two_account}" != "success" ] || [ "${permission_matrix}" != "success" ]; then
-            echo "At least one E2E shard or an isolated real-auth suite did not pass."
+            echo "At least one E2E shard or an isolated suite did not pass."
             exit 1
           fi
 
