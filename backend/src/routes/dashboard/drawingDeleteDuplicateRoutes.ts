@@ -21,6 +21,7 @@ export const registerDrawingDeleteDuplicateRoutes = (
     parseJsonField,
     cleanupS3FilesForDrawing,
     cloneS3FileReferences,
+    cloneDrawingFileReferences,
     collaborationAccess,
   } = context;
   app.delete(
@@ -77,27 +78,23 @@ export const registerDrawingDeleteDuplicateRoutes = (
 
       const newDrawingId = uuidv4();
       const originalFiles = parseJsonField<Record<string, any>>(original.files, {});
-      const duplicatedFiles = await cloneS3FileReferences(
-        original.id,
-        newDrawingId,
-        req.user.id,
-        originalFiles,
-      );
-      const duplicatedPreview = rewritePreviewFileReferences(
-        original.preview ?? null,
-        originalFiles,
-        duplicatedFiles,
-      );
-
       const duplicatedName = `${original.name} (Copy)`;
-      const newDrawing = await prisma.drawing.create({
+
+      // The target row must exist before any DrawingFile clone: unlike
+      // S3File (a plain drawingId string column), DrawingFile has a real
+      // foreign key to Drawing, so a reference row for newDrawingId written
+      // before this insert would fail its constraint. Cloning starts with
+      // the original's own files/preview and is corrected below once the
+      // clones are known -- S3File carried no such constraint and could
+      // clone first, which is why this create used to run last.
+      let newDrawing = await prisma.drawing.create({
         data: {
           id: newDrawingId,
           name: duplicatedName,
           elements: original.elements,
           appState: original.appState,
-          files: JSON.stringify(duplicatedFiles),
-          preview: typeof duplicatedPreview === "string" ? duplicatedPreview : original.preview,
+          files: original.files,
+          preview: original.preview,
           userId: original.userId,
           createdByUserId: req.user.id,
           collectionId: duplicatedCollectionId,
@@ -108,6 +105,38 @@ export const registerDrawingDeleteDuplicateRoutes = (
           searchText: computeSearchText(duplicatedName, parseJsonField(original.elements, [])),
         },
       });
+
+      const filesWithS3Clones = await cloneS3FileReferences(
+        original.id,
+        newDrawingId,
+        req.user.id,
+        originalFiles,
+      );
+      // The duplicate keeps the original's owner (`userId: original.userId`
+      // above), so DrawingFile rows for it are charged to that same owner --
+      // matching how storeDrawingFile always charges the board owner, not
+      // whoever's request triggered the write.
+      const duplicatedFiles = await cloneDrawingFileReferences(
+        original.id,
+        newDrawingId,
+        original.userId,
+        filesWithS3Clones,
+      );
+      const duplicatedPreview = rewritePreviewFileReferences(
+        original.preview ?? null,
+        originalFiles,
+        duplicatedFiles,
+      );
+
+      if (duplicatedFiles !== originalFiles || duplicatedPreview !== original.preview) {
+        newDrawing = await prisma.drawing.update({
+          where: { id: newDrawingId },
+          data: {
+            files: JSON.stringify(duplicatedFiles),
+            preview: typeof duplicatedPreview === "string" ? duplicatedPreview : original.preview,
+          },
+        });
+      }
       invalidateDrawingsCache();
 
       return res.json({

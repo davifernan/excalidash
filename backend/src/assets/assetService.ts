@@ -344,6 +344,48 @@ async function storeDrawingFileAdmitted(deps: Deps, input: StoreDrawingFileInput
 }
 
 /**
+ * Point a new board at the same board images an existing one has (NIL-503
+ * review fix, board duplicate).
+ *
+ * Never copies bytes: DrawingFile rows are content-addressed references, so
+ * duplicating a board only ever needs a second reference row at the same
+ * blobId -- the same reasoning storeDrawingFile's own idempotent upsert
+ * relies on. `ownerUserId` is the target board's owner (whoever ends up
+ * charged for the quota), not necessarily who is clicking "duplicate".
+ */
+export async function cloneDrawingFiles(
+  prisma: any,
+  sourceDrawingId: string,
+  targetDrawingId: string,
+  ownerUserId: string,
+): Promise<string[]> {
+  const records = await prisma.drawingFile.findMany({ where: { drawingId: sourceDrawingId } });
+  if (records.length === 0) return [];
+
+  await Promise.all(
+    records.map((record: { fileId: string; blobId: string; mimeType: string }) =>
+      prisma.drawingFile.upsert({
+        where: { drawingId_fileId: { drawingId: targetDrawingId, fileId: record.fileId } },
+        create: {
+          drawingId: targetDrawingId,
+          fileId: record.fileId,
+          blobId: record.blobId,
+          ownerUserId,
+          mimeType: record.mimeType,
+        },
+        update: {
+          blobId: record.blobId,
+          ownerUserId,
+          mimeType: record.mimeType,
+        },
+      }),
+    ),
+  );
+
+  return records.map((record: { fileId: string }) => record.fileId);
+}
+
+/**
  * Reconcile a board's documents with what its elements actually refer to.
  *
  * Called from the save, inside the same transaction, so a board and its
