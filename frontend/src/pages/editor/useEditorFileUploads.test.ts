@@ -144,4 +144,37 @@ describe("useEditorFileUploads", () => {
     });
     expect(mockUpload).toHaveBeenCalledTimes(3);
   });
+
+  it("REAL BUG: never runs more than UPLOAD_CONCURRENCY uploads at once, even across overlapping flushes (NIL-503 review)", async () => {
+    const files: Record<string, { mimeType: string; dataURL: string }> = {
+      "file-1": { mimeType: "image/png", dataURL: "data:image/png;base64,a" },
+      "file-2": { mimeType: "image/png", dataURL: "data:image/png;base64,b" },
+      "file-3": { mimeType: "image/png", dataURL: "data:image/png;base64,c" },
+    };
+    const fileCapability = makeFileCapability(files);
+    mockUpload.mockImplementation(() => new Promise(() => {})); // never resolves -- stays in flight
+    renderHook(() =>
+      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+    );
+
+    act(() => fireFilesAdded());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+    expect(mockUpload).toHaveBeenCalledTimes(3);
+
+    // A new paste arrives while the first three uploads are still in
+    // flight -- an overlapping flush cycle, not a fresh one starting from
+    // zero in-flight uploads.
+    files["file-4"] = { mimeType: "image/png", dataURL: "data:image/png;base64,d" };
+    act(() => fireFilesAdded());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+
+    // Still only 3: the concurrency cap bounds TOTAL in-flight uploads, not
+    // how many a single flush call is willing to start on top of whatever
+    // is already running.
+    expect(mockUpload).toHaveBeenCalledTimes(3);
+  });
 });

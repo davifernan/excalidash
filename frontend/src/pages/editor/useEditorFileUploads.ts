@@ -56,6 +56,13 @@ export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFil
     const currentDrawingId = drawingIdRef.current;
     if (!currentDrawingId) return;
 
+    // Bounded by TOTAL in-flight uploads, not by how many this one flush
+    // call is willing to start: a flush overlapping a previous, still
+    // in-flight batch must only fill the capacity that batch left, or the
+    // real number running at once silently exceeds UPLOAD_CONCURRENCY.
+    const capacity = UPLOAD_CONCURRENCY - inFlightRef.current.size;
+    if (capacity <= 0) return;
+
     const delta = fileCapability.deltaAgainst(confirmedRef.current);
     if (!delta.ok) return;
     const pending = delta.value.filter(
@@ -63,7 +70,7 @@ export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFil
     );
     if (pending.length === 0) return;
 
-    for (const file of pending.slice(0, UPLOAD_CONCURRENCY)) {
+    for (const file of pending.slice(0, capacity)) {
       inFlightRef.current.add(file.id);
       api
         .uploadDrawingFile(currentDrawingId, file.id, file.dataURL, file.mimeType)
