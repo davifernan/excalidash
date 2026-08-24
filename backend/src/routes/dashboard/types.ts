@@ -64,7 +64,7 @@ export type DashboardRouteDeps = {
   subjectKeySecret: string;
   /** Written by the socket server, read here. */
   presences: PresenceRegistry;
-  processFilesForS3: (
+  processEmbeddedImages: (
     files: Record<string, any>,
     userId: string,
     drawingId: string,

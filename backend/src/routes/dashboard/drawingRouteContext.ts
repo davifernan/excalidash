@@ -15,6 +15,7 @@ import {
   type DrawingPermission,
   type DrawingPrincipal,
 } from "../../authz/sharing";
+import { cloneDrawingFiles } from "../../assets/assetService";
 
 export type DrawingRouteContext = DashboardRouteDeps & {
   getRequestPrincipal: (req: express.Request) => Promise<DrawingPrincipal | null>;
@@ -27,6 +28,12 @@ export type DrawingRouteContext = DashboardRouteDeps & {
     sourceDrawingId: string,
     targetDrawingId: string,
     userId: string,
+    files: Record<string, any>,
+  ) => Promise<Record<string, any>>;
+  cloneDrawingFileReferences: (
+    sourceDrawingId: string,
+    targetDrawingId: string,
+    ownerUserId: string,
     files: Record<string, any>,
   ) => Promise<Record<string, any>>;
 };
@@ -149,6 +156,34 @@ export const createDrawingRouteContext = (deps: DashboardRouteDeps): DrawingRout
     return clonedFiles;
   };
 
+  /**
+   * The NIL-381 board-image counterpart to cloneS3FileReferences above --
+   * kept as its own function rather than folded into it because the two
+   * storage paths have nothing in common past "duplicate a board's images":
+   * one copies bytes between S3 keys, the other only ever adds a reference
+   * row to an already-deduped blob.
+   */
+  const cloneDrawingFileReferences = async (
+    sourceDrawingId: string,
+    targetDrawingId: string,
+    ownerUserId: string,
+    files: Record<string, any>,
+  ): Promise<Record<string, any>> => {
+    const fileIds = await cloneDrawingFiles(prisma, sourceDrawingId, targetDrawingId, ownerUserId);
+    if (fileIds.length === 0) return files;
+
+    const clonedFiles: Record<string, any> = { ...files };
+    for (const fileId of fileIds) {
+      if (clonedFiles[fileId]) {
+        clonedFiles[fileId] = {
+          ...clonedFiles[fileId],
+          dataURL: `/api/files/${targetDrawingId}/${fileId}`,
+        };
+      }
+    }
+    return clonedFiles;
+  };
+
   return {
     ...deps,
     getRequestPrincipal,
@@ -158,5 +193,6 @@ export const createDrawingRouteContext = (deps: DashboardRouteDeps): DrawingRout
     respondWithAuthErrorIfPresent,
     cleanupS3FilesForDrawing,
     cloneS3FileReferences,
+    cloneDrawingFileReferences,
   };
 };

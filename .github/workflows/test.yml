@@ -95,6 +95,27 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/authz-boundary.test.cjs
 
+  agent-token-boundary:
+    name: Agent Token Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No dependency install, same reasoning as Authz Boundary: this reads
+      # backend/src with node:fs and nothing else.
+      - name: Check the agent-token centralization (NIL-382)
+        run: node scripts/agent-token-boundary.cjs
+
+      - name: Prove the boundary check rejects what it claims to
+        run: node scripts/agent-token-boundary.test.cjs
+
   type-collision-inventory:
     name: Type Collision Inventory
     runs-on: ubuntu-latest
@@ -136,6 +157,37 @@ jobs:
 
       - name: Check frontend formatting
         run: npm run format:check --prefix frontend
+
+  backend-format:
+    name: Backend Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # A dedicated job, not a step inside backend-tests (NIL-503): format:check
+    # used to run as that job's first step under `bash -e`, so a formatting
+    # issue aborted the job before `npm test` ever ran -- the job still
+    # reported red as "Backend Tests", which reads as a test failure and
+    # sends whoever is looking straight at the wrong thing. Three packages
+    # hit exactly that reading in one day (NIL-501, NIL-502, NIL-503) before
+    # anyone noticed the job that failed had never run a test. Splitting it
+    # out the same way frontend-format already is means a formatting issue
+    # says "Backend Format failed", nothing else, and backend-tests keeps
+    # running even when it does.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Check backend formatting
+        run: npm run format:check --prefix backend
 
   backend-tests:
     name: Backend Tests
@@ -191,16 +243,12 @@ jobs:
           cd backend
           npx prisma generate
 
-      - name: Check formatting
-        run: |
-          cd backend
-          npm run format:check
-
       - name: Check the backend logging boundary
         run: node scripts/logging-boundary.cjs
 
       - name: Prove the logging boundary check rejects what it claims to
         run: node scripts/logging-boundary.test.cjs
+
 
       - name: Run backend tests
         run: |

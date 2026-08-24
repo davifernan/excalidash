@@ -94,6 +94,16 @@ export const getS3Config = (): S3Config | null => s3Config;
 export const generatePresignedDownloadUrl = async (
   key: string,
   expiresInSeconds = 3600,
+  /**
+   * Pins what a redirected browser is told about the object, overriding
+   * whatever content-type the bucket itself reports. A presigned redirect
+   * bypasses this app's own CSP/nosniff response headers entirely -- the
+   * browser is talking to S3, not to us -- so an object whose actual stored
+   * content-type disagrees with what we validated at upload time (or an SVG,
+   * which can carry a <script>) must have both pinned here rather than left
+   * to however the bucket answers.
+   */
+  overrides?: { contentType?: string; contentDisposition?: string },
 ): Promise<string> => {
   if (!s3Client || !s3Config) {
     throw new Error("S3 is not configured");
@@ -103,6 +113,8 @@ export const generatePresignedDownloadUrl = async (
     Bucket: s3Config.bucket,
     Key: key,
     ResponseCacheControl: "public, max-age=31536000, immutable",
+    ResponseContentType: overrides?.contentType,
+    ResponseContentDisposition: overrides?.contentDisposition,
   });
 
   return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });

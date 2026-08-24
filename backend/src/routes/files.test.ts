@@ -47,6 +47,11 @@ describe("file routes", () => {
           s3Key: "excalidash/owner-user/drawing-1/file-1.png",
         }),
       },
+      // NIL-381: the new local-blob path is checked first and must miss for
+      // this fixture to reach the legacy S3 fallback this test exercises.
+      drawingFile: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
     };
     const app = express();
     registerFileRoutes(app, {
@@ -64,6 +69,9 @@ describe("file routes", () => {
       asyncHandler: (fn) => (req, res, next) => {
         Promise.resolve(fn(req, res, next)).catch(next);
       },
+      storageDir: "/tmp/nil381-files-test",
+      maxImageUploadBytes: 15 * 1024 * 1024,
+      maxPerUserBytes: 2048 * 1024 * 1024,
     });
 
     const response = await request(app).get("/files/drawing-1/file-1");

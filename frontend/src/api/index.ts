@@ -7,6 +7,7 @@ export * from "./team";
 export * from "./storage";
 export * from "./auth";
 export * from "./assets";
+export * from "./files";
 export * from "./shareToken";
 export * from "./comments";
 export * from "./search";

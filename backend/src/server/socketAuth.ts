@@ -33,13 +33,25 @@ export const createSocketAuthenticator = ({
     if (isApiKeyToken(token)) {
       try {
         const resolved = await resolveApiKeyUser(prisma, token);
-        return resolved
-          ? {
-              kind: "user",
-              userId: resolved.user.id,
-              apiKey: { id: resolved.apiKeyId, scopes: resolved.scopes },
-            }
-          : null;
+        if (!resolved) return null;
+        // A drawing-bound agent token (NIL-382) is refused at the door here,
+        // full stop -- it never becomes a principal at all. The alternative
+        // would be threading a per-drawing check through every socket
+        // handler this file wires up (join-room, voting, presenter,
+        // workshop timer, cursor chat, follow, invite-here, document pages,
+        // ...), each of which would need to remember to re-check
+        // `apiKey.drawingId` against whatever drawing it operates on. One
+        // handler that forgets is a full-account-equivalent live session for
+        // a token that was supposed to be confined to one board. Refusing
+        // here means there is nothing later to forget: the semantic ops API
+        // (NIL-382) is HTTP-only, and an agent token has no socket use case
+        // this product defines today.
+        if (resolved.drawingId) return null;
+        return {
+          kind: "user",
+          userId: resolved.user.id,
+          apiKey: { id: resolved.apiKeyId, scopes: resolved.scopes },
+        };
       } catch (error) {
         console.error("Socket API key verification failed:", error);
         return null;
