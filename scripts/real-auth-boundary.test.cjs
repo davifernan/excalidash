@@ -89,8 +89,8 @@ test("ACCEPT: a spec importing toggleAuthEnabled that IS registered in REAL_AUTH
     const configPath = path.join(root, "e2e", "playwright.config.ts");
     let config = fs.readFileSync(configPath, "utf8");
     config = config.replace(
-      'const REAL_AUTH_SPECS = [...COMMENTS_TWO_ACCOUNT_SPECS, ...DISCOVERY_PERMISSION_MATRIX_SPECS];',
-      'const REAL_AUTH_SPECS = [...COMMENTS_TWO_ACCOUNT_SPECS, ...DISCOVERY_PERMISSION_MATRIX_SPECS, "**/fake-registered.spec.ts"];',
+      /const REAL_AUTH_SPECS = \[([\s\S]*?)\];/,
+      (_match, entries) => `const REAL_AUTH_SPECS = [${entries}  "**/fake-registered.spec.ts",\n];`,
     );
     assert.notEqual(config.indexOf('"**/fake-registered.spec.ts"'), -1, "fixture edit did not apply");
     fs.writeFileSync(configPath, config, "utf8");
