@@ -111,24 +111,33 @@ diff -rq <restbaum> <sauberer-pr-71-checkout> --exclude node_modules --exclude .
 Sowohl `/home/claude/ex-498` als auch
 `/home/claude/excalidash-kickoffs/ex-498-rest` ergaben vier abweichende Dateien:
 
-- `e2e/Dockerfile.playwright`
-- `e2e/README.md`
-- `e2e/playwright.config.ts`
-- `frontend/package.json`
+| Datei | Änderungszeitpunkt in beiden Restbäumen (UTC) |
+|---|---|
+| `e2e/Dockerfile.playwright` | `2026-08-24 07:34:17.826248165` |
+| `e2e/README.md` | `2026-08-24 07:34:17.826248165` |
+| `e2e/playwright.config.ts` | `2026-08-24 07:34:17.827248160` |
+| `frontend/package.json` | `2026-08-24 07:34:17.831248139` |
 
 Drei Einträge existierten nur in den Restbäumen: `KICKOFF.md`,
 `e2e/playwright-retry-summary-reporter.cjs` und `frontend/public/fonts/`. Inhalt und
 Git-Historie ordnen die E2E-/Package-Abweichungen dem älteren Stand vor `183f712` (Retries auf
 null und Reporter entfernt) beziehungsweise `e99fa0b` (ungenutzten Frontend-Playwright-Runner
-entfernt) zu. Keine nicht ausgeschlossene Datei hatte einen Änderungszeitpunkt nach dem Merge
-von PR #71. Das erklärt die Herkunft, ist aber keine Löschfreigabe.
+entfernt) zu. PR #71 wurde am `2026-08-24 08:54:55 UTC` als
+`bd9e6ca637a792bed0930577eab09e81301a829b` gemergt. Damit liegen alle vier Zeitstempel mehr
+als eine Stunde vor dem Merge. Ein vollständiger `find`-Abgleich ergab außerdem in beiden
+Restbäumen null nicht ausgeschlossene Dateien mit einem späteren Änderungszeitpunkt. Die
+Abweichung belegt deshalb einen älteren Zwischenstand, keine Arbeit nach dem Merge.
 
 Der direkte Vergleich zwischen Original und Sicherung mit denselben Ausschlüssen endete mit
 Exit-Code 0 und ohne Ausgabe. Beide enthalten 293 Dateien mit zusammen 13.417.803 Bytes. Damit
-ist der Restbestand vollständig und bytegleich gesichert. Weil der Vergleich gegen PR #71
-echte Abweichungen zeigte, wurden **weder** `/home/claude/ex-498` **noch** seine Sicherung
-gelöscht oder verändert. Das ist der im Auftrag festgelegte Sicherungsfall, nicht der
-Teilmengenfall.
+war der Restbestand vor der Entscheidung vollständig und bytegleich gesichert. Unmittelbar vor
+der Bereinigung bestätigten `herdr agent list` und ein Root-Abgleich aller `/proc/*/cwd`, dass
+keine aktive Sitzung und kein Prozess einen der Pfade benutzte. Anschließend wurden
+`/home/claude/ex-498` und `/home/claude/excalidash-kickoffs/ex-498-rest` einzeln, über ihre
+vollständig ausgeschriebenen Pfade und ohne Glob entfernt. `test ! -e` bestätigte danach für
+beide Pfade, dass sie nicht mehr existieren. Die Papierkorb-Zwischenstufe und ihre beiden
+einzeln benannten Metadatendateien wurden ebenfalls gezielt entfernt; der gelöschte Inhalt ist
+nicht mehr wiederherstellbar.
 
 ### `/home/claude/excalidash-backups`
 
