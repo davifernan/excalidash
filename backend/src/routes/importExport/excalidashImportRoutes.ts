@@ -11,6 +11,7 @@ import {
   ImportValidationError,
   RegisterImportExportDeps,
   getUserTrashCollectionId,
+  groupDrawingFileIdsByDrawing,
   resolveSafeUploadedFilePath,
 } from "./shared";
 import {
@@ -137,15 +138,16 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
         for (const prepared of preparedDrawings) {
           // V3 restores are always copies, so every board gets a new identity.
           // Older formats keep an absent/owned id and only re-key a foreign claim.
+          if (manifest.formatVersion === 3) {
+            finalDrawingIdMap.set(prepared.id, uuidv4());
+            continue;
+          }
           const claim = await claimOnBoard({
             db: prisma,
             userId: req.user.id,
             boardId: prepared.id,
           });
-          finalDrawingIdMap.set(
-            prepared.id,
-            manifest.formatVersion === 3 || claim === "foreign" ? uuidv4() : prepared.id,
-          );
+          finalDrawingIdMap.set(prepared.id, claim === "foreign" ? uuidv4() : prepared.id);
         }
 
         const assetIdMap = new Map<string, string>();
@@ -213,14 +215,9 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
           }
         }
 
-        const drawingFileIdsByDrawing = new Map<string, Set<string>>();
-        if (manifest.formatVersion === 3) {
-          for (const file of manifest.drawingFiles) {
-            const fileIds = drawingFileIdsByDrawing.get(file.drawingId) ?? new Set<string>();
-            fileIds.add(file.fileId);
-            drawingFileIdsByDrawing.set(file.drawingId, fileIds);
-          }
-        }
+        const drawingFileIdsByDrawing = groupDrawingFileIdsByDrawing(
+          manifest.formatVersion === 3 ? manifest.drawingFiles : [],
+        );
         const pointFilesAtImportedDrawing = (
           sourceDrawingId: string,
           files: Record<string, any>,
@@ -335,11 +332,6 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
           };
 
           for (const prepared of preparedDrawings) {
-            const boardClaim = await claimOnBoard({
-              db: tx,
-              userId: req.user!.id,
-              boardId: prepared.id,
-            });
             const finalId = finalDrawingIdMap.get(prepared.id)!;
             const data = {
               name: prepared.name,
@@ -350,7 +342,17 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               version: prepared.version ?? 1,
               collectionId: resolveCollectionId(prepared.collectionId),
             };
-            if (manifest.formatVersion === 3 || boardClaim !== "owned") {
+            if (manifest.formatVersion === 3) {
+              await tx.drawing.create({ data: { id: finalId, ...data, userId: req.user!.id } });
+              drawingsCreated += 1;
+              continue;
+            }
+            const boardClaim = await claimOnBoard({
+              db: tx,
+              userId: req.user!.id,
+              boardId: prepared.id,
+            });
+            if (boardClaim !== "owned") {
               await tx.drawing.create({ data: { id: finalId, ...data, userId: req.user!.id } });
               drawingsCreated += 1;
               if (boardClaim === "foreign") drawingIdConflicts += 1;

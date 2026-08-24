@@ -124,6 +124,18 @@ export const excalidashManifestSchema = z.discriminatedUnion("formatVersion", [
 
 export type ExcalidashManifest = z.infer<typeof excalidashManifestSchema>;
 
+export const groupDrawingFileIdsByDrawing = (
+  drawingFiles: readonly { drawingId: string; fileId: string }[],
+): Map<string, Set<string>> => {
+  const fileIdsByDrawing = new Map<string, Set<string>>();
+  for (const file of drawingFiles) {
+    const fileIds = fileIdsByDrawing.get(file.drawingId) ?? new Set<string>();
+    fileIds.add(file.fileId);
+    fileIdsByDrawing.set(file.drawingId, fileIds);
+  }
+  return fileIdsByDrawing;
+};
+
 export type RegisterImportExportDeps = {
   app: express.Express;
   prisma: PrismaClient;

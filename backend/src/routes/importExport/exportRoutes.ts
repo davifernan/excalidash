@@ -13,6 +13,7 @@ import {
   RegisterImportExportDeps,
   assertSafeArchivePath,
   getUserTrashCollectionId,
+  groupDrawingFileIdsByDrawing,
   isTrashCollectionId,
   makeUniqueName,
   sanitizePathSegment,
@@ -199,12 +200,7 @@ export const registerExcalidashExportRoute = (deps: RegisterImportExportDeps) =>
           .filter((asset) => asset.mimeType === "application/pdf")
           .map((asset) => asset.blobId),
       );
-      const drawingFileIdsByDrawing = new Map<string, Set<string>>();
-      for (const file of drawingFileManifest) {
-        const fileIds = drawingFileIdsByDrawing.get(file.drawingId) ?? new Set<string>();
-        fileIds.add(file.fileId);
-        drawingFileIdsByDrawing.set(file.drawingId, fileIds);
-      }
+      const drawingFileIdsByDrawing = groupDrawingFileIdsByDrawing(drawingFileManifest);
       const assertPortableSceneFiles = (
         drawingId: string,
         files: Record<string, unknown>,

@@ -5,7 +5,7 @@ import { PassThrough, Readable } from "node:stream";
 import express from "express";
 import JSZip from "jszip";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../../generated/client";
 import { createAsset } from "../../assets/assetService";
 import { registerAssetRoutes } from "../../assets/assetRoutes";
@@ -337,6 +337,7 @@ describe("document backup and export round trip", () => {
     await fs.rm(assetStorageDir, { recursive: true, force: true });
     await fs.mkdir(assetStorageDir, { recursive: true });
     const targetUser = await createTestUser(prisma, "image-target@example.com");
+    const drawingLookup = vi.spyOn(prisma.drawing, "findUnique");
     const stagedFilename = "c".repeat(32);
     await fs.writeFile(join(uploadDir, stagedFilename), archive);
     const response: any = {
@@ -355,6 +356,8 @@ describe("document backup and export round trip", () => {
       response,
     );
     expect(response.statusCode, JSON.stringify(response.body)).toBe(200);
+    expect(drawingLookup).not.toHaveBeenCalled();
+    drawingLookup.mockRestore();
 
     const restoredDrawing = await prisma.drawing.findFirst({ where: { userId: targetUser.id } });
     const restoredFile = restoredDrawing
