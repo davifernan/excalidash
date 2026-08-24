@@ -104,7 +104,23 @@ departing member leaves no ownerless or unreachable team resource behind
   successor or the company-archive account): boards are reassigned and
   detached from the departing account's collections, because those
   collections are cascade-deleted along with the account in the same
-  transaction. Unchanged in this PR.
+  transaction.
+
+  One case was left out of this PR's own review and closed later, under
+  NIL-300: `transferOwnedBoards` was called here without `excludeTrash`, so a
+  board the departing account had already thrown away (`collectionId:
+  trash:<userId>`) was reassigned like any other -- `detachFromCollection`'s
+  default then nulled its `collectionId`, and it resurfaced in the
+  successor's "All Drawings" as a live, organized board. `boards.test.ts`
+  carried this as a test literally named "unreviewed full-offboarding path"
+  until NIL-300 reviewed it: full deletion now passes `excludeTrash: true`,
+  same as plain deactivation below. A trashed board is left pointing at the
+  departing account and is removed permanently by `Drawing.user`'s
+  `onDelete: Cascade` a few lines later, alongside the identity that trashed
+  it -- it does not reappear for the successor. This is a deliberate
+  difference from every *other* board of the departing account: those are
+  retained; already-discarded ones are not resurrected by an identity
+  deletion that was never meant to undo the account's own delete action.
 - **Plain deactivation** (`PATCH /users/:id { isActive: false }`): the account
   row survives, so its collections do *not* cascade away -- before this PR
   they were silently left owned by an account that could no longer log in to

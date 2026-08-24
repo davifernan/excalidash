@@ -8,7 +8,7 @@ const buildDb = (overrides: Record<string, any> = {}) => ({
 });
 
 describe("transferOwnedBoards", () => {
-  it("does not filter by trash when excludeTrash is omitted (unreviewed full-offboarding path)", async () => {
+  it("does not filter by trash when excludeTrash is omitted (default; no production caller relies on this)", async () => {
     const db = buildDb();
     await transferOwnedBoards({ db: db as any, fromUserId: "member", toUserId: "admin" });
     expect(db.drawing.updateMany).toHaveBeenCalledWith({

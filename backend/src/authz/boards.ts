@@ -166,15 +166,17 @@ export const isCollectionCreator = (
  * that caller passes `false` and boards keep their place in the (now
  * reassigned) collection.
  *
- * `excludeTrash` defaults to `false`, preserving `userOffboarding.ts`'s
- * existing (unreviewed-by-this-change) behavior. The deactivation path
- * passes `true`: a board's `trash:<userId>` collection id is scoped to the
- * account that trashed it (`routes/dashboard/trash.ts`), not to whoever
- * later comes to own the board. Reassigning a trashed board's ownership
- * without excluding it would resurface it in the new owner's "All Drawings"
- * -- that listing's trash exclusion matches only the *requester's own*
- * trash id (`drawingListRoutes.ts`), so a board still carrying someone
- * else's trash id reads as a live, organized board again.
+ * `excludeTrash` defaults to `false` for callers that have their own
+ * (equally deliberate) reason not to filter -- there is none in this
+ * codebase today; every production caller passes `true` (both
+ * `userOffboarding.ts`'s full deletion and `adminUserRoutes.ts`'s plain
+ * deactivation, NIL-300/NIL-341). A board's `trash:<userId>` collection id
+ * is scoped to the account that trashed it (`routes/dashboard/trash.ts`),
+ * not to whoever later comes to own the board. Reassigning a trashed
+ * board's ownership without excluding it would resurface it in the new
+ * owner's "All Drawings" -- that listing's trash exclusion matches only the
+ * *requester's own* trash id (`drawingListRoutes.ts`), so a board still
+ * carrying someone else's trash id reads as a live, organized board again.
  *
  * Returns how many boards moved.
  */
