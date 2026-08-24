@@ -511,7 +511,7 @@ test("instrument-repair recipes require different instrument blobs and an old-bl
     () =>
       parseFixVerificationMarker(
         fixVerificationMarker({
-          recipe: { ...recipe, to: { exit_code: 0, output: "new instrument also passed" } },
+          recipe: { ...recipe, to: { ...recipe.to, exit_code: 0 } },
         }),
       ),
     /does not satisfy schema version 1/,
