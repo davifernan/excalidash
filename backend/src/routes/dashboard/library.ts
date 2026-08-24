@@ -264,12 +264,28 @@ export const registerLibraryRoutes = (app: express.Express, deps: DashboardRoute
       }
       if (visibility === "personal" || visibility === "team") data.visibility = visibility;
 
-      const updated = await prisma.libraryItem.update({ where: { id }, data });
+      const updated = await prisma.libraryItem.update({
+        where: { id },
+        data,
+        include: { owner: { select: { name: true } } },
+      });
+      // Full row, matching GET /library/items -- a caller that replaces its
+      // local copy with this response (the manager UI does, to reflect a
+      // rename/category/visibility change immediately) must not lose
+      // `ownerUserId`/`ownerName`/`isMine` in the process. A partial
+      // response here previously did exactly that: publishing an item to
+      // the team made its own owner's action buttons disappear, because
+      // `isMine` silently became `undefined`.
       return res.json({
         id: updated.id,
         name: updated.name,
         category: updated.category,
         visibility: updated.visibility,
+        ownerUserId: updated.ownerUserId,
+        ownerName: updated.owner.name,
+        isMine: updated.ownerUserId === req.user.id,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
       });
     }),
   );

@@ -189,6 +189,17 @@ describe("Team Library (NIL-364)", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.payload.visibility).toBe("team");
+    // Red-probed regression (e2e/tests/discovery-library-lifecycle.spec.ts
+    // caught this live): a caller that replaces its local copy of the item
+    // with this response must not lose isMine/ownerName -- a partial
+    // response here previously made the item's own owner's action buttons
+    // disappear from the manager UI the moment it published to the team.
+    expect(res.payload).toMatchObject({
+      id: item.id,
+      ownerUserId: alice.id,
+      ownerName: "Alice",
+      isMine: true,
+    });
   });
 
   it("PATCH refuses to let a non-owner, non-admin change someone else's personal item", async () => {
