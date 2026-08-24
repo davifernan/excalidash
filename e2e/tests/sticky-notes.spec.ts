@@ -132,6 +132,59 @@ test.describe("sticky notes", () => {
     expect(label.fontSize).toBeLessThan(20);
   });
 
+  test("still shows its opening lines when nothing fits, instead of refusing", async ({
+    page,
+  }) => {
+    // stickyFit.ts walks the font-size ladder down to 8pt and, if even that
+    // overflows, keeps the smallest layout anyway rather than returning
+    // nothing (its own comment: "a note somebody pasted an essay into still
+    // shows its opening lines instead of turning blank"). That fallback was
+    // measured at the unit level (fits === false) but never watched render
+    // (NIL-278) -- this is what it actually looks like: the note itself does
+    // not grow, and the label sits at the floor size and reaches past the
+    // note's own bottom edge instead of vanishing.
+    //
+    // Typing the giant text live would not isolate this: while the label
+    // editor is open, Excalidraw autosizes the textarea itself and this
+    // code only ever touches its font size, so the interesting fallback --
+    // "nothing fits, keep the smallest layout anyway" -- only runs, and only
+    // matters, on a settled (not-being-edited) pass. Writing the overlong
+    // text directly through the harness's updateScene, on an already-placed
+    // and already-escaped note, exercises exactly that pass in isolation.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    // Excalidraw discards an empty label on blur, so it has to exist before it
+    // can be overwritten -- a short placeholder, escaped, then replaced.
+    await page.keyboard.type("x");
+    await page.keyboard.press("Escape");
+    await settle(page);
+
+    const sentence = "This paper is much too small for what somebody typed into it. ";
+    const essay = sentence.repeat(30);
+    await page.evaluate((text) => {
+      const api = (window as any).__EXCALIDASH_TEST__;
+      const elements = api.getSceneElements();
+      const withEssay = elements.map((element: any) =>
+        element.type === "text" ? { ...element, text, originalText: text } : element,
+      );
+      api.updateScene({ elements: withEssay });
+    }, essay);
+    await settle(page);
+
+    const [note] = await notes(page);
+    const [label] = await labels(page);
+    expect(note.width).toBe(200);
+    expect(note.height).toBe(200);
+    expect(label.fontSize).toBe(8);
+    expect(label.text.startsWith("This paper is much too small")).toBe(true);
+    // The floor size still cannot hold this much text inside the note's own
+    // padded box: the label is left taller than what fits, not clipped or
+    // hidden -- the overflow the comment above describes, not a guess at it.
+    // This is Excalidraw's own real layout (refreshDimensions against real
+    // font metrics), the same measurement a person looking at the board sees.
+    expect(label.height).toBeGreaterThan(200 - 10);
+  });
+
   test("keeps a short note at its full size", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });

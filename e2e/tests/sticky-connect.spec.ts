@@ -145,6 +145,42 @@ test.describe("dragging an arrow out of a note", () => {
     await expect(page.getByTestId("sticky-handle-right")).toHaveCount(0);
   });
 
+  test("stays hidden on a rotated note (NIL-276: guessed points would be worse than none)", async ({
+    page,
+  }) => {
+    // StickyHandles bails out entirely on `note.angle` -- a deliberate choice
+    // (see the file's own comment) because a wrongly rotated point is worse
+    // than no point at all. This locks that suppression in as observed
+    // behaviour rather than leaving it as an untested assumption; it is not a
+    // request to implement rotated points.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    await expect(page.getByTestId("sticky-handle-right")).toBeVisible();
+
+    await page.evaluate(() => {
+      const api = (window as any).__EXCALIDASH_TEST__;
+      const elements = api.getSceneElements();
+      const rotated = elements.map((element: any) =>
+        element.customData?.excalidash?.sticky ? { ...element, angle: Math.PI / 6 } : element,
+      );
+      api.updateScene({ elements: rotated });
+    });
+    await page.waitForTimeout(300);
+    // The hover state itself does not change; only the note's own angle does.
+    // Re-issuing the same pointer position keeps the note "under the pointer"
+    // in case the scene write reset a hover subscription along the way.
+    await page.mouse.move(400, 300);
+    await page.waitForTimeout(300);
+
+    await expect(page.getByTestId("sticky-handle-right")).toHaveCount(0);
+    await expect(page.getByTestId("sticky-handle-left")).toHaveCount(0);
+    await expect(page.getByTestId("sticky-handle-top")).toHaveCount(0);
+    await expect(page.getByTestId("sticky-handle-bottom")).toHaveCount(0);
+  });
+
   test("joins two notes with an arrow bound to both", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 350, y: 300 });
@@ -310,5 +346,209 @@ test.describe("a note dropped into a frame", () => {
           .find((e: any) => e.customData?.excalidash?.sticky)?.y,
     );
     expect(movedTo).toBeGreaterThan(joined.y);
+  });
+
+  test("belongs to the innermost frame when frames are nested", async ({ page }) => {
+    // frameAt (frontend/src/sticky/stickyPlacement.ts) picks the last-drawn
+    // frame whose bounds contain the note's centre -- "topmost wins" by draw
+    // order, not a true parent/child relationship read from either frame.
+    // Whether that agrees with what a person actually sees -- the note landing
+    // in the frame drawn on top, the small one nested inside the big one -- was
+    // never watched in a browser (NIL-309, NIL-278).
+    await openEditor(page, drawingId);
+    const canvas = page.locator("canvas.excalidraw__canvas.interactive");
+    const box = (await canvas.boundingBox())!;
+
+    await canvas.click({ position: { x: 950, y: 560 } });
+    await page.keyboard.press("f");
+    await page.mouse.move(box.x + 200, box.y + 100);
+    await page.mouse.down();
+    await page.waitForTimeout(120);
+    await page.mouse.move(box.x + 900, box.y + 520, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(600);
+
+    const outerBox = await page.evaluate(() => {
+      const frame = (window as any).__EXCALIDASH_TEST__
+        .getSceneElements()
+        .find((e: any) => e.type === "frame");
+      return { id: frame.id, x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+    });
+
+    // WebKit only ever shrinks a synthetic drag towards its start point (see
+    // the frame drag above and its sibling test's own comment on this), so a
+    // second drag requested strictly inside the outer frame's *measured*
+    // bounds, with a margin, lands inside it too however much it shrinks.
+    const margin = Math.min(outerBox.width, outerBox.height) / 4;
+    const innerStart = { x: outerBox.x + margin, y: outerBox.y + margin };
+    const innerEnd = {
+      x: outerBox.x + outerBox.width - margin,
+      y: outerBox.y + outerBox.height - margin,
+    };
+
+    await page.keyboard.press("f");
+    await page.mouse.move(box.x + innerStart.x, box.y + innerStart.y);
+    await page.mouse.down();
+    await page.waitForTimeout(120);
+    await page.mouse.move(box.x + innerEnd.x, box.y + innerEnd.y, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(600);
+
+    const frames = await page.evaluate(() =>
+      (window as any).__EXCALIDASH_TEST__
+        .getSceneElements()
+        .filter((e: any) => e.type === "frame")
+        .map((e: any) => ({ id: e.id, x: e.x, y: e.y, width: e.width, height: e.height })),
+    );
+    expect(frames).toHaveLength(2);
+    const outer = frames.find((f: any) => f.id === outerBox.id)!;
+    const inner = frames.find((f: any) => f.id !== outerBox.id)!;
+
+    // Sanity check on the geometry this test built, before it means anything:
+    // the second frame really has to sit inside the first one.
+    expect(inner.x).toBeGreaterThanOrEqual(outer.x);
+    expect(inner.y).toBeGreaterThanOrEqual(outer.y);
+    expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width);
+    expect(inner.y + inner.height).toBeLessThanOrEqual(outer.y + outer.height);
+
+    const innerCentre = { x: inner.x + inner.width / 2, y: inner.y + inner.height / 2 };
+    await placeNote(page, innerCentre);
+    await page.keyboard.press("Escape");
+    await settle(page);
+
+    const membership = await page.evaluate(
+      () =>
+        (window as any).__EXCALIDASH_TEST__
+          .getSceneElements()
+          .find((e: any) => e.customData?.excalidash?.sticky)?.frameId,
+    );
+    expect(membership).toBe(inner.id);
+    expect(membership).not.toBe(outer.id);
+  });
+});
+
+test.describe("two clients typing into the same note", () => {
+  // NIL-273: the reconciler's `protect` option (frontend/src/utils/sync.ts,
+  // wired in through useEditorCollaboration.ts's `flushRemoteUpdates`) exists
+  // *because* two people editing the same note at once used to make the two
+  // boards drift apart. It has 14 unit tests, and collaboration.spec.ts's
+  // two-context pattern covers ordinary draw/sync/delete -- but nothing
+  // exercises `protect` itself: that only happens when a remote update to an
+  // element a person is *actively editing right now* arrives, and every
+  // existing two-client spec syncs elements nobody is mid-edit on.
+  // The scene's own copy of the label, not the open textarea: Excalidraw does
+  // not resync a focused text editor from an incoming remote element, so the
+  // textarea keeps showing whatever this browser is typing regardless of
+  // `protect` -- reading it would make the assertion pass whether or not the
+  // reconciler actually protected anything. The scene element is where a
+  // remote overwrite lands (or doesn't), and it is what the *next* thing this
+  // browser does -- committing the edit, resizing the note, reloading --
+  // would build on top of.
+  const labelTextOf = (page: Page) =>
+    page.evaluate(
+      () =>
+        (window as any).__EXCALIDASH_TEST__
+          .getSceneElements()
+          .find((e: any) => e.containerId)?.text ?? null,
+    );
+
+  test("keeps this browser's in-progress typing when the other browser's edit of the same note arrives mid-keystroke", async ({
+    browser,
+    request,
+  }) => {
+    const drawing = await createDrawing(request, {
+      name: `e2e-sticky-protect-${Date.now()}`,
+    });
+    const context1 = await browser.newContext();
+    const context2 = await browser.newContext();
+    const page1 = await context1.newPage();
+    const page2 = await context2.newPage();
+
+    try {
+      await openEditor(page1, drawing.id);
+      await openEditor(page2, drawing.id);
+      await expect(page1.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
+      await expect(page2.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
+
+      // Browser 1 creates the one note both will fight over, and commits a
+      // starting text so a label element actually exists to reopen (Excalidraw
+      // discards an empty one on blur).
+      await placeNote(page1, { x: 400, y: 300 });
+      await page1.keyboard.type("start");
+      await page1.keyboard.press("Escape");
+
+      // Browser 2 only knows the note exists once the live update arrives --
+      // not from having drawn it itself.
+      await expect
+        .poll(
+          () =>
+            page2.evaluate(
+              () =>
+                (window as any).__EXCALIDASH_TEST__
+                  .getSceneElements()
+                  .filter((e: any) => e.customData?.excalidash?.sticky).length,
+            ),
+          { timeout: 15_000, intervals: [250, 500, 1_000] },
+        )
+        .toBe(1);
+
+      // Both open the same note's label editor -- the literal "two people at
+      // the same note" scenario the ticket describes.
+      const canvas1 = page1.locator("canvas").last();
+      const canvas2 = page2.locator("canvas").last();
+      await canvas1.dblclick({ position: { x: 400, y: 300 } });
+      await canvas2.dblclick({ position: { x: 400, y: 300 } });
+      await expect(page1.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+      await expect(page2.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+
+      await page1.keyboard.press("Control+A");
+      await page1.keyboard.type("AAAAAAAAAA");
+      await page2.keyboard.press("Control+A");
+      await page2.keyboard.type("BBBBBBBBBB");
+
+      // Give the throttled socket broadcast (100ms, useEditorBroadcast.ts)
+      // plenty of room to have delivered browser 2's edit to browser 1 by
+      // now, while browser 1 is still typing. Not asserting browser 1's scene
+      // copy still reads "AAAAAAAAAA" here: re-editing an *existing* label is
+      // its own Excalidraw quirk independent of collaboration entirely --
+      // the persisted copy sits decoupled from the live textarea (and can
+      // legitimately read empty) until the edit commits, protected or not.
+      // What `protect` actually promises, and the only thing solely under its
+      // control, is that browser 2's competing content does not land here.
+      await page1.waitForTimeout(600);
+      expect(await labelTextOf(page1)).not.toBe("BBBBBBBBBB");
+
+      // Browser 2 commits first -- its version of the label is now the one
+      // sitting on the server and broadcast out, arriving at browser 1 while
+      // browser 1 is *still* mid-edit of the very same element.
+      await page2.keyboard.press("Escape");
+      await page1.waitForTimeout(600);
+      expect(await labelTextOf(page1)).not.toBe("BBBBBBBBBB");
+
+      // Only once browser 1 also commits does its own edit stop being held.
+      // Which of the two texts the reconciler keeps from here is a genuine
+      // tie -- both clients reach the same version count from the same
+      // starting element, so the deterministic versionNonce tie-break in
+      // reconcileElements (sync.ts) decides it, not this test. What the test
+      // asks is the thing `protect` actually promises: no permanent split.
+      // Both clients must settle on the *same* one of the two answers.
+      await page1.keyboard.press("Escape");
+      await expect
+        .poll(
+          async () => {
+            const [a, b] = await Promise.all([labelTextOf(page1), labelTextOf(page2)]);
+            return a !== null && a === b ? a : null;
+          },
+          { timeout: 15_000, intervals: [250, 500, 1_000] },
+        )
+        .not.toBeNull();
+      const converged = await labelTextOf(page1);
+      expect(["AAAAAAAAAA", "BBBBBBBBBB"]).toContain(converged);
+      expect(await labelTextOf(page2)).toBe(converged);
+    } finally {
+      await context1.close();
+      await context2.close();
+      await deleteDrawing(request, drawing.id).catch(() => {});
+    }
   });
 });

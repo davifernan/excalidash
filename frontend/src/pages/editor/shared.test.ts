@@ -3,6 +3,7 @@ import {
   buildRemoteSceneUpdate,
   getPersistedAppState,
   hasRenderableElements,
+  heldElementIds,
   isSuspiciousEmptySnapshot,
   isStaleEmptySnapshot,
   isStaleNonRenderableSnapshot,
@@ -237,5 +238,78 @@ describe("board settings that have to be saved on their own", () => {
     const stored = getPersistedAppState({ objectsSnapModeEnabled: true });
     expect(stored.gridSize).toBeNull();
     expect(boardSettingsSignature(stored)).not.toBe(boardSettingsSignature(live()));
+  });
+});
+
+describe("what a gesture is holding right now", () => {
+  it("holds the creating and resizing element ids directly", () => {
+    const held = heldElementIds({
+      editingTextElementId: null,
+      editingTextContainerId: null,
+      creatingElementId: "new-1",
+      resizingElementId: "resize-1",
+    });
+    expect(held.has("new-1")).toBe(true);
+    expect(held.has("resize-1")).toBe(true);
+  });
+
+  it("holds nothing when nothing is in flight", () => {
+    const held = heldElementIds({
+      editingTextElementId: null,
+      editingTextContainerId: null,
+      creatingElementId: null,
+      resizingElementId: null,
+    });
+    expect(held.size).toBe(0);
+  });
+
+  it("resolves re-editing an existing label through its container, not the draft's own id", () => {
+    // NIL-273: re-opening an existing label hands Excalidraw's own
+    // `editingTextElement` a fresh draft id that never matches the persisted
+    // label -- protecting only that id protects nothing a remote update
+    // could actually collide with. `editingTextContainerId` stays the
+    // container's real id throughout, and the label currently bound to it in
+    // the local scene is the one really being edited.
+    const persistedLabel = { id: "label-1", containerId: "container-1", isDeleted: false };
+    const held = heldElementIds(
+      {
+        editingTextElementId: "draft-99",
+        editingTextContainerId: "container-1",
+        creatingElementId: null,
+        resizingElementId: null,
+      },
+      [{ id: "container-1", isDeleted: false }, persistedLabel],
+    );
+    expect(held.has("label-1")).toBe(true);
+    // The draft id itself is still added -- harmless when it also happens to
+    // be the real id (a brand-new note's very first edit), and cheap to keep.
+    expect(held.has("draft-99")).toBe(true);
+  });
+
+  it("ignores a deleted label bound to the container", () => {
+    const held = heldElementIds(
+      {
+        editingTextElementId: "draft-1",
+        editingTextContainerId: "container-1",
+        creatingElementId: null,
+        resizingElementId: null,
+      },
+      [{ id: "label-1", containerId: "container-1", isDeleted: true }],
+    );
+    expect(held.has("label-1")).toBe(false);
+  });
+
+  it("adds nothing extra when no label is bound to the container yet", () => {
+    const held = heldElementIds(
+      {
+        editingTextElementId: "draft-1",
+        editingTextContainerId: "container-1",
+        creatingElementId: null,
+        resizingElementId: null,
+      },
+      [{ id: "container-1", isDeleted: false }],
+    );
+    expect(held.size).toBe(1);
+    expect(held.has("draft-1")).toBe(true);
   });
 });

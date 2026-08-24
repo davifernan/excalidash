@@ -58,9 +58,11 @@ type BuildRemoteSceneUpdateInput = {
 export const heldElementIds = (
   state: {
     editingTextElementId?: string | null;
+    editingTextContainerId?: string | null;
     creatingElementId?: string | null;
     resizingElementId?: string | null;
   } | null,
+  elements: readonly any[] = [],
 ): ReadonlySet<string> => {
   const held = new Set<string>();
   for (const id of [
@@ -69,6 +71,19 @@ export const heldElementIds = (
     state?.resizingElementId,
   ]) {
     if (typeof id === "string") held.add(id);
+  }
+  // Re-editing a note's existing label gets Excalidraw's own fresh draft
+  // element with a new id -- editingTextElementId names that draft, not the
+  // persisted label a remote update would actually collide with, so adding
+  // only that id protects nothing here. editingTextContainerId stays the
+  // container's real id throughout the edit, and the label currently bound
+  // to that container is the one really being edited (NIL-273).
+  if (typeof state?.editingTextContainerId === "string") {
+    const containerId = state.editingTextContainerId;
+    const label = elements.find(
+      (element) => element && !element.isDeleted && element.containerId === containerId,
+    );
+    if (label && typeof label.id === "string") held.add(label.id);
   }
   return held;
 };
