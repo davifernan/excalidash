@@ -1,4 +1,5 @@
 import type { Drawing } from "../types";
+import { bundleDrawingFilesForExport } from "./portableExportFiles";
 
 export interface ExportData {
   type: "excalidraw";
@@ -12,7 +13,8 @@ export interface ExportData {
 /**
  * Export a drawing to a .excalidraw file and trigger download
  */
-export const exportDrawingToFile = (drawing: Drawing, filename?: string): void => {
+export const exportDrawingToFile = async (drawing: Drawing, filename?: string): Promise<void> => {
+  const files = await bundleDrawingFilesForExport(drawing.id, drawing.files);
   const exportData: ExportData = {
     type: "excalidraw",
     version: 2,
@@ -26,7 +28,7 @@ export const exportDrawingToFile = (drawing: Drawing, filename?: string): void =
       }),
       viewBackgroundColor: drawing.appState?.viewBackgroundColor ?? "#ffffff",
     },
-    files: drawing.files || {},
+    files,
   };
 
   const blob = new Blob([JSON.stringify(exportData, null, 2)], {
@@ -46,12 +48,14 @@ export const exportDrawingToFile = (drawing: Drawing, filename?: string): void =
 /**
  * Export drawing from Editor with current state
  */
-export const exportFromEditor = (
+export const exportFromEditor = async (
+  drawingId: string,
   name: string,
   elements: readonly any[],
   appState: any,
   files: Record<string, any>,
-): void => {
+): Promise<void> => {
+  const bundledFiles = await bundleDrawingFilesForExport(drawingId, files);
   const exportData: ExportData = {
     type: "excalidraw",
     version: 2,
@@ -63,7 +67,7 @@ export const exportFromEditor = (
       ...(appState?.gridModeEnabled != null && { gridModeEnabled: appState.gridModeEnabled }),
       viewBackgroundColor: appState?.viewBackgroundColor ?? "#ffffff",
     },
-    files: files || {},
+    files: bundledFiles,
   };
 
   const blob = new Blob([JSON.stringify(exportData, null, 2)], {

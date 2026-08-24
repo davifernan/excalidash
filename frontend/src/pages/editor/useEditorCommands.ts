@@ -202,14 +202,19 @@ export const useEditorCommands = ({
     setIsSavingOnLeave,
   ]);
 
-  const handleExportClick = useCallback(() => {
-    if (!refs.excalidrawAPI.current) return;
-    const elements = refs.latestElements.current;
-    const appState = readBoardSettings();
-    const files = readFiles();
-    exportFromEditor(drawingName, elements, appState, files);
-    toast.success("Drawing exported");
-  }, [drawingName, readBoardSettings, readFiles, refs]);
+  const handleExportClick = useCallback(async () => {
+    if (!drawingId || !refs.excalidrawAPI.current) return;
+    try {
+      const elements = refs.latestElements.current;
+      const appState = readBoardSettings();
+      const files = readFiles();
+      await exportFromEditor(drawingId, drawingName, elements, appState, files);
+      toast.success("Drawing exported");
+    } catch (error) {
+      console.error("Failed to export drawing", error);
+      toast.error("Export cancelled because one or more drawing images could not be bundled.");
+    }
+  }, [drawingId, drawingName, readBoardSettings, readFiles, refs]);
 
   const handleRenameStart = useCallback(() => {
     if (!canEdit) return;
