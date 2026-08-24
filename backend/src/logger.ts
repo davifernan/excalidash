@@ -37,7 +37,12 @@ export type LogFields = Record<string, unknown>;
 const errorReplacer = (_key: string, value: unknown) =>
   value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value;
 
-const write = (stream: NodeJS.WritableStream, level: string, message: string, fields?: LogFields) => {
+const write = (
+  stream: NodeJS.WritableStream,
+  level: string,
+  message: string,
+  fields?: LogFields,
+) => {
   const line = {
     time: new Date().toISOString(),
     level,
