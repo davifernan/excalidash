@@ -19,7 +19,14 @@ const invoke = async (app: express.Express, userId: string, query: Record<string
   const layer = (app as any).router.stack.find(
     (candidate: any) => candidate.route?.path === "/search" && candidate.route.methods.get,
   );
-  const req: any = { params: {}, body: {}, query, headers: {}, connection: {}, user: { id: userId } };
+  const req: any = {
+    params: {},
+    body: {},
+    query,
+    headers: {},
+    connection: {},
+    user: { id: userId },
+  };
   const res: any = {
     statusCode: 200,
     status(code: number) {
@@ -62,7 +69,8 @@ const buildApp = () => {
   return app;
 };
 
-const textElements = (text: string) => JSON.stringify([{ id: "el-1", type: "text", text, isDeleted: false }]);
+const textElements = (text: string) =>
+  JSON.stringify([{ id: "el-1", type: "text", text, isDeleted: false }]);
 
 describe("GET /search", () => {
   let owner: { id: string };

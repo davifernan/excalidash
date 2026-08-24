@@ -32,7 +32,11 @@ describe("user offboarding", () => {
       collectionShare: { updateMany: mutation() },
       comment: { updateMany: mutation() },
       activityEvent: { updateMany: mutation() },
-      libraryItem: { findMany: vi.fn().mockResolvedValue([]), updateMany: mutation(), deleteMany: mutation() },
+      libraryItem: {
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: mutation(),
+        deleteMany: mutation(),
+      },
       auditLog: { deleteMany: mutation() },
     };
     const prisma = {
@@ -154,7 +158,11 @@ describe("user offboarding", () => {
       collectionShare: { updateMany: mutation() },
       comment: { updateMany: mutation() },
       activityEvent: { updateMany: mutation() },
-      libraryItem: { findMany: vi.fn().mockResolvedValue([]), updateMany: mutation(), deleteMany: mutation() },
+      libraryItem: {
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: mutation(),
+        deleteMany: mutation(),
+      },
       auditLog: { deleteMany: mutation() },
     };
     const prisma = {

@@ -127,16 +127,23 @@ export const registerLibraryRoutes = (app: express.Express, deps: DashboardRoute
           select: { id: true, excalidrawItemId: true },
         }),
       ]);
-      const existingByItemId = new Map(existingForIncoming.map((row) => [row.excalidrawItemId, row]));
+      const existingByItemId = new Map(
+        existingForIncoming.map((row) => [row.excalidrawItemId, row]),
+      );
       const myRowByItemId = new Map(myRows.map((row) => [row.excalidrawItemId, row]));
 
-      const toCreate: { id: string; excalidrawItemId: string; name: string; excalidrawData: string }[] =
-        [];
+      const toCreate: {
+        id: string;
+        excalidrawItemId: string;
+        name: string;
+        excalidrawData: string;
+      }[] = [];
       const toUpdate: { id: string; name: string; excalidrawData: string }[] = [];
 
       for (const [itemId, item] of incomingById) {
         const existing = existingByItemId.get(itemId);
-        const name = typeof item.name === "string" && item.name.trim() ? item.name : "Untitled item";
+        const name =
+          typeof item.name === "string" && item.name.trim() ? item.name : "Untitled item";
         const excalidrawData = JSON.stringify(item);
         if (excalidrawData.length > MAX_ITEM_DATA_LENGTH) continue;
 
@@ -363,7 +370,8 @@ export const registerLibraryRoutes = (app: express.Express, deps: DashboardRoute
       });
       const existingIds = new Set(existing.map((row) => row.excalidrawItemId));
 
-      const rows: { id: string; excalidrawItemId: string; name: string; excalidrawData: string }[] = [];
+      const rows: { id: string; excalidrawItemId: string; name: string; excalidrawData: string }[] =
+        [];
       for (const raw of rawItems) {
         if (!isPlainObject(raw)) continue;
         if (!Array.isArray((raw as { elements?: unknown }).elements)) continue;

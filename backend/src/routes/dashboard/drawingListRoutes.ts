@@ -51,7 +51,10 @@ export const registerDrawingListRoutes = (app: express.Express, context: Drawing
       // default -- they live in the dedicated Archive view
       // (`GET /search?archivedOnly=true`), not silently mixed into "All
       // Drawings" or a collection's contents.
-      const where: Prisma.DrawingWhereInput = { ...ownedBoardsWhere(req.user.id), archivedAt: null };
+      const where: Prisma.DrawingWhereInput = {
+        ...ownedBoardsWhere(req.user.id),
+        archivedAt: null,
+      };
       const searchTerm =
         typeof search === "string" && search.trim().length > 0 ? search.trim() : undefined;
 

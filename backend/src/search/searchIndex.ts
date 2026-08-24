@@ -54,9 +54,7 @@ export const extractVisibleElementText = (elements: unknown): string[] => {
 export const computeSearchText = (name: string, elements: unknown): string => {
   const parts = [name, ...extractVisibleElementText(elements)];
   const joined = parts.join(" \n ").toLowerCase().trim();
-  return joined.length > MAX_SEARCH_TEXT_LENGTH
-    ? joined.slice(0, MAX_SEARCH_TEXT_LENGTH)
-    : joined;
+  return joined.length > MAX_SEARCH_TEXT_LENGTH ? joined.slice(0, MAX_SEARCH_TEXT_LENGTH) : joined;
 };
 
 /** Same computation from a board's stored (JSON-string) columns, for the rebuild path. */

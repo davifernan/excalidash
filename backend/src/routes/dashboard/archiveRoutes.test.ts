@@ -17,7 +17,14 @@ const invoke = async (
   const layer = (app as any).router.stack.find(
     (candidate: any) => candidate.route?.path === path && candidate.route.methods[method],
   );
-  const req: any = { params, body: {}, query: {}, headers: {}, connection: {}, user: { id: userId } };
+  const req: any = {
+    params,
+    body: {},
+    query: {},
+    headers: {},
+    connection: {},
+    user: { id: userId },
+  };
   const res: any = {
     statusCode: 200,
     status(code: number) {
@@ -85,14 +92,18 @@ describe("archive lifecycle (NIL-365)", () => {
   it("lets the controlling owner archive and restore", async () => {
     const app = buildApp();
 
-    const archived = await invoke(app, owner.id, "post", "/drawings/:id/archive", { id: drawingId });
+    const archived = await invoke(app, owner.id, "post", "/drawings/:id/archive", {
+      id: drawingId,
+    });
     expect(archived.statusCode).toBe(200);
     expect(archived.payload.archivedAt).not.toBeNull();
 
     const row = await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } });
     expect(row.archivedAt).not.toBeNull();
 
-    const restored = await invoke(app, owner.id, "post", "/drawings/:id/restore", { id: drawingId });
+    const restored = await invoke(app, owner.id, "post", "/drawings/:id/restore", {
+      id: drawingId,
+    });
     expect(restored.statusCode).toBe(200);
     expect(restored.payload.archivedAt).toBeNull();
   });
@@ -102,11 +113,12 @@ describe("archive lifecycle (NIL-365)", () => {
       data: { drawingId, granteeUserId: editor.id, permission: "edit", createdByUserId: owner.id },
     });
 
-    const res = await invoke(buildApp(), editor.id, "post", "/drawings/:id/archive", { id: drawingId });
+    const res = await invoke(buildApp(), editor.id, "post", "/drawings/:id/archive", {
+      id: drawingId,
+    });
 
     expect(res.statusCode).toBe(404);
     const row = await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } });
     expect(row.archivedAt).toBeNull();
   });
-
 });
