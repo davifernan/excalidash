@@ -1,4 +1,5 @@
 import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
+import { logger } from "../logger";
 
 /**
  * Version history stores a full copy of `elements`, `appState` and `files` on
@@ -35,7 +36,7 @@ export const encodeSnapshotField = (value: string, enabled: boolean = true): str
     // Tiny payloads grow through base64; keep the plain text in that case.
     return encoded.length < value.length ? encoded : value;
   } catch (error) {
-    console.warn("Snapshot compression failed, storing raw payload", { error });
+    logger.warn("snapshot compression failed, storing raw payload", { error });
     return value;
   }
 };
@@ -51,7 +52,7 @@ export const decodeSnapshotField = (value: string): string => {
     const raw = Buffer.from(value.slice(PREFIX.length), "base64");
     return brotliDecompressSync(raw).toString("utf8");
   } catch (error) {
-    console.error("Failed to decompress snapshot payload", { error });
+    logger.error("failed to decompress snapshot payload", { error });
     throw new Error("SNAPSHOT_DECODE_FAILED");
   }
 };

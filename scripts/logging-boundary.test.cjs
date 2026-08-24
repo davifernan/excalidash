@@ -104,9 +104,12 @@ const assertStructuralExceptionNotFlagged = () => {
 
 const assertStaleBaselineEntryCaught = () => {
   const source = fs.readFileSync(CHECK, "utf8");
-  const marker = '"backend/src/utils/audit.ts",';
+  // BASELINE is empty as of NIL-504 (the 42-file migration paid it down to
+  // nothing), so the anchor is the declaration itself, not a specific
+  // migrated-away entry -- that entry would not exist to anchor on any more.
+  const marker = "const BASELINE = new Set([";
   if (!source.includes(marker)) {
-    throw new Error("Anchor entry for the stale-baseline probe is missing from logging-boundary.cjs.");
+    throw new Error("Anchor for the stale-baseline probe is missing from logging-boundary.cjs.");
   }
   const patchedPath = path.join(root, "scripts", ".logging-boundary.stale-probe.cjs");
   // Insert a baseline entry for a file that will not exist / will not call

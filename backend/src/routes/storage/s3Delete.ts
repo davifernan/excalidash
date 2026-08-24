@@ -1,3 +1,5 @@
+import { logger } from "../../logger";
+
 const S3_DELETE_CONCURRENCY = 8;
 
 export const deleteS3KeysInBatches = async ({
@@ -21,7 +23,11 @@ export const deleteS3KeysInBatches = async ({
       if (result.status === "fulfilled") {
         deleted++;
       } else {
-        console.error(`${logPrefix} Failed to delete S3 object: ${batch[j]}`, result.reason);
+        logger.error("failed to delete S3 object", {
+          logPrefix,
+          key: batch[j],
+          error: result.reason,
+        });
         errors++;
       }
     }

@@ -22,6 +22,7 @@ import {
 } from "./coreRouteHelpers";
 import { canUseLocalPasswordFlows } from "./localPassword";
 import { getOwnedCollection } from "../authz/collections";
+import { logger } from "../logger";
 type RegisterCoreRoutesDeps = {
   /** Optional: only a configured mailer makes password reset usable. */
   mailer?: { enabled: boolean };
@@ -365,9 +366,9 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
           });
         } catch (error) {
           if (isMissingRefreshTokenTableError(error)) {
-            console.error(
-              "Refresh token rotation is enabled but refresh token storage is unavailable",
-            );
+            logger.error("refresh token rotation enabled but storage unavailable", {
+              userId: user.id,
+            });
             return res.status(503).json({
               error: "Service unavailable",
               message: "Refresh token storage is unavailable. Please run database migrations.",
@@ -395,7 +396,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
         registrationEnabled: systemConfig.registrationEnabled,
       });
     } catch (error) {
-      console.error("Registration error:", error);
+      logger.error("registration failed", { error });
       res.status(500).json({ error: "Internal server error", message: "Failed to register user" });
     }
   });
@@ -470,9 +471,9 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
           });
         } catch (error) {
           if (isMissingRefreshTokenTableError(error)) {
-            console.error(
-              "Refresh token rotation is enabled but refresh token storage is unavailable",
-            );
+            logger.error("refresh token rotation enabled but storage unavailable", {
+              userId: user.id,
+            });
             return res.status(503).json({
               error: "Service unavailable",
               message: "Refresh token storage is unavailable. Please run database migrations.",
@@ -499,7 +500,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
         },
       });
     } catch (error) {
-      console.error("Login error:", error);
+      logger.error("login failed", { error });
       res.status(500).json({ error: "Internal server error", message: "Failed to login" });
     }
   });
@@ -576,15 +577,15 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
                 .json({ error: "Unauthorized", message: error.message });
             }
             if (isMissingRefreshTokenTableError(error)) {
-              console.error(
-                "Refresh token rotation is enabled but refresh token storage is unavailable",
-              );
+              logger.error("refresh token rotation enabled but storage unavailable", {
+                userId: user.id,
+              });
               return res.status(503).json({
                 error: "Service unavailable",
                 message: "Refresh token storage is unavailable. Please run database migrations.",
               });
             } else {
-              console.error("Refresh token rotation error:", error);
+              logger.error("refresh token rotation failed", { error, userId: user.id });
               return res.status(500).json({
                 error: "Internal server error",
                 message: "Failed to rotate refresh token",
@@ -613,7 +614,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
           .json({ error: "Unauthorized", message: "Invalid or expired refresh token" });
       }
     } catch (error) {
-      console.error("Refresh token error:", error);
+      logger.error("refresh token failed", { error });
       res.status(500).json({ error: "Internal server error", message: "Failed to refresh token" });
     }
   });
@@ -630,7 +631,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
       }
       return res.json({ ok: true });
     } catch (error) {
-      console.error("Logout error:", error);
+      logger.error("logout failed", { error });
       return res.status(500).json({ error: "Internal server error", message: "Failed to logout" });
     }
   });
@@ -693,7 +694,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
         },
       });
     } catch (error) {
-      console.error("Stop impersonation error:", error);
+      logger.error("stop impersonation failed", { error });
       return res
         .status(500)
         .json({ error: "Internal server error", message: "Failed to stop impersonation" });
@@ -723,7 +724,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
       }
       res.json({ user });
     } catch (error) {
-      console.error("Get user error:", error);
+      logger.error("get user failed", { error });
       res
         .status(500)
         .json({ error: "Internal server error", message: "Failed to get user information" });
@@ -769,7 +770,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
         }),
       );
     } catch (error) {
-      console.error("Auth status error:", error);
+      logger.error("auth status failed", { error });
       res
         .status(500)
         .json({ error: "Internal server error", message: "Failed to fetch auth status" });
@@ -823,7 +824,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
         bootstrapRequired: Boolean(nextAuthEnabled),
       });
     } catch (error) {
-      console.error("Auth onboarding choice error:", error);
+      logger.error("auth onboarding choice failed", { error });
       return res.status(500).json({
         error: "Internal server error",
         message: "Failed to apply authentication onboarding choice",
@@ -889,7 +890,7 @@ export const registerCoreRoutes = (deps: RegisterCoreRoutesDeps) => {
       });
       res.json({ authEnabled: updated.authEnabled, bootstrapRequired });
     } catch (error) {
-      console.error("Auth enabled toggle error:", error);
+      logger.error("auth enabled toggle failed", { error });
       res
         .status(500)
         .json({ error: "Internal server error", message: "Failed to update authentication mode" });

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { config } from "../config";
+import { logger } from "../logger";
 import { PrismaClient } from "../generated/client";
 import { prisma as defaultPrisma } from "../db/prisma";
 import { createAuthModeService, type AuthModeService } from "../auth/authMode";
@@ -376,7 +377,7 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
         return next();
       }
     } catch (error) {
-      console.error("Error reading auth mode:", error);
+      logger.error("error reading auth mode", { error });
       res
         .status(500)
         .json({ error: "Internal server error", message: "Failed to read authentication mode" });
@@ -419,7 +420,7 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
         req.principal = { kind: "user", userId: user.id };
         next();
       } catch (error) {
-        console.error("Error verifying API key:", error);
+        logger.error("error verifying API key", { error });
         res
           .status(500)
           .json({ error: "Internal server error", message: "Failed to verify API key" });
@@ -461,7 +462,7 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
       req.principal = { kind: "user", userId: resolvedUser.id };
       next();
     } catch (error) {
-      console.error("Error verifying user:", error);
+      logger.error("error verifying user", { error });
       res.status(500).json({ error: "Internal server error", message: "Failed to verify user" });
     }
   };
@@ -483,7 +484,7 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
         return next();
       }
     } catch (error) {
-      console.error("Error reading auth mode:", error);
+      logger.error("error reading auth mode", { error });
       return next();
     }
     const extracted = extractToken(req);
@@ -514,7 +515,7 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
           req.authError = { code: "INVALID_ACCESS_TOKEN" };
         }
       } catch (error) {
-        console.error("Error in optional API key auth:", error);
+        logger.error("error in optional API key auth", { error });
         req.authError = { code: "INVALID_ACCESS_TOKEN" };
       }
       return next();
@@ -540,7 +541,7 @@ export const createAuthMiddleware = ({ prisma, authModeService }: AuthMiddleware
         req.principal = { kind: "user", userId: user.id };
       }
     } catch (error) {
-      console.error("Error in optional auth:", error);
+      logger.error("error in optional auth", { error });
     }
     next();
   };

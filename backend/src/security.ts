@@ -6,6 +6,8 @@ import DOMPurify from "dompurify";
 import { JSDOM } from "jsdom";
 import crypto from "crypto";
 import { SOCKET_LIMITS } from "./limits";
+import { logger } from "./logger";
+import { config } from "./config";
 const window = new JSDOM("").window;
 const purify = DOMPurify(window);
 /**
@@ -476,7 +478,7 @@ export const sanitizeDrawingData = (data: {
     if (error instanceof DrawingDataValidationError) {
       throw error;
     }
-    console.error("Data sanitization failed:", error);
+    logger.error("Data sanitization failed", { error });
     throw new Error("Invalid or malicious drawing data detected");
   }
 };
@@ -494,7 +496,7 @@ export const validateImportedDrawing = (data: any): boolean => {
     }
     return true;
   } catch (error) {
-    console.error("Imported drawing validation failed:", error);
+    logger.error("Imported drawing validation failed", { error });
     return false;
   }
 };
@@ -506,21 +508,20 @@ const CSRF_TOKEN_MAX_LENGTH = 2048;
 let cachedCsrfSecret: Buffer | null = null;
 const getCsrfSecret = (): Buffer => {
   if (cachedCsrfSecret) return cachedCsrfSecret;
-  const secretFromEnv = process.env.CSRF_SECRET;
+  const secretFromEnv = config.csrfSecret;
   if (secretFromEnv && secretFromEnv.trim().length > 0) {
     cachedCsrfSecret = Buffer.from(secretFromEnv, "utf8");
     return cachedCsrfSecret;
   }
   cachedCsrfSecret = crypto.randomBytes(32);
-  const envLabel = process.env.NODE_ENV ? ` (${process.env.NODE_ENV})` : "";
-  console.warn(
-    `[SECURITY WARNING] CSRF_SECRET is not set${envLabel}.\n` +
-      `Using an ephemeral per-process secret.\n` +
-      `  - Tokens will expire on container restart\n` +
-      `  - Horizontal scaling (k8s) will NOT work\n` +
-      `  - Generate a secret: openssl rand -base64 32\n` +
-      `  - Set environment variable: CSRF_SECRET=<generated-secret>`,
-  );
+  logger.warn("CSRF_SECRET is not set; using an ephemeral per-process secret", {
+    nodeEnv: config.nodeEnv,
+    consequences: [
+      "Tokens will expire on container restart",
+      "Horizontal scaling (k8s) will NOT work",
+    ],
+    remediation: "Generate a secret with `openssl rand -base64 32` and set CSRF_SECRET",
+  });
   return cachedCsrfSecret;
 };
 const base64UrlEncode = (input: Buffer | string): string => {

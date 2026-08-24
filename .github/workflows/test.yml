@@ -116,6 +116,31 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/agent-token-boundary.test.cjs
 
+  env-boundary:
+    name: Env Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No dependency install, same reasoning as Authz Boundary: this reads
+      # backend/src with node:fs and nothing else. Not yet in
+      # ops/repository-rules.sh's required_status_checks -- NIL-505 adds that
+      # in a follow-up after this merges, the same ordering Authz Boundary and
+      # Agent Token Boundary used, so a brand new job name is never a required
+      # check before it has run green on main at least once.
+      - name: Check the process.env boundary (NIL-505)
+        run: node scripts/env-boundary.cjs
+
+      - name: Prove the env boundary check rejects what it claims to
+        run: node scripts/env-boundary.test.cjs
+
   type-collision-inventory:
     name: Type Collision Inventory
     runs-on: ubuntu-latest
@@ -248,7 +273,6 @@ jobs:
 
       - name: Prove the logging boundary check rejects what it claims to
         run: node scripts/logging-boundary.test.cjs
-
 
       - name: Run backend tests
         run: |

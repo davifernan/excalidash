@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { logger } from "../logger";
 import { logAuditEvent } from "../utils/audit";
 import { apiKeyCreateSchema } from "./schemas";
 import {
@@ -111,7 +112,7 @@ export const registerAccountApiKeyRoutes = (deps: RegisterAccountRoutesDeps) => 
 
       return res.json({ apiKeys: apiKeys.map(serializeApiKeyMetadata) });
     } catch (error) {
-      console.error("List API keys error:", error);
+      logger.error("List API keys error", { error });
       return res.status(500).json({
         error: "Internal server error",
         message: "Failed to list API keys",
@@ -270,7 +271,7 @@ export const registerAccountApiKeyRoutes = (deps: RegisterAccountRoutesDeps) => 
           token: generated.token,
         });
       } catch (error) {
-        console.error("Create API key error:", error);
+        logger.error("Create API key error", { error });
         return res.status(500).json({
           error: "Internal server error",
           message: "Failed to create API key",
@@ -324,7 +325,7 @@ export const registerAccountApiKeyRoutes = (deps: RegisterAccountRoutesDeps) => 
 
         return res.json({ success: true });
       } catch (error) {
-        console.error("Revoke API key error:", error);
+        logger.error("Revoke API key error", { error });
         return res.status(500).json({
           error: "Internal server error",
           message: "Failed to revoke API key",

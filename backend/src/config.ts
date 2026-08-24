@@ -25,6 +25,7 @@ interface S3Config {
   forcePathStyle: boolean;
   accessKeyId: string | null;
   secretAccessKey: string | null;
+  keyPrefix: string;
 }
 
 type MailTransport = "resend" | "smtp" | "none";
@@ -68,6 +69,20 @@ interface BackupConfig {
   dir: string;
   retentionDays: number;
   maxAgeMs: number;
+  maxCount: number;
+  maxTotalBytes: number;
+  minFreeDiskPercent: number;
+}
+
+interface ShareLinkConfig {
+  editDefaultTtlMs: number;
+  viewDefaultTtlMs: number;
+  maxTtlMs: number;
+}
+
+interface UpdateCheckConfig {
+  outboundEnabled: boolean;
+  githubToken: string | null;
 }
 
 interface ReadinessConfig {
@@ -120,7 +135,16 @@ interface Config {
   assets: AssetConfig;
   socketMaxHttpBufferBytes: number;
   linkPreviews: LinkPreviewConfig;
+  shareLinks: ShareLinkConfig;
   logLevel: LogLevel;
+  enableSnapshotVacuum: boolean;
+  /** `true`/`false`, or a positive hop count for a chain of trusted proxies. */
+  trustProxy: boolean | number;
+  debugCsrf: boolean;
+  disableOnboardingGate: boolean;
+  drawingsCacheTtlMs: number;
+  apiKeyHashPepper: string;
+  updateCheck: UpdateCheckConfig;
 }
 
 export type LogLevel = "silent" | "info" | "debug";
@@ -472,7 +496,24 @@ const resolveBackupConfig = (): BackupConfig => {
     dir: backupDir,
     retentionDays: getRequiredEnvNumber("BACKUP_RETENTION_DAYS", 14),
     maxAgeMs: getRequiredEnvNumber("BACKUP_MAX_AGE_HOURS", 48) * 60 * 60 * 1000,
+    maxCount: getRequiredEnvNumber("BACKUP_MAX_COUNT", 7),
+    maxTotalBytes: getRequiredEnvNumber("BACKUP_MAX_TOTAL_MB", 30 * 1024) * 1024 * 1024,
+    minFreeDiskPercent: getRequiredEnvNumber("BACKUP_MIN_FREE_DISK_PERCENT", 20),
   };
+};
+
+/**
+ * Mirrors the tri-state Express `trust proxy` setting: `true` (always
+ * trust), `false` (never), or a positive hop count for a known chain of
+ * reverse proxies. An unparseable value falls back to `false` rather than
+ * throwing, matching the pre-NIL-505 behavior in index.ts.
+ */
+const resolveTrustProxy = (): boolean | number => {
+  const raw = (process.env.TRUST_PROXY ?? "false").trim();
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  const hops = Number.parseInt(raw, 10);
+  return Number.isFinite(hops) && hops > 0 ? hops : false;
 };
 
 const resolvedAuthMode = parseAuthMode(process.env.AUTH_MODE);
@@ -495,6 +536,7 @@ const resolveS3Config = (): S3Config => ({
   forcePathStyle: getOptionalEnv("S3_FORCE_PATH_STYLE", "false").toLowerCase() === "true",
   accessKeyId: getOptionalTrimmedEnv("AWS_ACCESS_KEY_ID"),
   secretAccessKey: getOptionalTrimmedEnv("AWS_SECRET_ACCESS_KEY"),
+  keyPrefix: (getOptionalEnv("S3_KEY_PREFIX", "excalidash") || "excalidash").replace(/\/+$/, ""),
 });
 
 export const config: Config = {
@@ -512,6 +554,21 @@ export const config: Config = {
   csrfMaxRequests: getRequiredEnvNumber("CSRF_MAX_REQUESTS", 60),
   csrfSecret: process.env.CSRF_SECRET || null,
   socketMaxHttpBufferBytes: resolveSocketMaxHttpBufferBytes(),
+  enableSnapshotVacuum: getOptionalEnv("ENABLE_SNAPSHOT_VACUUM", "true").toLowerCase() !== "false",
+  trustProxy: resolveTrustProxy(),
+  debugCsrf: getOptionalBoolean("DEBUG_CSRF", false),
+  disableOnboardingGate: getOptionalBoolean("DISABLE_ONBOARDING_GATE", false),
+  drawingsCacheTtlMs: getRequiredEnvNumber("DRAWINGS_CACHE_TTL_MS", 5_000),
+  apiKeyHashPepper: getOptionalEnv("API_KEY_HASH_PEPPER", "api-key-hash-pepper"),
+  updateCheck: {
+    // Kept permissive (true/1/yes) to match the documented UPDATE_CHECK_OUTBOUND
+    // contract in AGENTS.md -- getOptionalBoolean only accepts true/1.
+    outboundEnabled: ["true", "1", "yes"].includes(
+      (getOptionalEnv("UPDATE_CHECK_OUTBOUND", "true") || "true").trim().toLowerCase(),
+    ),
+    githubToken:
+      getOptionalTrimmedEnv("UPDATE_CHECK_GITHUB_TOKEN") ?? getOptionalTrimmedEnv("GITHUB_TOKEN"),
+  },
   oidc: resolveOidcConfig(resolvedAuthMode),
   enablePasswordReset: getOptionalBoolean("ENABLE_PASSWORD_RESET", false),
   enableRefreshTokenRotation: getOptionalBoolean("ENABLE_REFRESH_TOKEN_ROTATION", true),
@@ -589,6 +646,17 @@ export const config: Config = {
     pdfShrinkMinBytes: getRequiredEnvNumber("ASSET_PDF_SHRINK_MIN_MB", 4) * 1024 * 1024,
     pdfShrinkConcurrency: getRequiredEnvNumber("ASSET_PDF_SHRINK_CONCURRENCY", 1),
     pdfShrinkQueueLimit: getRequiredEnvNumber("ASSET_PDF_SHRINK_QUEUE_LIMIT", 2),
+  },
+  shareLinks: {
+    editDefaultTtlMs: getRequiredEnvNumber(
+      "LINK_SHARE_EDIT_DEFAULT_TTL_MS",
+      7 * 24 * 60 * 60 * 1000,
+    ),
+    viewDefaultTtlMs: getRequiredEnvNumber(
+      "LINK_SHARE_VIEW_DEFAULT_TTL_MS",
+      30 * 24 * 60 * 60 * 1000,
+    ),
+    maxTtlMs: getRequiredEnvNumber("LINK_SHARE_MAX_TTL_MS", 90 * 24 * 60 * 60 * 1000),
   },
   linkPreviews: {
     positiveTtlMs: getRequiredEnvNumber("LINK_PREVIEW_POSITIVE_TTL_MS", 24 * 60 * 60 * 1000),

@@ -122,17 +122,25 @@ describe("authorized room event feedback", () => {
     const { send, handle } = setup(10);
     const failure = new Error("database offline");
     handle.mockRejectedValueOnce(failure);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const ack = vi.fn();
 
     await send(validPayload, ack);
 
-    expect(log).toHaveBeenCalledWith("Room event test-event failed:", failure);
+    const logged = stderrWrite.mock.calls.map((call) => JSON.parse(call[0] as string));
+    expect(logged).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        message: "Room event failed",
+        event: "test-event",
+        error: expect.objectContaining({ message: "database offline" }),
+      }),
+    );
     expect(ack).toHaveBeenCalledWith({
       ok: false,
       error: { code: "internal-error", message: "test-event could not be completed" },
     });
-    log.mockRestore();
+    stderrWrite.mockRestore();
   });
 
   it("disconnects a malformed-packet flood after bounded feedback", async () => {

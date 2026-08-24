@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { logger } from "../logger";
 import { logAuditEvent } from "../utils/audit";
 import { userPreferencesSchema } from "./schemas";
 import type { RegisterAccountRoutesDeps } from "./accountRoutes";
@@ -33,7 +34,7 @@ export const registerAccountPreferencesRoutes = (deps: RegisterAccountRoutesDeps
 
       return res.json({ preferences: parseStoredPreferences(user.preferences) });
     } catch (error) {
-      console.error("Get preferences error:", error);
+      logger.error("Get preferences error", { error });
       return res.status(500).json({
         error: "Internal server error",
         message: "Failed to load preferences",
@@ -92,7 +93,7 @@ export const registerAccountPreferencesRoutes = (deps: RegisterAccountRoutesDeps
 
       return res.json({ preferences });
     } catch (error) {
-      console.error("Update preferences error:", error);
+      logger.error("Update preferences error", { error });
       return res.status(500).json({
         error: "Internal server error",
         message: "Failed to save preferences",

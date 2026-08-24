@@ -109,7 +109,7 @@ describe("auth middleware API key authentication", () => {
       },
     });
     prisma.apiKey.update.mockRejectedValue(new Error("write failed"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { requireAuth } = createAuthMiddleware({ prisma, authModeService });
     const req = createRequest({
       method: "GET",

@@ -1,6 +1,7 @@
 import { Issuer } from "openid-client";
 import { canonicalizeIssuerUrl, resolveIdTokenSignedResponseAlg } from "./oidcRouteHelpers";
 import type { RegisterOidcRoutesDeps } from "./oidcRoutes";
+import { logger } from "../logger";
 
 export const createOidcClientFactory = (config: RegisterOidcRoutesDeps["config"]) => {
   let oidcClientPromise: Promise<any> | null = null;
@@ -58,8 +59,12 @@ export const createOidcClientFactory = (config: RegisterOidcRoutesDeps["config"]
       : null;
     if (!discoveredIssuer || discoveredIssuer !== expectedIssuer) {
       if (discoveredIssuer && discoveredIssuer !== expectedIssuer) {
-        console.warn(
-          `[OIDC] Issuer mismatch between discovery (${discoveredIssuerRaw}) and configured OIDC_ISSUER_URL (${config.oidc.issuerUrl}); using configured issuer for token validation.`,
+        logger.warn(
+          "OIDC issuer mismatch between discovery and configured OIDC_ISSUER_URL; using configured issuer for token validation",
+          {
+            discoveredIssuer: discoveredIssuerRaw,
+            configuredIssuer: config.oidc.issuerUrl,
+          },
         );
       }
       if (typeof (clientIssuer as any) === "object" && clientIssuer) {

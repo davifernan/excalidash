@@ -1,6 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { PrismaClient } from "../generated/client";
+import { logger } from "../logger";
+import { config } from "../config";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -9,7 +11,7 @@ declare global {
 
 const prismaClient = globalThis.__excalidashPrisma ?? new PrismaClient();
 
-if (process.env.NODE_ENV !== "production") {
+if (config.nodeEnv !== "production") {
   globalThis.__excalidashPrisma = prismaClient;
 }
 
@@ -22,7 +24,7 @@ if (process.env.NODE_ENV !== "production") {
  * with WAL + busy_timeout already applied.
  */
 export async function configureSqlite(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL ?? "";
+  const databaseUrl = config.databaseUrl ?? "";
   // PRAGMA statements only apply to SQLite; skip them for other providers.
   if (databaseUrl && !databaseUrl.startsWith("file:")) {
     return;
@@ -43,7 +45,7 @@ export async function configureSqlite(): Promise<void> {
     await enableIncrementalAutoVacuumOnSmallDatabase();
   } catch (err) {
     // Surface real failures (e.g. permission, corrupted db) instead of swallowing.
-    console.warn("[prisma] Failed to configure SQLite PRAGMAs:", err);
+    logger.warn("failed to configure SQLite PRAGMAs", { error: err });
   }
 }
 
@@ -87,9 +89,9 @@ export async function reclaimSqliteFreeSpace(): Promise<{
   reclaimedBytes: number;
   durationMs: number;
 } | null> {
-  if (process.env.ENABLE_SNAPSHOT_VACUUM === "false") return null;
+  if (!config.enableSnapshotVacuum) return null;
 
-  const databaseUrl = process.env.DATABASE_URL ?? "";
+  const databaseUrl = config.databaseUrl ?? "";
   // VACUUM is SQLite-specific; PostgreSQL maintains itself through autovacuum.
   const dbPath = getSqliteFilePath(databaseUrl);
   if (databaseUrl && !dbPath) return null;
@@ -116,10 +118,10 @@ export async function reclaimSqliteFreeSpace(): Promise<{
       await prismaClient.$executeRawUnsafe(`PRAGMA incremental_vacuum(${pages})`);
       const durationMs = Date.now() - startedAt;
       const reclaimedBytes = pages * pageSize;
-      console.log(
-        `[Cleanup] Returned ${(reclaimedBytes / 1024 / 1024).toFixed(1)} MB ` +
-          `incrementally in ${durationMs} ms`,
-      );
+      logger.info("sqlite cleanup returned free pages incrementally", {
+        reclaimedMb: Number((reclaimedBytes / 1024 / 1024).toFixed(1)),
+        durationMs,
+      });
       return { reclaimedBytes, durationMs };
     }
 
@@ -144,10 +146,10 @@ export async function reclaimSqliteFreeSpace(): Promise<{
         const stats = await fs.promises.statfs(path.dirname(dbPath));
         const availableBytes = Number(stats.bavail) * Number(stats.bsize);
         if (availableBytes < fileBytes * 2) {
-          console.warn(
-            `[Cleanup] Skipping VACUUM: needs ~${((fileBytes * 2) / 1024 / 1024) | 0} MB free, ` +
-              `only ${(availableBytes / 1024 / 1024) | 0} MB available`,
-          );
+          logger.warn("sqlite cleanup skipping VACUUM: insufficient free space", {
+            neededMb: ((fileBytes * 2) / 1024 / 1024) | 0,
+            availableMb: (availableBytes / 1024 / 1024) | 0,
+          });
           return null;
         }
       } catch {
@@ -168,15 +170,16 @@ export async function reclaimSqliteFreeSpace(): Promise<{
       await fs.promises.writeFile(markerPath, String(Date.now()), "utf8").catch(() => undefined);
     }
 
-    console.log(
-      `[Cleanup] VACUUM reclaimed ${(freeBytes / 1024 / 1024).toFixed(1)} MB ` +
-        `(${(fileBytes / 1024 / 1024).toFixed(1)} MB file, ${(freeRatio * 100).toFixed(0)}% free) ` +
-        `in ${durationMs} ms`,
-    );
+    logger.info("sqlite cleanup VACUUM reclaimed space", {
+      reclaimedMb: Number((freeBytes / 1024 / 1024).toFixed(1)),
+      fileMb: Number((fileBytes / 1024 / 1024).toFixed(1)),
+      freePercent: Number((freeRatio * 100).toFixed(0)),
+      durationMs,
+    });
     return { reclaimedBytes: freeBytes, durationMs };
   } catch (error) {
     // Never let housekeeping take the server down.
-    console.error("[Cleanup] VACUUM failed:", error);
+    logger.error("sqlite cleanup VACUUM failed", { error });
     return null;
   }
 }
@@ -219,5 +222,5 @@ async function enableIncrementalAutoVacuumOnSmallDatabase(): Promise<void> {
   await prismaClient.$queryRawUnsafe("PRAGMA auto_vacuum = INCREMENTAL");
   // The setting only takes hold once the file has been rewritten.
   await prismaClient.$executeRawUnsafe("VACUUM");
-  console.log("[prisma] SQLite switched to incremental auto-vacuum");
+  logger.info("sqlite switched to incremental auto-vacuum");
 }

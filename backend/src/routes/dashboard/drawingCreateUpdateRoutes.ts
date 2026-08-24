@@ -1,6 +1,7 @@
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { Prisma } from "../../generated/client";
+import { logger } from "../../logger";
 import { canEditDrawing, getDrawingAccess, isOwnerAccess } from "../../authz/sharing";
 import { rewritePreviewFileReferences } from "../../fileProcessing";
 import {
@@ -173,7 +174,7 @@ export const registerDrawingCreateUpdateRoutes = (
       const parsed = drawingUpdateSchema.safeParse(req.body);
       if (!parsed.success) {
         if (config.nodeEnv === "development") {
-          console.error("[API] Validation failed", {
+          logger.error("validation failed", {
             id,
             errors: parsed.error.issues,
           });

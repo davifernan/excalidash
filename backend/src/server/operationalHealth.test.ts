@@ -55,7 +55,7 @@ describe("operational health endpoints", () => {
   });
 
   it("reports healthy writable storage and exposes cache age", async () => {
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     let now = Date.parse("2026-08-22T12:00:00.000Z");
     const { app, database } = makeApp({ now: () => now });
 
@@ -79,11 +79,11 @@ describe("operational health endpoints", () => {
     expect(database.$executeRawUnsafe).toHaveBeenCalledWith(
       'UPDATE "SystemConfig" SET "id" = "id" WHERE 1 = 0',
     );
-    expect(errorLog).not.toHaveBeenCalled();
+    expect(stderrWrite).not.toHaveBeenCalled();
   });
 
   it("returns 503 when the database writer path is unavailable", async () => {
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const failure = new Error("attempt to write a readonly database");
     const database = {
       $executeRawUnsafe: vi.fn().mockRejectedValue(failure),
@@ -95,8 +95,13 @@ describe("operational health endpoints", () => {
     expect(response.status).toBe(503);
     expect(response.body.status).toBe("error");
     expect(response.body.checks.database).toEqual({ status: "error", writable: false });
-    expect(errorLog).toHaveBeenCalledTimes(1);
-    expect(errorLog).toHaveBeenCalledWith("[readiness] Database check failed:", failure);
+    expect(stderrWrite).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(stderrWrite.mock.calls[0][0] as string);
+    expect(logged).toMatchObject({
+      level: "error",
+      message: "Readiness database check failed",
+      error: expect.objectContaining({ message: "attempt to write a readonly database" }),
+    });
   });
 
   it("uses a real SQLite write statement that fails on a read-only connection", async () => {

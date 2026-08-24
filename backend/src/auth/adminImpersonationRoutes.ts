@@ -1,4 +1,6 @@
 import { Request, Response } from "express";
+import { logger } from "../logger";
+import { config as appConfig } from "../config";
 import { logAuditEvent } from "../utils/audit";
 import type { RegisterAdminRoutesDeps } from "./adminRoutes";
 import { impersonateSchema } from "./schemas";
@@ -70,7 +72,7 @@ export const registerAdminImpersonationRoutes = (deps: RegisterAdminRoutesDeps) 
         },
       });
     } catch (error) {
-      console.error("List impersonation targets error:", error);
+      logger.error("List impersonation targets error", { error });
       res.status(500).json({
         error: "Internal server error",
         message: "Failed to list impersonation targets",
@@ -124,8 +126,8 @@ export const registerAdminImpersonationRoutes = (deps: RegisterAdminRoutesDeps) 
               },
             });
           } catch {
-            if (process.env.NODE_ENV === "development") {
-              console.debug("Refresh token storage skipped (feature disabled or table missing)");
+            if (appConfig.nodeEnv === "development") {
+              logger.debug("Refresh token storage skipped (feature disabled or table missing)");
             }
           }
         }
@@ -153,7 +155,7 @@ export const registerAdminImpersonationRoutes = (deps: RegisterAdminRoutesDeps) 
           },
         });
       } catch (error) {
-        console.error("Impersonation error:", error);
+        logger.error("Impersonation error", { error });
         res.status(500).json({
           error: "Internal server error",
           message: "Failed to impersonate user",
