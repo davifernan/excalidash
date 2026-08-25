@@ -493,6 +493,98 @@ export function togglePinOps(
   ];
 }
 
+/** Every node id in `summaries` currently collapsed. */
+export function collapsedNodeIds(summaries: readonly ElementSummary[]): ReadonlySet<string> {
+  return new Set(
+    readMindMapNodes(summaries)
+      .filter((node) => node.relation.collapsed === true)
+      .map((node) => node.summary.id),
+  );
+}
+
+/**
+ * Every element id `nodeId`'s own collapse should hide: its descendant
+ * nodes, their bound labels, and every edge whose child endpoint is one of
+ * those descendants -- but never `nodeId` itself, nor the one edge coming
+ * *into* `nodeId` from its own parent, so a collapsed branch still reads as
+ * "there is more here", not as a leaf with nothing behind it. `null` for an
+ * unknown node or a genuine leaf (nothing to collapse).
+ *
+ * Deliberately never touches any element's own data -- this is a read,
+ * consulted only by `MindMapCollapseOverlay.tsx` to decide what to mask on
+ * screen. A nested collapse (a descendant that is independently collapsed
+ * too) is not special-cased here: while an ancestor hides it, its own flag
+ * simply has nothing to draw; the moment the ancestor is no longer
+ * collapsed, this same function reads that descendant's still-intact flag
+ * and masks its own children again, unprompted.
+ */
+export function collapsedHiddenIds(
+  summaries: readonly ElementSummary[],
+  nodeId: string,
+): { readonly ids: ReadonlySet<string>; readonly nodeCount: number } | null {
+  const node = readMindMapNodes(summaries).find((n) => n.summary.id === nodeId);
+  if (!node) return null;
+
+  const normalized = normalizeLiveMap(summaries, node.relation.mapId);
+  if (!normalized.ok) return null;
+  const descendantNodeIds = subtreeElementIds(normalized.value, nodeId).filter(
+    (id) => id !== nodeId,
+  );
+  if (descendantNodeIds.length === 0) return null; // a leaf: nothing to collapse
+
+  const descendantSet = new Set(descendantNodeIds);
+  const ids = new Set<string>(descendantNodeIds);
+
+  const labelByContainerId = new Map<string, ElementSummary>();
+  for (const element of summaries) {
+    if (element.containerId) labelByContainerId.set(element.containerId, element);
+  }
+  for (const id of descendantNodeIds) {
+    const label = labelByContainerId.get(id);
+    if (label) ids.add(label.id);
+  }
+
+  const edgesForMap = readMindMapEdges(summaries).get(node.relation.mapId) ?? [];
+  for (const edge of edgesForMap) {
+    const projection = readMindMapProjection(edge);
+    if (projection && descendantSet.has(projection.childId)) ids.add(edge.id);
+  }
+
+  return { ids, nodeCount: descendantNodeIds.length };
+}
+
+/**
+ * Toggle `nodeId`'s collapsed flag -- no layout run, same as `togglePinOps`:
+ * a single customData patch, nothing else ever moves. Collapsing a leaf (no
+ * children) is refused (`null`) -- there is nothing to hide, and the badge
+ * this drives would show a nonsensical "0".
+ */
+export function toggleCollapseOps(
+  summaries: readonly ElementSummary[],
+  nodeId: string,
+): SceneOp[] | null {
+  const node = readMindMapNodes(summaries).find((n) => n.summary.id === nodeId);
+  if (!node) return null;
+
+  const collapsed = !(node.relation.collapsed === true);
+  if (collapsed && collapsedHiddenIds(summaries, nodeId) === null) return null; // leaf
+
+  return [
+    {
+      kind: "patch",
+      id: nodeId as never,
+      changes: {
+        customData: withExcalidashData(node.summary, {
+          mindMap: {
+            ...node.relation,
+            ...(collapsed ? { collapsed: true } : { collapsed: undefined }),
+          },
+        }),
+      },
+    },
+  ];
+}
+
 /** The map id of a mind-map node, or null. */
 export function mapIdOf(summary: ElementSummary | null | undefined): string | null {
   if (!summary) return null;

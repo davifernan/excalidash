@@ -4,11 +4,14 @@ import { withExcalidashData } from "../integrations/excalidraw/customData";
 import {
   addNodeOps,
   arrangeOps,
+  collapsedHiddenIds,
+  collapsedNodeIds,
   dropTargetFor,
   pinnedNodeIds,
   readMindMapEdges,
   readMindMapNodes,
   reparentOps,
+  toggleCollapseOps,
   togglePinOps,
 } from "./mindMapScene";
 import { MIND_MAP_COLORS } from "./mindMapElements";
@@ -21,7 +24,13 @@ function nodeSummary(
   id: string,
   x: number,
   y: number,
-  relation: { mapId: string; parentId: string | null; orderKey: string; pinned?: boolean },
+  relation: {
+    mapId: string;
+    parentId: string | null;
+    orderKey: string;
+    pinned?: boolean;
+    collapsed?: boolean;
+  },
 ): ElementSummary {
   return {
     id: id as never,
@@ -556,5 +565,176 @@ describe("arrangeOps respects pinned nodes (NIL-571 v2)", () => {
     expect(
       patched.some((op: any) => op.id === pinnedId && ("x" in op.changes || "y" in op.changes)),
     ).toBe(false);
+  });
+});
+
+describe("collapsedNodeIds", () => {
+  it("collects only the nodes explicitly marked collapsed", () => {
+    const mapId = "collapse-1";
+    const rootId = nextId();
+    const collapsedId = nextId();
+    const plainId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const collapsed = nodeSummary(collapsedId, 300, 0, {
+      mapId,
+      parentId: rootId,
+      orderKey: "a",
+      collapsed: true,
+    });
+    const plain = nodeSummary(plainId, 300, 200, { mapId, parentId: rootId, orderKey: "m" });
+
+    const ids = collapsedNodeIds([root, collapsed, plain]);
+    expect(ids.has(collapsedId)).toBe(true);
+    expect(ids.has(plainId)).toBe(false);
+  });
+});
+
+describe("collapsedHiddenIds", () => {
+  it("hides descendant nodes, their labels, and edges among them -- but not the node itself or its own incoming edge", () => {
+    const mapId = "collapse-2";
+    const rootId = nextId();
+    const branchId = nextId();
+    const childId = nextId();
+    const grandchildId = nextId();
+    const labelId = nextId();
+
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const branch = nodeSummary(branchId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+    const child = nodeSummary(childId, 600, 0, { mapId, parentId: branchId, orderKey: "m" });
+    const grandchild = nodeSummary(grandchildId, 900, 0, {
+      mapId,
+      parentId: childId,
+      orderKey: "m",
+    });
+    const label = {
+      ...child,
+      id: labelId as never,
+      type: "text",
+      containerId: childId as never,
+      customData: {},
+    };
+    const incomingEdge = edgeSummary(nextId(), mapId, branchId); // root -> branch
+    const internalEdge = edgeSummary(nextId(), mapId, childId); // branch -> child
+    const deeperEdge = edgeSummary(nextId(), mapId, grandchildId); // child -> grandchild
+
+    const result = collapsedHiddenIds(
+      [root, branch, child, grandchild, label, incomingEdge, internalEdge, deeperEdge],
+      branchId,
+    )!;
+    expect(result).not.toBeNull();
+    expect(result.nodeCount).toBe(2); // child, grandchild
+
+    expect(result.ids.has(childId)).toBe(true);
+    expect(result.ids.has(grandchildId)).toBe(true);
+    expect(result.ids.has(labelId)).toBe(true);
+    expect(result.ids.has(internalEdge.id as unknown as string)).toBe(true);
+    expect(result.ids.has(deeperEdge.id as unknown as string)).toBe(true);
+
+    // Never the collapsed node itself, and never the edge coming INTO it.
+    expect(result.ids.has(branchId)).toBe(false);
+    expect(result.ids.has(incomingEdge.id as unknown as string)).toBe(false);
+  });
+
+  it("returns null for a leaf (nothing to collapse)", () => {
+    const mapId = "collapse-3";
+    const rootId = nextId();
+    const leafId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const leaf = nodeSummary(leafId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+
+    expect(collapsedHiddenIds([root, leaf], leafId)).toBeNull();
+  });
+
+  it("returns null for an unknown node id", () => {
+    expect(collapsedHiddenIds([], "nope")).toBeNull();
+  });
+});
+
+describe("toggleCollapseOps", () => {
+  it("collapses a node with children: a single customData patch, nothing else", () => {
+    const mapId = "collapse-4";
+    const rootId = nextId();
+    const childId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+
+    const ops = toggleCollapseOps([root, child], rootId)!;
+    expect(ops).toHaveLength(1);
+    const patch = ops[0] as any;
+    expect(patch.kind).toBe("patch");
+    expect(patch.id).toBe(rootId);
+    expect(patch.changes.customData.excalidash.mindMap.collapsed).toBe(true);
+    // Never touches the child, the label, or any position -- only the
+    // toggled node's own customData (the JSON-roundtrip requirement: a
+    // client without this feature sees the subtree completely unchanged).
+    expect(Object.keys(patch.changes)).toEqual(["customData"]);
+  });
+
+  it("refuses to collapse a leaf (nothing to hide, nothing for the badge to count)", () => {
+    const mapId = "collapse-5";
+    const leafId = nextId();
+    const leaf = nodeSummary(leafId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+
+    expect(toggleCollapseOps([leaf], leafId)).toBeNull();
+  });
+
+  it("un-collapses a collapsed node: clears the flag", () => {
+    const mapId = "collapse-6";
+    const rootId = nextId();
+    const childId = nextId();
+    const root = nodeSummary(rootId, 0, 0, {
+      mapId,
+      parentId: null,
+      orderKey: "m",
+      collapsed: true,
+    });
+    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+
+    const ops = toggleCollapseOps([root, child], rootId)!;
+    const patch = ops[0] as any;
+    expect(patch.changes.customData.excalidash.mindMap.collapsed).toBeUndefined();
+  });
+
+  it("returns null for an unknown node id", () => {
+    expect(toggleCollapseOps([], "nope")).toBeNull();
+  });
+
+  it("preserves an independently pinned node's pin state when collapsing it", () => {
+    const mapId = "collapse-7";
+    const rootId = nextId();
+    const childId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m", pinned: true });
+    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+
+    const ops = toggleCollapseOps([root, child], rootId)!;
+    const patch = ops[0] as any;
+    expect(patch.changes.customData.excalidash.mindMap.pinned).toBe(true);
+    expect(patch.changes.customData.excalidash.mindMap.collapsed).toBe(true);
+  });
+
+  /**
+   * Counter-test: break the enforcement by patching the whole subtree's
+   * position/visibility when collapsing, instead of leaving every
+   * descendant untouched -- a plausible-looking "collapse" that would
+   * actually lose data for a client without the feature (a real element
+   * field changing, not just customData only this build understands).
+   * Copied here, not `git checkout --`'d.
+   */
+  it("regression guard: patching descendants on collapse would break the no-data-loss promise", () => {
+    const mapId = "collapse-8";
+    const rootId = nextId();
+    const childId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+
+    const hidesByPatchingDescendants = (nodeId: string) => [
+      { kind: "patch" as const, id: nodeId as never, changes: { customData: {} } },
+      { kind: "patch" as const, id: childId as never, changes: { opacity: 0 } }, // the bug
+    ];
+    expect(hidesByPatchingDescendants(rootId)).toHaveLength(2);
+
+    const ops = toggleCollapseOps([root, child], rootId)!;
+    expect(ops).toHaveLength(1);
+    expect(ops.some((op: any) => op.id === childId)).toBe(false);
   });
 });

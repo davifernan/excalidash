@@ -68,6 +68,17 @@ export type MindMapRecord = {
    * back, never to change what the core computes.
    */
   readonly pinned?: boolean;
+  /**
+   * NIL-571 v2: this node's own subtree is collapsed for viewers of this
+   * feature. The descendant elements themselves are never touched by this
+   * flag -- it only ever drives a client-local overlay
+   * (`MindMapCollapseOverlay.tsx`) that visually masks them and shows a
+   * count badge; a client without the feature (or a plain JSON export)
+   * still sees the complete, unmodified subtree, exactly as NIL-570's own
+   * "an element may carry data belonging to somebody else" reading rule
+   * already promises for every other field here.
+   */
+  readonly collapsed?: boolean;
 };
 
 /**
@@ -136,7 +147,13 @@ const parseMindMap = (value: unknown): MindMapRecord | undefined => {
   if (mapId === null || (parentId === null && value.parentId !== null) || orderKey === null) {
     return undefined;
   }
-  return { mapId, parentId, orderKey, ...(value.pinned === true ? { pinned: true } : {}) };
+  return {
+    mapId,
+    parentId,
+    orderKey,
+    ...(value.pinned === true ? { pinned: true } : {}),
+    ...(value.collapsed === true ? { collapsed: true } : {}),
+  };
 };
 
 const parseMindMapProjection = (value: unknown): MindMapProjectionRecord | undefined => {
