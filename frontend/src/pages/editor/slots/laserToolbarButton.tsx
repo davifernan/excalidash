@@ -15,17 +15,28 @@ import { createPortal } from "react-dom";
 import type { InteractionCapability } from "../../../integrations/excalidraw/capabilities";
 import { useToolbarSlot } from "../../../integrations/excalidraw/useToolbarSlot";
 
+/**
+ * Excalidraw's own `laserPointerToolIcon` (components/icons.tsx), reproduced
+ * here because the capability only exposes a toolbar slot to portal into, not
+ * the icon itself. Keep this in sync with upstream's icon, not a redrawn
+ * lookalike -- see the file comment above.
+ */
 const LaserIcon = () => (
   <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden focusable="false">
-    <path d="m4 16 8.4-8.4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    <path
-      d="m11.2 3.5 1.1-2m2.2 4.2 2.2-.6m-1 3.7 1.7 1.4"
+    <g
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth="1.25"
       strokeLinecap="round"
-    />
-    <path d="m3 17 2.8-.7-2.1-2.1z" fill="currentColor" />
+      strokeLinejoin="round"
+      transform="rotate(90 10 10)"
+    >
+      <path
+        clipRule="evenodd"
+        d="m9.644 13.69 7.774-7.773a2.357 2.357 0 0 0-3.334-3.334l-7.773 7.774L8 12l1.643 1.69Z"
+      />
+      <path d="m13.25 3.417 3.333 3.333M10 10l2-2M5 15l3-3M2.156 17.894l1-1M5.453 19.029l-.144-1.407M2.377 11.887l.866 1.118M8.354 17.273l-1.194-.758M.953 14.652l1.408.13" />
+    </g>
   </svg>
 );
 
@@ -71,6 +82,7 @@ export const LaserToolbarButton = ({
       />
       <div className="ToolIcon__icon">
         <LaserIcon />
+        <span className="ToolIcon__keybinding">K</span>
       </div>
     </label>,
     toolbar,

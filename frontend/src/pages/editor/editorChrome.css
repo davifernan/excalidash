@@ -150,24 +150,8 @@
 
 /**
  * The control that stays is portalled into `.App-toolbar` through the local UI
- * capability (laserToolbarButton.tsx), directly after Sticky Note. Its tooltip
- * carries K; the visual hint is repeated here to match the other tools.
+ * capability (laserToolbarButton.tsx), directly after Sticky Note. Its
+ * keybinding hint uses Excalidraw's own `.ToolIcon__keybinding` element (same
+ * as Sticky Note's `StickyToolbarButton.tsx`), so it inherits that shared
+ * styling instead of a redrawn approximation of it.
  */
-.ToolIcon__LaserPointer {
-  position: relative;
-}
-
-.ToolIcon__LaserPointer::after {
-  content: "K";
-  position: absolute;
-  right: 1px;
-  bottom: 1px;
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 1px 2px;
-  border-radius: 3px;
-  background: var(--island-bg-color, #fff);
-  color: var(--text-primary-color, #1b1b1f);
-  pointer-events: none;
-}
