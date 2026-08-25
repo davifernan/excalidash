@@ -76,14 +76,12 @@ const waitConnected = (page: Page, label: string) =>
 
 const errorToasts = (page: Page) => page.locator("[data-sonner-toast][data-type=error]");
 
-// A toast for a specific rejected file, matched by the fileId sonner's own
-// message names (`useEditorBroadcast.ts`'s "File <id> is too large ..."),
-// not by count: sonner auto-dismisses after 4s (TOAST_LIFETIME) and, at
-// least for this rejection path, re-fires a fresh toast for the same file
-// on every later broadcast attempt until its element is removed -- both
-// make a bare toast total a snapshot of something that is still moving, not a
-// reliable signal of whether *this* rejection happened.
-const errorToastFor = (page: Page, fileId: string) => errorToasts(page).filter({ hasText: fileId });
+// Match the rejected image by the canvas location the product shows, not by
+// toast count. Sonner auto-dismisses after 4s, while several images can be
+// refused in one workflow; a bare total cannot say which placed image the
+// message described.
+const oversizedImageToastAt = (page: Page, x: number, y: number) =>
+  errorToasts(page).filter({ hasText: `canvas position (${x}, ${y})` });
 
 const refusedWidgetToast = (page: Page) =>
   errorToasts(page).filter({ hasText: "Document widget is not part of this board" });
@@ -283,24 +281,28 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         await expectPeerFile(guestA, okImage, "2 MB file on guestA");
         await expectPeerFile(guestB, okImage, "2 MB file on guestB");
 
-        for (const [label, targetBytes] of [
+        for (const [imageIndex, [label, targetBytes]] of [
           ["14 MB", 14 * 1024 * 1024],
           ["15 MB", 15 * 1024 * 1024],
           ["above the transport ceiling (20 MB)", 20 * 1024 * 1024],
-        ] as const) {
+        ].entries()) {
+          const position = { x: 80 + imageIndex * 180, y: 120 };
           const oversized = await injectNoiseImage(host, {
             withHash: true,
             targetBytes,
             elementId: `nil330_oversized_${label.replace(/\W+/g, "")}`,
+            position,
           });
           // The refusal is a local decision (`splitFilesIntoUpdatePayloads`
           // never lets the file onto the wire); the queue records it before
           // sonner has rendered anything, so check the record first and the
           // user-visible toast second.
           await waitForLocalRejection(host, oversized.fileId, label);
-          await expect(errorToastFor(host, oversized.fileId).first()).toBeVisible({
+          const rejectionToast = oversizedImageToastAt(host, position.x, position.y).first();
+          await expect(rejectionToast).toBeVisible({
             timeout: CEILING.ui,
           });
+          await expect(rejectionToast).not.toContainText(oversized.fileId);
           // Refused, not silently dropped mid-flight: the connection stays up
           // and the peers never see a file that was never actually sent.
           await waitConnected(host, `host after ${label} rejection`);

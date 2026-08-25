@@ -67,6 +67,8 @@ type FileDeliveryState = {
   retryTimeout: number | null;
 };
 
+type RejectedFileNotice = { payloadBytes: number };
+
 type ElementUpdateAck = {
   ok?: boolean;
   error?: { code?: string; message?: string };
@@ -115,6 +117,21 @@ const referencesRejectedFile = (element: any, rejectedFileIds: ReadonlySet<strin
   typeof element?.fileId === "string" &&
   rejectedFileIds.has(element.fileId);
 
+const oversizedImageNotice = (
+  fileId: string,
+  payloadBytes: number,
+  elements: readonly any[],
+): string | null => {
+  const image = elements.find(
+    (element) => element?.type === "image" && !element?.isDeleted && element?.fileId === fileId,
+  );
+  if (!image || !Number.isFinite(image.x) || !Number.isFinite(image.y)) return null;
+  const x = Math.round(image.x);
+  const y = Math.round(image.y);
+  const megabytes = (payloadBytes / (1024 * 1024)).toFixed(1);
+  return `Image near canvas position (${x}, ${y}) is too large for live collaboration (${megabytes} MB).`;
+};
+
 export const useEditorBroadcast = ({
   drawingId,
   files,
@@ -147,6 +164,7 @@ export const useEditorBroadcast = ({
   const fileDeliveryStatesRef = useRef(new Map<string, FileDeliveryState>());
   const activeFileDeliveryRef = useRef<ReadonlySet<string> | null>(null);
   const rejectedFileAttemptsRef = useRef(new Map<string, FileContentAttempt>());
+  const rejectedFileNoticesRef = useRef(new Map<string, RejectedFileNotice>());
   const rejectedFilesDrawingIdRef = useRef<string | undefined>(drawingId);
   const drainFileDeliveriesRef = useRef<() => void>(() => undefined);
   const drainSceneDeliveryRef = useRef<() => void>(() => undefined);
@@ -543,12 +561,14 @@ export const useEditorBroadcast = ({
 
       if (rejectedFilesDrawingIdRef.current !== drawingId) {
         rejectedFileAttemptsRef.current.clear();
+        rejectedFileNoticesRef.current.clear();
         acknowledgedFileIdsRef.current = [];
         rejectedFilesDrawingIdRef.current = drawingId;
       }
       for (const fileId of rejectedFileAttemptsRef.current.keys()) {
         if (!(fileId in nextFiles) || !(fileId in rawFilesDelta)) {
           rejectedFileAttemptsRef.current.delete(fileId);
+          rejectedFileNoticesRef.current.delete(fileId);
         }
       }
       const rejectedFileIds = new Set<string>();
@@ -561,6 +581,7 @@ export const useEditorBroadcast = ({
             return false;
           }
           rejectedFileAttemptsRef.current.delete(fileId);
+          rejectedFileNoticesRef.current.delete(fileId);
           return true;
         }),
       );
@@ -572,12 +593,22 @@ export const useEditorBroadcast = ({
         // exact rejected content separate from lastSyncedFilesRef prevents it
         // from blocking every later update without ever claiming server ACK.
         rejectedFileAttemptsRef.current.set(filePreflight.fileId, fileContentAttempt(rejectedFile));
+        rejectedFileNoticesRef.current.set(filePreflight.fileId, {
+          payloadBytes: filePreflight.payloadBytes,
+        });
         rejectedFileIds.add(filePreflight.fileId);
-        toast.error(
-          `File ${filePreflight.fileId} is too large for live collaboration (${filePreflight.payloadBytes} bytes)`,
-        );
         delete deliverableFiles[filePreflight.fileId];
         filePreflight = splitFilesIntoUpdatePayloads({ drawingId, files: deliverableFiles });
+      }
+
+      // Excalidraw stores image bytes before it publishes the corresponding
+      // element. Hold the notice until that element arrives, so the message can
+      // identify what the user placed instead of exposing its content hash.
+      for (const [fileId, notice] of rejectedFileNoticesRef.current) {
+        const message = oversizedImageNotice(fileId, notice.payloadBytes, normalizedElements);
+        if (!message) continue;
+        toast.error(message);
+        rejectedFileNoticesRef.current.delete(fileId);
       }
 
       const changes = candidateChanges.filter(
