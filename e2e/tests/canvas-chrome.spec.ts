@@ -213,10 +213,19 @@ test.describe("the laser pointer -- one toolbar control, present alone (NIL-374)
     await openEditor(page, drawingId);
 
     const laser = page.locator('.App-toolbar [data-testid="toolbar-LaserPointer"]');
-    const hint = await laser
-      .locator("..")
-      .evaluate((el) => getComputedStyle(el, "::after").content);
-    expect(hint).toBe('"K"');
+
+    // The hint lives in Excalidraw's own `.ToolIcon__keybinding` element --
+    // the same one Sticky Note's "N" hint uses -- not a hand-built CSS
+    // ::after badge (that badge is what produced Davi's "K is bold and
+    // doesn't match" complaint in NIL-581). Anchor to that shared element
+    // rather than to one button's rendered pixels, so a future redrawn
+    // lookalike fails here instead of silently drifting.
+    const laserHint = laser.locator("..").locator(".ToolIcon__keybinding");
+    const stickyHint = page.getByTestId("toolbar-sticky").locator(".ToolIcon__keybinding");
+
+    await expect(laserHint).toBeVisible();
+    await expect(laserHint).toHaveText("K");
+    expect(await laserHint.getAttribute("class")).toBe(await stickyHint.getAttribute("class"));
 
     // The checkbox itself sits under its own icon in paint order (Excalidraw's
     // usual custom-checkbox styling); the label is the real click surface.
