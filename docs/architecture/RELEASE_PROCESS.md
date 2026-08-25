@@ -122,9 +122,15 @@ nicht Konvention.
 `scripts/release-notes-collect.cjs` **erfindet nichts** -- das ist die Antwort auf die Frage,
 an der jeder Mechanismus hier gemessen wird ("kann er einen Eintrag erfinden, der so nie
 geliefert wurde?"): es kopiert die `User-Facing:`-Zeile jeder gemergten PR im Bereich
-woertlich, sortiert sie anhand der Commit-Praefixe der PR (`feat` -> Added, `fix` -> Fixed,
-sonst Changed) in eine von drei Gruppen, und laesst jede PR ohne brauchbare Zeile (fehlend,
-mehrdeutig, oder `none`) mit einer Warnung aus -- niemals mit einer geratenen Ersatzformulierung.
+woertlich und sortiert sie ueber deren eigene `Change-Kind:`-Zeile (`added` -> Added, `fixed`
+-> Fixed, `changed` -> Changed) in eine von drei Gruppen. Bis NIL-577 zaehlte diese Einordnung
+die Commit-Praefixe der PR (`feat` -> Added, `fix` -> Fixed, sonst Changed) -- das misst aber
+die Entstehungsgeschichte eines Zweigs, nicht die Absicht: PR #138 (der Markdown-Editor) trug
+neben seinem Feature-Commit mehrere `fix:`-Nachbesserungen und landete dadurch als "Fixed" im
+`v0.9.0`-Entwurf. Diese Zaehlung lebt als `categorize()` nur noch als Ausweichpfad fuer PRs
+weiter, die vor NIL-577 gemergt wurden und keine `Change-Kind:`-Zeile tragen; jede PR seither
+erklaert ihre Gruppe selbst. Jede PR ohne brauchbare `User-Facing:`-Zeile (fehlend, mehrdeutig,
+oder `none`) faellt mit einer Warnung aus -- niemals mit einer geratenen Ersatzformulierung.
 Diese Warnungen landen sichtbar in der Job-Zusammenfassung, nicht im Log-Rauschen: ein
 stillschweigend uebersprungener Eintrag ist ein stiller Datenverlust, kein akzeptabler
 Default.

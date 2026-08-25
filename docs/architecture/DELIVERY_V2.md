@@ -87,6 +87,7 @@ Package-Session: 01a02bc5-fe01-7ce3-b520-387137968d9a
 Impact-Manifest: generated from git diff
 Visual-Evidence: provided
 User-Facing: Boards can now be starred and pinned to the top of the dashboard.
+Change-Kind: added
 ```
 
 Use `Delivery-Slices: none` for package-only control-plane work. A slice cannot equal the
@@ -103,6 +104,16 @@ fact ("fix(dashboard): add drawing favorites, backend") is not something anyone 
 only person who reliably knows what a user will notice is the implementer, at the moment they
 write the PR, so the contract captures it there instead of trying to reconstruct it later. See
 `docs/architecture/RELEASE_PROCESS.md` for how these lines are collected into release notes.
+
+`Change-Kind` (`added`, `fixed`, `changed`, or `none`) decides which release-notes heading
+`User-Facing` lands under, and is declared directly rather than guessed (NIL-577). The prior
+approach counted `feat:`/`fix:` prefixes across the PR's own commit history -- a PR with one
+`feat:` commit and several incidental `fix:` commits picked up along the way voted "Fixed" for
+a brand-new feature (PR #138, the Markdown editor, shipped in v0.9.0's draft under `### Fixed`
+before being corrected by hand). Commit history records how a branch was built, not what it is
+for a user; only the implementer reliably knows that, at the same moment they write
+`User-Facing`. Must be `none` exactly when `User-Facing` is `none` -- otherwise a real change
+would ship uncategorized, and an opted-out package would have nothing to categorize.
 
 The admission gate requires these exact labels at the start of checked lines:
 

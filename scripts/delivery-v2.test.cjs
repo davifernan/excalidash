@@ -58,6 +58,7 @@ function prBody({
   visualEvidence = VISUAL_EVIDENCE.NON_VISIBLE_SKIP,
   slices = "none",
   userFacing = "none",
+  changeKind = userFacing === "none" ? "none" : "changed",
   gates = [
     "- [x] Multica HANDOFF posted",
     "- [x] Local verification complete",
@@ -70,6 +71,7 @@ Package-Session: ${OWNER_SESSION}
 Impact-Manifest: generated from git diff
 Visual-Evidence: ${visualEvidence}
 User-Facing: ${userFacing}
+Change-Kind: ${changeKind}
 
 ## Ready gate
 
@@ -297,6 +299,55 @@ test("RED: User-Facing rejects ticket and PR number references (NIL-507, Davi's 
     impactManifest: manifest,
   });
   assert.equal(hashNotNumber.ok, true);
+});
+
+test("PR admission surfaces Change-Kind, and requires it to agree with User-Facing (NIL-577)", () => {
+  const manifest = impact([]);
+
+  const added = checkPrAdmission({
+    body: prBody({ userFacing: "Boards can now be starred.", changeKind: "added" }),
+    impactManifest: manifest,
+  });
+  assert.equal(added.ok, true);
+  assert.equal(added.changeKind, "added");
+
+  const none = checkPrAdmission({ body: prBody(), impactManifest: manifest });
+  assert.equal(none.ok, true);
+  assert.equal(none.changeKind, "none");
+});
+
+test("PR admission rejects a missing Change-Kind line", () => {
+  const withoutLine = prBody().replace(/\nChange-Kind: none/, "");
+  const result = checkPrAdmission({ body: withoutLine, impactManifest: impact([]) });
+  assert.equal(result.code, "delivery-contract");
+  assert.match(result.message, /exactly one `Change-Kind:` line/);
+});
+
+test("PR admission rejects an unsupported Change-Kind value", () => {
+  const result = checkPrAdmission({
+    body: prBody({ userFacing: "Boards can now be starred.", changeKind: "feature" }),
+    impactManifest: impact([]),
+  });
+  assert.equal(result.code, "delivery-contract");
+  assert.match(result.message, /exactly one `Change-Kind:` line/);
+});
+
+test("RED: Change-Kind: none is only valid alongside User-Facing: none -- it cannot excuse a real change from categorizing", () => {
+  const result = checkPrAdmission({
+    body: prBody({ userFacing: "Boards can now be starred.", changeKind: "none" }),
+    impactManifest: impact([]),
+  });
+  assert.equal(result.code, "delivery-contract");
+  assert.match(result.message, /must declare a real `Change-Kind:`/);
+});
+
+test("RED: a real Change-Kind cannot be declared once User-Facing has opted out with none", () => {
+  const result = checkPrAdmission({
+    body: prBody({ userFacing: "none", changeKind: "added" }),
+    impactManifest: impact([]),
+  });
+  assert.equal(result.code, "delivery-contract");
+  assert.match(result.message, /Change-Kind must be `none` when User-Facing is `none`/);
 });
 
 test("PR admission parses unique Delivery Slices and rejects a second package", () => {
