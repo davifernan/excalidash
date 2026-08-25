@@ -68,12 +68,31 @@ export const WorkshopTimerWidget = ({
   // board after the timer already finished must not hear a chime for a
   // transition that happened before they arrived.
   const previousStatusRef = useRef(status);
+  // Which run finished, not merely "did a transition happen": a socket
+  // disconnect resets the local snapshot to idle (useEditorCollaboration.ts's
+  // resetConnectionState -> workshopTimer.reset()), and rejoining fetches the
+  // server's still-"finished" snapshot fresh (socket.ts's join handler) --
+  // both without this component ever unmounting. That reads as a second
+  // idle -> finished transition to React, even though nothing new finished
+  // (Hans-Friedrich, PR #148). `endsAt` names the run: it's set while running
+  // and (deliberately) cleared once finished, so remembering the last one we
+  // actually chimed for -- across resets, not just across renders -- tells
+  // a real new finish apart from the same finish observed twice.
+  const lastRunningEndsAtRef = useRef<number | null>(null);
+  const chimedForEndsAtRef = useRef<number | null>(null);
   useEffect(() => {
+    if (status === "running" && timer.snapshot.endsAt !== null) {
+      lastRunningEndsAtRef.current = timer.snapshot.endsAt;
+    }
     if (previousStatusRef.current !== "finished" && status === "finished") {
-      playWorkshopTimerChime();
+      const runId = lastRunningEndsAtRef.current;
+      if (runId === null || chimedForEndsAtRef.current !== runId) {
+        playWorkshopTimerChime();
+        chimedForEndsAtRef.current = runId;
+      }
     }
     previousStatusRef.current = status;
-  }, [status]);
+  }, [status, timer.snapshot.endsAt]);
 
   // Any real interaction with the widget is the user gesture the Web Audio
   // API requires -- priming here, not only in `start`, means someone who
@@ -108,7 +127,14 @@ export const WorkshopTimerWidget = ({
 
   return (
     <div
-      className={`workshop-timer${expanded ? " workshop-timer--expanded" : ""}${status === "finished" ? " workshop-timer--finished" : ""}${isRunning ? " workshop-timer--running" : ""}`}
+      className={`workshop-timer${expanded ? " workshop-timer--expanded" : ""}${isRunning ? " workshop-timer--running" : ""}`}
+      // No CSS reads this -- the finished/idle/paused color is already the
+      // muted-grey default `.workshop-timer--running` overrides (NIL-578
+      // review, Hans-Friedrich: the previous `.workshop-timer--finished`
+      // class had no rule left targeting it once that color logic moved).
+      // Kept as a plain data attribute, not a class, so it stays legible as
+      // a DOM/test hook rather than looking like dead styling again.
+      data-timer-status={status}
       aria-live={status === "finished" ? "assertive" : "off"}
     >
       <button

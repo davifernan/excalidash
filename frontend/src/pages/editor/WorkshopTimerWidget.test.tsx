@@ -117,4 +117,51 @@ describe("the end-of-timer chime (NIL-578)", () => {
 
     expect(primeWorkshopTimerAudio).toHaveBeenCalledTimes(1);
   });
+
+  it("gegenprobe/regression (Hans-Friedrich, PR #148): a socket reconnect after finishing does not replay it", () => {
+    // The sequence a real reconnect produces without ever unmounting this
+    // component: running (endsAt captured) -> finished (chimes once) ->
+    // idle (useEditorCollaboration.ts's resetConnectionState on socket
+    // disconnect) -> finished again (the rejoin's fresh snapshot from
+    // socket.ts, same run -- server still reports "finished" as long as
+    // someone's in the room). React sees idle -> finished a second time;
+    // the chime must not play a second time for it.
+    const endsAt = Date.now() + 60_000;
+    const { controller } = makeController("running");
+    controller.snapshot = snapshot("running", { endsAt });
+    const { rerender } = render(<WorkshopTimerWidget canEdit timer={controller} />);
+
+    controller.snapshot = snapshot("finished");
+    rerender(<WorkshopTimerWidget canEdit timer={controller} />);
+    expect(playWorkshopTimerChime).toHaveBeenCalledTimes(1);
+
+    controller.snapshot = snapshot("idle"); // resetConnectionState()
+    rerender(<WorkshopTimerWidget canEdit timer={controller} />);
+    controller.snapshot = snapshot("finished"); // the rejoin's snapshot -- same run
+    rerender(<WorkshopTimerWidget canEdit timer={controller} />);
+
+    expect(playWorkshopTimerChime).toHaveBeenCalledTimes(1);
+  });
+
+  it("still chimes for a genuinely new run after a reconnect", () => {
+    // The dedupe must key off which run finished, not "already chimed once
+    // ever" -- a second, later run finishing is a real event.
+    const firstEndsAt = Date.now() + 60_000;
+    const secondEndsAt = firstEndsAt + 120_000;
+    const { controller } = makeController("running");
+    controller.snapshot = snapshot("running", { endsAt: firstEndsAt });
+    const { rerender } = render(<WorkshopTimerWidget canEdit timer={controller} />);
+    controller.snapshot = snapshot("finished");
+    rerender(<WorkshopTimerWidget canEdit timer={controller} />);
+    expect(playWorkshopTimerChime).toHaveBeenCalledTimes(1);
+
+    controller.snapshot = snapshot("idle");
+    rerender(<WorkshopTimerWidget canEdit timer={controller} />);
+    controller.snapshot = snapshot("running", { endsAt: secondEndsAt });
+    rerender(<WorkshopTimerWidget canEdit timer={controller} />);
+    controller.snapshot = snapshot("finished");
+    rerender(<WorkshopTimerWidget canEdit timer={controller} />);
+
+    expect(playWorkshopTimerChime).toHaveBeenCalledTimes(2);
+  });
 });

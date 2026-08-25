@@ -109,15 +109,91 @@ test.describe("workshop timer: Start closes the panel, color follows state, fini
     // The server, not the client, decides when it's over (socketWorkshopTimer.ts)
     // -- waiting for the guest's own DOM is what proves the room-wide broadcast,
     // not just the host's local countdown reaching zero.
-    await expect(guest.locator(".workshop-timer--finished")).toBeVisible({ timeout: 90_000 });
+    await expect(guest.locator('[data-timer-status="finished"]')).toBeVisible({
+      timeout: 90_000,
+    });
     await expect(summary(guest)).toContainText(/time's up/i);
     const guestFinishedColor = await pillBackground(guest);
     expect(guestFinishedColor).toBe(guestIdleColor);
 
-    await expect(host.locator(".workshop-timer--finished")).toBeVisible();
+    await expect(host.locator('[data-timer-status="finished"]')).toBeVisible();
     await expect(summary(host)).toContainText(/time's up/i);
 
     await hostCtx.close();
     await guestCtx.close();
+  });
+
+  test("a reconnect after the timer already finished does not replay the chime (Hans-Friedrich, PR #148)", async ({
+    page,
+  }) => {
+    test.setTimeout(150_000);
+    // A real AudioContext stub instead of a product-code hook: playing a
+    // chime creates two oscillators (workshopTimerChime.ts's two-tone
+    // `playTone` calls) and calls `.start()` on each -- counting those calls
+    // is an observable, from-the-outside proxy for "the chime played",
+    // without adding a test-only seam to the shipped code.
+    await page.addInitScript(() => {
+      (window as unknown as { __chimeStarts: number[] }).__chimeStarts = [];
+      class FakeAudioContext {
+        currentTime = 0;
+        destination = {};
+        state = "running";
+        resume() {
+          return Promise.resolve();
+        }
+        createGain() {
+          return {
+            gain: {
+              setValueAtTime() {},
+              linearRampToValueAtTime() {},
+              exponentialRampToValueAtTime() {},
+            },
+            connect() {},
+          };
+        }
+        createOscillator() {
+          return {
+            type: "sine",
+            frequency: { value: 0 },
+            connect() {},
+            start: () => {
+              (window as unknown as { __chimeStarts: number[] }).__chimeStarts.push(Date.now());
+            },
+            stop() {},
+          };
+        }
+      }
+      (window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
+    });
+
+    await openEditor(page, drawingId);
+    const chimeStartCount = () =>
+      page.evaluate(() => (window as unknown as { __chimeStarts: number[] }).__chimeStarts.length);
+
+    await summary(page).click();
+    await page.locator(".workshop-timer input").fill("1");
+    await page.getByRole("button", { name: /^start$/i }).click();
+    expect(await chimeStartCount()).toBe(0);
+
+    await expect(page.locator('[data-timer-status="finished"]')).toBeVisible({
+      timeout: 90_000,
+    });
+    // Two oscillators per chime (workshopTimerChime.ts's two-tone playTone
+    // calls) -- one real chime, not zero and not more than one.
+    expect(await chimeStartCount()).toBe(2);
+
+    // A real disconnect/reconnect, not a simulated event: dropping the
+    // browser context offline forces socket.io to actually disconnect, and
+    // useEditorCollaboration.ts's resetConnectionState() -> workshopTimer.reset()
+    // runs on that real event -- exactly the path Hans-Friedrich's finding
+    // named, not a hand-crafted stand-in for it.
+    await page.context().setOffline(true);
+    await page.waitForTimeout(1_000);
+    await page.context().setOffline(false);
+
+    // Give the rejoin's fresh "finished" snapshot (socket.ts's join handler)
+    // time to arrive and for a regression to have played a second chime.
+    await page.waitForTimeout(3_000);
+    expect(await chimeStartCount()).toBe(2);
   });
 });
