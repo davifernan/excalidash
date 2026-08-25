@@ -45,6 +45,28 @@ describe("floating element toolbar geometry", () => {
     ).toEqual({ left: 260, top: 112, side: "below" });
   });
 
+  it("flips below when the nominal above position crosses the tool island", () => {
+    expect(
+      placeFloatingToolbar(
+        { left: 300, top: 100, right: 700, bottom: 500 },
+        { width: 280, height: 42 },
+        { width: 1000, height: 700 },
+        [{ left: 280, top: 8, right: 720, bottom: 64 }],
+      ),
+    ).toEqual({ left: 360, top: 508, side: "below" });
+  });
+
+  it("clears known chrome even in the inside last resort", () => {
+    expect(
+      placeFloatingToolbar(
+        { left: 100, top: -200, right: 900, bottom: 900 },
+        { width: 280, height: 42 },
+        { width: 1000, height: 700 },
+        [{ left: 280, top: 8, right: 720, bottom: 64 }],
+      ),
+    ).toEqual({ left: 360, top: 72, side: "inside" });
+  });
+
   it("moves beside a tall top-edge element and stays inside horizontally", () => {
     const placement = placeFloatingToolbar(
       { left: 100, top: -20, right: 580, bottom: 680 },

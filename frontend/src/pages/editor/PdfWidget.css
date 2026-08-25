@@ -63,6 +63,7 @@
 
 .pdf-widget__button {
   display: inline-flex;
+  flex: 0 0 30px;
   width: 30px;
   height: 30px;
   align-items: center;
@@ -84,6 +85,7 @@
 }
 
 .pdf-widget__page-number {
+  flex: 0 0 76px;
   min-width: 76px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;

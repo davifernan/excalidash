@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetDiagnostics, onDiagnostic } from "./compatibility/diagnostics";
 import {
   checkSelectors,
+  findFloatingToolbarObstacleElements,
   findRoot,
   findToolbarSlot,
   isEditorChrome,
@@ -69,6 +70,25 @@ describe("finding the toolbar", () => {
     build('<div class="App-toolbar" id="theirs"></div>');
     const mine = build("<div></div>");
     expect(findToolbarSlot(mine).ok).toBe(false);
+  });
+});
+
+describe("finding floating-toolbar obstacles", () => {
+  it("returns the tool island and the optional selected-shape panel in this editor only", () => {
+    build('<div class="App-toolbar" id="theirs"></div>');
+    const mine = build(
+      '<div class="App-toolbar" id="toolbar"></div><div class="App-menu__left" id="properties"></div>',
+    );
+
+    expect(findFloatingToolbarObstacleElements(mine).map(({ id }) => id)).toEqual([
+      "toolbar",
+      "properties",
+    ]);
+  });
+
+  it("does not invent the optional properties panel when it is closed", () => {
+    const root = build('<div class="App-toolbar" id="toolbar"></div>');
+    expect(findFloatingToolbarObstacleElements(root).map(({ id }) => id)).toEqual(["toolbar"]);
   });
 });
 

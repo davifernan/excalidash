@@ -126,7 +126,7 @@ export const PdfWidget = ({
         {pageError ? <p className="pdf-widget__status">{pageError}</p> : null}
       </div>
       {asset ? (
-        <ElementFloatingToolbar target={toolbar} label="PDF controls">
+        <ElementFloatingToolbar target={toolbar} label="PDF controls" compactWhenCrowded>
           <div className="pdf-widget__controls">
             <EditableAssetName
               name={asset.name}

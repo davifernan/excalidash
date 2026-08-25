@@ -143,7 +143,7 @@ export const TextDocumentWidget = ({
         ) : null}
       </div>
       {loaded && pages ? (
-        <ElementFloatingToolbar target={toolbar} label="Document controls">
+        <ElementFloatingToolbar target={toolbar} label="Document controls" compactWhenCrowded>
           <div className="text-document-widget__controls">
             <EditableAssetName
               name={loaded.asset.name}

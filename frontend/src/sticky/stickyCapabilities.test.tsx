@@ -5,6 +5,8 @@ const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
 
 vi.mock("../integrations/excalidraw/domBridge", () => ({
   beginCanvasDrag: vi.fn(),
+  findFloatingToolbarObstacleElements: vi.fn(() => []),
+  observeStructure: vi.fn(() => () => {}),
   pressEnterToEditLabel: vi.fn((_container, isEditing: () => boolean) => {
     isEditing();
     return Promise.resolve({ ok: true, value: undefined });
