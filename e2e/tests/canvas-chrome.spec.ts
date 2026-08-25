@@ -166,6 +166,76 @@ test.describe("the top-right control group reads as one bar", () => {
     await wrapper.evaluate((element) => element.replaceChildren());
     await expect(wrapper).toBeHidden();
   });
+
+  // NIL-579: "height at the main toolbar" is a measured claim, not a guess --
+  // this pins the wrapper's height to the live `.App-toolbar` island's height
+  // so a future edit to either one that breaks the match fails loudly here,
+  // rather than only being caught by eye.
+  test("the bar's height matches the main toolbar's measured height", async ({ page }) => {
+    await openEditor(page, drawingId);
+
+    const wrapperBox = (await page.locator(".layer-ui__wrapper__top-right").boundingBox())!;
+    const toolbarBox = (await page.locator(".App-toolbar-container .Island.App-toolbar").boundingBox())!;
+    expect(wrapperBox.height).toBeCloseTo(toolbarBox.height, 0);
+  });
+
+  // NIL-579: the Library trigger (Excalidraw's own markup) and our own
+  // header-control buttons sit in the same bar but come from two different
+  // stylesheets -- this is the seam where a baseline mismatch actually
+  // originates (Davi's follow-up comment on NIL-579). Comparing the icons'
+  // vertical centers, not the buttons' own box heights, is what catches a
+  // regression here: the buttons can carry different heights and still read
+  // as misaligned only once their icons don't line up.
+  test("the Library trigger's icon lines up on the same baseline as our own header-control icons", async ({
+    page,
+  }) => {
+    await openEditor(page, drawingId);
+
+    const libraryIcon = (await page
+      .locator(".layer-ui__wrapper__top-right .sidebar-trigger.default-sidebar-trigger svg")
+      .first()
+      .boundingBox())!;
+    const shareIcon = (await page.locator('[data-testid="editor-share"] svg').first().boundingBox())!;
+
+    const libraryCenter = libraryIcon.y + libraryIcon.height / 2;
+    const shareCenter = shareIcon.y + shareIcon.height / 2;
+    expect(Math.abs(libraryCenter - shareCenter)).toBeLessThanOrEqual(1);
+  });
+
+  // NIL-579's own Nachweispflicht: prove the presence zone and its hairline
+  // divider occupy zero width without peers, as a measured width -- not a
+  // visibility flag -- and that the bar returns to that exact width once a
+  // peer who made the zone non-empty leaves again (no leftover flex `gap`,
+  // the same class of bug NIL-564 fixed for the outer wrapper).
+  test("the presence zone and its hairline take zero width without peers, and give it back when a peer leaves", async ({
+    page,
+    browser,
+  }) => {
+    await openEditor(page, drawingId);
+
+    const wrapper = page.locator(".layer-ui__wrapper__top-right");
+    await expect(page.locator('[data-testid="editor-zone-divider"]')).toHaveCount(0);
+    const aloneBox = (await wrapper.boundingBox())!;
+
+    const peerContext = await browser.newContext();
+    const peerPage = await peerContext.newPage();
+    try {
+      await peerPage.goto(`/editor/${drawingId}`);
+      await peerPage.waitForSelector("canvas", { timeout: 15000 });
+
+      await expect(page.locator('[data-testid="editor-zone-divider"]')).toHaveCount(1);
+      const withPeerBox = (await wrapper.boundingBox())!;
+      expect(withPeerBox.width).toBeGreaterThan(aloneBox.width);
+    } finally {
+      await peerContext.close();
+    }
+
+    await expect(page.locator('[data-testid="editor-zone-divider"]')).toHaveCount(0, {
+      timeout: 15000,
+    });
+    const afterLeaveBox = (await wrapper.boundingBox())!;
+    expect(afterLeaveBox.width).toBeCloseTo(aloneBox.width, 0);
+  });
 });
 
 test.describe("the laser pointer -- one toolbar control, present alone (NIL-374)", () => {
