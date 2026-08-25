@@ -84,7 +84,7 @@ Das Board fuehlt sich nicht wie ein fremd eingebetteter Editor an:
 - schneller Boardwechsel
 - konsistente Seitenleisten und Panels
 - Kommentare und Aktivitaet direkt am relevanten Canvas-Kontext
-- Dokumente, Sticky Notes und weitere ExcaliDash-Objekte als natuerliche Bestandteile
+- Dokumente, Sticky Notes, Mind Maps und weitere ExcaliDash-Objekte als natuerliche Bestandteile
 
 ### 3. Asynchrone Zusammenarbeit
 
