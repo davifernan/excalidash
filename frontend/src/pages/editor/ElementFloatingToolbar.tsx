@@ -7,6 +7,7 @@ import {
 } from "./floatingToolbarGeometry";
 import {
   findFloatingToolbarObstacleElements,
+  findToastStackElement,
   observeStructure,
 } from "../../integrations/excalidraw/domBridge";
 import "./ElementFloatingToolbar.css";
@@ -100,6 +101,15 @@ export const ElementFloatingToolbar = ({
     observer?.observe(host);
     observer?.observe(toolbar);
     findFloatingToolbarObstacleElements(host).forEach((element) => observer?.observe(element));
+    // findFloatingToolbarObstacleElements only returns the toast stack while
+    // it already has a toast in it, so an empty-to-populated transition is
+    // never in that list to observe. The container itself always exists
+    // (NIL-589) and resizes from empty to fitting its toasts and back --
+    // observing it unconditionally is what catches "a toast just appeared,
+    // recompute obstacles now" instead of missing it until something else
+    // happens to re-run this effect.
+    const toastStack = findToastStackElement();
+    if (toastStack) observer?.observe(toastStack);
     const stopObservingStructure = observeStructure(host, measure);
     window.addEventListener("resize", measure);
     return () => {

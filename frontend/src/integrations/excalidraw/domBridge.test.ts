@@ -5,6 +5,7 @@ import {
   checkSelectors,
   findFloatingToolbarObstacleElements,
   findRoot,
+  findToastStackElement,
   findToolbarSlot,
   isEditorChrome,
   observeStructure,
@@ -89,6 +90,44 @@ describe("finding floating-toolbar obstacles", () => {
   it("does not invent the optional properties panel when it is closed", () => {
     const root = build('<div class="App-toolbar" id="toolbar"></div>');
     expect(findFloatingToolbarObstacleElements(root).map(({ id }) => id)).toEqual(["toolbar"]);
+  });
+
+  // NIL-589: the Sonner toast stack is `position: fixed` at a screen corner,
+  // entirely unrelated to where a floating toolbar sits in the pannable
+  // canvas -- see this obstacle's own comment in domBridge.ts for why a
+  // covered "Next page" click read as an unresponsive button.
+  it("treats an empty toast stack as no obstacle", () => {
+    const root = build('<div class="App-toolbar" id="toolbar"></div>');
+    build('<div data-sonner-toaster id="toaster"></div>');
+    expect(findFloatingToolbarObstacleElements(root).map(({ id }) => id)).toEqual(["toolbar"]);
+  });
+
+  it("treats an active toast stack as an obstacle", () => {
+    const root = build('<div class="App-toolbar" id="toolbar"></div>');
+    build('<div data-sonner-toaster id="toaster"><li data-sonner-toast id="toast"></li></div>');
+    expect(findFloatingToolbarObstacleElements(root).map(({ id }) => id)).toEqual([
+      "toolbar",
+      "toaster",
+    ]);
+  });
+
+  it("is not scoped to root: the toaster lives outside the editor's own container", () => {
+    const root = build('<div class="App-toolbar" id="toolbar"></div>');
+    // Appended as a page-level sibling, not inside `root` -- the same
+    // relationship EditorView.tsx has between its Toaster and excalidrawRoot.
+    build('<div data-sonner-toaster id="toaster"><li data-sonner-toast></li></div>');
+    expect(findFloatingToolbarObstacleElements(root).some((el) => el.id === "toaster")).toBe(true);
+  });
+});
+
+describe("finding the toast stack element to observe for resize", () => {
+  it("returns the toaster container even with no toast showing", () => {
+    build('<div data-sonner-toaster id="toaster"></div>');
+    expect(findToastStackElement()?.id).toBe("toaster");
+  });
+
+  it("returns null when no Toaster is mounted", () => {
+    expect(findToastStackElement()).toBeNull();
   });
 });
 

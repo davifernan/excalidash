@@ -211,11 +211,45 @@ export const findToolbarIsland = (toolbar: HTMLElement | null): CapabilityResult
   return ok(toolbar.closest<HTMLElement>(INTERNAL_SELECTORS.toolbar) ?? toolbar);
 };
 
+/**
+ * The Sonner toast stack container, whether or not a toast is showing right
+ * now. Exported so `ElementFloatingToolbar` can resize-observe it directly:
+ * the container's own box grows from empty to fitting its toasts and back,
+ * which is the only signal that a toast just appeared or cleared -- nothing
+ * else in this file's usual `observeStructure(host, ...)` sees it, because
+ * the toaster is never a descendant of the Excalidraw root that watches.
+ */
+export const findToastStackElement = (): HTMLElement | null =>
+  document.querySelector<HTMLElement>("[data-sonner-toaster]");
+
+/**
+ * The Sonner toast stack, only while it actually has a toast showing.
+ *
+ * `[data-sonner-toaster]` is `position: fixed` at a screen corner (bottom-
+ * center here -- see `EditorView.tsx`'s `<Toaster>`), entirely independent of
+ * where a document/PDF widget's floating toolbar sits in the pannable,
+ * zoomable canvas. The two positioning systems have no relationship to each
+ * other, so the toolbar landing under the toast is not a rare edge case: any
+ * screen position is reachable by panning, and the toast's z-index
+ * (999999999, Sonner's own default) is far above the toolbar's (6), so the
+ * toast always wins visually when they land on the same spot (NIL-589 --
+ * measured as a "Next page" click that silently timed out because a toast
+ * covered the button the whole time, indistinguishable to the user from an
+ * unresponsive button). Not scoped to `root`: unlike Excalidraw's own chrome,
+ * the toaster is ExcaliDash's own top-level element and is never a descendant
+ * of the Excalidraw root the floating toolbar is measured against.
+ */
+const findActiveToastStack = (): HTMLElement | null => {
+  const toaster = findToastStackElement();
+  return toaster && toaster.querySelector("[data-sonner-toast]") ? toaster : null;
+};
+
 /** Visible editor chrome a selected element's floating controls must clear. */
 export const findFloatingToolbarObstacleElements = (root: HTMLElement): HTMLElement[] =>
   [
     root.querySelector<HTMLElement>(INTERNAL_SELECTORS.toolbar),
     root.querySelector<HTMLElement>(OPTIONAL_INTERNAL_SELECTORS.shapeActions),
+    findActiveToastStack(),
   ].filter((element): element is HTMLElement => element !== null);
 
 /**

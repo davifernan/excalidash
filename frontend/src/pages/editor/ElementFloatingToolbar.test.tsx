@@ -114,4 +114,59 @@ describe("floating element toolbar geometry", () => {
     unmount();
     host.remove();
   });
+
+  // NIL-589: a toast is `position: fixed` outside the Excalidraw root and
+  // wins visually over the toolbar's z-index:6 whenever they land on the
+  // same screen spot -- see findFloatingToolbarObstacleElements's own
+  // comment in domBridge.ts. This proves the two pieces actually connect:
+  // an active toast sibling of `host` changes where the toolbar renders,
+  // not just that the obstacle-finder returns it in isolation.
+  it("places itself clear of an active toast stack outside the editor root", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 1000,
+      bottom: 700,
+      width: 1000,
+      height: 700,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const toaster = document.createElement("div");
+    toaster.setAttribute("data-sonner-toaster", "");
+    toaster.innerHTML = "<li data-sonner-toast></li>";
+    document.body.append(toaster);
+    // Covers the whole host: no placement (above/below/left/right) can clear
+    // it, forcing the geometry's last-resort "inside" fallback -- proof the
+    // toast obstacle reached `placeFloatingToolbar` at all, without relying
+    // on exact pixel math for a jsdom-measured (zero-size) toolbar.
+    vi.spyOn(toaster, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 1000,
+      bottom: 700,
+      width: 1000,
+      height: 700,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const anchor = { left: 300, top: 300, right: 500, bottom: 400 };
+    const { unmount, getByRole } = render(
+      <ElementFloatingToolbar target={{ host, anchor }} label="Test controls">
+        controls
+      </ElementFloatingToolbar>,
+    );
+
+    const toolbar = getByRole("toolbar");
+    expect(toolbar.dataset.placement).toBe("inside");
+    unmount();
+    host.remove();
+    toaster.remove();
+  });
 });
