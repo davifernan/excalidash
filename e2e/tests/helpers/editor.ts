@@ -114,6 +114,7 @@ export type NoiseImageInput = {
   targetBytes: number;
   elementId: string;
   position?: { x: number; y: number };
+  publishElement?: boolean;
   withHash?: boolean;
 };
 
@@ -219,38 +220,40 @@ export const injectNoiseImageBatch = (
           created,
           lastRetrieved: created,
         };
-        elements.push({
-          id: input.elementId,
-          type: "image",
-          x: input.position?.x ?? 40,
-          y: input.position?.y ?? 100,
-          width: input.position ? 100 : 120,
-          height: input.position ? 80 : 90,
-          angle: 0,
-          strokeColor: "#1e1e1e",
-          backgroundColor: "transparent",
-          fillStyle: "solid",
-          strokeWidth: 1,
-          strokeStyle: "solid",
-          roundness: null,
-          roughness: 0,
-          opacity: 100,
-          groupIds: [],
-          frameId: null,
-          seed: Math.floor(Math.random() * 1e9),
-          version: 1,
-          versionNonce: Math.floor(Math.random() * 1e9),
-          isDeleted: false,
-          boundElements: null,
-          link: null,
-          locked: false,
-          index: `nil330_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`,
-          updated: created,
-          status: "saved",
-          fileId,
-          scale: [1, 1],
-          crop: null,
-        });
+        if (input.publishElement !== false) {
+          elements.push({
+            id: input.elementId,
+            type: "image",
+            x: input.position?.x ?? 40,
+            y: input.position?.y ?? 100,
+            width: input.position ? 100 : 120,
+            height: input.position ? 80 : 90,
+            angle: 0,
+            strokeColor: "#1e1e1e",
+            backgroundColor: "transparent",
+            fillStyle: "solid",
+            strokeWidth: 1,
+            strokeStyle: "solid",
+            roundness: null,
+            roughness: 0,
+            opacity: 100,
+            groupIds: [],
+            frameId: null,
+            seed: Math.floor(Math.random() * 1e9),
+            version: 1,
+            versionNonce: Math.floor(Math.random() * 1e9),
+            isDeleted: false,
+            boundElements: null,
+            link: null,
+            locked: false,
+            index: `nil330_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`,
+            updated: created,
+            status: "saved",
+            fileId,
+            scale: [1, 1],
+            crop: null,
+          });
+        }
         results.push({
           fileId,
           dataURLLength: dataURL.length,
@@ -260,9 +263,11 @@ export const injectNoiseImageBatch = (
         });
       }
       api.addFiles(files);
-      api.updateScene({
-        elements: [...api.getSceneElementsIncludingDeleted(), ...elements],
-      });
+      if (elements.length > 0) {
+        api.updateScene({
+          elements: [...api.getSceneElementsIncludingDeleted(), ...elements],
+        });
+      }
       return results;
     },
     images.map((image) => ({ ...image, withHash: image.withHash ?? false })),

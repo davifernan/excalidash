@@ -598,4 +598,75 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
       await deleteDrawing(request, drawing.id);
     }
   });
+
+  test("a pending oversized-image notice survives a client-side board switch", async ({
+    browser,
+    request,
+  }, testInfo) => {
+    const sourceDrawing = await createDrawing(request, {
+      name: `NIL541_Source_${Date.now()}`,
+      elements: [],
+      files: {},
+    });
+    const targetDrawing = await createDrawing(request, {
+      name: `NIL541_Target_${Date.now()}`,
+      elements: [],
+      files: {},
+    });
+    const context = await browser.newContext();
+
+    try {
+      const page = await openPeer(context, sourceDrawing.id);
+      await waitConnected(page, "oversized-image source board");
+      const oversized = await injectNoiseImage(page, {
+        withHash: true,
+        targetBytes: 15 * 1024 * 1024,
+        elementId: "nil541_pending_before_board_switch",
+        publishElement: false,
+      });
+      await waitForLocalRejection(page, oversized.fileId, "pending image before board switch");
+
+      const fallbackToast = errorToasts(page)
+        .filter({ hasText: "An image from the previous board is too large" })
+        .first();
+      const observed = expect(fallbackToast)
+        .toBeVisible({ timeout: CEILING.ui })
+        .then(async () => {
+          await expect(fallbackToast).not.toContainText(oversized.fileId);
+          await expect
+            .poll(
+              () =>
+                fallbackToast.evaluate(
+                  (element) =>
+                    element.getAttribute("data-mounted") === "true" &&
+                    Number(getComputedStyle(element).opacity) === 1,
+                ),
+              { timeout: 2_000, message: "expected the fallback toast to finish animating in" },
+            )
+            .toBe(true);
+          const screenshotPath = testInfo.outputPath("oversized-image-board-switch-toast.png");
+          await page.screenshot({ path: screenshotPath });
+          await testInfo.attach("oversized-image-board-switch-toast", {
+            path: screenshotPath,
+            contentType: "image/png",
+          });
+        });
+
+      await page.evaluate((drawingId) => {
+        history.pushState({}, "", `/editor/${drawingId}`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }, targetDrawing.id);
+
+      await Promise.all([
+        observed,
+        expect
+          .poll(() => page.url(), { timeout: CEILING.ui })
+          .toContain(`/editor/${targetDrawing.id}`),
+      ]);
+    } finally {
+      await context.close();
+      await deleteDrawing(request, sourceDrawing.id);
+      await deleteDrawing(request, targetDrawing.id);
+    }
+  });
 });
