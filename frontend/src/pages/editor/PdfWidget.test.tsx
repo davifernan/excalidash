@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getPdfAsset, getPdfPageUrl } from "../../api";
+import { getPdfAsset, getPdfPageUrl, renameDocumentAsset } from "../../api";
 import { PdfWidget } from "./PdfWidget";
 
 // A widget that is not sharing its page with anybody: the same object every
@@ -11,6 +11,11 @@ const soloSharing = {
   canControl: false,
 } as const;
 
+const toolbar = {
+  host: document.body,
+  anchor: { left: 200, top: 200, right: 680, bottom: 880 },
+};
+
 vi.mock("../../api", () => ({
   getPdfAsset: vi.fn(),
   getPdfOriginalUrl: (drawingId: string, assetId: string) =>
@@ -19,6 +24,7 @@ vi.mock("../../api", () => ({
     (drawingId: string, assetId: string, page: number) =>
       `/api/drawings/${drawingId}/assets/${assetId}/pages/${page}`,
   ),
+  renameDocumentAsset: vi.fn(),
 }));
 
 const asset = {
@@ -38,11 +44,18 @@ const loadPendingPage = (container: HTMLElement) => {
 describe("PdfWidget", () => {
   beforeEach(() => {
     vi.mocked(getPdfAsset).mockResolvedValue(asset);
+    vi.mocked(renameDocumentAsset).mockResolvedValue(asset);
   });
 
   it("keeps the previous page visible while switching pages", async () => {
     const { container } = render(
-      <PdfWidget assetId="asset-1" drawingId="drawing-1" theme="light" sharing={soloSharing} />,
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
     );
 
     expect(await screen.findByText("Page 1 of 3")).toBeInTheDocument();
@@ -66,7 +79,13 @@ describe("PdfWidget", () => {
 
   it("disables navigation at the first and last page", async () => {
     const { container } = render(
-      <PdfWidget assetId="asset-1" drawingId="drawing-1" theme="light" sharing={soloSharing} />,
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
     );
 
     await screen.findByText("Page 1 of 3");
@@ -84,7 +103,13 @@ describe("PdfWidget", () => {
 
   it("renders document pages as images rather than inline documents", async () => {
     const { container } = render(
-      <PdfWidget assetId="asset-1" drawingId="drawing-1" theme="light" sharing={soloSharing} />,
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
     );
 
     await screen.findByText("Page 1 of 3");
@@ -94,5 +119,59 @@ describe("PdfWidget", () => {
     expect(page?.querySelector("img")).toBeInTheDocument();
     expect(page?.querySelector("iframe, embed, object, svg")).toBeNull();
     expect(getPdfPageUrl).toHaveBeenCalledWith("drawing-1", "asset-1", 1);
+  });
+
+  it("portals controls out of the scaled widget and hides them without a sole selection", async () => {
+    const { container, rerender } = render(
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    expect(await screen.findByRole("toolbar", { name: "PDF controls" })).toBeInTheDocument();
+    expect(container.querySelector(".pdf-widget__controls")).toBeNull();
+
+    rerender(
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={null}
+      />,
+    );
+    expect(screen.queryByRole("toolbar", { name: "PDF controls" })).toBeNull();
+  });
+
+  it("renames the file from the floating toolbar", async () => {
+    vi.mocked(renameDocumentAsset).mockResolvedValue({ ...asset, name: "Workshop brief.pdf" });
+    render(
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename Project brief.pdf" }));
+    const input = screen.getByRole("textbox", { name: "Document filename" });
+    fireEvent.change(input, { target: { value: "Workshop brief.pdf" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() =>
+      expect(renameDocumentAsset).toHaveBeenCalledWith(
+        "drawing-1",
+        "asset-1",
+        "Workshop brief.pdf",
+      ),
+    );
+    expect(await screen.findByRole("button", { name: "Rename Workshop brief.pdf" })).toBeVisible();
   });
 });

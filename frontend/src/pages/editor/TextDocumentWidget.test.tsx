@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getDocumentAsset, getDocumentContent } from "../../api";
+import { getDocumentAsset, getDocumentContent, renameDocumentAsset } from "../../api";
 import { TextDocumentWidget } from "./TextDocumentWidget";
 
 const { paginateDocumentSourceMock } = vi.hoisted(() => ({
@@ -40,9 +40,15 @@ const soloSharing = {
   canControl: false,
 } as const;
 
+const toolbar = {
+  host: document.body,
+  anchor: { left: 200, top: 200, right: 720, bottom: 760 },
+};
+
 vi.mock("../../api", () => ({
   getDocumentAsset: vi.fn(),
   getDocumentContent: vi.fn(),
+  renameDocumentAsset: vi.fn(),
   getDocumentOriginalUrl: (drawingId: string, assetId: string) =>
     `/api/drawings/${drawingId}/assets/${assetId}/original`,
 }));
@@ -56,6 +62,38 @@ describe("TextDocumentWidget", () => {
       sizeBytes: 100,
       pageCount: null,
     });
+    vi.mocked(renameDocumentAsset).mockResolvedValue({
+      id: "asset-1",
+      kind: "MARKDOWN",
+      name: "renamed.md",
+      sizeBytes: 100,
+      pageCount: null,
+    });
+  });
+
+  it("renames the document from the floating toolbar", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Notes");
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename notes.md" }));
+    const input = screen.getByRole("textbox", { name: "Document filename" });
+    fireEvent.change(input, { target: { value: "renamed.md" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() =>
+      expect(renameDocumentAsset).toHaveBeenCalledWith("drawing-1", "asset-1", "renamed.md"),
+    );
+    expect(await screen.findByRole("button", { name: "Rename renamed.md" })).toBeVisible();
   });
 
   it("renders GFM without raw HTML and permits only hardened web and mail links", async () => {
@@ -79,6 +117,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -112,6 +151,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="text"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -134,6 +174,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -157,6 +198,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -175,6 +217,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -202,6 +245,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 

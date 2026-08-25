@@ -224,14 +224,15 @@ test.describe("sticky notes", () => {
 
   test("puts the chosen colour on the paper", async ({ page }) => {
     await openEditor(page, drawingId);
-    await armTool(page);
+    await placeNote(page, { x: 400, y: 300 });
+    await page.keyboard.press("Escape");
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 400, y: 300 } });
+    await expect(page.getByRole("toolbar", { name: "Note colour" })).toBeVisible();
     await page.getByRole("button", { name: "Blue" }).click();
-    await page.locator("canvas").last().click({ position: { x: 400, y: 300 } });
-    await page.waitForFunction(() =>
-      (window as any).__EXCALIDASH_TEST__
-        .getSceneElements()
-        .some((element: any) => element.customData?.excalidash?.sticky),
-    );
+    await settle(page);
 
     const [note] = await notes(page);
     expect(note.backgroundColor).toBe("#bfdbfe");

@@ -270,6 +270,14 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           (_, i) => `## Section ${i + 1}\n\n${`Body text for section ${i + 1}. `.repeat(30)}\n`,
         ).join("\n");
         await dropMarkdown(host, markdown);
+        await Promise.all(
+          [host, guestA, guestB].map(async (page) => {
+            await expect(page.locator(".text-document-widget")).toHaveCount(1, {
+              timeout: CEILING.ui,
+            });
+            await activateDocumentWidget(page);
+          }),
+        );
         await expect(documentPageLabel(host)).toContainText("Page 1 of", { timeout: CEILING.ui });
         await expect(documentPageLabel(guestA)).toContainText("Page 1 of", { timeout: CEILING.ui });
         await expect(documentPageLabel(guestB)).toContainText("Page 1 of", { timeout: CEILING.ui });

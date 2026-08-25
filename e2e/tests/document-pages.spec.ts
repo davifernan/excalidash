@@ -30,6 +30,7 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   await openEditor(hostPage, drawing.id);
 
   await dropMarkdown(hostPage, MARKDOWN);
+  await activateWidget(hostPage);
   await expect(pageLabel(hostPage)).toContainText("Page 1 of", { timeout: 30000 });
   // Let the board carrying the new widget reach the server before anyone joins.
   await hostPage.waitForTimeout(3000);
@@ -37,6 +38,7 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   const guest = await browser.newContext();
   const guestPage = await guest.newPage();
   await openEditor(guestPage, drawing.id);
+  await activateWidget(guestPage);
   await expect(pageLabel(guestPage)).toContainText("Page 1 of", { timeout: 30000 });
 
   await activateWidget(hostPage);
@@ -57,6 +59,7 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   const latecomer = await browser.newContext();
   const latecomerPage = await latecomer.newPage();
   await openEditor(latecomerPage, drawing.id);
+  await activateWidget(latecomerPage);
   await expect(pageLabel(latecomerPage)).toContainText("Page 3 of", { timeout: 30000 });
 
   await host.close();
@@ -146,9 +149,13 @@ test("a collaborator stays responsive while a pathological 2 MiB document is pag
 
     await startResponsivenessProbe(guestPage);
     await dropMarkdown(hostPage, PATHOLOGICAL_MARKDOWN, "pathological-newlines.md");
-    await expect(pageLabel(guestPage)).toHaveCount(1, { timeout: 30_000 });
-    await expect(pageLabel(guestPage)).toContainText("Page 1 of", { timeout: 30_000 });
+    await expect(guestPage.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
+    await expect(guestPage.locator(".text-document-widget__markdown")).toBeVisible({
+      timeout: 30_000,
+    });
     const measurement = await finishResponsivenessProbe(guestPage);
+    await activateWidget(guestPage);
+    await expect(pageLabel(guestPage)).toContainText("Page 1 of", { timeout: 30_000 });
 
     console.log(`NIL-269 responsiveness: ${JSON.stringify(measurement)}`);
     expect(PATHOLOGICAL_MARKDOWN).toHaveLength(MAX_TEXT_UPLOAD_BYTES);

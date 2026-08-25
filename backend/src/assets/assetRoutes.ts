@@ -27,6 +27,8 @@ import { InvalidTextDocumentError, MAX_TEXT_UPLOAD_BYTES, validatedTextUpload } 
 import { paginateDocumentSource } from "./documentPagination";
 
 const ID = /^[\w-]{1,64}$/;
+const MAX_ASSET_NAME_LENGTH = 255;
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const UPLOAD_PRESENTATIONS = {
   "application/pdf": { kind: "PDF" as const, fallbackName: "document.pdf" },
   "text/markdown": { kind: "MARKDOWN" as const, fallbackName: "document.md" },
@@ -121,8 +123,15 @@ async function authorizedAsset(deps: AssetRouteDeps, req: Request) {
     include: { blob: true },
   });
   if (!asset || asset.status !== "READY") return null;
-  return { asset, access, drawingId };
+  return { asset, access, drawingId, link };
 }
+
+const normalizedAssetName = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const name = value.trim();
+  if (!name || name.length > MAX_ASSET_NAME_LENGTH || CONTROL_CHARACTER.test(name)) return null;
+  return name;
+};
 
 /** A filename safe to put in a header, plus the exact one for clients that can read it. */
 export function contentDisposition(kind: "inline" | "attachment", filename: string): string {
@@ -307,6 +316,43 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
         }
         throw err;
       }
+    }),
+  );
+
+  // Rename metadata only; the immutable bytes and their content hash do not change.
+  app.patch(
+    "/drawings/:drawingId/assets/:assetId",
+    deps.requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const found = await authorizedAsset(deps, req);
+      if (!found || !found.link) return res.status(404).json({ error: "Document not found" });
+      if (!canEditDrawing(found.access)) {
+        return res.status(403).json({
+          error: "Read-only access",
+          message: "You can view this board but not rename its documents.",
+        });
+      }
+
+      const name = normalizedAssetName(req.body?.name);
+      if (!name) {
+        return res.status(400).json({
+          error: "Invalid document name",
+          message: `Use a filename between 1 and ${MAX_ASSET_NAME_LENGTH} characters.`,
+        });
+      }
+
+      const asset = await deps.prisma.asset.update({
+        where: { id: found.asset.id },
+        data: { originalName: name },
+      });
+      res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
+      return res.json({
+        id: asset.id,
+        kind: asset.kind,
+        name: asset.originalName,
+        pageCount: asset.pageCount,
+        sizeBytes: found.asset.blob?.sizeBytes ?? null,
+      });
     }),
   );
 

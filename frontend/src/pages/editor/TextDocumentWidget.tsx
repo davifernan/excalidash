@@ -6,11 +6,15 @@ import {
   getDocumentAsset,
   getDocumentContent,
   getDocumentOriginalUrl,
+  renameDocumentAsset,
   type TextAsset,
 } from "../../api";
 import type { AssetWidgetKind } from "./pdfWidgetElements";
 import { paginateDocumentOffThread } from "./documentPaginationWorker";
 import { useSharedDocumentPage, type DocumentPageSharing } from "./useSharedDocumentPage";
+import { ElementFloatingToolbar } from "./ElementFloatingToolbar";
+import type { FloatingToolbarTarget } from "./floatingToolbarGeometry";
+import { EditableAssetName } from "./EditableAssetName";
 import "./TextDocumentWidget.css";
 
 const markdownComponents: Components = {
@@ -35,8 +39,10 @@ type TextDocumentWidgetProps = {
   assetId: string;
   drawingId: string;
   theme: "light" | "dark";
+  canEdit?: boolean;
   widgetKind: Extract<AssetWidgetKind, "markdown" | "text">;
   sharing: DocumentPageSharing;
+  toolbar: FloatingToolbarTarget | null;
 };
 
 type LoadedDocument = { asset: TextAsset; content: string };
@@ -45,8 +51,10 @@ export const TextDocumentWidget = ({
   assetId,
   drawingId,
   theme,
+  canEdit = false,
   widgetKind,
   sharing,
+  toolbar,
 }: TextDocumentWidgetProps) => {
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
   const [pages, setPages] = useState<string[] | null>(null);
@@ -118,9 +126,6 @@ export const TextDocumentWidget = ({
       onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
     >
-      <div className="text-document-widget__title" title={loaded?.asset.name}>
-        {loaded?.asset.name ?? (widgetKind === "markdown" ? "Markdown document" : "Text document")}
-      </div>
       <div className="text-document-widget__body" ref={bodyRef}>
         {(!loaded || !pages) && !error ? (
           <Loader2 aria-label="Loading document" className="animate-spin" />
@@ -138,46 +143,58 @@ export const TextDocumentWidget = ({
         ) : null}
       </div>
       {loaded && pages ? (
-        <div
-          className={`text-document-widget__controls${pageCount === 1 ? " text-document-widget__controls--single" : ""}`}
-        >
-          {pageCount > 1 ? (
-            <>
-              <button
-                type="button"
-                className="text-document-widget__button"
-                aria-label="Previous page"
-                disabled={pending || pageIndex === 0}
-                onClick={() => changePage(-1)}
-              >
-                <ChevronLeft size={18} />
-              </button>
-              <span className="text-document-widget__page-number">
-                Page {pageIndex + 1} of {pageCount}
-              </span>
-              <button
-                type="button"
-                className="text-document-widget__button"
-                aria-label="Next page"
-                disabled={pending || pageIndex === pageCount - 1}
-                onClick={() => changePage(1)}
-              >
-                <ChevronRight size={18} />
-              </button>
-            </>
-          ) : (
-            <span>{loaded.asset.kind === "MARKDOWN" ? "Markdown" : "Plain text"}</span>
-          )}
-          <a
-            className="text-document-widget__button"
-            href={downloadUrl}
-            download={loaded.asset.name}
-            aria-label="Download original document"
-            title="Download original document"
-          >
-            <Download size={17} />
-          </a>
-        </div>
+        <ElementFloatingToolbar target={toolbar} label="Document controls">
+          <div className="text-document-widget__controls">
+            <EditableAssetName
+              name={loaded.asset.name}
+              canEdit={canEdit}
+              onRename={async (name) => {
+                const renamed = await renameDocumentAsset(drawingId, assetId, name);
+                setLoaded((current) =>
+                  current
+                    ? { ...current, asset: { ...current.asset, name: renamed.name } }
+                    : current,
+                );
+              }}
+            />
+            {pageCount > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="text-document-widget__button"
+                  aria-label="Previous page"
+                  disabled={pending || pageIndex === 0}
+                  onClick={() => changePage(-1)}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="text-document-widget__page-number">
+                  Page {pageIndex + 1} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  className="text-document-widget__button"
+                  aria-label="Next page"
+                  disabled={pending || pageIndex === pageCount - 1}
+                  onClick={() => changePage(1)}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </>
+            ) : (
+              <span>{loaded.asset.kind === "MARKDOWN" ? "Markdown" : "Plain text"}</span>
+            )}
+            <a
+              className="text-document-widget__button"
+              href={downloadUrl}
+              download={loaded.asset.name}
+              aria-label="Download original document"
+              title="Download original document"
+            >
+              <Download size={17} />
+            </a>
+          </div>
+        </ElementFloatingToolbar>
       ) : null}
     </div>
   );

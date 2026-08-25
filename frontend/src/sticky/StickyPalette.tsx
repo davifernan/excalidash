@@ -1,57 +1,57 @@
-/**
- * The six colours, under the toolbar.
- *
- * Shown only while the note tool is armed, the way Excalidraw shows a tool's
- * options only while that tool is in use. It is anchored to the toolbar rather
- * than placed at a fixed spot, because the toolbar moves: it centres itself on
- * the canvas and changes shape on a narrow screen.
- */
+/** The colour toolbar for exactly one selected sticky note. */
 import React, { useEffect, useState } from "react";
-
-import { findToolbarIsland } from "../integrations/excalidraw/domBridge";
-import { createPortal } from "react-dom";
-import { STICKY_COLORS, type StickyColor } from "./stickyNote";
+import { toast } from "sonner";
+import type {
+  SceneCapability,
+  SelectionCapability,
+  ViewportCapability,
+  InteractionCapability,
+} from "../integrations/excalidraw/capabilities";
+import type { ElementSummary } from "../integrations/excalidraw/types";
+import { ElementFloatingToolbar } from "../pages/editor/ElementFloatingToolbar";
+import {
+  elementViewportBounds,
+  type FloatingToolbarTarget,
+} from "../pages/editor/floatingToolbarGeometry";
+import {
+  STICKY_COLORS,
+  isStickyNote,
+  recolourSticky,
+  stickyColorById,
+  stickyDataOf,
+  type StickyColor,
+} from "./stickyNote";
+import "./StickyPalette.css";
 
 type Props = {
-  toolbar: HTMLElement | null;
-  color: StickyColor;
+  containerRef: React.RefObject<HTMLElement>;
+  scene: Pick<SceneCapability, "apply" | "subscribe" | "summaries">;
+  selection: Pick<SelectionCapability, "read">;
+  viewport: Pick<ViewportCapability, "read" | "subscribeScroll">;
+  interaction: Pick<InteractionCapability, "read" | "subscribe">;
+  ready: boolean;
   onPick: (color: StickyColor) => void;
 };
 
-/** Where to sit, in the coordinates of the toolbar's offset parent. */
-function useAnchor(toolbar: HTMLElement | null) {
-  const [box, setBox] = useState<{ top: number; left: number } | null>(null);
+type PaletteState = {
+  note: ElementSummary;
+  color: StickyColor;
+  target: FloatingToolbarTarget;
+};
 
-  useEffect(() => {
-    if (!toolbar) {
-      setBox(null);
-      return;
-    }
-    const measure = () => {
-      // Measured from the toolbar's outer box so the colours clear the whole
-      // island rather than overlapping its lower edge.
-      const found = findToolbarIsland(toolbar);
-      const island = found.ok ? found.value : toolbar;
-      const rect = island.getBoundingClientRect();
-      const parent = (toolbar.offsetParent as HTMLElement | null)?.getBoundingClientRect();
-      setBox({
-        top: rect.bottom - (parent?.top ?? 0) + 8,
-        left: rect.left + rect.width / 2 - (parent?.left ?? 0),
-      });
-    };
-    measure();
-    // The toolbar recentres on every window resize.
-    const observer = new ResizeObserver(measure);
-    observer.observe(toolbar);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [toolbar]);
-
-  return box;
-}
+const stateSignature = (state: PaletteState | null) =>
+  state
+    ? [
+        state.note.id,
+        state.color.id,
+        state.target.anchor.left,
+        state.target.anchor.top,
+        state.target.anchor.right,
+        state.target.anchor.bottom,
+      ]
+        .map((value) => (typeof value === "number" ? Math.round(value) : value))
+        .join(":")
+    : "";
 
 const Swatch = ({ color }: { color: StickyColor }) => (
   <span
@@ -67,44 +67,114 @@ const Swatch = ({ color }: { color: StickyColor }) => (
   />
 );
 
-export const StickyPalette: React.FC<Props> = ({ toolbar, color, onPick }) => {
-  const anchor = useAnchor(toolbar);
-  const host = toolbar?.offsetParent ?? null;
-  if (!anchor || !host) return null;
+export const StickyPalette: React.FC<Props> = ({
+  containerRef,
+  scene,
+  selection,
+  viewport,
+  interaction,
+  ready,
+  onPick,
+}) => {
+  const [state, setState] = useState<PaletteState | null>(null);
 
-  return createPortal(
-    <div
-      role="group"
-      aria-label="Note colour"
-      className="flex gap-1 p-1.5 bg-white dark:bg-neutral-800"
-      style={{
-        position: "absolute",
-        top: anchor.top,
-        left: anchor.left,
-        transform: "translateX(-50%)",
-        borderRadius: 10,
-        boxShadow: "0 0 0 1px rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.08)",
-        zIndex: 5,
-      }}
-    >
-      {STICKY_COLORS.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          onClick={() => onPick(option)}
-          aria-pressed={option.id === color.id}
-          title={option.label}
-          className={`h-6 w-6 flex items-center justify-center rounded transition-transform ${
-            option.id === color.id
-              ? "outline outline-2 outline-indigo-500 dark:outline-indigo-400"
-              : "hover:scale-110"
-          }`}
-        >
-          <Swatch color={option} />
-          <span className="sr-only">{option.label}</span>
-        </button>
-      ))}
-    </div>,
-    host as Element,
+  useEffect(() => {
+    const refresh = () => {
+      if (!ready) {
+        setState(null);
+        return;
+      }
+      const host = containerRef.current;
+      const elements = scene.summaries();
+      const selected = selection.read();
+      const view = viewport.read();
+      const active = interaction.read();
+      let next: PaletteState | null = null;
+
+      if (
+        host &&
+        elements.ok &&
+        selected.ok &&
+        !selected.value.allSelected &&
+        selected.value.selectedIds.length === 1 &&
+        view.ok &&
+        active.ok &&
+        active.value.activeTool.type === "selection"
+      ) {
+        const note = elements.value.find(
+          (element) =>
+            element.id === selected.value.selectedIds[0] &&
+            !element.isDeleted &&
+            isStickyNote(element),
+        );
+        const data = note ? stickyDataOf(note) : null;
+        if (note && data) {
+          next = {
+            note,
+            color: stickyColorById(data.color),
+            target: { host, anchor: elementViewportBounds(note, view.value) },
+          };
+        }
+      }
+
+      setState((current) => (stateSignature(current) === stateSignature(next) ? current : next));
+    };
+
+    refresh();
+    const unsubscribeScene = scene.subscribe(refresh);
+    const unsubscribeViewport = viewport.subscribeScroll(refresh);
+    const unsubscribeInteraction = interaction.subscribe(refresh);
+    return () => {
+      unsubscribeScene();
+      unsubscribeViewport();
+      unsubscribeInteraction();
+    };
+  }, [containerRef, interaction, ready, scene, selection, viewport]);
+
+  const pick = (color: StickyColor) => {
+    if (!state) return;
+    const recoloured = recolourSticky(state.note, color);
+    const result = scene.apply(
+      [
+        {
+          kind: "patch",
+          id: state.note.id,
+          changes: {
+            backgroundColor: recoloured.backgroundColor,
+            strokeColor: recoloured.strokeColor,
+            customData: recoloured.customData,
+          },
+        },
+      ],
+      { capture: "immediate" },
+    );
+    if (!result.ok) {
+      toast.error("Couldn't change the note colour. Please try again.");
+      return;
+    }
+    onPick(color);
+    setState({ ...state, note: recoloured, color });
+  };
+
+  return (
+    <ElementFloatingToolbar target={state?.target ?? null} label="Note colour">
+      <div className="sticky-palette">
+        {STICKY_COLORS.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => pick(option)}
+            aria-pressed={option.id === state?.color.id}
+            title={option.label}
+            className={`sticky-palette__button${
+              option.id === state?.color.id ? " sticky-palette__button--selected" : ""
+            }`}
+          >
+            <Swatch color={option} />
+            <span className="sr-only">{option.label}</span>
+          </button>
+        ))}
+      </div>
+    </ElementFloatingToolbar>
   );
 };

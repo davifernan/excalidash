@@ -71,6 +71,15 @@ export const getDocumentAsset = async (
   return response.data;
 };
 
+export const renameDocumentAsset = async (
+  drawingId: string,
+  assetId: string,
+  name: string,
+): Promise<DocumentAsset> => {
+  const response = await api.patch<DocumentAsset>(assetPath(drawingId, assetId), { name });
+  return response.data;
+};
+
 export const getDocumentContent = async (drawingId: string, assetId: string): Promise<string> => {
   const response = await api.get<string>(`${assetPath(drawingId, assetId)}/content`, {
     responseType: "text",

@@ -32,23 +32,28 @@ test("a board full of notes", async ({ page, request }: { page: Page; request: A
           (window as any).__EXCALIDASH_TEST__.getAppState().activeTool
             ?.customType === "sticky",
       );
-      await page.getByRole("button", { name: colour, exact: true }).click();
       await page.locator("canvas").last().click({ position: at });
       await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
       await page.keyboard.type(text);
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
+      await page.locator("canvas").last().click({ position: at });
+      await expect(page.getByRole("toolbar", { name: "Note colour" })).toBeVisible();
+      await page.getByRole("button", { name: colour, exact: true }).click();
+      await page.waitForTimeout(200);
     }
 
     await page.mouse.click(1100, 640);
     await page.waitForTimeout(600);
     await page.screenshot({ path: "test-results/sticky-notes.png", fullPage: false });
 
-    // The tool in the toolbar, with its colours open.
-    await page.getByTestId("toolbar-sticky").click();
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: "test-results/sticky-toolbar.png", clip: { x: 300, y: 0, width: 680, height: 200 } });
-    await page.keyboard.press("Escape");
+    // The selected note, with its viewport-sized colour toolbar.
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 740, y: 460 } });
+    await expect(page.getByRole("toolbar", { name: "Note colour" })).toBeVisible();
+    await page.screenshot({ path: "test-results/sticky-toolbar.png", fullPage: false });
 
     // And the points a note offers for pulling an arrow out of it.
     const first = await page.locator("canvas").last().boundingBox();

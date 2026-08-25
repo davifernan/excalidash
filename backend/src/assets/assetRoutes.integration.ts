@@ -90,6 +90,7 @@ describe("document routes", () => {
     });
 
     app = express();
+    app.use(express.json());
     // Stands in for the real auth middleware: the tests care about what the
     // routes do with an identity, not how it was established.
     const attach = (req: any, _res: any, next: any) => {
@@ -192,6 +193,43 @@ describe("document routes", () => {
         .expect(404);
       const response = await request(app).get(url()).query({ shareToken: token }).expect(200);
       expect(response.body.name).toBe("Quartalsbericht Q3.pdf");
+    });
+  });
+
+  describe("renaming a document", () => {
+    it("persists a new download name for an editor", async () => {
+      const renamed = await request(app)
+        .patch(url())
+        .send({ name: "  Workshop brief.pdf  " })
+        .expect(200);
+      expect(renamed.body.name).toBe("Workshop brief.pdf");
+
+      const metadata = await request(app).get(url()).expect(200);
+      expect(metadata.body.name).toBe("Workshop brief.pdf");
+      const original = await request(app).get(url("/original")).expect(200);
+      expect(original.headers["content-disposition"]).toContain("Workshop%20brief.pdf");
+    });
+
+    it("rejects a view-only participant and hides the document from a stranger", async () => {
+      await prisma.drawingPermission.create({
+        data: {
+          drawingId,
+          granteeUserId: viewer.id,
+          permission: "view",
+          createdByUserId: owner.id,
+        },
+      });
+      actAs = viewer.id;
+      await request(app).patch(url()).send({ name: "viewer.pdf" }).expect(403);
+      actAs = stranger.id;
+      await request(app).patch(url()).send({ name: "stranger.pdf" }).expect(404);
+    });
+
+    it("rejects empty and control-character names without changing metadata", async () => {
+      await request(app).patch(url()).send({ name: "   " }).expect(400);
+      await request(app).patch(url()).send({ name: "bad\nname.pdf" }).expect(400);
+      const metadata = await request(app).get(url()).expect(200);
+      expect(metadata.body.name).toBe("Quartalsbericht Q3.pdf");
     });
   });
 
