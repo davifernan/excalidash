@@ -12,7 +12,10 @@ import type {
   InteractionCapability,
   SceneCapability,
   SelectionCapability,
+  ViewportCapability,
 } from "../integrations/excalidraw/capabilities";
+import { useExcalidrawRoot } from "../pages/editor/useExcalidrawRoot";
+import { MindMapDropHighlight } from "./MindMapDropHighlight";
 import { MindMapToolbarButton } from "./MindMapToolbarButton";
 import { useMindMapTool } from "./useMindMapTool";
 import { useMindMapKeys } from "./useMindMapKeys";
@@ -26,6 +29,7 @@ type Options = {
   interaction: InteractionCapability;
   scene: SceneCapability;
   selection: SelectionCapability;
+  viewport: ViewportCapability;
   /** The editor's own change handler, which still has to run. */
   onCanvasChange: (elements: readonly any[], appState: any, files?: Record<string, any>) => void;
 };
@@ -37,10 +41,16 @@ export function useMindMapFeature({
   onCanvasChange,
   scene,
   selection,
+  viewport,
 }: Options) {
+  const excalidrawRoot = useExcalidrawRoot(containerRef);
   const { armed, arm } = useMindMapTool({ containerRef, canEdit, interaction, scene });
   useMindMapKeys({ containerRef, canEdit, interaction, scene, selection });
-  const { onSceneChange: onDragSceneChange } = useMindMapDrag({ canEdit, scene, selection });
+  const { onSceneChange: onDragSceneChange, preview } = useMindMapDrag({
+    canEdit,
+    scene,
+    selection,
+  });
   const { onSceneChange: onIntegritySceneChange } = useMindMapIntegrity({ canEdit, scene });
 
   const handleCanvasChange = useCallback(
@@ -100,7 +110,15 @@ export function useMindMapFeature({
   }, [canEdit, scene, selection]);
 
   const mindMapOverlay = canEdit ? (
-    <MindMapToolbarButton containerRef={containerRef} armed={armed} onArm={arm} />
+    <>
+      <MindMapToolbarButton containerRef={containerRef} armed={armed} onArm={arm} />
+      <MindMapDropHighlight
+        container={excalidrawRoot}
+        preview={preview}
+        scene={scene}
+        viewport={viewport}
+      />
+    </>
   ) : null;
 
   return { mindMapOverlay, onArrangeMindMap, onCanvasChange: handleCanvasChange };

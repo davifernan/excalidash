@@ -10,7 +10,11 @@
  * pure core, and every pure call's inputs are visible in one function.
  */
 import type { BoundElementRef, ElementSummary, SceneOp } from "../integrations/excalidraw/types";
-import { readMindMap, readMindMapProjection } from "../integrations/excalidraw/customData";
+import {
+  readMindMap,
+  readMindMapProjection,
+  withExcalidashData,
+} from "../integrations/excalidraw/customData";
 import {
   compareStableStrings,
   normalizeMindMap,
@@ -287,6 +291,115 @@ export function addNodeOps(
   ];
 
   return { ops, newNodeId: newId };
+}
+
+/**
+ * The rectangle, among every OTHER live mind-map node in the same map, whose
+ * box contains `point` -- excluding `excludeIds` (the dragged node itself
+ * and its own subtree, which `useMindMapReparent.ts` always excludes so a
+ * node can never become its own descendant's child by geometry alone).
+ * Topmost (last in paint order) first, the same rule `frameAt` in
+ * `stickyPlacement.ts` uses for the same reason: nodes can visually overlap
+ * mid-drag, and the one on top is the one a person looking at the screen
+ * means to drop onto.
+ *
+ * Pure geometry, no capability reads -- callable both from the live
+ * drop-target preview (every frame, while the pointer is still moving) and
+ * from the final drop decision (once, against the settled position), so
+ * both agree on exactly the same rule.
+ */
+export function dropTargetFor(
+  summaries: readonly ElementSummary[],
+  mapId: string,
+  excludeIds: ReadonlySet<string>,
+  point: { readonly x: number; readonly y: number },
+): string | null {
+  const nodes = readMindMapNodes(summaries).filter(
+    (node) => node.relation.mapId === mapId && !excludeIds.has(node.summary.id),
+  );
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const { summary } = nodes[i];
+    if (
+      point.x >= summary.x &&
+      point.x <= summary.x + summary.width &&
+      point.y >= summary.y &&
+      point.y <= summary.y + summary.height
+    ) {
+      return summary.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Reparent `nodeId` under `newParentId` -- an explicit drag-and-drop
+ * command (NIL-571), not a position edit: it changes `parentId` and
+ * `orderKey` (appended after `newParentId`'s current last child, v2 has no
+ * drag-to-reorder-siblings yet), then runs exactly one layout pass over the
+ * whole map, the same as `addNodeOps` does for a brand-new node -- the
+ * reparented node lands in its new deterministic position, not wherever the
+ * pointer happened to release it.
+ *
+ * Returns `null` for every case NIL-571 asks to reject without losing the
+ * node: a cycle (reparenting into one's own descendant), a cross-map
+ * target, or a target that does not exist. The caller's job on `null` is to
+ * leave the node exactly where it was before the drag -- this function
+ * never guesses a fallback placement.
+ *
+ * Returns `{ ops: [] }` (a genuine no-op, not a rejection) when
+ * `newParentId` is already `nodeId`'s current parent: dropping a node back
+ * onto the branch it already belongs to changes nothing structurally, and
+ * NIL-570's own "layout never runs from a drag" rule means this must not
+ * trigger one either.
+ */
+export function reparentOps(
+  summaries: readonly ElementSummary[],
+  nodeId: string,
+  newParentId: string,
+): { ops: SceneOp[] } | null {
+  const nodes = readMindMapNodes(summaries);
+  const node = nodes.find((n) => n.summary.id === nodeId);
+  const newParent = nodes.find((n) => n.summary.id === newParentId);
+  if (!node || !newParent) return null;
+  if (node.relation.mapId !== newParent.relation.mapId) return null; // cross-map
+  if (node.relation.parentId === newParentId) return { ops: [] }; // already there
+
+  const mapId = node.relation.mapId;
+  const siblingKeys = nodes
+    .filter((n) => n.relation.parentId === newParentId)
+    .map((n) => n.relation.orderKey);
+  const newOrderKey = orderKeyAfter(siblingKeys);
+
+  const reparented: MindMapNodeInput[] = nodes.map((n) =>
+    n.summary.id === nodeId
+      ? {
+          elementId: n.summary.id,
+          relation: { ...n.relation, parentId: newParentId, orderKey: newOrderKey },
+        }
+      : { elementId: n.summary.id, relation: n.relation },
+  );
+  const normalized = normalizeMindMap(reparented, mapId);
+  if (!normalized.ok) return null; // cycle (reparenting into one's own descendant)
+
+  const liveById = new Map(nodes.map((n) => [n.summary.id, n.summary]));
+  const positions = computeLayoutPositions(normalized.value, liveById);
+  const edgesForMap = readMindMapEdges(summaries).get(mapId) ?? [];
+
+  const liveNode = liveById.get(nodeId as never)!;
+  const ops: SceneOp[] = [
+    {
+      kind: "patch",
+      id: nodeId as never,
+      changes: {
+        customData: withExcalidashData(liveNode, {
+          mindMap: { mapId, parentId: newParentId, orderKey: newOrderKey },
+        }),
+      },
+    },
+    ...layoutOps(normalized.value, positions, liveById, edgesForMap, summaries),
+  ];
+
+  return { ops };
 }
 
 /** The explicit "Arrange mind map" command: recompute the whole map's layout, nothing else. */
