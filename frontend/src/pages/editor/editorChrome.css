@@ -18,6 +18,22 @@
  * the shared grey-pill treatment and stripping it back off the nested pieces
  * turns three separate boxes into one flush bar without touching how
  * Excalidraw lays any of them out.
+ *
+ * NIL-579: this bar is recessed relative to `.App-toolbar` on purpose --
+ * Davi's complaint was that it visually competed with the main toolbar
+ * instead of sitting behind it. `--color-surface-low` (an Excalidraw token,
+ * theme-aware in both directions) reads as a step darker/greyer than
+ * `--island-bg-color` in light mode and a step lighter than the app
+ * background in dark mode, in both cases without a hardcoded hex value
+ * (NIL-573 regression: hex breaks on theme switch). No shadow at all, not a
+ * weaker one -- `.App-toolbar` is the only island in this chrome that still
+ * casts one.
+ *
+ * `height: 2.75rem` (44px) is not derived from Excalidraw's own CSS -- it is
+ * the measured height of `.App-toolbar-container .Island.App-toolbar` in a
+ * running editor at the 1280x720 viewport this ticket's evidence uses
+ * (Playwright `boundingBox()`, NIL-579). Measure again if the toolbar's own
+ * padding ever changes; do not recompute this from source.
  */
 .excalidraw .layer-ui__wrapper__top-right {
   display: flex;
@@ -27,10 +43,10 @@
   max-width: 100%;
   box-sizing: border-box;
   padding: 0 0.25rem;
-  height: 2.25rem;
+  height: 2.75rem;
   border-radius: var(--border-radius-lg, 0.5rem);
-  background: var(--island-bg-color, #fff);
-  box-shadow: var(--shadow-island, 0 1px 4px rgba(0, 0, 0, 0.15));
+  background: var(--color-surface-low, var(--island-bg-color));
+  box-shadow: none;
 }
 
 /* Excalidraw owns this node and renders it even when every optional child is
@@ -60,10 +76,20 @@
 }
 
 /* Excalidraw's own Library trigger renders its own Island box; drop it so
-   the shared wrapper's background shows through as one continuous bar. */
+   the shared wrapper's background shows through as one continuous bar.
+   NIL-579: the trigger also carries its own fixed `height: 36px` from
+   Excalidraw's stylesheet, independent of this wrapper's height. Centering
+   it via the wrapper's `align-items: center` alone left it pinned to the top
+   instead once the wrapper grew past 36px (measured: raising the wrapper to
+   44px moved the Invite/Share icon's vertical center down by 4px while the
+   Library icon's stayed put -- the "leicht tiefer" Library button Davi
+   flagged, NIL-579 follow-up). Sizing the trigger to the same height as the
+   wrapper is the actual fix; a `margin-top` nudge would only mask this until
+   the next Excalidraw upgrade changes either fixed height again. */
 .layer-ui__wrapper__top-right .sidebar-trigger.default-sidebar-trigger {
   background: transparent;
   box-shadow: none;
+  height: 2.75rem;
 }
 
 .editor-header-controls {
@@ -97,7 +123,9 @@
   border: none;
   border-radius: var(--border-radius-md, 0.375rem);
   background: transparent;
-  color: inherit;
+  /* NIL-579: lower-contrast than `.App-toolbar`'s own icons -- present, not
+     competing. `--color-gray-60` is an Excalidraw token, theme-aware. */
+  color: var(--color-gray-60);
   cursor: pointer;
 }
 
@@ -105,6 +133,29 @@
   font-size: 0.625rem;
   font-weight: 700;
   margin-inline-start: 0.15rem;
+}
+
+/* NIL-579: Excalidraw's own Library trigger keeps the same recessed icon
+   contrast as our own header controls, for the same "present, not
+   competing" reason -- see `.editor-header-control` above. */
+.layer-ui__wrapper__top-right .sidebar-trigger.default-sidebar-trigger {
+  color: var(--color-gray-60);
+}
+
+/**
+ * The hairline between the presence zone (avatars, invite-everyone-here) and
+ * the actions zone (share, Library) -- NIL-579. EditorTopRight.tsx only
+ * renders this element when `ctx.peers.length > 0`, the same truth Excalidraw
+ * uses to decide whether its own avatar list is non-empty, so an empty
+ * presence zone takes the divider with it rather than leaving a lone line
+ * (or the flex `gap` above reintroducing width for a zone with nothing in
+ * it -- the empty-pill bug NIL-564 fixed, one level deeper).
+ */
+.editor-header-controls__divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.5rem 0.1rem;
+  background: var(--default-border-color);
 }
 
 /* --- The floating "?" -- removed, NIL-374 ------------------------------- */
