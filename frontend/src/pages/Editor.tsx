@@ -571,6 +571,7 @@ export const Editor: React.FC = () => {
     onCanvasChange: handleChangeWithNotes,
     scene: adapter.scene,
     selection: adapter.selection,
+    viewport: adapter.viewport,
   });
   useCursorChatKey({
     containerRef: editorContainerRef,

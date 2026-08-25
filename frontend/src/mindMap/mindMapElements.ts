@@ -52,6 +52,14 @@ export const MIND_MAP_COLORS = Object.freeze({
   nodeStroke: "#1e1e1e",
   /** Same value as Excalidraw's own `COLOR_PALETTE.gray[3]` (open-color gray-6). */
   edgeStroke: "#868e96",
+  /**
+   * NIL-571's drag-to-reparent drop-target highlight. Same value as
+   * Excalidraw's own `DEFAULT_ELEMENT_STROKE_COLOR_PALETTE.violet[7]`
+   * (open-color indigo-8) -- a UI affordance colour, not an element
+   * default, so it lives here as its own named token rather than under
+   * `nodeStroke`/`edgeStroke`.
+   */
+  dropHighlight: "#4263eb",
 });
 
 export const newMindMapElementId = (): string => crypto.randomUUID();

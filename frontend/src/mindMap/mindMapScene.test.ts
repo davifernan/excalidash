@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { ElementSummary } from "../integrations/excalidraw/types";
 import { withExcalidashData } from "../integrations/excalidraw/customData";
-import { addNodeOps, arrangeOps, readMindMapEdges, readMindMapNodes } from "./mindMapScene";
+import {
+  addNodeOps,
+  arrangeOps,
+  dropTargetFor,
+  readMindMapEdges,
+  readMindMapNodes,
+  reparentOps,
+} from "./mindMapScene";
 import { MIND_MAP_LAYOUT_V1 } from "./layout";
 
 let counter = 0;
@@ -272,5 +279,133 @@ describe("readMindMapNodes / readMindMapEdges", () => {
 
     const edges = readMindMapEdges([live] as ElementSummary[]);
     expect(edges.size).toBe(0);
+  });
+});
+
+describe("dropTargetFor", () => {
+  it("finds the node whose box contains the point, excluding the excluded ids", () => {
+    const mapId = "drop-1";
+    const rootId = nextId();
+    const childId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const child = nodeSummary(childId, 400, 0, { mapId, parentId: rootId, orderKey: "m" });
+    const summaries = [root, child];
+
+    const center = { x: root.x + root.width / 2, y: root.y + root.height / 2 };
+    expect(dropTargetFor(summaries, mapId, new Set(), center)).toBe(rootId);
+    expect(dropTargetFor(summaries, mapId, new Set([rootId]), center)).toBeNull();
+    expect(dropTargetFor(summaries, mapId, new Set(), { x: -999, y: -999 })).toBeNull();
+  });
+
+  it("never returns a node from a different map, even at the same coordinates", () => {
+    const rootA = nodeSummary(nextId(), 0, 0, { mapId: "map-a", parentId: null, orderKey: "m" });
+    const rootB = nodeSummary(nextId(), 0, 0, { mapId: "map-b", parentId: null, orderKey: "m" });
+    const center = { x: rootA.x + rootA.width / 2, y: rootA.y + rootA.height / 2 };
+    // Searching within map-a's own map must find rootA, never rootB --
+    // even though rootB sits at the exact same coordinates in map-b.
+    expect(dropTargetFor([rootA, rootB], "map-a", new Set(), center)).toBe(rootA.id);
+    expect(dropTargetFor([rootA, rootB], "map-a", new Set(), center)).not.toBe(rootB.id);
+  });
+});
+
+describe("reparentOps", () => {
+  it("moves a node under a new parent and lays out the whole map in one batch", () => {
+    const mapId = "rep-1";
+    const rootId = nextId();
+    const aId = nextId();
+    const bId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+    const b = nodeSummary(bId, 300, 200, { mapId, parentId: rootId, orderKey: "n" });
+
+    const result = reparentOps([root, a, b], bId, aId)!;
+    expect(result).not.toBeNull();
+    const relationPatch = result.ops.find((op) => op.kind === "patch" && op.id === bId) as any;
+    expect(relationPatch.changes.customData.excalidash.mindMap).toEqual({
+      mapId,
+      parentId: aId,
+      orderKey: expect.any(String),
+    });
+    // One deterministic layout pass follows -- b's position is recomputed
+    // from the new tree, not left at its drop-point coordinates.
+    const positionPatch = result.ops.find(
+      (op) => op.kind === "patch" && op.id === bId && "x" in op.changes,
+    );
+    expect(positionPatch).toBeDefined();
+  });
+
+  it("rejects reparenting into one's own descendant (a cycle), without losing the node", () => {
+    const mapId = "rep-2";
+    const rootId = nextId();
+    const aId = nextId();
+    const bId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+    const b = nodeSummary(bId, 600, 0, { mapId, parentId: aId, orderKey: "m" }); // b is a's child
+
+    // Reparenting a under its own child b would make a its own grandchild.
+    expect(reparentOps([root, a, b], aId, bId)).toBeNull();
+  });
+
+  it("rejects a cross-map target, without losing the node", () => {
+    const rootA = nodeSummary(nextId(), 0, 0, { mapId: "map-a", parentId: null, orderKey: "m" });
+    const childA = nodeSummary(nextId(), 300, 0, {
+      mapId: "map-a",
+      parentId: rootA.id as unknown as string,
+      orderKey: "m",
+    });
+    const rootB = nodeSummary(nextId(), 0, 500, { mapId: "map-b", parentId: null, orderKey: "m" });
+
+    expect(
+      reparentOps(
+        [rootA, childA, rootB],
+        childA.id as unknown as string,
+        rootB.id as unknown as string,
+      ),
+    ).toBeNull();
+  });
+
+  it("is a genuine no-op when dropped back onto its current parent (never triggers layout)", () => {
+    const mapId = "rep-4";
+    const rootId = nextId();
+    const aId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+
+    const result = reparentOps([root, a], aId, rootId)!;
+    expect(result.ops).toEqual([]);
+  });
+
+  it("returns null for an unknown node or target id", () => {
+    const mapId = "rep-5";
+    const root = nodeSummary(nextId(), 0, 0, { mapId, parentId: null, orderKey: "m" });
+    expect(reparentOps([root], "nope", root.id as unknown as string)).toBeNull();
+    expect(reparentOps([root], root.id as unknown as string, "nope")).toBeNull();
+  });
+
+  /**
+   * Counter-test: break the enforcement by reverting to a version that
+   * reparents without re-normalizing afterward -- a plausible half-fix that
+   * would silently create a cycle in customData instead of rejecting it,
+   * exactly the "keine unsichtbaren oder fremd-referenzierenden Strukturen"
+   * failure this package's own evidence rule exists to catch. Copied here,
+   * not `git checkout --`'d.
+   */
+  it("regression guard: skipping the re-normalize check would accept the cycle", () => {
+    const mapId = "rep-6";
+    const rootId = nextId();
+    const aId = nextId();
+    const bId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
+    const b = nodeSummary(bId, 600, 0, { mapId, parentId: aId, orderKey: "m" });
+
+    const acceptsAnything = (nodeId: string, _newParentId: string) => ({
+      ops: [{ kind: "patch" as const, id: nodeId as never, changes: {} }],
+    });
+    // Under the bug, reparenting a under its own child b "succeeds".
+    expect(acceptsAnything(aId, bId).ops).toHaveLength(1);
+    // The real implementation refuses.
+    expect(reparentOps([root, a, b], aId, bId)).toBeNull();
   });
 });
