@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readdirSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -119,8 +120,12 @@ describe("storing an upload", () => {
   });
 
   it("leaves nothing behind when the upload breaks off mid-way", async () => {
+    let stagingWasOpenBeforeRead = false;
     const broken = new Readable({
       read() {
+        stagingWasOpenBeforeRead = readdirSync(join(root, "staging")).some((name) =>
+          name.endsWith(".part"),
+        );
         this.push(Buffer.from("partial"));
         this.destroy(new Error("connection lost"));
       },
@@ -128,6 +133,7 @@ describe("storing an upload", () => {
     await expect(storeStream(root, originalKey("aabbccdd"), broken, 1024)).rejects.toThrow(
       /connection lost/,
     );
+    expect(stagingWasOpenBeforeRead).toBe(true);
     expect(await readdir(join(root, "staging"))).toEqual([]);
   });
 
