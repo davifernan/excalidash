@@ -23,6 +23,7 @@ import {
   type MindMapTreeNode,
 } from "./layout";
 import {
+  arrowGeometryBetween,
   createImportEdge,
   createImportNode,
   mergeEdgeBinding,
@@ -206,6 +207,19 @@ export function arrangeOps(
 
   const summaryById = new Map(summaries.map((summary) => [summary.id, summary]));
   const ops: SceneOp[] = [];
+  // Every box's position after this Arrange run -- the root keeps its own
+  // (never patched), everything else gets its freshly laid out position.
+  // Feeds the edge-geometry recompute below: unlike a live drag
+  // (`useAmbientTreeDrag.ts`), NONE of these moves is a native Excalidraw
+  // drag, so NO bound arrow reflows on its own here, not even the ones
+  // touching the root -- every edge inside the arranged subtree needs its
+  // geometry recomputed explicitly via `arrowGeometryBetween`.
+  const finalBoxById = new Map(boxesById);
+  for (const position of positions) {
+    const box = finalBoxById.get(position.elementId);
+    if (box) finalBoxById.set(position.elementId, { ...box, x: position.x, y: position.y });
+  }
+
   for (const position of positions) {
     if (position.elementId === rootId) continue; // the root anchor stays put
     const summary = summaryById.get(position.elementId as never);
@@ -226,5 +240,25 @@ export function arrangeOps(
       });
     }
   }
+
+  // Recompute geometry for every edge inside the arranged subtree -- the
+  // node-position patches above never trigger Excalidraw's own reflow (see
+  // the comment on `finalBoxById`), so a bound arrow left alone here would
+  // stay visually attached to where its endpoints used to be.
+  const arrangedIds = new Set(map.nodes.map((treeNode) => treeNode.elementId));
+  for (const edge of edges) {
+    if (!edge.startId || !edge.endId) continue;
+    if (!arrangedIds.has(edge.startId) || !arrangedIds.has(edge.endId)) continue;
+    const parentBox = finalBoxById.get(edge.startId);
+    const childBox = finalBoxById.get(edge.endId);
+    if (!parentBox || !childBox) continue;
+    const geometry = arrowGeometryBetween(parentBox, childBox);
+    ops.push({
+      kind: "patch",
+      id: edge.arrowId as never,
+      changes: { x: geometry.x, y: geometry.y, points: geometry.points } as never,
+    });
+  }
+
   return ops;
 }

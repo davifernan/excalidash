@@ -68,8 +68,30 @@ describe("arrangeOps: the explicit 'Arrange' command, ambient graph in", () => {
     expect(ops).not.toBeNull();
     expect(ops!.some((op) => op.kind === "patch" && op.id === "root")).toBe(false);
     const patchedIds = ops!.filter((op) => op.kind === "patch").map((op) => (op as any).id);
-    expect(new Set(patchedIds)).toEqual(new Set(["a", "b"]));
+    // Node positions AND the two edges' own geometry -- neither move is a
+    // native drag, so nothing reflows the arrows on its own.
+    expect(new Set(patchedIds)).toEqual(new Set(["a", "b", "e1", "e2"]));
     expect(mindMapLayoutRunCount()).toBe(before + 1);
+  });
+
+  it("recomputes edge geometry so an arranged arrow visually reaches both its endpoints", () => {
+    const summaries = [
+      node("root", 500, 500),
+      node("a", 9999, 100),
+      node("b", 9999, 900),
+      arrow("e1", "root", "a"),
+      arrow("e2", "root", "b"),
+    ];
+
+    const ops = arrangeOps(summaries, "root")!;
+    const edgeOp = ops.find((op) => op.kind === "patch" && op.id === "e1") as any;
+    expect(edgeOp).toBeDefined();
+    // Not the placeholder [[0.5,0.5],[0.5,0.5]] convertToExcalidrawElements
+    // leaves an arrow at when only `start`/`end` binding shorthand is used
+    // -- a real, non-zero span.
+    expect(edgeOp.changes.points[1]).not.toEqual([0.5, 0.5]);
+    const [dx, dy] = edgeOp.changes.points[1];
+    expect(Math.hypot(dx, dy)).toBeGreaterThan(1);
   });
 
   it("returns null for an unknown root id", () => {
@@ -143,6 +165,19 @@ describe("importOps: an outline becomes ordinary elements, never customData.mind
     expect(selectOp).toEqual({ kind: "select", ids: [rootId] });
 
     expect(mindMapLayoutRunCount()).toBe(before + 1);
+  });
+
+  it("gives every created arrow real, non-degenerate geometry -- not the [0,0]/[1,1] placeholder", () => {
+    const root = importedNode("Project", [importedNode("Design")]);
+    const { ops } = importOps(root, { x: 0, y: 0 });
+    const arrows = ops
+      .filter((op) => op.kind === "insert")
+      .flatMap((op) => (op as any).elements)
+      .filter((el: any) => el.type === "arrow");
+    expect(arrows).toHaveLength(1);
+    const [start, end] = arrows[0].points;
+    expect(start).toEqual([0, 0]);
+    expect(Math.hypot(end[0], end[1])).toBeGreaterThan(1);
   });
 
   it("never writes customData.excalidash.mindMap on any created element", () => {

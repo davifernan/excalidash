@@ -114,9 +114,42 @@ export function arrowGeometryBetween(
   readonly y: number;
   readonly points: readonly (readonly [number, number])[];
 } {
-  const built = arrowElementBetween("__geometry_probe__", parentBox, childBox);
-  return { x: built.x, y: built.y, points: built.points };
+  return computeGeometry(parentBox, childBox);
 }
+
+/**
+ * Right-middle of the parent to left-middle of the child, in the arrow's
+ * own local point space (`[0, 0]` at the arrow's own `x`/`y`).
+ *
+ * `convertToExcalidrawElements`'s `start`/`end` shorthand (used below in
+ * `arrowElementBetween` to get real `startBinding`/`endBinding`) sets ONLY
+ * that binding metadata -- confirmed by inspection, not the doc: it leaves
+ * `x`/`y`/`points` at whatever placeholder the skeleton passed in
+ * (`x: 0, y: 0, points: [[0,0],[1,1]]`, scaled to a 1x1 arrow), because the
+ * actual reflow-to-match-the-bound-shapes math lives in Excalidraw's
+ * runtime binding code (`bindOrUnbindLinearElement`), not in this batch
+ * conversion. An import produced literally invisible, zero-length arrows
+ * pinned at the scene origin before this was found and fixed.
+ */
+const computeGeometry = (
+  parentBox: NodeBox,
+  childBox: NodeBox,
+): {
+  readonly x: number;
+  readonly y: number;
+  readonly points: readonly (readonly [number, number])[];
+} => {
+  const start = { x: parentBox.x + parentBox.width, y: parentBox.y + parentBox.height / 2 };
+  const end = { x: childBox.x, y: childBox.y + childBox.height / 2 };
+  return {
+    x: start.x,
+    y: start.y,
+    points: [
+      [0, 0],
+      [end.x - start.x, end.y - start.y],
+    ],
+  };
+};
 
 const arrowElementBetween = (id: string, parentBox: NodeBox, childBox: NodeBox): any => {
   const [, , arrow] = buildElements(
@@ -156,7 +189,16 @@ const arrowElementBetween = (id: string, parentBox: NodeBox, childBox: NodeBox):
     { regenerateIds: false },
   ) as any[];
 
-  return { ...arrow, index: null };
+  const geometry = computeGeometry(parentBox, childBox);
+  return {
+    ...arrow,
+    index: null,
+    x: geometry.x,
+    y: geometry.y,
+    points: geometry.points,
+    width: Math.abs(geometry.points[1][0]),
+    height: Math.abs(geometry.points[1][1]),
+  };
 };
 
 /**
