@@ -87,16 +87,74 @@ function categorizeBucket(body, commitSubjects) {
   return categorize(commitSubjects);
 }
 
+/** The reasons `classifyUserFacing()` can report. `NONE` is a decision --
+ * the implementer wrote `User-Facing: none` on purpose, and skipping it is
+ * the correct, unremarkable outcome. The other three are all "something is
+ * wrong with this field", never a decision anyone made on purpose:
+ * `MISSING` (no line at all), `DUPLICATED` (more than one -- ambiguous,
+ * `collect()` cannot pick a winner), `MALFORMED` (a line present but empty,
+ * neither a sentence nor the literal `none` marker). */
+const USER_FACING_STATUS = Object.freeze({
+  OK: "ok",
+  NONE: "none",
+  MISSING: "missing",
+  DUPLICATED: "duplicated",
+  MALFORMED: "malformed",
+});
+
+/**
+ * Classifies a PR body's `User-Facing:` field into exactly one reason
+ * (NIL-594) instead of collapsing every non-usable case into the same bare
+ * `null` `extractUserFacingSentence()` used to return everywhere.
+ *
+ * The distinction this exists for: v0.11.0 silently dropped a real entry
+ * (#150, NIL-580) because its body had the field twice -- once in the
+ * contract header, once repeated further down -- and the collector's own
+ * warning read identically to the seven other, entirely intentional
+ * `User-Facing: none` skips in the same run. A warning that fires on every
+ * release and is almost always noise does not get read; `collect()` uses
+ * `status` to only ever surface the reasons that are actually suspect.
+ */
+function classifyUserFacing(body) {
+  const values = fieldValues(body || "", "User-Facing");
+  if (values.length === 0) {
+    return {
+      status: USER_FACING_STATUS.MISSING,
+      sentence: null,
+      reason: "no `User-Facing:` line found",
+    };
+  }
+  if (values.length > 1) {
+    return {
+      status: USER_FACING_STATUS.DUPLICATED,
+      sentence: null,
+      reason: `${values.length} \`User-Facing:\` lines found`,
+    };
+  }
+  const trimmed = values[0].trim();
+  if (trimmed === USER_FACING_NONE) {
+    return { status: USER_FACING_STATUS.NONE, sentence: null, reason: null };
+  }
+  if (trimmed.length === 0) {
+    return {
+      status: USER_FACING_STATUS.MALFORMED,
+      sentence: null,
+      reason: "`User-Facing:` line is present but empty",
+    };
+  }
+  return { status: USER_FACING_STATUS.OK, sentence: trimmed, reason: null };
+}
+
 /** Extracts the User-Facing line without requiring the rest of the contract
  * to be well-formed -- unlike parsePrDeliveryContract, a malformed or
  * pre-contract PR body must not crash the whole collection run. Returns null
- * when nothing usable is present (missing, duplicated, or `none`). */
+ * when nothing usable is present (missing, duplicated, or `none`). Thin
+ * wrapper over `classifyUserFacing()` -- see that function for why "none"
+ * and everything else both landing here as a bare `null` is exactly the
+ * problem NIL-594 fixes one layer up, in `collect()`'s warning output. */
 function extractUserFacingSentence(body) {
-  const values = fieldValues(body || "", "User-Facing");
-  if (values.length !== 1) return null;
-  const sentence = values[0].trim();
-  if (sentence.length === 0 || sentence === USER_FACING_NONE) return null;
-  return sentence;
+  const classified = classifyUserFacing(body);
+  return classified.status === USER_FACING_STATUS.OK ? classified.sentence : null;
 }
 
 function renderGroup(title, entries) {
@@ -108,8 +166,11 @@ function renderGroup(title, entries) {
  * version heading and upgrade-steps boilerplate are the human's job when
  * polishing the draft, per docs/architecture/RELEASE_PROCESS.md. */
 function renderNotesMarkdown({ added = [], fixed = [], changed = [] }) {
-  const groups = [renderGroup("Added", added), renderGroup("Fixed", fixed), renderGroup("Changed", changed)]
-    .filter(Boolean);
+  const groups = [
+    renderGroup("Added", added),
+    renderGroup("Fixed", fixed),
+    renderGroup("Changed", changed),
+  ].filter(Boolean);
   if (groups.length === 0) {
     return "_No `User-Facing:` entries were collected for this range -- every merged package in it declared `User-Facing: none`, or none had a recognized contract yet. Verify this is expected before publishing._\n";
   }
@@ -120,9 +181,19 @@ function renderNotesMarkdown({ added = [], fixed = [], changed = [] }) {
  * Walks the PR deliveries resolved for `previousRef..headRef` and asks the
  * injected adapter for each PR's body and commit subjects. Skips (with a
  * warning, not a failure) any delivery
- * that yields no PR number, no fetchable body, or no usable User-Facing
- * sentence -- an incomplete note is a smaller failure than an aborted
- * release, and the draft is reviewed by a human before it goes out.
+ * that yields no PR number or no fetchable body -- an incomplete note is a
+ * smaller failure than an aborted release, and the draft is reviewed by a
+ * human before it goes out.
+ *
+ * A skipped `User-Facing:` field is not one bucket, per NIL-594:
+ * `skippedByDesign` holds `User-Facing: none` decisions -- expected,
+ * unremarkable, never printed as a warning by `main()`. `warnings` holds
+ * everything else that made this delivery unusable, each with the concrete
+ * reason (`classifyUserFacing()`'s `reason`) rather than the old one-size
+ * "missing, malformed, or none" line that read identically for an
+ * intentional skip and an accident (v0.11.0's #150, NIL-580: two
+ * `User-Facing:` lines in one body silently dropped a real entry, and nothing
+ * in the log distinguished it from the run's seven genuine `none`s).
  */
 function collect({ listDeliveries, getPrBody, getPrCommitSubjects }) {
   const deliveries = listDeliveries();
@@ -130,12 +201,15 @@ function collect({ listDeliveries, getPrBody, getPrCommitSubjects }) {
   const fixed = [];
   const changed = [];
   const warnings = [];
+  const skippedByDesign = [];
   const seen = new Set();
 
   for (const delivery of deliveries) {
     const prNumber = extractPrNumber(delivery.subject);
     if (prNumber === null) {
-      warnings.push(`${delivery.sha.slice(0, 12)}: no PR number found in "${delivery.subject}", skipped`);
+      warnings.push(
+        `${delivery.sha.slice(0, 12)}: no PR number found in "${delivery.subject}", skipped`,
+      );
       continue;
     }
 
@@ -147,11 +221,16 @@ function collect({ listDeliveries, getPrBody, getPrCommitSubjects }) {
       continue;
     }
 
-    const sentence = extractUserFacingSentence(body);
-    if (sentence === null) {
-      warnings.push(`#${prNumber}: no usable User-Facing sentence (missing, malformed, or "none"), skipped`);
+    const classified = classifyUserFacing(body);
+    if (classified.status === USER_FACING_STATUS.NONE) {
+      skippedByDesign.push(`#${prNumber}: User-Facing: none`);
       continue;
     }
+    if (classified.status !== USER_FACING_STATUS.OK) {
+      warnings.push(`#${prNumber}: User-Facing field is unusable -- ${classified.reason}, skipped`);
+      continue;
+    }
+    const sentence = classified.sentence;
 
     const subjects = getPrCommitSubjects(prNumber, delivery);
     const bucket = categorizeBucket(body, subjects);
@@ -173,7 +252,7 @@ function collect({ listDeliveries, getPrBody, getPrCommitSubjects }) {
     else changed.push(sentence);
   }
 
-  return { added, fixed, changed, warnings, deliveriesScanned: deliveries.length };
+  return { added, fixed, changed, warnings, skippedByDesign, deliveriesScanned: deliveries.length };
 }
 
 function git(args) {
@@ -220,15 +299,15 @@ function ghLines(args) {
  * ordering rule can be tested without making every unit test depend on `gh`.
  */
 function resolveDeliveries({ listCommitShas, listMergedPullRequests }) {
-  const commitOrder = new Map(
-    listCommitShas().map((sha, index) => [sha, index]),
-  );
+  const commitOrder = new Map(listCommitShas().map((sha, index) => [sha, index]));
   const seen = new Set();
   const deliveries = (listMergedPullRequests() || [])
     .filter((pull) => commitOrder.has(pull.mergeCommitSha))
-    .sort((left, right) =>
-      commitOrder.get(left.mergeCommitSha) - commitOrder.get(right.mergeCommitSha) ||
-      left.number - right.number)
+    .sort(
+      (left, right) =>
+        commitOrder.get(left.mergeCommitSha) - commitOrder.get(right.mergeCommitSha) ||
+        left.number - right.number,
+    )
     .filter((pull) => {
       if (seen.has(pull.number)) return false;
       seen.add(pull.number);
@@ -281,7 +360,7 @@ function listMergedPullRequests(repo, updatedAfter) {
         "api",
         `repos/${repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=${page}`,
         "--jq",
-        '.[] | [.number, .merge_commit_sha, .merged_at, .updated_at] | @tsv',
+        ".[] | [.number, .merge_commit_sha, .merged_at, .updated_at] | @tsv",
       ]).map((line) => {
         const [number, mergeCommitSha, mergedAt, updatedAt] = line.split("\t");
         return {
@@ -300,9 +379,7 @@ function createLiveCollector({ repo }) {
     listDeliveries(range) {
       const separator = range.indexOf("..");
       const previousRef = separator === -1 ? null : range.slice(0, separator);
-      const updatedAfter = previousRef
-        ? git(["log", "-1", "--format=%cI", previousRef])
-        : null;
+      const updatedAfter = previousRef ? git(["log", "-1", "--format=%cI", previousRef]) : null;
       return resolveDeliveries({
         listCommitShas: () => {
           const log = git(["log", "--reverse", "--topo-order", "--format=%H", range]);
@@ -315,7 +392,15 @@ function createLiveCollector({ repo }) {
       return ghJson(["pr", "view", String(prNumber), "--repo", repo, "--json", "body"]).body;
     },
     getPrCommitSubjects(prNumber) {
-      const commits = ghJson(["pr", "view", String(prNumber), "--repo", repo, "--json", "commits"]).commits;
+      const commits = ghJson([
+        "pr",
+        "view",
+        String(prNumber),
+        "--repo",
+        repo,
+        "--json",
+        "commits",
+      ]).commits;
       return (commits || []).map((commit) => commit.messageHeadline || "");
     },
   };
@@ -335,13 +420,23 @@ function main() {
     getPrCommitSubjects: adapter.getPrCommitSubjects,
   });
 
-  for (const warning of result.warnings) process.stderr.write(`SKIP  ${warning}\n`);
+  // Two severities, not one (NIL-594): a `User-Facing: none` skip is a
+  // decision, printed calmly and never as SUSPECT -- and when every skip in
+  // the run is one of these, nothing below prints at all. Everything in
+  // `warnings` is something actually wrong with a delivery (no PR number, an
+  // unfetchable body, or a User-Facing field that is missing, duplicated, or
+  // malformed) and prints as SUSPECT with its own concrete reason, never
+  // folded into a single "missing, malformed, or none" line that reads the
+  // same for an accident and seven intentional skips in the same run.
+  for (const note of result.skippedByDesign) process.stderr.write(`NOTE     ${note}\n`);
+  for (const warning of result.warnings) process.stderr.write(`SUSPECT  ${warning}\n`);
   process.stdout.write(renderNotesMarkdown(result));
 }
 
 module.exports = {
   categorize,
   categorizeBucket,
+  classifyUserFacing,
   collect,
   collectMergedPullRequests,
   createLiveCollector,
@@ -349,6 +444,7 @@ module.exports = {
   extractPrNumber,
   extractUserFacingSentence,
   renderNotesMarkdown,
+  USER_FACING_STATUS,
 };
 
 if (require.main === module) {
