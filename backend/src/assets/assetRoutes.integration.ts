@@ -292,6 +292,19 @@ describe("document routes", () => {
   describe("editing Markdown", () => {
     it("persists a replacement across reload while the previous bytes stay in history", async () => {
       const { revision, token, originalAssetId } = await attachMarkdownWidget();
+      const before = await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } });
+      const [originalWidget] = JSON.parse(before.elements);
+      const duplicateWidget = {
+        ...originalWidget,
+        id: "markdown-widget-copy",
+        versionNonce: 11,
+      };
+      const duplicatedElements = [originalWidget, duplicateWidget];
+      await prisma.drawing.update({
+        where: { id: drawingId },
+        data: { elements: JSON.stringify(duplicatedElements) },
+      });
+      await syncDrawingDocumentState(prisma, drawingId, duplicatedElements);
 
       const saved = await request(app)
         .put(url("/content"))
@@ -305,9 +318,17 @@ describe("document routes", () => {
       expect(saved.body.id).not.toBe(originalAssetId);
       expect(saved.body.revision).toMatch(/^[0-9a-f]{64}$/);
       const drawing = await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } });
-      const [widget] = JSON.parse(drawing.elements);
-      expect(widget.customData.excalidash.widget.assetId).toBe(saved.body.id);
-      expect(widget.version).toBe(2);
+      const widgets = JSON.parse(drawing.elements);
+      expect(widgets).toHaveLength(2);
+      expect(widgets.map((widget: any) => widget.customData.excalidash.widget.assetId)).toEqual([
+        saved.body.id,
+        saved.body.id,
+      ]);
+      expect(widgets.map((widget: any) => widget.version)).toEqual([2, 2]);
+      expect(saved.body.elements.map((widget: any) => widget.id)).toEqual([
+        "markdown-widget",
+        "markdown-widget-copy",
+      ]);
 
       const current = await request(app)
         .get(`/drawings/${drawingId}/assets/${saved.body.id}/content`)
@@ -323,6 +344,11 @@ describe("document routes", () => {
       expect(
         await prisma.drawingSnapshotAsset.findFirst({ where: { assetId: originalAssetId } }),
       ).not.toBeNull();
+      expect(
+        await prisma.documentPageView.count({
+          where: { drawingId, assetId: saved.body.id },
+        }),
+      ).toBe(2);
       expect(documentEditLocks.get(drawingId, originalAssetId)).toBeNull();
       expect(socketEmit).toHaveBeenCalledWith(
         "document-asset-replaced",

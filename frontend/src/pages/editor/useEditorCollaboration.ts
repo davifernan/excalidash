@@ -519,11 +519,15 @@ export const useEditorCollaboration = ({
           payload.drawingVersion,
         );
       }
-      if (!payload.element || payload.element.id !== payload.elementId) {
+      if (!Array.isArray(payload.elements) || payload.elements.length === 0) {
         toast.error("A Markdown update could not be applied. Reload the board.");
         return;
       }
-      pendingRemoteElementsRef.current.set(payload.elementId, payload.element);
+      for (const element of payload.elements) {
+        if (typeof element?.id === "string" && element.id) {
+          pendingRemoteElementsRef.current.set(element.id, element);
+        }
+      }
       scheduleRemoteFlush();
     });
     const handleActivity = (isActive: boolean) => {

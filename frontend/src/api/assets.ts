@@ -93,7 +93,7 @@ export type ReplacedMarkdownAsset = TextAsset & {
   kind: "MARKDOWN";
   revision: string;
   drawingVersion: number;
-  element: Record<string, unknown>;
+  elements: Record<string, unknown>[];
 };
 
 export const replaceMarkdownContent = async (

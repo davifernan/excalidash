@@ -158,6 +158,15 @@ const bumpedWidgetElement = (
   expectedAssetId: string,
   nextAssetId: string,
 ): Record<string, unknown> | null => {
+  if (
+    !element ||
+    typeof element !== "object" ||
+    (element as any).isDeleted ||
+    (element as any).type !== "embeddable" ||
+    (element as any).link !== "excalidash://asset-widget"
+  ) {
+    return null;
+  }
   const widget = readWidgetRecord(element);
   if (!widget || widget.kind !== "markdown" || widget.assetId !== expectedAssetId) return null;
   const current = element as Record<string, unknown>;
@@ -169,23 +178,33 @@ const bumpedWidgetElement = (
   };
 };
 
+type MarkdownWidgetAssetReplacement = {
+  elements: Record<string, unknown>[];
+  replacedElements: Record<string, unknown>[];
+};
+
 export const replaceMarkdownWidgetAsset = (
   elements: unknown,
   elementId: string,
   expectedAssetId: string,
   nextAssetId: string,
-): Record<string, unknown>[] | null => {
+): MarkdownWidgetAssetReplacement | null => {
   if (!Array.isArray(elements)) return null;
-  let replaced = false;
+  const requestedElement = elements.find(
+    (element) => element && typeof element === "object" && (element as any).id === elementId,
+  );
+  if (!requestedElement || !bumpedWidgetElement(requestedElement, expectedAssetId, nextAssetId)) {
+    return null;
+  }
+
+  const replacedElements: Record<string, unknown>[] = [];
   const next = elements.map((element) => {
-    if (!element || typeof element !== "object" || (element as any).id !== elementId)
-      return element;
     const updated = bumpedWidgetElement(element, expectedAssetId, nextAssetId);
     if (!updated) return element;
-    replaced = true;
+    replacedElements.push(updated);
     return updated;
   });
-  return replaced ? (next as Record<string, unknown>[]) : null;
+  return { elements: next as Record<string, unknown>[], replacedElements };
 };
 
 /** A filename safe to put in a header, plus the exact one for clients that can read it. */
@@ -411,9 +430,10 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
     }),
   );
 
-  // Replace immutable Markdown bytes and atomically move this one live widget
-  // to the replacement Asset. The old Asset remains reachable from the
-  // snapshot made below, so editing today cannot rewrite yesterday's history.
+  // Replace immutable Markdown bytes and atomically move every live widget
+  // sharing this Asset to the replacement. The old Asset remains reachable
+  // from the snapshot made below, so editing today cannot rewrite yesterday's
+  // history or silently fork duplicated widgets.
   app.put(
     "/drawings/:drawingId/assets/:assetId/content",
     deps.requireAuth,
@@ -528,13 +548,14 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
             const drawing = await tx.drawing.findUnique({ where: { id: found.drawingId } });
             if (!drawing) throw new Error("DOCUMENT_WIDGET_CHANGED");
             const currentElements = JSON.parse(drawing.elements);
-            const nextElements = replaceMarkdownWidgetAsset(
+            const replacement = replaceMarkdownWidgetAsset(
               currentElements,
               elementId,
               found.asset.id,
               created.asset.id,
             );
-            if (!nextElements) throw new Error("DOCUMENT_WIDGET_CHANGED");
+            if (!replacement) throw new Error("DOCUMENT_WIDGET_CHANGED");
+            const nextElements = replacement.elements;
 
             const snapshot = await tx.drawingSnapshot.create({
               data: {
@@ -556,7 +577,7 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
             await pruneDrawingSnapshots(tx, found.drawingId, config.snapshotMaxCountPerDrawing);
             return {
               drawing: await tx.drawing.findUniqueOrThrow({ where: { id: found.drawingId } }),
-              element: nextElements.find((element) => element.id === elementId),
+              elements: replacement.replacedElements,
             };
           },
           { timeout: 15_000 },
@@ -569,11 +590,10 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
           const peers = released ? room.except(released.presenceId) : room;
           peers.emit("document-asset-replaced", {
             drawingId: found.drawingId,
-            elementId,
             previousAssetId: found.asset.id,
             assetId: created.asset.id,
             drawingVersion: updated.drawing.version,
-            element: updated.element,
+            elements: updated.elements,
           });
           deps.io
             .to(`drawing_${found.drawingId}`)
@@ -592,7 +612,7 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
           pageCount,
           revision: created.blob.sha256,
           drawingVersion: updated.drawing.version,
-          element: updated.element,
+          elements: updated.elements,
         });
       } catch (err) {
         if (err instanceof InvalidTextDocumentError) {

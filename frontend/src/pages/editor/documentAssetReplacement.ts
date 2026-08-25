@@ -6,11 +6,10 @@ import { getAssetWidgetData } from "./pdfWidgetElements";
 
 export type DocumentAssetReplacement = Readonly<{
   drawingId: string;
-  elementId: string;
   previousAssetId: string;
   assetId: string;
   drawingVersion: number;
-  element: Record<string, unknown>;
+  elements: Record<string, unknown>[];
 }>;
 
 export const applyDocumentAssetReplacement = (
@@ -18,29 +17,29 @@ export const applyDocumentAssetReplacement = (
   replacement: DocumentAssetReplacement,
   capture: "immediate" | "never",
 ): Promise<CapabilityResult<void>> => {
-  const summary = scene.summaryById(replacement.elementId as ElementId);
-  if (!summary.ok) return Promise.resolve(summary as CapabilityResult<void>);
-  if (!summary.value) return Promise.resolve({ ok: true, value: undefined });
-  const widget = getAssetWidgetData(summary.value);
-  if (!widget || widget.widgetKind !== "markdown")
-    return Promise.resolve({ ok: true, value: undefined });
-  if (widget.assetId === replacement.assetId)
-    return Promise.resolve({ ok: true, value: undefined });
-  if (widget.assetId !== replacement.previousAssetId)
-    return Promise.resolve({ ok: true, value: undefined });
-
-  return scene.applySettled(
-    [
-      {
-        kind: "patch",
-        id: replacement.elementId as ElementId,
-        changes: {
-          customData: withExcalidashData(summary.value, {
-            widget: { kind: "markdown", assetId: replacement.assetId },
-          }),
-        },
+  const patches = [];
+  for (const replacementElement of replacement.elements) {
+    const elementId = replacementElement?.id;
+    if (typeof elementId !== "string" || !elementId) continue;
+    const summary = scene.summaryById(elementId as ElementId);
+    if (!summary.ok) return Promise.resolve(summary as CapabilityResult<void>);
+    if (!summary.value) continue;
+    const widget = getAssetWidgetData(summary.value);
+    if (!widget || widget.widgetKind !== "markdown") continue;
+    if (widget.assetId === replacement.assetId) continue;
+    if (widget.assetId !== replacement.previousAssetId) continue;
+    patches.push({
+      kind: "patch" as const,
+      id: elementId as ElementId,
+      changes: {
+        customData: withExcalidashData(summary.value, {
+          widget: { kind: "markdown" as const, assetId: replacement.assetId },
+        }),
       },
-    ],
-    { capture },
-  );
+    });
+  }
+
+  if (patches.length === 0) return Promise.resolve({ ok: true, value: undefined });
+
+  return scene.applySettled(patches, { capture });
 };

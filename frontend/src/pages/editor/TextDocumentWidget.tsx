@@ -195,11 +195,10 @@ export const TextDocumentWidget = ({
       );
       const applied = await onDocumentAssetReplacement({
         drawingId,
-        elementId: sharing.elementId,
         previousAssetId: assetId,
         assetId: replacement.id,
         drawingVersion: replacement.drawingVersion,
-        element: replacement.element,
+        elements: replacement.elements,
       });
       if (!applied) {
         setEditMessage("Saved. Reload the board to show the new Markdown version.");

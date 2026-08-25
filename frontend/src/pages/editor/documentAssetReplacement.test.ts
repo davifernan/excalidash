@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { applyDocumentAssetReplacement } from "./documentAssetReplacement";
 
 describe("document asset replacement", () => {
-  it("patches only the Markdown widget reference through the scene capability", async () => {
+  it("patches every Markdown widget sharing the replaced asset", async () => {
     const scene = {
-      summaryById: vi.fn(() => ({
+      summaryById: vi.fn((id: string) => ({
         ok: true as const,
         value: {
-          id: "widget",
+          id,
           type: "embeddable",
           link: "excalidash://asset-widget",
           customData: {
@@ -27,11 +27,10 @@ describe("document asset replacement", () => {
         scene,
         {
           drawingId: "board",
-          elementId: "widget",
           previousAssetId: "old",
           assetId: "new",
           drawingVersion: 2,
-          element: { id: "widget" },
+          elements: [{ id: "widget" }, { id: "widget-copy" }],
         },
         "never",
       ),
@@ -41,6 +40,19 @@ describe("document asset replacement", () => {
         expect.objectContaining({
           kind: "patch",
           id: "widget",
+          changes: {
+            customData: {
+              foreign: { kept: true },
+              excalidash: {
+                schemaVersion: 2,
+                widget: { kind: "markdown", assetId: "new" },
+              },
+            },
+          },
+        }),
+        expect.objectContaining({
+          kind: "patch",
+          id: "widget-copy",
           changes: {
             customData: {
               foreign: { kept: true },

@@ -88,7 +88,7 @@ describe("TextDocumentWidget", () => {
       pageCount: null,
       revision: "b".repeat(64),
       drawingVersion: 4,
-      element: { id: "widget-1" },
+      elements: [{ id: "widget-1" }, { id: "widget-copy" }],
     });
     const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
     const release = vi.fn();
@@ -126,11 +126,10 @@ describe("TextDocumentWidget", () => {
     );
     expect(applyReplacement).toHaveBeenCalledWith({
       drawingId: "drawing-1",
-      elementId: "widget-1",
       previousAssetId: "asset-1",
       assetId: "asset-2",
       drawingVersion: 4,
-      element: { id: "widget-1" },
+      elements: [{ id: "widget-1" }, { id: "widget-copy" }],
     });
     expect(screen.queryByRole("textbox", { name: "Markdown source" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Persisted" })).toBeInTheDocument();

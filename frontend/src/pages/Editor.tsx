@@ -388,10 +388,13 @@ export const Editor: React.FC = () => {
         );
         return false;
       }
-      latestElementsRef.current = latestElementsRef.current.map((element) =>
-        element?.id === replacement.elementId ? replacement.element : element,
+      const replacementsById = new Map(
+        replacement.elements.map((element) => [element.id, element] as const),
       );
-      recordElementVersion(replacement.element);
+      latestElementsRef.current = latestElementsRef.current.map(
+        (element) => replacementsById.get(element?.id) ?? element,
+      );
+      replacement.elements.forEach(recordElementVersion);
       return true;
     },
     [adapter.scene, isSyncing, recordElementVersion],
