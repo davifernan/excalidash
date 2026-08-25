@@ -52,6 +52,17 @@ const MINIMAL_NO_LOGGING = `services:
     networks:
       - net
 
+  bugsink:
+    image: bugsink/bugsink:2.5.0
+    profiles: ["observability"]
+    mem_limit: 512m
+    memswap_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   net:
     driver: bridge
@@ -81,6 +92,17 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
         max-file: "3"
     networks:
       - net
+
+  bugsink:
+    image: bugsink/bugsink:2.5.0
+    profiles: ["observability"]
+    mem_limit: 512m
+    memswap_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   net:
@@ -135,13 +157,31 @@ test("flags a mem_limit that reverted to a different value", () => {
 });
 
 test("flags a service present upstream but entirely missing from the deployment file", () => {
-  const missingFrontend = MINIMAL_WITH_MATCHING_LOGGING.replace(/\n  frontend:[\s\S]*?(?=\nnetworks:)/, "\n");
+  const missingFrontend = MINIMAL_WITH_MATCHING_LOGGING.replace(
+    /\n  frontend:[\s\S]*?(?=\n  bugsink:)/,
+    "\n",
+  );
   withTempFile(missingFrontend, (deploymentPath) => {
     const result = checkDrift({ deploymentPath, canonicalText: CANONICAL_TEXT, canonicalLabel: LABEL });
     assert.equal(result.ok, false);
     assert.ok(
       result.findings.some((f) => f.includes('service "frontend"') && f.includes("not in")),
       `expected a missing-service finding, got: ${JSON.stringify(result.findings)}`,
+    );
+  });
+});
+
+test("still requires a profile-gated service in the deployment definition", () => {
+  const missingBugsink = MINIMAL_WITH_MATCHING_LOGGING.replace(
+    /\n  bugsink:[\s\S]*?(?=\nnetworks:)/,
+    "\n",
+  );
+  withTempFile(missingBugsink, (deploymentPath) => {
+    const result = checkDrift({ deploymentPath, canonicalText: CANONICAL_TEXT, canonicalLabel: LABEL });
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.findings.some((f) => f.includes('service "bugsink"') && f.includes("not in")),
+      `expected a missing Bugsink finding, got: ${JSON.stringify(result.findings)}`,
     );
   });
 });
@@ -187,6 +227,17 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       - "127.0.0.1:6770:80"
     networks:
       - net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bugsink:
+    image: bugsink/bugsink:2.5.0
+    profiles: ["observability"]
+    mem_limit: 512m
+    memswap_limit: 512m
     logging:
       driver: json-file
       options:

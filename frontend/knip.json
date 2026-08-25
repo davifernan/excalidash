@@ -3,6 +3,7 @@
   "entry": [
     "src/**/*.{test,spec}.{ts,tsx}"
   ],
+  "ignore": ["public/runtime-config.js"],
   "project": [
     "**/*.{js,jsx,ts,tsx,mjs,cjs,css}",
     "!node_modules/**",

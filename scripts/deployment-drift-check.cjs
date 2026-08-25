@@ -28,8 +28,10 @@
  *
  * Fails closed: an unreadable deployment file, an unreadable canonical file,
  * or a service present in the canonical file but missing from the deployment
- * file is a failure, not a skip. A check that shrugs at "I couldn't tell" is
- * exactly the gap this ticket is about.
+ * file is a failure, not a skip. Profile-gated services still belong in the
+ * deployment definition even when the host does not activate their profile.
+ * A check that shrugs at "I couldn't tell" is exactly the gap this ticket is
+ * about.
  */
 
 const fs = require("node:fs");
@@ -246,6 +248,12 @@ function main() {
   process.exit(1);
 }
 
-module.exports = { extractServiceBlocks, extractAnchors, extractLogging, extractKeyValues, checkDrift };
+module.exports = {
+  extractServiceBlocks,
+  extractAnchors,
+  extractLogging,
+  extractKeyValues,
+  checkDrift,
+};
 
 if (require.main === module) main();
