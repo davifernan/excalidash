@@ -28,6 +28,21 @@ const VISUAL_EVIDENCE = Object.freeze({
   NON_VISIBLE_SKIP: "skipped: no visible frontend product delta",
 });
 const USER_FACING_NONE = "none";
+// Release-notes categorization used to be guessed from a PR's commit-subject
+// history (scripts/release-notes-collect.cjs, categorize()) -- a majority
+// vote of `feat:`/`fix:` prefixes across the branch. That measures how a
+// branch was BUILT, not what it IS for a user: PR #138 (NIL-567, the
+// Markdown editor) carried zero conventionally-prefixed feat commits and
+// three fix commits picked up along the way, so the vote said "Fixed" for a
+// brand-new feature. Nobody else in the PR body knows the answer either --
+// the implementer does, at the moment they write it. So it is asked for
+// directly, the same way `User-Facing:` already is (NIL-577).
+const CHANGE_KIND = Object.freeze({
+  ADDED: "added",
+  FIXED: "fixed",
+  CHANGED: "changed",
+  NONE: "none",
+});
 // A release note that names NIL-292 or #75 is useless to anyone reading it --
 // nobody outside this Multica project has an account, and a bare number
 // carries no meaning. This is the one line in the whole contract whose
@@ -233,6 +248,7 @@ function checkPrAdmission({ body, draft = false, authorType = "User", impactMani
     impact: impactManifest.effective,
     visualEvidence: impactManifest.visual_evidence,
     userFacing: delivery.userFacing,
+    changeKind: delivery.changeKind,
   };
 }
 
@@ -292,12 +308,32 @@ function parsePrDeliveryContract(body) {
     );
   }
 
+  const changeKindFields = fieldValues(text, "Change-Kind");
+  if (changeKindFields.length !== 1 || !Object.values(CHANGE_KIND).includes(changeKindFields[0])) {
+    throw new Error(
+      "PR body must contain exactly one `Change-Kind:` line (`added`, `fixed`, `changed`, or " +
+        "`none`) -- release notes categorize a package from this, never guessed from its " +
+        "commit history (NIL-577).",
+    );
+  }
+  const changeKind = changeKindFields[0];
+  if (userFacing[0] === USER_FACING_NONE && changeKind !== CHANGE_KIND.NONE) {
+    throw new Error("Change-Kind must be `none` when User-Facing is `none` -- there is nothing to categorize.");
+  }
+  if (userFacing[0] !== USER_FACING_NONE && changeKind === CHANGE_KIND.NONE) {
+    throw new Error(
+      "PR body must declare a real `Change-Kind:` (`added`, `fixed`, or `changed`) when " +
+        "User-Facing is not `none`.",
+    );
+  }
+
   return {
     primaryPackage: packages[0],
     deliverySlices,
     packageSession: sessions[0].toLowerCase(),
     visualEvidence: evidence[0],
     userFacing: userFacing[0],
+    changeKind,
   };
 }
 
@@ -596,6 +632,7 @@ async function main() {
 
 module.exports = {
   ACCEPTANCE_SLICE,
+  CHANGE_KIND,
   MAX_ACTIVE_SESSIONS,
   OWNERSHIP_PACKAGE,
   READY_GATE_LINES,

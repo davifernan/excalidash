@@ -6,6 +6,12 @@
  * (Added / Fixed / Changed) a collected sentence goes under; the sentence
  * itself is always the implementer's own words, copied verbatim.
  *
+ * The bucket itself also comes from the contract, not a guess: `Change-Kind:`
+ * (delivery-v2.cjs, NIL-577) is the implementer's own declaration, read by
+ * `categorizeBucket()`. The commit-subject vote in `categorize()` only fires
+ * as a fallback for a PR merged before that field existed -- see its own
+ * comment for why voting on commit subjects mis-sorted a real feature PR.
+ *
  * Why at tag time and not per-merge: Davi's framing (24.08.2026) is that the
  * only person who reliably knows what a user will notice is the implementer,
  * at the moment they open the PR -- so the contract captures it there. But
@@ -23,7 +29,13 @@
 "use strict";
 
 const { execFileSync } = require("node:child_process");
-const { fieldValues, USER_FACING_NONE } = require("./delivery-v2.cjs");
+const { CHANGE_KIND, fieldValues, USER_FACING_NONE } = require("./delivery-v2.cjs");
+
+const BUCKET_BY_CHANGE_KIND = Object.freeze({
+  [CHANGE_KIND.ADDED]: "Added",
+  [CHANGE_KIND.FIXED]: "Fixed",
+  [CHANGE_KIND.CHANGED]: "Changed",
+});
 
 const PR_NUMBER_PATTERN = /#(\d+)/g;
 const FEAT_PREFIX = /^(?:merge:\s*)?feat(?:\([^)]*\))?[:\-]/i;
@@ -40,7 +52,15 @@ function extractPrNumber(mergeSubject) {
 /** Best-effort bucket from the PR's own commit subjects. A PR mixing feat
  * and fix commits, or using neither convention, lands in "Changed" rather
  * than guessing -- this only sorts a human-polished draft, it never decides
- * what ships. */
+ * what ships.
+ *
+ * LEGACY FALLBACK ONLY (NIL-577): this measures how a branch was built, not
+ * what it is for a user, and both drift the longer a branch lives. PR #138
+ * (NIL-567, a brand-new Markdown editor) carried zero conventionally-prefixed
+ * feat commits and three incidental fix commits, so this voted "Fixed" for a
+ * feature. `categorizeBucket()` below only reaches this function for PRs
+ * merged before the `Change-Kind:` contract field existed; every PR since
+ * declares its bucket directly and this vote is never consulted. */
 function categorize(commitSubjects) {
   let feat = 0;
   let fix = 0;
@@ -51,6 +71,20 @@ function categorize(commitSubjects) {
   if (feat > 0 && feat > fix) return "Added";
   if (fix > 0 && fix > feat) return "Fixed";
   return "Changed";
+}
+
+/** The real bucket source: the PR's own `Change-Kind:` declaration
+ * (delivery-v2.cjs's parsePrDeliveryContract already validates it to one of
+ * added/fixed/changed/none whenever the contract is well-formed). Falls back
+ * to the commit-subject vote only for a PR merged before this field existed
+ * -- a malformed or missing field on a *current* PR should not silently
+ * mis-sort it, but historical release ranges must still collect. */
+function categorizeBucket(body, commitSubjects) {
+  const values = fieldValues(body || "", "Change-Kind");
+  if (values.length === 1 && values[0] in BUCKET_BY_CHANGE_KIND) {
+    return BUCKET_BY_CHANGE_KIND[values[0]];
+  }
+  return categorize(commitSubjects);
 }
 
 /** Extracts the User-Facing line without requiring the rest of the contract
@@ -120,7 +154,7 @@ function collect({ listDeliveries, getPrBody, getPrCommitSubjects }) {
     }
 
     const subjects = getPrCommitSubjects(prNumber, delivery);
-    const bucket = categorize(subjects);
+    const bucket = categorizeBucket(body, subjects);
     // The same User-Facing sentence legitimately reaches this loop more than
     // once: a delivery is merged into a collect branch, and that branch is
     // merged again, so `git log --merges` sees several merges that resolve to
@@ -307,6 +341,7 @@ function main() {
 
 module.exports = {
   categorize,
+  categorizeBucket,
   collect,
   collectMergedPullRequests,
   createLiveCollector,

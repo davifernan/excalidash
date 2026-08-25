@@ -244,6 +244,7 @@ test("Hans recovery waits for Delivery v2 admission, a stable head and a matchin
       "Impact-Manifest: generated from git diff",
       "Visual-Evidence: skipped: no visible frontend product delta",
       "User-Facing: none",
+      "Change-Kind: none",
       "",
       "- [x] Multica HANDOFF posted",
       "- [x] Local verification complete",

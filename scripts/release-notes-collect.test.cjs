@@ -10,12 +10,30 @@ const collectorUnderTest = process.env.RELEASE_NOTES_COLLECTOR_UNDER_TEST ||
 const {
   resolveDeliveries,
   categorize,
+  categorizeBucket,
   collect,
   collectMergedPullRequests,
   extractPrNumber,
   extractUserFacingSentence,
   renderNotesMarkdown,
 } = require(collectorUnderTest);
+
+// The real commit subjects of PR #138 (NIL-567, "Make Markdown files
+// editable (Stage 1)"), fetched via `gh pr view 138 --json commits`. Zero
+// conventionally-prefixed feat commits, three fix commits picked up along
+// the way, four collect-branch merges -- a brand-new feature that the old
+// commit-subject vote sorted as "Fixed" (NIL-577).
+const PR_138_COMMIT_SUBJECTS = [
+  "Implement durable Markdown editing",
+  "fix(editor): avoid floating toolbar collisions",
+  "Test runtime DSN injection guard",
+  "fix(release): make collected PR discovery deterministic",
+  "merge: release notes: deterministische PR-Zuordnung (NIL-574) (#140)",
+  "merge: Bugsink: Laufzeit-DSN-Injektion abgesichert (NIL-509) (#139)",
+  "merge: schwebende Leiste: Umschlag nach unten statt Klemmen (NIL-573)",
+  "merge: Markdown-Dateien bearbeitbar, Stufe 1 (NIL-567) (#138)",
+  "fix(markdown): keep duplicated widgets on one revision",
+];
 
 test("extractPrNumber takes the last #NNN in a merge subject", () => {
   assert.equal(extractPrNumber("merge: dashboard presence, provenance and favorites (NIL-501, #75)"), 75);
@@ -30,6 +48,45 @@ test("categorize picks the majority conventional prefix, and ties go to Changed"
   assert.equal(categorize(["feat(a): x", "fix(a): y"]), "Changed");
   assert.equal(categorize(["chore: bump deps", "refactor: rename thing"]), "Changed");
   assert.equal(categorize([]), "Changed");
+});
+
+test("RED (NIL-577 bug, unrepaired path): the commit-subject vote alone sorts PR #138's real feature under Fixed", () => {
+  // This is exactly what shipped in v0.9.0's draft: zero feat commits beat
+  // three fix commits, so a brand-new feature was announced as a repair.
+  // categorize() stays this way on purpose -- it is now only the legacy
+  // fallback categorizeBucket() reaches for a PR merged before Change-Kind
+  // existed -- so this assertion documents the bug it exists to route around,
+  // it is not something to "fix" here.
+  assert.equal(categorize(PR_138_COMMIT_SUBJECTS), "Fixed");
+});
+
+test("categorizeBucket reads the real PR #138 body's Change-Kind and reports Added, ignoring the misleading commit history (NIL-577)", () => {
+  const body = [
+    "Multica-Package: NIL-567",
+    "Delivery-Slices: none",
+    "Package-Session: 00000000-0000-4000-8000-000000000000",
+    "Impact-Manifest: generated from git diff",
+    "Visual-Evidence: provided",
+    "User-Facing: Markdown files can now be edited directly in the browser.",
+    "Change-Kind: added",
+  ].join("\n");
+
+  assert.equal(categorizeBucket(body, PR_138_COMMIT_SUBJECTS), "Added");
+});
+
+test("categorizeBucket falls back to the commit-subject vote when Change-Kind is absent (a pre-NIL-577 PR)", () => {
+  const bodyWithoutChangeKind = [
+    "Multica-Package: NIL-567",
+    "User-Facing: Markdown files can now be edited directly in the browser.",
+  ].join("\n");
+
+  assert.equal(categorizeBucket(bodyWithoutChangeKind, PR_138_COMMIT_SUBJECTS), "Fixed");
+  assert.equal(categorizeBucket("", PR_138_COMMIT_SUBJECTS), "Fixed");
+});
+
+test("categorizeBucket ignores an unrecognized Change-Kind value rather than trusting a malformed field", () => {
+  const malformed = "Change-Kind: feature\nUser-Facing: whatever";
+  assert.equal(categorizeBucket(malformed, PR_138_COMMIT_SUBJECTS), "Fixed");
 });
 
 test("extractUserFacingSentence returns the sentence, and null for none/missing/malformed", () => {
@@ -100,6 +157,25 @@ test("collect walks deliveries, skips what it can't use, and never fabricates a 
   assert.match(result.warnings.find((w) => w.includes("#11")), /"none"/);
   assert.match(result.warnings.find((w) => w.includes("no PR number")), /no PR number/);
   assert.match(result.warnings.find((w) => w.includes("#12")), /could not fetch/);
+});
+
+test("end to end: collect() sorts PR #138's real delivery under Added via its Change-Kind, not its misleading commit history (NIL-577)", () => {
+  const sentence = "Markdown files can now be edited directly in the browser.";
+  const bodyWithChangeKind = [
+    "User-Facing: " + sentence,
+    "Change-Kind: added",
+  ].join("\n");
+
+  const result = collect({
+    listDeliveries: () => [
+      { sha: "1".repeat(40), subject: "merge: Markdown-Dateien bearbeitbar, Stufe 1 (NIL-567) (#138)" },
+    ],
+    getPrBody: () => bodyWithChangeKind,
+    getPrCommitSubjects: () => PR_138_COMMIT_SUBJECTS,
+  });
+
+  assert.deepEqual(result.added, [sentence]);
+  assert.deepEqual(result.fixed, []);
 });
 
 test("RED: a PR whose User-Facing line contains a ticket reference never reaches this collector in the first place -- the contract check rejects it at admission (scripts/delivery-v2.test.cjs), so collect() cannot see or launder one", () => {

@@ -4,6 +4,7 @@ Package-Session: REAL-SESSION-ID
 Impact-Manifest: generated from git diff
 Visual-Evidence: skipped: no visible frontend product delta
 User-Facing: none
+Change-Kind: none
 
 ## Outcome
 
@@ -30,6 +31,18 @@ write it now while you know what actually shipped.
   "Implements favorites backend + UI (NIL-292)."
 - `User-Facing: none` for a package that only changes guards, tests, CI, or internal
   plumbing nobody using the app would ever notice.
+
+`Change-Kind:` decides which release-notes heading the line above lands under, and is read
+directly -- never guessed from commit-subject history (NIL-577: a commit-subject vote sorted a
+brand-new feature PR under "Fixed" because it picked up more `fix:` commits than `feat:` ones
+along the way).
+
+- `Change-Kind: added` -- a user gets a capability that was not there before.
+- `Change-Kind: fixed` -- something that existed was broken and now works as intended.
+- `Change-Kind: changed` -- an existing capability behaves differently, without being new or a
+  repair.
+- `Change-Kind: none` -- only valid together with `User-Facing: none`; there is nothing to
+  categorize.
 -->
 
 ## Contracts and data
