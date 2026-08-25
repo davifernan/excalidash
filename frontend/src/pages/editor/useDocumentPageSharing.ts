@@ -113,6 +113,15 @@ export const useDocumentPageSharing = ({
         }
         function onDisconnect() {
           clearRetry();
+          // Socket.IO only reconnects automatically while `active` is true.
+          // Collaboration-effect cleanup calls socket.disconnect(), which
+          // makes this instance permanently inactive before a replacement is
+          // created. Do not park a request on a connect event that can never
+          // fire; finish it so the widget releases its pending state.
+          if (activeSocket.active === false) {
+            cancel();
+            return;
+          }
           waitForConnect();
         }
 
