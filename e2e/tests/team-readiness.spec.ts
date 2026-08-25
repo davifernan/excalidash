@@ -81,6 +81,26 @@ import {
  *     and last-heartbeat age, watchdog violations, server-health code
  *     distribution. Readable without opening a CSV/JSON viewer.
  *
+ * ## What "last step" does NOT tell you (NIL-330, 2026-08-25 quiet-machine run)
+ *
+ * `actor-heartbeats.csv` and `lastStep` only ever record a *completed* cycle.
+ * A watchdog trip means the actor is mid-cycle, in whichever step it started
+ * and never finished -- `lastStep` at that point still names the PREVIOUS,
+ * already-finished step, not the one it is stuck in. On a quiet host (load
+ * 0.07, no other agent running) a real run measured exactly this gap: actor 6
+ * went silent for 45311ms with `lastStep: "image_ok"` -- true, but stale; the
+ * hang was in whatever step ran *after* that one, which the old artifact had
+ * no way to name.
+ *
+ * `Actor.inFlightStep` closes that gap: set the moment a step is chosen, BEFORE
+ * its action runs, and cleared back to `null` only once that action finishes
+ * (success or caught error). A watchdog violation now captures
+ * `inFlightStep` at the instant it fires, and the final artifact's per-actor
+ * summary shows it too -- a stuck actor is the one row still showing a
+ * non-null in-flight step long after its last heartbeat, naming the exact
+ * step, not just the fact of silence. See `SOAK_HANG_STEP` below for how this
+ * is proven, not just asserted.
+ *
  * NOT implemented, named rather than silently skipped (this package's
  * HANDOFF names these as the exact remaining gap against the mandated
  * profile, not a claim of having met it):
@@ -118,10 +138,22 @@ import {
  *   SOAK_ARTIFACT_DIR    default "soak-artifacts" (relative to e2e/) -- where
  *                        the heartbeat/health timeseries artifact is written
  *   SOAK_HANG_ACTOR_ID   unset by default -- if set, that actor index goes
- *                        silent forever after its first cycle instead of
- *                        continuing, to prove the artifact and watchdog both
- *                        see one actor stall while the rest keep going (the
- *                        NIL-321 evidence run; see this package's HANDOFF)
+ *                        silent forever instead of continuing, to prove the
+ *                        artifact and watchdog both see one actor stall
+ *                        while the rest keep going (the NIL-321 evidence
+ *                        run; see this package's HANDOFF). Without
+ *                        SOAK_HANG_STEP: hangs on the cycle after its first
+ *                        real one, in whatever step that cycle's own random
+ *                        roll picks -- proving inFlightStep names it even
+ *                        though nobody chose it in advance. With
+ *                        SOAK_HANG_STEP: hangs on its very first cycle,
+ *                        forced into exactly that named step -- proving
+ *                        inFlightStep names a specific, predetermined step
+ *                        (the NIL-330 Nachweispflicht for this cut).
+ *   SOAK_HANG_STEP       unset by default -- one of draw / image_ok /
+ *                        image_over / page_switch / offline_toggle /
+ *                        network_chaos. Only meaningful together with
+ *                        SOAK_HANG_ACTOR_ID; see above.
  */
 
 type Engine = "chromium" | "firefox" | "webkit";
@@ -145,6 +177,7 @@ const ENGINE_NAMES = (process.env.SOAK_ENGINES || "chromium,firefox")
   .filter((name): name is Engine => name === "chromium" || name === "firefox" || name === "webkit");
 const SHARED_WRITER_COUNT = Math.min(envInt("SOAK_SHARED_WRITERS", 2), CONTEXT_COUNT);
 const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID ? Number.parseInt(process.env.SOAK_HANG_ACTOR_ID, 10) : null;
+const HANG_STEP = process.env.SOAK_HANG_STEP || null;
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
 
@@ -170,7 +203,16 @@ type Actor = {
   boardId: string;
   widgetId: string;
   lastHeartbeatAt: number;
+  /** The most recently COMPLETED step. Stale the instant a new cycle starts
+   * -- see `inFlightStep` for what is running right now. */
   lastStep: string;
+  /** The step chosen for the cycle currently running, set before its action
+   * executes and cleared to null once it finishes (success or caught error).
+   * NIL-330: a watchdog violation that only had `lastStep` named the last
+   * thing that finished, never the thing the actor is actually stuck in --
+   * this is what a stuck actor's row is still holding when the artifact is
+   * written. See this file's header, "What 'last step' does NOT tell you". */
+  inFlightStep: string | null;
   /** Set when this actor's loop has run its course. A finished actor stops
    * sending heartbeats, which is not the same as going silent. */
   finished: boolean;
@@ -183,7 +225,14 @@ type Actor = {
   heartbeats: HeartbeatEntry[];
 };
 
-type WatchdogViolation = { actorId: number; engine: Engine; sinceMs: number };
+type WatchdogViolation = {
+  actorId: number;
+  engine: Engine;
+  sinceMs: number;
+  /** The step the actor was in the middle of when this violation fired --
+   * NIL-330's actual ask: not just that it stalled, but where. */
+  inFlightStep: string | null;
+};
 type ServerHealthEntry = { ts: number; code: number; latencyMs: number };
 
 const FINAL_CHECK_TIMEOUT_MS = envInt("SOAK_FINAL_CHECK_TIMEOUT_MS", 30_000);
@@ -261,6 +310,78 @@ const drawRect = (page: Page) =>
   });
 
 /**
+ * Which step a cycle would take, decided before anything runs.
+ *
+ * Split out from execution (see `performStep`) specifically so `runCycle` can
+ * record `actor.inFlightStep` BEFORE the action starts, not after it
+ * finishes -- see this file's header, "What 'last step' does NOT tell you".
+ * Reads `actor.widgetId`/`actor.engine` (real state) but has no side effects
+ * of its own; the roll is the only randomness.
+ */
+const decideStep = (actor: Actor, roll: number): string => {
+  if (roll < 0.4) return "draw";
+  if (roll < 0.55) return "image_ok";
+  // Above the live-collaboration ceiling on purpose -- the same guardrail
+  // team-acceptance.spec.ts proves structurally refuses this, exercised here
+  // under sustained repeated pressure instead of once.
+  if (roll < 0.6) return "image_over";
+  if (roll < 0.75 && actor.widgetId) return "page_switch";
+  if (roll < 0.85) return "offline_toggle";
+  // Latency/jitter/packet-loss: only reachable on chromium, see this file's
+  // header for why firefox/webkit do not get graduated chaos.
+  if (roll < 0.9 && actor.engine === "chromium") return "network_chaos";
+  return "none";
+};
+
+/** Executes one already-decided step's real action. Every action either
+ * succeeds or throws -- see `runCycle`'s own comment for why none of these
+ * swallow their own errors. */
+const performStep = async (actor: Actor, step: string): Promise<void> => {
+  switch (step) {
+    case "draw":
+      await drawRect(actor.page);
+      break;
+    case "image_ok":
+      await injectNoiseImage(actor.page, {
+        targetBytes: 2 * 1024 * 1024,
+        elementId: `soak_img_ok_${actor.id}_${Date.now()}`,
+        position: { x: Math.random() * 800, y: Math.random() * 600 },
+      });
+      break;
+    case "image_over":
+      await injectNoiseImage(actor.page, {
+        targetBytes: 16 * 1024 * 1024,
+        elementId: `soak_img_over_${actor.id}_${Date.now()}`,
+        position: { x: Math.random() * 800, y: Math.random() * 600 },
+      });
+      break;
+    case "page_switch": {
+      await activateDocumentWidget(actor.page);
+      const next = actor.page.getByRole("button", { name: "Next page" });
+      if (await next.isVisible()) await next.click();
+      break;
+    }
+    case "offline_toggle":
+      actor.offline = !actor.offline;
+      await actor.context.setOffline(actor.offline);
+      break;
+    case "network_chaos": {
+      const cdp = await actor.context.newCDPSession(actor.page);
+      await cdp.send("Network.emulateNetworkConditions", {
+        offline: false,
+        latency: 50 + Math.random() * 400,
+        downloadThroughput: -1,
+        uploadThroughput: -1,
+        packetLoss: Math.random() * 5,
+      });
+      break;
+    }
+    case "none":
+      break;
+  }
+};
+
+/**
  * One actor's action cycle.
  *
  * Fail-closed, per a Hans-Friedrich finding on this file (NIL-499, PR #76):
@@ -284,55 +405,38 @@ const drawRect = (page: Page) =>
  * discarded. A cycle that throws still updates the heartbeat: the actor
  * itself is not silent, it hit a real, now-recorded problem -- silence
  * (no heartbeat at all for STALE_MS) is a separate, watchdog-caught failure.
+ *
+ * `actor.inFlightStep` is set to the chosen step BEFORE `performStep` runs
+ * (NIL-330) -- if this step hangs, that is exactly the value a watchdog
+ * violation or the final artifact will see, not the previous, already-
+ * finished step `lastStep` still names. Cleared back to `null` once the step
+ * actually finishes, success or caught error alike.
  */
 const runCycle = async (actor: Actor) => {
-  let step = "none";
+  // NIL-330 Nachweispflicht hook: with SOAK_HANG_STEP set, force that exact
+  // step on this actor's very first cycle attempt (deterministic, no need to
+  // wait for the random roll to land on it). Without it, HANG_ACTOR_ID keeps
+  // the NIL-321 behaviour -- complete one real cycle, then hang on whatever
+  // step the second cycle's own roll happens to choose, proving inFlightStep
+  // names a step nobody predetermined too.
+  const forcedHangStep = actor.id === HANG_ACTOR_ID && HANG_STEP && actor.cycles === 0 ? HANG_STEP : null;
+  const step = forcedHangStep ?? decideStep(actor, Math.random());
+  actor.inFlightStep = step;
+
+  const shouldHang =
+    actor.id === HANG_ACTOR_ID && (forcedHangStep !== null || (!HANG_STEP && actor.cycles >= 1));
+
   try {
-    const roll = Math.random();
-    if (roll < 0.4) {
-      step = "draw";
-      await drawRect(actor.page);
-    } else if (roll < 0.55) {
-      step = "image_ok";
-      await injectNoiseImage(actor.page, {
-        targetBytes: 2 * 1024 * 1024,
-        elementId: `soak_img_ok_${actor.id}_${Date.now()}`,
-        position: { x: Math.random() * 800, y: Math.random() * 600 },
-      });
-    } else if (roll < 0.6) {
-      // Above the live-collaboration ceiling on purpose -- the same
-      // guardrail team-acceptance.spec.ts proves structurally refuses this,
-      // exercised here under sustained repeated pressure instead of once.
-      step = "image_over";
-      await injectNoiseImage(actor.page, {
-        targetBytes: 16 * 1024 * 1024,
-        elementId: `soak_img_over_${actor.id}_${Date.now()}`,
-        position: { x: Math.random() * 800, y: Math.random() * 600 },
-      });
-    } else if (roll < 0.75 && actor.widgetId) {
-      step = "page_switch";
-      await activateDocumentWidget(actor.page);
-      const next = actor.page.getByRole("button", { name: "Next page" });
-      if (await next.isVisible()) await next.click();
-    } else if (roll < 0.85) {
-      step = "offline_toggle";
-      actor.offline = !actor.offline;
-      await actor.context.setOffline(actor.offline);
-    } else if (roll < 0.9 && actor.engine === "chromium") {
-      // Latency/jitter/packet-loss: only reachable on chromium, see this
-      // file's header for why firefox/webkit do not get graduated chaos.
-      step = "network_chaos";
-      const cdp = await actor.context.newCDPSession(actor.page);
-      await cdp.send("Network.emulateNetworkConditions", {
-        offline: false,
-        latency: 50 + Math.random() * 400,
-        downloadThroughput: -1,
-        uploadThroughput: -1,
-        packetLoss: Math.random() * 5,
-      });
+    if (shouldHang) {
+      // Never resolves -- the watchdog is the only thing that ends the run.
+      // inFlightStep above is already set to the real step name; that is the
+      // entire point of this hook.
+      await new Promise<never>(() => {});
     }
+    await performStep(actor, step);
     actor.cycles += 1;
     actor.lastStep = step;
+    actor.inFlightStep = null;
     actor.lastHeartbeatAt = Date.now();
     actor.heartbeats.push({
       ts: actor.lastHeartbeatAt,
@@ -345,6 +449,7 @@ const runCycle = async (actor: Actor) => {
   } catch (error) {
     actor.errors.push(String(error));
     actor.lastStep = `${step}_error`;
+    actor.inFlightStep = null;
     actor.lastHeartbeatAt = Date.now();
     actor.heartbeats.push({
       ts: actor.lastHeartbeatAt,
@@ -439,13 +544,20 @@ const writeArtifact = (params: {
   const summaryLines = [
     `NIL-330 soak run ${RUN_ID}`,
     `contexts=${actors.length} engines=${ENGINE_NAMES.join("+")} sharedWriters=${SHARED_WRITER_COUNT}`,
-    `watchdog violations: ${violations.length === 0 ? "none" : violations.map((v) => `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms`).join("; ")}`,
+    `watchdog violations: ${
+      violations.length === 0
+        ? "none"
+        : violations
+            .map((v) => `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms, stuck in step "${v.inFlightStep ?? "unknown"}"`)
+            .join("; ")
+    }`,
     "",
     "per-actor:",
     ...actors.map(
       (a) =>
         `  actor ${a.id} (${a.engine}, board=${a.boardId === actors[0].boardId ? "shared" : "isolated"}): ` +
-        `${a.cycles} cycles, last step "${a.lastStep}" ${Math.round((now - a.lastHeartbeatAt) / 1000)}s ago, ${a.errors.length} errors`,
+        `${a.cycles} cycles, last completed step "${a.lastStep}" ${Math.round((now - a.lastHeartbeatAt) / 1000)}s ago, ` +
+        `in-flight step: ${a.inFlightStep === null ? "none (idle between cycles)" : `"${a.inFlightStep}"`}, ${a.errors.length} errors`,
     ),
     "",
     `server /health: ${serverHealth.length} samples, codes=${JSON.stringify(healthCodeCounts)}`,
@@ -511,6 +623,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           widgetId: "",
           lastHeartbeatAt: Date.now(),
           lastStep: "setup",
+          inFlightStep: null,
           finished: false,
           cycles: 0,
           errors: [],
@@ -566,13 +679,19 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         for (const actor of actors) {
           if (actor.finished) continue;
           if (now - actor.lastHeartbeatAt > STALE_MS) {
-            violations.push({ actorId: actor.id, engine: actor.engine, sinceMs: now - actor.lastHeartbeatAt });
+            violations.push({
+              actorId: actor.id,
+              engine: actor.engine,
+              sinceMs: now - actor.lastHeartbeatAt,
+              inFlightStep: actor.inFlightStep,
+            });
             if (!tripped) {
               tripped = true;
               tripWatchdog(
                 new Error(
                   `actor ${actor.id} (${actor.engine}) went silent for ` +
-                    `${now - actor.lastHeartbeatAt} ms, over the ${STALE_MS} ms threshold. ` +
+                    `${now - actor.lastHeartbeatAt} ms, over the ${STALE_MS} ms threshold, ` +
+                    `stuck in step "${actor.inFlightStep ?? "unknown"}". ` +
                     `Ending the run instead of waiting for a cycle that may never finish.`,
                 ),
               );
@@ -583,16 +702,11 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
 
       const startedAt = Date.now();
       const runLoops = actors.map(async (actor) => {
-        if (actor.id === HANG_ACTOR_ID) {
-          // NIL-321 evidence run: this one actor goes silent forever after
-          // its first cycle, deliberately, so the artifact and the watchdog
-          // can both be checked against a real, known stall instead of a
-          // hypothetical one. It never resolves -- the watchdog is the only
-          // thing that ends the run.
-          await runCycle(actor);
-          actor.lastStep = "hang_injected";
-          await new Promise<never>(() => {});
-        }
+        // NIL-321/NIL-330 evidence run: HANG_ACTOR_ID's hang itself now lives
+        // inside `runCycle` (see its own comment), because it has to set
+        // `inFlightStep` to the real step name before hanging in it -- that
+        // is the whole point of this hook. This loop does not special-case
+        // it at all; the actor's own runCycle call below decides.
         while (Date.now() - startedAt < DURATION_MS) {
           await runCycle(actor);
           await actor.page.waitForTimeout(CYCLE_MS + Math.random() * CYCLE_MS * 0.5);
@@ -667,6 +781,8 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           engine: a.engine,
           boardId: a.boardId,
           cycles: a.cycles,
+          lastStep: a.lastStep,
+          inFlightStep: a.inFlightStep,
           errors: a.errors,
         })),
         watchdogViolations: violations,
@@ -697,6 +813,33 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
       // block to a rejection. This is the one thing NIL-321 actually asked
       // for: evidence that survives the exact moment the run goes wrong.
       stopHealthPoll?.();
+      // A watchdog trip rejects `Promise.race` before the full report below
+      // is ever assigned, which used to leave report.json holding only its
+      // initial `{runId, sharedBoardId}` stub on exactly the runs where the
+      // full picture matters most. Fill it in from whatever is available if
+      // the try block above never got that far.
+      if (!("perActorCycles" in report)) {
+        report = {
+          ...report,
+          contextCount: CONTEXT_COUNT,
+          sharedWriterCount: SHARED_WRITER_COUNT,
+          engines: ENGINE_NAMES,
+          durationMs: DURATION_MS,
+          cycleMs: CYCLE_MS,
+          staleMs: STALE_MS,
+          incomplete: true,
+          perActorCycles: actors.map((a) => ({
+            id: a.id,
+            engine: a.engine,
+            boardId: a.boardId,
+            cycles: a.cycles,
+            lastStep: a.lastStep,
+            inFlightStep: a.inFlightStep,
+            errors: a.errors,
+          })),
+          watchdogViolations: violations,
+        };
+      }
       writeArtifact({ actors, serverHealth, violations, report });
 
       // Teardown is bounded for the same reason: a browser that will not close
