@@ -61,12 +61,14 @@ describe("the read projection", () => {
       "boundElements",
       "containerId",
       "customData",
+      "endBinding",
       "frameId",
       "height",
       "id",
       "isDeleted",
       "link",
       "name",
+      "startBinding",
       "type",
       "width",
       "x",
@@ -132,6 +134,51 @@ describe("the read projection", () => {
     expect(
       summarise(element({ boundElements: [{ id: "arrow-1", type: "arrow" }] })).boundElements,
     ).toEqual([{ id: "arrow-1", type: "arrow" }]);
+  });
+
+  it("reads an arrow's own startBinding/endBinding, or null per end when unbound (NIL-593)", () => {
+    expect(summarise(element()).startBinding).toBeNull();
+    expect(summarise(element()).endBinding).toBeNull();
+    const arrow = summarise(
+      element({
+        type: "arrow",
+        startBinding: { elementId: "box-a", focus: 0, gap: 4 },
+        endBinding: { elementId: "box-b", focus: 0, gap: 4 },
+      }),
+    );
+    expect(arrow.startBinding).toEqual({ elementId: "box-a" });
+    expect(arrow.endBinding).toEqual({ elementId: "box-b" });
+  });
+
+  it("reports null for a binding missing or malformed, rather than passing a partial object through", () => {
+    expect(summarise(element({ startBinding: null })).startBinding).toBeNull();
+    expect(summarise(element({ startBinding: {} })).startBinding).toBeNull();
+    expect(summarise(element({ startBinding: { elementId: 42 } })).startBinding).toBeNull();
+  });
+
+  /**
+   * Counter-test: break the enforcement by reverting `summarise` to a
+   * version that never reads `startBinding`/`endBinding` at all -- exactly
+   * the state this file was in before NIL-593, and a plausible regression
+   * if a future edit drops the fields again. Copied here, not
+   * `git checkout --`'d, per NIL-570/575/576's own evidence rule.
+   */
+  it("regression guard: a summarise without binding support would fail the read test above", () => {
+    const summariseWithoutBindings = (raw: Record<string, unknown>) => {
+      const {
+        startBinding: _s,
+        endBinding: _e,
+        ...rest
+      } = summarise(raw) as unknown as Record<string, unknown>;
+      return rest;
+    };
+    const broken = summariseWithoutBindings(
+      element({ type: "arrow", startBinding: { elementId: "box-a" } }),
+    );
+    expect(broken.startBinding).toBeUndefined();
+    expect(
+      summarise(element({ type: "arrow", startBinding: { elementId: "box-a" } })).startBinding,
+    ).toEqual({ elementId: "box-a" });
   });
 });
 

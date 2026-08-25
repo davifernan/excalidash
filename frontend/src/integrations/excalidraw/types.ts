@@ -43,12 +43,26 @@ export type SceneDocument = {
 /**
  * One end of a native Excalidraw binding, as recorded on the *shape* side
  * (`ExcalidrawElement.boundElements`). The arrow side of the same binding is
- * `startBinding`/`endBinding`, which this layer does not expose -- nothing
- * yet needs to read them, and this ref is enough to keep a shape's own list
- * in sync when a bound element is added or removed. See `ElementPatch`'s own
- * comment for why this exists at all.
+ * `startBinding`/`endBinding` -- see `ArrowBinding` below, added for NIL-593.
+ * See `ElementPatch`'s own comment for why this ref exists at all.
  */
 export type BoundElementRef = { readonly id: ElementId; readonly type: "arrow" | "text" };
+
+/**
+ * One end of a native Excalidraw *arrow*'s own binding (the arrow side of
+ * the same relationship `BoundElementRef` records on the shape side). `null`
+ * when that end floats free, unbound to any element.
+ *
+ * Added for NIL-593: the ambient tree-drag behavior reads `startBinding`/
+ * `endBinding` off every arrow to decide direction (which end is the
+ * "parent", which is the "child") -- a question `boundElements` alone
+ * cannot answer, since a shape's own list does not say which of its bound
+ * arrows point AT it versus AWAY from it. Only `elementId` is exposed:
+ * nothing today reads an arrow's `focus`/`gap` geometry off this
+ * projection, and growing this again later costs one field, not a
+ * migration.
+ */
+export type ArrowBinding = { readonly elementId: ElementId };
 
 /**
  * What product code is actually allowed to know about an element.
@@ -86,6 +100,13 @@ export type ElementSummary = {
    * layer at the raw element.
    */
   readonly boundElements: readonly BoundElementRef[] | null;
+  /**
+   * An arrow's own two ends (NIL-593). `null` on every non-arrow element,
+   * and `null` per end when that end is unbound. See `ArrowBinding`'s own
+   * comment for why only `elementId` is exposed.
+   */
+  readonly startBinding: ArrowBinding | null;
+  readonly endBinding: ArrowBinding | null;
 };
 
 /**
