@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type Page } from "playwright";
-import { createDrawing, deleteDrawing } from "./helpers/api";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { createDrawing, deleteDrawing, API_URL } from "./helpers/api";
 import {
   dropMarkdown,
   documentPageLabel,
@@ -42,6 +44,42 @@ import {
  *     chromium contexts specifically, where Playwright actually exposes it.
  *   - A watchdog that fails the run the moment any context's heartbeat goes
  *     stale, not just at the end.
+ *   - A per-actor heartbeat timeseries and a server-side `/health` timeseries
+ *     (code + latency, once a second, for the whole run), written to disk as
+ *     an artifact even when the watchdog trips (NIL-321). Before this, the
+ *     watchdog's own error message was the only evidence of a stall, and it
+ *     names exactly one actor -- whether the other nine kept working or also
+ *     went quiet was structurally unobservable. See "Reading the artifact"
+ *     below.
+ *   - Bounded data isolation across the ten contexts (NIL-321): only
+ *     SOAK_SHARED_WRITERS actors (default 2) share the collaborative board
+ *     NIL-330 mandates ("mindestens zwei konkurrierende Schreiber", page-
+ *     switch convergence); every other actor gets its own drawing, created
+ *     the same way. Full per-context isolation (all ten on separate boards)
+ *     would drop the shared-board requirement entirely, and separate SQLite
+ *     databases per context are not warranted here: `/health` was measured
+ *     healthy (12ms median, p95 57ms) at the exact moment an actor went
+ *     silent, so DB-wide contention was already the least likely explanation
+ *     going into this cut -- see NIL-321's kickoff. Reducing eight of ten
+ *     actors' writes to their own row is enough to rule out the same-row
+ *     lock-contention reading of that hypothesis without touching the
+ *     mandated collaboration path or paying for N separate databases.
+ *
+ * ## Reading the artifact
+ *
+ * Every run (pass, fail, or watchdog trip) writes `SOAK_ARTIFACT_DIR`
+ * (default `<e2e>/soak-artifacts/<runId>/`):
+ *   - `actor-heartbeats.csv`   -- ts,actorId,engine,boardId,cycle,step (one
+ *     row per completed cycle, per actor; a gap in one actor's rows near the
+ *     end while others keep rows coming is exactly "did the room stall, or
+ *     just this one actor" made visible without re-running anything).
+ *   - `server-health.csv`     -- ts,code,latencyMs, once a second for the
+ *     whole run (same shape as the health-poller.sh pattern this reuses).
+ *   - `report.json`           -- the full structured report (also printed as
+ *     `NIL330_SOAK_RESULT=...` to stdout, unchanged from before).
+ *   - `summary.txt`           -- plain-text roll-up: per-actor cycle counts
+ *     and last-heartbeat age, watchdog violations, server-health code
+ *     distribution. Readable without opening a CSV/JSON viewer.
  *
  * NOT implemented, named rather than silently skipped (this package's
  * HANDOFF names these as the exact remaining gap against the mandated
@@ -75,6 +113,15 @@ import {
  *   SOAK_STALE_MS        default 3x SOAK_CYCLE_MS -- watchdog threshold
  *   SOAK_ENGINES         default "chromium,firefox" -- comma-separated,
  *                        any of chromium/firefox/webkit
+ *   SOAK_SHARED_WRITERS  default 2 -- actors sharing the one collaborative
+ *                        board; the rest each get their own drawing
+ *   SOAK_ARTIFACT_DIR    default "soak-artifacts" (relative to e2e/) -- where
+ *                        the heartbeat/health timeseries artifact is written
+ *   SOAK_HANG_ACTOR_ID   unset by default -- if set, that actor index goes
+ *                        silent forever after its first cycle instead of
+ *                        continuing, to prove the artifact and watchdog both
+ *                        see one actor stall while the rest keep going (the
+ *                        NIL-321 evidence run; see this package's HANDOFF)
  */
 
 type Engine = "chromium" | "firefox" | "webkit";
@@ -96,6 +143,10 @@ const ENGINE_NAMES = (process.env.SOAK_ENGINES || "chromium,firefox")
   .split(",")
   .map((name) => name.trim())
   .filter((name): name is Engine => name === "chromium" || name === "firefox" || name === "webkit");
+const SHARED_WRITER_COUNT = Math.min(envInt("SOAK_SHARED_WRITERS", 2), CONTEXT_COUNT);
+const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID ? Number.parseInt(process.env.SOAK_HANG_ACTOR_ID, 10) : null;
+const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
 
 // This spec launches browsers directly with `chromium.launch()` instead of
 // through the `browser`/`page` fixtures (it needs several engines at once,
@@ -106,22 +157,34 @@ const ENGINE_NAMES = (process.env.SOAK_ENGINES || "chromium,firefox")
 const FRONTEND_PORT = Number(process.env.FRONTEND_PORT) || 6767;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${FRONTEND_PORT}`;
 
+type HeartbeatEntry = { ts: number; actorId: number; engine: Engine; boardId: string; cycle: number; step: string };
+
 type Actor = {
   id: number;
   engine: Engine;
   browser: Browser;
   context: BrowserContext;
   page: Page;
+  /** Drawing this actor acts on -- the shared board for the first
+   * SHARED_WRITER_COUNT actors, an own isolated drawing for the rest. */
+  boardId: string;
+  widgetId: string;
   lastHeartbeatAt: number;
+  lastStep: string;
   /** Set when this actor's loop has run its course. A finished actor stops
    * sending heartbeats, which is not the same as going silent. */
   finished: boolean;
   cycles: number;
   errors: string[];
   offline: boolean;
+  /** Timeseries evidence for NIL-321: does silence from one actor mean the
+   * room stalled, or just this one? Written to the artifact even when the
+   * watchdog trips -- see this file's header, "Reading the artifact". */
+  heartbeats: HeartbeatEntry[];
 };
 
 type WatchdogViolation = { actorId: number; engine: Engine; sinceMs: number };
+type ServerHealthEntry = { ts: number; code: number; latencyMs: number };
 
 const FINAL_CHECK_TIMEOUT_MS = envInt("SOAK_FINAL_CHECK_TIMEOUT_MS", 30_000);
 
@@ -222,12 +285,15 @@ const drawRect = (page: Page) =>
  * itself is not silent, it hit a real, now-recorded problem -- silence
  * (no heartbeat at all for STALE_MS) is a separate, watchdog-caught failure.
  */
-const runCycle = async (actor: Actor, drawingId: string, widgetId: string) => {
+const runCycle = async (actor: Actor) => {
+  let step = "none";
   try {
     const roll = Math.random();
     if (roll < 0.4) {
+      step = "draw";
       await drawRect(actor.page);
     } else if (roll < 0.55) {
+      step = "image_ok";
       await injectNoiseImage(actor.page, {
         targetBytes: 2 * 1024 * 1024,
         elementId: `soak_img_ok_${actor.id}_${Date.now()}`,
@@ -237,21 +303,25 @@ const runCycle = async (actor: Actor, drawingId: string, widgetId: string) => {
       // Above the live-collaboration ceiling on purpose -- the same
       // guardrail team-acceptance.spec.ts proves structurally refuses this,
       // exercised here under sustained repeated pressure instead of once.
+      step = "image_over";
       await injectNoiseImage(actor.page, {
         targetBytes: 16 * 1024 * 1024,
         elementId: `soak_img_over_${actor.id}_${Date.now()}`,
         position: { x: Math.random() * 800, y: Math.random() * 600 },
       });
-    } else if (roll < 0.75 && widgetId) {
+    } else if (roll < 0.75 && actor.widgetId) {
+      step = "page_switch";
       await activateDocumentWidget(actor.page);
       const next = actor.page.getByRole("button", { name: "Next page" });
       if (await next.isVisible()) await next.click();
     } else if (roll < 0.85) {
+      step = "offline_toggle";
       actor.offline = !actor.offline;
       await actor.context.setOffline(actor.offline);
     } else if (roll < 0.9 && actor.engine === "chromium") {
       // Latency/jitter/packet-loss: only reachable on chromium, see this
       // file's header for why firefox/webkit do not get graduated chaos.
+      step = "network_chaos";
       const cdp = await actor.context.newCDPSession(actor.page);
       await cdp.send("Network.emulateNetworkConditions", {
         offline: false,
@@ -262,11 +332,127 @@ const runCycle = async (actor: Actor, drawingId: string, widgetId: string) => {
       });
     }
     actor.cycles += 1;
+    actor.lastStep = step;
     actor.lastHeartbeatAt = Date.now();
+    actor.heartbeats.push({
+      ts: actor.lastHeartbeatAt,
+      actorId: actor.id,
+      engine: actor.engine,
+      boardId: actor.boardId,
+      cycle: actor.cycles,
+      step,
+    });
   } catch (error) {
     actor.errors.push(String(error));
+    actor.lastStep = `${step}_error`;
     actor.lastHeartbeatAt = Date.now();
+    actor.heartbeats.push({
+      ts: actor.lastHeartbeatAt,
+      actorId: actor.id,
+      engine: actor.engine,
+      boardId: actor.boardId,
+      cycle: actor.cycles,
+      step: actor.lastStep,
+    });
   }
+};
+
+/** Server-side evidence for the same "one actor or all of them?" question
+ * (see this file's header): polls `/health` once a second for the whole run
+ * and keeps recording after the watchdog trips, same shape as the
+ * health-poller.sh pattern this reuses. */
+const startServerHealthPoll = (apiUrl: string, entries: ServerHealthEntry[]) => {
+  let stopped = false;
+  const tick = async () => {
+    if (stopped) return;
+    const t0 = Date.now();
+    let code = 0;
+    try {
+      const res = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(5_000) });
+      code = res.status;
+    } catch {
+      code = 0;
+    }
+    entries.push({ ts: Date.now(), code, latencyMs: Date.now() - t0 });
+  };
+  const timer = setInterval(tick, 1_000);
+  void tick();
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+};
+
+/** Drops the same markdown fixture host setup used and returns the
+ * resulting document widget's element id, for one board. Called once per
+ * unique board (the shared board, and each isolated actor's own board) so
+ * every actor's page-switch step has something to switch. */
+const setupBoardWidget = async (page: Page): Promise<string> => {
+  // Same shape document-pages.spec.ts's own (proven) MARKDOWN constant
+  // uses: enough distinct body text per section to actually split into
+  // multiple pages, not just render as one long single page. The nested
+  // template -- `.repeat` on the inner body string, not the whole
+  // section -- matters: applying it to the outer string instead
+  // duplicates the heading into the body and produces far less real
+  // content per byte, which was this file's first smoke-test failure.
+  const markdown = Array.from(
+    { length: 60 },
+    (_, i) => `## Section ${i + 1}\n\n${`Soak body ${i + 1}. `.repeat(30)}\n`,
+  ).join("\n");
+  await dropMarkdown(page, markdown);
+  await activateDocumentWidget(page);
+  await expect(documentPageLabel(page)).toContainText("Page 1 of", { timeout: 30_000 });
+  return (await page.evaluate(() => (window as any).__EXCALIDASH_TEST__.getSceneElements()))[0]?.id;
+};
+
+const csvEscape = (value: string) => (/[,"\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+
+const writeArtifact = (params: {
+  actors: Actor[];
+  serverHealth: ServerHealthEntry[];
+  violations: WatchdogViolation[];
+  report: Record<string, unknown>;
+}) => {
+  const { actors, serverHealth, violations, report } = params;
+  mkdirSync(ARTIFACT_DIR, { recursive: true });
+
+  const heartbeatRows = ["ts,actorId,engine,boardId,cycle,step"];
+  for (const actor of actors) {
+    for (const hb of actor.heartbeats) {
+      heartbeatRows.push(
+        [hb.ts, hb.actorId, hb.engine, csvEscape(hb.boardId), hb.cycle, csvEscape(hb.step)].join(","),
+      );
+    }
+  }
+  writeFileSync(join(ARTIFACT_DIR, "actor-heartbeats.csv"), heartbeatRows.join("\n") + "\n");
+
+  const healthRows = ["ts,code,latencyMs", ...serverHealth.map((h) => `${h.ts},${h.code},${h.latencyMs}`)];
+  writeFileSync(join(ARTIFACT_DIR, "server-health.csv"), healthRows.join("\n") + "\n");
+
+  writeFileSync(join(ARTIFACT_DIR, "report.json"), JSON.stringify(report, null, 2));
+
+  const now = Date.now();
+  const healthCodeCounts = serverHealth.reduce<Record<string, number>>((acc, h) => {
+    acc[h.code] = (acc[h.code] || 0) + 1;
+    return acc;
+  }, {});
+  const summaryLines = [
+    `NIL-330 soak run ${RUN_ID}`,
+    `contexts=${actors.length} engines=${ENGINE_NAMES.join("+")} sharedWriters=${SHARED_WRITER_COUNT}`,
+    `watchdog violations: ${violations.length === 0 ? "none" : violations.map((v) => `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms`).join("; ")}`,
+    "",
+    "per-actor:",
+    ...actors.map(
+      (a) =>
+        `  actor ${a.id} (${a.engine}, board=${a.boardId === actors[0].boardId ? "shared" : "isolated"}): ` +
+        `${a.cycles} cycles, last step "${a.lastStep}" ${Math.round((now - a.lastHeartbeatAt) / 1000)}s ago, ${a.errors.length} errors`,
+    ),
+    "",
+    `server /health: ${serverHealth.length} samples, codes=${JSON.stringify(healthCodeCounts)}`,
+  ];
+  writeFileSync(join(ARTIFACT_DIR, "summary.txt"), summaryLines.join("\n") + "\n");
+
+  console.log(`NIL330_SOAK_ARTIFACT_DIR=${ARTIFACT_DIR}`);
 };
 
 test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
@@ -283,15 +469,33 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
     });
 
     const actors: Actor[] = [];
-    let widgetId = "";
+    const serverHealth: ServerHealthEntry[] = [];
+    const violations: WatchdogViolation[] = [];
+    let stopHealthPoll: (() => void) | null = null;
+    let report: Record<string, unknown> = { runId: RUN_ID, sharedBoardId: drawing.id };
 
     try {
+      stopHealthPoll = startServerHealthPoll(API_URL, serverHealth);
+
       for (let i = 0; i < CONTEXT_COUNT; i += 1) {
         const engine = ENGINE_NAMES[i % ENGINE_NAMES.length];
         const browser = await ENGINES[engine].launch();
         const context = await browser.newContext({ baseURL: BASE_URL });
         const page = await context.newPage();
-        await page.goto(`/editor/${drawing.id}`);
+        // See this file's header, "isolation is bounded": only the first
+        // SHARED_WRITER_COUNT actors share `drawing` -- the rest each get
+        // their own isolated board, created the same way.
+        const boardId =
+          i < SHARED_WRITER_COUNT
+            ? drawing.id
+            : (
+                await createDrawing(request, {
+                  name: `NIL330_TeamReadiness_${Date.now()}_actor${i}`,
+                  elements: [],
+                  files: {},
+                })
+              ).id;
+        await page.goto(`/editor/${boardId}`);
         await page.waitForSelector("canvas", { timeout: 30_000 });
         await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__, undefined, {
           timeout: 30_000,
@@ -303,34 +507,42 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           browser,
           context,
           page,
+          boardId,
+          widgetId: "",
           lastHeartbeatAt: Date.now(),
+          lastStep: "setup",
           finished: false,
           cycles: 0,
           errors: [],
           offline: false,
+          heartbeats: [],
         });
       }
 
-      const host = actors[0].page;
-      // Same shape document-pages.spec.ts's own (proven) MARKDOWN constant
-      // uses: enough distinct body text per section to actually split into
-      // multiple pages, not just render as one long single page. The nested
-      // template -- `.repeat` on the inner body string, not the whole
-      // section -- matters: applying it to the outer string instead
-      // duplicates the heading into the body and produces far less real
-      // content per byte, which was this file's first smoke-test failure.
-      const markdown = Array.from(
-        { length: 60 },
-        (_, i) => `## Section ${i + 1}\n\n${`Soak body ${i + 1}. `.repeat(30)}\n`,
-      ).join("\n");
-      await dropMarkdown(host, markdown);
-      await activateDocumentWidget(host);
-      await expect(documentPageLabel(host)).toContainText("Page 1 of", { timeout: 30_000 });
-      widgetId = (
-        await host.evaluate(() => (window as any).__EXCALIDASH_TEST__.getSceneElements())
-      )[0]?.id;
+      // One document-widget setup per unique board: the shared board once
+      // (for every shared-writer actor), then once per isolated actor's own
+      // board, so every actor's page-switch step has something to switch.
+      const widgetByBoard = new Map<string, string>();
+      for (const actor of actors) {
+        let widgetId = widgetByBoard.get(actor.boardId);
+        if (widgetId === undefined) {
+          widgetId = await setupBoardWidget(actor.page);
+          widgetByBoard.set(actor.boardId, widgetId);
+        }
+        actor.widgetId = widgetId;
+      }
 
-      const violations: WatchdogViolation[] = [];
+      // Setup (context launch, then one widget drop per unique board,
+      // sequential) can itself take longer than STALE_MS once isolation
+      // multiplies the widget setup across several boards -- every actor's
+      // `lastHeartbeatAt` was stamped when its context was created, not when
+      // setup as a whole finished, so the watchdog (started below) could
+      // trip on setup latency it was never meant to measure. Reset here,
+      // once, right before the clock that matters starts.
+      for (const actor of actors) {
+        actor.lastHeartbeatAt = Date.now();
+      }
+
       // The watchdog has to be able to END the run, not just describe it.
       //
       // It used to only push into `violations`, which is read after
@@ -371,8 +583,18 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
 
       const startedAt = Date.now();
       const runLoops = actors.map(async (actor) => {
+        if (actor.id === HANG_ACTOR_ID) {
+          // NIL-321 evidence run: this one actor goes silent forever after
+          // its first cycle, deliberately, so the artifact and the watchdog
+          // can both be checked against a real, known stall instead of a
+          // hypothetical one. It never resolves -- the watchdog is the only
+          // thing that ends the run.
+          await runCycle(actor);
+          actor.lastStep = "hang_injected";
+          await new Promise<never>(() => {});
+        }
         while (Date.now() - startedAt < DURATION_MS) {
-          await runCycle(actor, drawing.id, widgetId);
+          await runCycle(actor);
           await actor.page.waitForTimeout(CYCLE_MS + Math.random() * CYCLE_MS * 0.5);
           // The pause between cycles is by design, not a symptom. Without this
           // heartbeat it counted against STALE_MS, which left far less headroom
@@ -429,9 +651,11 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         })),
       );
 
-      const report = {
+      report = {
+        runId: RUN_ID,
         drawingId: drawing.id,
         contextCount: CONTEXT_COUNT,
+        sharedWriterCount: SHARED_WRITER_COUNT,
         engines: ENGINE_NAMES,
         durationMs: DURATION_MS,
         cycleMs: CYCLE_MS,
@@ -441,11 +665,13 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         perActorCycles: actors.map((a) => ({
           id: a.id,
           engine: a.engine,
+          boardId: a.boardId,
           cycles: a.cycles,
           errors: a.errors,
         })),
         watchdogViolations: violations,
         finalConnectivity,
+        serverHealthSamples: serverHealth.length,
       };
       console.log(`NIL330_SOAK_RESULT=${JSON.stringify(report)}`);
 
@@ -465,6 +691,14 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         expect(entry.connected, `actor ${entry.actorId} (${entry.engine}) must end the run connected`).toBe(true);
       }
     } finally {
+      // The artifact is written here -- before teardown, after everything
+      // that can still throw above -- so it exists whether the run passed,
+      // failed its assertions, or the watchdog tripped and raced the try
+      // block to a rejection. This is the one thing NIL-321 actually asked
+      // for: evidence that survives the exact moment the run goes wrong.
+      stopHealthPoll?.();
+      writeArtifact({ actors, serverHealth, violations, report });
+
       // Teardown is bounded for the same reason: a browser that will not close
       // must not hold an unattended eight-hour run open indefinitely. Failures
       // here are swallowed -- the run's verdict was already decided above, and
@@ -482,6 +716,11 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         ).catch(() => {});
       }
       await deleteDrawing(request, drawing.id).catch(() => {});
+      for (const actor of actors) {
+        if (actor.boardId !== drawing.id) {
+          await deleteDrawing(request, actor.boardId).catch(() => {});
+        }
+      }
     }
   });
 });
