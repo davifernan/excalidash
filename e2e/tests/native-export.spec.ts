@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
-import { injectNoiseImage, openEditor } from "./helpers/editor";
+import { openEditor } from "./helpers/editor";
 
 /**
  * NIL-340 -- the "Export" half of M1's Pflichtpfad "Widgets/Read-only/Export".
@@ -54,6 +54,20 @@ const rect = {
   locked: false,
 };
 
+const STORED_IMAGE_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+const storedImageElement = (fileId: string) => ({
+  ...rect,
+  id: "nil547-native-image",
+  type: "image",
+  backgroundColor: "transparent",
+  fileId,
+  status: "saved",
+  scale: [1, 1],
+  crop: null,
+});
+
 test("Export drawing downloads a .excalidraw file carrying the current scene", async ({
   page,
   request,
@@ -101,21 +115,32 @@ test("Export drawing bundles a stored board image instead of its source-instance
   page,
   request,
 }) => {
+  const sourceBytes = Buffer.from(STORED_IMAGE_BASE64, "base64");
+  const fileId = createHash("sha1").update(sourceBytes).digest("hex");
   const drawing = await createDrawing(request, {
     name: `NIL547_PortableNativeExport_${Date.now()}`,
-    elements: [],
+    elements: [storedImageElement(fileId)],
+    files: {
+      [fileId]: {
+        id: fileId,
+        mimeType: "image/png",
+        dataURL: `data:image/png;base64,${STORED_IMAGE_BASE64}`,
+        created: Date.now(),
+      },
+    },
   });
 
   try {
+    // This spec exercises export of an already-stored image. Preparing that
+    // state through the editor's debounced autosave made the precondition an
+    // unrelated 10 s race: the historical failure observed one drawing PUT,
+    // then an empty persisted dataURL until the poll expired. Drawing creation
+    // processes embedded images synchronously, so its response is the durable
+    // boundary the export scenario actually needs.
+    expect(drawing.files?.[fileId]?.dataURL).toBe(`/api/files/${drawing.id}/${fileId}`);
     await openEditor(page, drawing.id);
-    const inserted = await injectNoiseImage(page, {
-      targetBytes: 12_000,
-      elementId: "nil547-native-image",
-      withHash: true,
-    });
-    await expect
-      .poll(async () => (await getDrawing(request, drawing.id)).files?.[inserted.fileId]?.dataURL)
-      .toBe(`/api/files/${drawing.id}/${inserted.fileId}`);
+    const persisted = await getDrawing(request, drawing.id);
+    expect(persisted.files?.[fileId]?.dataURL).toBe(`/api/files/${drawing.id}/${fileId}`);
 
     await openMenu(page);
     const [download] = await Promise.all([
@@ -126,10 +151,10 @@ test("Export drawing bundles a stored board image instead of its source-instance
     const chunks: Buffer[] = [];
     for await (const chunk of stream) chunks.push(chunk as Buffer);
     const contents = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
-    const exportedDataUrl = contents.files[inserted.fileId].dataURL as string;
+    const exportedDataUrl = contents.files[fileId].dataURL as string;
     expect(exportedDataUrl).toMatch(/^data:image\/png;base64,/);
     const exportedBytes = Buffer.from(exportedDataUrl.split(",", 2)[1], "base64");
-    expect(createHash("sha1").update(exportedBytes).digest("hex")).toBe(inserted.fileId);
+    expect(createHash("sha1").update(exportedBytes).digest("hex")).toBe(fileId);
   } finally {
     await deleteDrawing(request, drawing.id);
   }
