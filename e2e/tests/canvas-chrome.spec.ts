@@ -122,6 +122,40 @@ test.describe("the hamburger carries the board's identity and the way back", () 
     expect(toolbar).not.toBeNull();
     expect(hamburger!.y).toBeCloseTo(toolbar!.y, 0);
   });
+
+  // NIL-579 finding 1 (Hans-Friedrich review, PR #147): the ticket's mandate
+  // named the hamburger explicitly ("Leiste oben rechts, Timer, Hamburger --
+  // faellt auf ein zurueckgenommenes Grau zurueck"), not just the top-right
+  // bar. This pins the recessed treatment at the actual DOM/CSS seam: no
+  // box-shadow ring, and a lower-contrast icon than the main toolbar's own.
+  test("the hamburger trigger carries the same recessed treatment as the top-right bar", async ({
+    page,
+  }) => {
+    await openEditor(page, drawingId);
+
+    const trigger = page.getByTestId("main-menu-trigger");
+    const style = await trigger.evaluate((element) => {
+      const computed = getComputedStyle(element);
+      return { boxShadow: computed.boxShadow, backgroundColor: computed.backgroundColor };
+    });
+    expect(style.boxShadow).toBe("none");
+    expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+
+    const iconColor = await trigger
+      .locator("svg")
+      .first()
+      .evaluate((element) => getComputedStyle(element).color);
+    // `data-testid="toolbar-selection"` sits on the (childless) <input>, not
+    // its wrapping <label> -- the icon <svg> is a sibling under
+    // `.ToolIcon__icon`, not a descendant of the input, so the selector has
+    // to anchor on the label via `:has()` rather than the testid element
+    // itself (confirmed against the live DOM, NIL-579 fix-round).
+    const toolbarIconColor = await page
+      .locator('.App-toolbar label:has([data-testid="toolbar-selection"]) svg')
+      .first()
+      .evaluate((element) => getComputedStyle(element).color);
+    expect(iconColor).not.toBe(toolbarIconColor);
+  });
 });
 
 test.describe("the top-right control group reads as one bar", () => {
@@ -175,7 +209,9 @@ test.describe("the top-right control group reads as one bar", () => {
     await openEditor(page, drawingId);
 
     const wrapperBox = (await page.locator(".layer-ui__wrapper__top-right").boundingBox())!;
-    const toolbarBox = (await page.locator(".App-toolbar-container .Island.App-toolbar").boundingBox())!;
+    const toolbarBox = (await page
+      .locator(".App-toolbar-container .Island.App-toolbar")
+      .boundingBox())!;
     expect(wrapperBox.height).toBeCloseTo(toolbarBox.height, 0);
   });
 
@@ -195,7 +231,10 @@ test.describe("the top-right control group reads as one bar", () => {
       .locator(".layer-ui__wrapper__top-right .sidebar-trigger.default-sidebar-trigger svg")
       .first()
       .boundingBox())!;
-    const shareIcon = (await page.locator('[data-testid="editor-share"] svg').first().boundingBox())!;
+    const shareIcon = (await page
+      .locator('[data-testid="editor-share"] svg')
+      .first()
+      .boundingBox())!;
 
     const libraryCenter = libraryIcon.y + libraryIcon.height / 2;
     const shareCenter = shareIcon.y + shareIcon.height / 2;

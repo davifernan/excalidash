@@ -90,6 +90,41 @@
   background: transparent;
   box-shadow: none;
   height: 2.75rem;
+  /* NIL-579: Excalidraw's own Library trigger keeps the same recessed icon
+     contrast as our own header controls, for the same "present, not
+     competing" reason -- see `.editor-header-control` above. Merged with the
+     rule block that used to sit near the divider comment below (Hans-
+     Friedrich review on PR #147, finding 2) -- same selector, no cascade or
+     specificity reason to keep them apart. */
+  color: var(--color-gray-60);
+}
+
+/**
+ * NIL-579 finding 1 (Hans-Friedrich review, PR #147): the ticket's mandate
+ * ("Leiste oben rechts, Timer, Hamburger -- faellt auf ein zurueckgenommenes
+ * Grau zurueck") named the hamburger trigger explicitly; only the top-right
+ * bar had a dedicated rule before this. The timer is deliberately NOT touched
+ * here -- it is NIL-578's scope (PR #148, in flight: white while running,
+ * recessed grey when idle/expired), and this file must not race that PR's
+ * background/shadow rule.
+ *
+ * Selector: MainMenu's trigger button carries both `.dropdown-menu-button`
+ * (shared with every other dropdown trigger, e.g. Library's sidebar-trigger
+ * above) and `.main-menu-trigger` (this one only) -- confirmed against the
+ * installed @excalidraw/excalidraw@0.18.1 bundle
+ * (dist/dev/index.js: `className: "main-menu-trigger"` on
+ * `DropdownMenu.Trigger`, `data-testid="main-menu-trigger"`) and the rendered
+ * DOM in a live editor. Excalidraw's own stylesheet already gives
+ * `.main-menu-trigger` a `--color-surface-low` background (the same token
+ * family used for the top-right bar above) but keeps a 1px
+ * `--color-surface-lowest` box-shadow ring and the default icon contrast --
+ * both of which still make it compete with `.App-toolbar` the way the bar
+ * did before this ticket. Only the shadow and icon contrast need overriding;
+ * the background token was already correct upstream.
+ */
+.excalidraw .main-menu-trigger.dropdown-menu-button {
+  box-shadow: none;
+  color: var(--color-gray-60);
 }
 
 .editor-header-controls {
@@ -133,13 +168,6 @@
   font-size: 0.625rem;
   font-weight: 700;
   margin-inline-start: 0.15rem;
-}
-
-/* NIL-579: Excalidraw's own Library trigger keeps the same recessed icon
-   contrast as our own header controls, for the same "present, not
-   competing" reason -- see `.editor-header-control` above. */
-.layer-ui__wrapper__top-right .sidebar-trigger.default-sidebar-trigger {
-  color: var(--color-gray-60);
 }
 
 /**
@@ -193,8 +221,7 @@
  * Hide only the island identified by Excalidraw's own Laser test id; disabling
  * collaboration to remove it would silently remove those Excalidraw features.
  */
-.App-toolbar-container
-  > .Island:not(.App-toolbar):has([data-testid="toolbar-LaserPointer"]) {
+.App-toolbar-container > .Island:not(.App-toolbar):has([data-testid="toolbar-LaserPointer"]) {
   /* !important: the Island carries inline layout styles from Excalidraw. */
   display: none !important;
 }
