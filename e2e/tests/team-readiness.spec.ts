@@ -135,6 +135,22 @@ import {
  * top of a button that never left. See `PageSwitchTrace` and
  * `clickPageSwitchButton` for exactly what is sampled and when.
  *
+ * ## Bounded is not the same as correct (NIL-330, follow-up)
+ *
+ * The bound above turned an infinite hang into a 5s failure, but every one of
+ * those failures was still real: 30 of 39 measured page_switch attempts timed
+ * out, all 39 with `moved: false`, on a button that was never covered either.
+ * The actual cause is `isVisible()` itself. `TextDocumentWidget.tsx` and
+ * `PdfWidget.tsx` render "Next page" with `disabled={pending || pageIndex ===
+ * pageCount - 1}` -- disabled, not unmounted, on the last page. `isVisible()`
+ * is true for a disabled-but-rendered button, so the old precheck always
+ * passed there and `click()`'s own actionability wait then blocked forever on
+ * a control that was never going to become clickable. `isEnabled()` is the
+ * actual precondition. On its own that still leaves a second failure mode:
+ * once every actor has walked to the last page, `page_switch` becomes a
+ * permanent no-op that exercises nothing. `performStep` below occasionally
+ * pages backward for exactly that reason -- see its own comment.
+ *
  * NOT implemented, named rather than silently skipped (this package's
  * HANDOFF names these as the exact remaining gap against the mandated
  * profile, not a claim of having met it):
@@ -437,9 +453,10 @@ const decideStep = (actor: Actor, roll: number): string => {
 };
 
 /**
- * Attempts the "Next page" click with a bound (`PAGE_SWITCH_CLICK_TIMEOUT_MS`)
- * and a position trace, per NIL-330's own diagnostic ask: does the button
- * move while we wait on it (the NIL-565/NIL-573 floating toolbar, which
+ * Attempts the "Next page"/"Previous page" click with a bound
+ * (`PAGE_SWITCH_CLICK_TIMEOUT_MS`) and a position trace, per NIL-330's own
+ * diagnostic ask: does the button move while we wait on it (the
+ * NIL-565/NIL-573 floating toolbar, which
  * follows the active element and dodges obstacles), or does it hold still
  * while something else sits on top of it? Measured here, not assumed.
  *
@@ -547,12 +564,24 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       break;
     case "page_switch": {
       await activateDocumentWidget(actor.page);
-      const next = actor.page.getByRole("button", { name: "Next page" });
-      // The isVisible() precheck stays: on the last page the button never
-      // renders at all, and that is an expected no-op, not a failure worth
-      // spending PAGE_SWITCH_CLICK_TIMEOUT_MS finding out. Once it IS
-      // visible, the bounded, traced click below is the only path in.
-      if (await next.isVisible()) await clickPageSwitchButton(actor, next);
+      // Paging backward sometimes, not just forward: both buttons stay
+      // mounted (disabled, not hidden) at either end of the document, so an
+      // actor that only ever goes forward eventually parks on the last page
+      // and this step turns into a permanent no-op that tests nothing
+      // (NIL-330 follow-up). 20% backward is enough to keep actors cycling
+      // through the interior of a multi-page document instead of draining
+      // to one end and staying there.
+      const goBack = Math.random() < 0.2;
+      const button = actor.page.getByRole("button", {
+        name: goBack ? "Previous page" : "Next page",
+      });
+      // isEnabled(), not isVisible(): the button renders on every page --
+      // disabled, never unmounted -- at the start/end of the document
+      // (TextDocumentWidget.tsx, PdfWidget.tsx). isVisible() is true for a
+      // disabled button too, so the precheck was passing right into the
+      // actionability wait it was meant to avoid. See this file's header,
+      // "Bounded is not the same as correct".
+      if (await button.isEnabled()) await clickPageSwitchButton(actor, button);
       break;
     }
     case "offline_toggle":
