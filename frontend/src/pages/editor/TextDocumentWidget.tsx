@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Loader2, Pencil, Save, X } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -128,6 +128,12 @@ export const TextDocumentWidget = ({
     return () => controller.abort();
   }, [loaded]);
 
+  // React deprioritizes work computed from a deferred value, so a large
+  // document's Markdown re-parse on every keystroke never competes with the
+  // textarea's own commit -- typing latency is unaffected by construction,
+  // not by tuning a debounce delay (NIL-583, precedent: NIL-551).
+  const deferredDraft = useDeferredValue(draft);
+
   const pageCount = pages?.length ?? 0;
   const {
     page: pageNumber,
@@ -229,14 +235,31 @@ export const TextDocumentWidget = ({
         ) : null}
         {error ? <p className="text-document-widget__status">{error}</p> : null}
         {editing ? (
-          <textarea
-            className="text-document-widget__editor"
-            aria-label="Markdown source"
-            value={draft}
-            disabled={saving}
-            spellCheck
-            onChange={(event) => setDraft(event.target.value)}
-          />
+          <div className="text-document-widget__edit-split">
+            <textarea
+              className="text-document-widget__editor"
+              aria-label="Markdown source"
+              value={draft}
+              disabled={saving}
+              spellCheck
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <span className="text-document-widget__edit-divider" aria-hidden="true" />
+            {/*
+             * Same ReactMarkdown + markdownComponents pipeline as the view-mode
+             * render below -- no new sanitization surface. The content is a
+             * deferred copy of the draft (see useDeferredValue above), never
+             * the draft itself, so this pane can never race the save path.
+             */}
+            <div
+              className="text-document-widget__markdown text-document-widget__edit-preview"
+              aria-label="Markdown preview"
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {deferredDraft}
+              </ReactMarkdown>
+            </div>
+          </div>
         ) : null}
         {!editing && pages && loaded?.asset.kind === "TEXT" ? (
           <pre className="text-document-widget__plain">{page}</pre>

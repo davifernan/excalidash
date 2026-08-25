@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getDocumentAsset,
@@ -133,6 +133,84 @@ describe("TextDocumentWidget", () => {
     });
     expect(screen.queryByRole("textbox", { name: "Markdown source" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Persisted" })).toBeInTheDocument();
+  });
+
+  it("renders a live preview beside the source while typing, without switching modes (NIL-583)", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Original");
+    const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+        onAcquireEditLock={acquire}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Markdown" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown source" });
+    const preview = screen.getByLabelText("Markdown preview");
+
+    // Editing mode itself, not a mode switch, is what produces the preview.
+    expect(editor).toBeInTheDocument();
+    expect(preview).toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: "# Original\n\nThis is **bold**." } });
+
+    await waitFor(() => expect(preview.querySelector("strong")).toHaveTextContent("bold"));
+    // Still in editing mode: the textarea is what the test just typed into,
+    // not what was loaded -- nobody toggled to view mode to see the render.
+    expect(editor).toHaveValue("# Original\n\nThis is **bold**.");
+  });
+
+  it("sanitizes the live edit preview exactly like the view-mode render (NIL-583)", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Original");
+    const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+        onAcquireEditLock={acquire}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Markdown" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown source" });
+    const preview = screen.getByLabelText("Markdown preview");
+
+    fireEvent.change(editor, {
+      target: {
+        value: [
+          '<script>window.pwned = true</script><b onclick="alert(1)">raw</b>',
+          "",
+          "[bad](javascript:alert(1)) [web](https://example.com)",
+        ].join("\n"),
+      },
+    });
+
+    await waitFor(() => expect(preview.querySelector("a")).not.toBeNull());
+    // The uploaded-file content types into this pane on every keystroke while
+    // the file is still being edited -- it must never render a live script
+    // tag, an inline event handler, or a javascript: URL, exactly like the
+    // already-audited view-mode render (see the "renders GFM without raw
+    // HTML" test above; same markdownComponents pipeline, see NIL-583's
+    // design-decision comment on the ticket for why that reuse is the point).
+    expect(preview.querySelector("script")).toBeNull();
+    expect(preview.querySelector("b")).toBeNull();
+    expect(within(preview).getByText("bad").closest("a")).not.toHaveAttribute("href");
+    expect(within(preview).getByRole("link", { name: "web" })).toHaveAttribute(
+      "href",
+      "https://example.com",
+    );
   });
 
   it("names the other editor and prevents a second browser from entering edit mode", async () => {
