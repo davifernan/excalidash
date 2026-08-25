@@ -2,8 +2,12 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const test = require("node:test");
 
+const collectorUnderTest = process.env.RELEASE_NOTES_COLLECTOR_UNDER_TEST ||
+  path.join(__dirname, "release-notes-collect.cjs");
 const {
   resolveDeliveries,
   categorize,
@@ -11,7 +15,7 @@ const {
   extractPrNumber,
   extractUserFacingSentence,
   renderNotesMarkdown,
-} = require("./release-notes-collect.cjs");
+} = require(collectorUnderTest);
 
 test("extractPrNumber takes the last #NNN in a merge subject", () => {
   assert.equal(extractPrNumber("merge: dashboard presence, provenance and favorites (NIL-501, #75)"), 75);
@@ -64,8 +68,8 @@ test("renderNotesMarkdown says so honestly when nothing was collected", () => {
   assert.match(markdown, /No `User-Facing:` entries were collected/);
 });
 
-test("collect walks merges, skips what it can't use, and never fabricates a sentence", () => {
-  const merges = [
+test("collect walks deliveries, skips what it can't use, and never fabricates a sentence", () => {
+  const deliveries = [
     { sha: "1".repeat(40), subject: "merge: add favorites (NIL-292, #10)" },
     { sha: "2".repeat(40), subject: "merge: internal refactor only (NIL-300, #11)" },
     { sha: "3".repeat(40), subject: "merge: no pr number in this one" },
@@ -80,7 +84,7 @@ test("collect walks merges, skips what it can't use, and never fabricates a sent
   };
 
   const result = collect({
-    listMerges: () => merges,
+    listDeliveries: () => deliveries,
     getPrBody: (n) => {
       if (n === 12) throw new Error("gh: pull request not found");
       return bodies[n];
@@ -91,7 +95,7 @@ test("collect walks merges, skips what it can't use, and never fabricates a sent
   assert.deepEqual(result.added, ["Boards can now be starred from the dashboard."]);
   assert.deepEqual(result.fixed, []);
   assert.deepEqual(result.changed, []);
-  assert.equal(result.mergesScanned, 4);
+  assert.equal(result.deliveriesScanned, 4);
   assert.equal(result.warnings.length, 3);
   assert.match(result.warnings.find((w) => w.includes("#11")), /"none"/);
   assert.match(result.warnings.find((w) => w.includes("no PR number")), /no PR number/);
@@ -104,7 +108,7 @@ test("RED: a PR whose User-Facing line contains a ticket reference never reaches
   // in parsePrDeliveryContract -- duplicating that regex here would let the
   // two checks drift apart instead of sharing one source of truth.
   const result = collect({
-    listMerges: () => [{ sha: "5".repeat(40), subject: "merge: whatever (#20)" }],
+    listDeliveries: () => [{ sha: "5".repeat(40), subject: "merge: whatever (#20)" }],
     getPrBody: () => "User-Facing: Fixes the bug from NIL-292.",
     getPrCommitSubjects: () => [],
   });
@@ -121,7 +125,7 @@ test("the same User-Facing sentence merged several times appears once (NIL-560)"
   // sentence printed three times before this was fixed.
   const sentence = "Oversized images are named instead of hashed.";
   const result = collect({
-    listMerges: () => [
+    listDeliveries: () => [
       { sha: "a".repeat(40), subject: "merge: #116 (fix/oversized)" },
       { sha: "b".repeat(40), subject: "merge: #120 (collect/wave-6)" },
       { sha: "c".repeat(40), subject: "merge: #121 (fix/oversized-followup)" },
@@ -130,7 +134,7 @@ test("the same User-Facing sentence merged several times appears once (NIL-560)"
     getPrCommitSubjects: () => ["fix(editor): whatever"],
   });
   assert.deepEqual(result.fixed, [sentence]);
-  assert.equal(result.mergesScanned, 3, "all three merges are still scanned, only the output is folded");
+  assert.equal(result.deliveriesScanned, 3, "all three deliveries are still scanned, only the output is folded");
 });
 
 test("deduping folds repeats, it does not drop distinct promises", () => {
@@ -144,7 +148,7 @@ test("deduping folds repeats, it does not drop distinct promises", () => {
     3: `User-Facing: ${first}`,
   };
   const result = collect({
-    listMerges: () => [
+    listDeliveries: () => [
       { sha: "d".repeat(40), subject: "merge: x (#1)" },
       { sha: "e".repeat(40), subject: "merge: y (#2)" },
       { sha: "f".repeat(40), subject: "merge: z (#3)" },
@@ -160,24 +164,51 @@ test("a range with no merge commits at all still yields its deliveries (NIL-562)
   // because `main` was fast-forwarded. Fast-forward is the normal path here --
   // it is the only way a SHA carrying nine green required checks reaches
   // `main` without creating a fresh unverified commit.
-  const prByCommit = { aaa: [124], bbb: [124], ccc: [122] };
   const deliveries = resolveDeliveries({
     listCommitShas: () => ["aaa", "bbb", "ccc"],
-    resolvePrNumbers: (sha) => prByCommit[sha],
+    listMergedPullRequests: () => [
+      { number: 124, mergeCommitSha: "aaa" },
+      { number: 124, mergeCommitSha: "bbb" },
+      { number: 122, mergeCommitSha: "ccc" },
+    ],
   });
   assert.deepEqual(deliveries.map((d) => d.subject), ["#124", "#122"]);
 });
 
-test("a commit whose PR cannot be resolved is skipped, not fatal", () => {
+test("commits without a merged PR record are skipped, not fatal", () => {
   // Direct hotfixes and commits older than the PR history both hit this.
-  // The merge-based scan simply never saw them; the replacement must not
-  // turn "no PR" into a crashed release.
   const deliveries = resolveDeliveries({
     listCommitShas: () => ["good", "orphan"],
-    resolvePrNumbers: (sha) => {
-      if (sha === "orphan") throw new Error("no pull requests found");
-      return [7];
-    },
+    listMergedPullRequests: () => [{ number: 7, mergeCommitSha: "good" }],
   });
   assert.deepEqual(deliveries.map((d) => d.subject), ["#7"]);
+});
+
+test("the real v0.8.0 collected merge resolves every PR, including #134 (NIL-574)", () => {
+  const range = "v0.7.0-nilo.4..v0.8.0";
+  const collectedMerge = "99a03699635d6c66eb02e88a989104a7441c64e6";
+  const commits = execFileSync(
+    "git",
+    ["log", "--reverse", "--topo-order", "--format=%H", range],
+    { encoding: "utf8", cwd: path.join(__dirname, "..") },
+  ).trim().split("\n").filter(Boolean);
+
+  assert.ok(commits.includes(collectedMerge), `${range} must contain the real collected merge 99a0369`);
+
+  // These are the canonical merge_commit_sha values on the real PR records.
+  // #132 and #134 deliberately share one SHA; that is the production shape
+  // the old commit->associated-PR lookup could not represent reliably.
+  const deliveries = resolveDeliveries({
+    listCommitShas: () => commits,
+    listMergedPullRequests: () => [
+      { number: 135, mergeCommitSha: "3fd54d673a66a8494122d38c4ea93517a97600bf" },
+      { number: 134, mergeCommitSha: collectedMerge },
+      { number: 132, mergeCommitSha: collectedMerge },
+    ],
+  });
+
+  assert.deepEqual(
+    deliveries.filter((delivery) => delivery.sha === collectedMerge).map((delivery) => delivery.subject),
+    ["#132", "#134"],
+  );
 });

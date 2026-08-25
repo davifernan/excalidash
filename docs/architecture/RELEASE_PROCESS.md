@@ -129,6 +129,16 @@ Diese Warnungen landen sichtbar in der Job-Zusammenfassung, nicht im Log-Rausche
 stillschweigend uebersprungener Eintrag ist ein stiller Datenverlust, kein akzeptabler
 Default.
 
+Der Bereich wird nicht ueber `GET repos/{repo}/commits/{sha}/pulls` auf PRs abgebildet. Diese
+Assoziationssuche war bei Sammelmerges nachweislich mehrdeutig: zwei Abfragen desselben
+`v0.7.0-nilo.4..v0.8.0`-Bereichs ordneten #134 und #135 verschieden zu, und ein Draft verlor
+dadurch die sichtbarste Aenderung. Stattdessen liest der Sammler die kanonische Richtung aus
+den PR-Datensaetzen: jede gemergte PR traegt ihre `merge_commit_sha`. Mehrere PRs duerfen
+dieselbe Sammel-SHA tragen (#132 und #134 tragen beide `99a0369`); innerhalb einer SHA ordnet
+die PR-Nummer das Ergebnis reproduzierbar. Weil damit jede gemergte PR im Bereich vor der
+`User-Facing:`-Pruefung bekannt ist, erzeugt jede fehlende, mehrdeutige oder als `none`
+deklarierte Zeile eine sichtbare `SKIP`-Warnung statt schon bei der Zuordnung zu verschwinden.
+
 ### Die fuenf Pakete, die vor dieser Zeile gemergt wurden
 
 `User-Facing:` existiert seit NIL-507. Die fuenf Pakete, die zwischen dem letzten
