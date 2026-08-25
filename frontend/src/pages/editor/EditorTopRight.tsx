@@ -17,6 +17,21 @@
  *
  * `renderTopRightUI` is the slot Excalidraw offers for exactly this, sitting
  * between the avatar list and the Library trigger.
+ *
+ * NIL-579: the DOM order Excalidraw already gives us --
+ * `[avatars][this component's own children][Library trigger]` -- happens to
+ * line up with the two questions this bar answers: presence ("who's here":
+ * avatars, then the presence-zone entries) before actions ("what can I do":
+ * the actions-zone entries, then Library). `renderHeaderControlEntries(ctx,
+ * zone)` (chromeSlots.tsx) splits `HEADER_CONTROL_ENTRIES` along that same
+ * line, so the hairline only has to sit once, between the two calls below --
+ * no wrapper element per zone, which would keep contributing to this
+ * container's flex `gap` even when empty and reintroduce the empty-pill bug
+ * NIL-564 fixed, one level deeper. The divider itself is gated on
+ * `ctx.peers.length > 0`, the exact condition Excalidraw's own avatar list
+ * and this component's `invite-everyone-here` entry already use to decide
+ * whether the presence zone has anything in it -- so an empty presence zone
+ * takes the divider down with it instead of leaving a stray line.
  */
 import { renderHeaderControlEntries, type ChromeSlotContext } from "./chromeSlots";
 
@@ -35,6 +50,8 @@ export const EditorTopRight = ({
   // the one place that exists at every window size.
   if (isMobile) return null;
 
+  const hasPresenceZone = ctx.peers.length > 0;
+
   return (
     <div className="editor-header-controls" data-testid="editor-top-right">
       {followerNotice ? (
@@ -46,7 +63,15 @@ export const EditorTopRight = ({
           {followerNotice}
         </span>
       ) : null}
-      {renderHeaderControlEntries(ctx)}
+      {renderHeaderControlEntries(ctx, "presence")}
+      {hasPresenceZone ? (
+        <span
+          className="editor-header-controls__divider"
+          data-testid="editor-zone-divider"
+          aria-hidden="true"
+        />
+      ) : null}
+      {renderHeaderControlEntries(ctx, "actions")}
     </div>
   );
 };

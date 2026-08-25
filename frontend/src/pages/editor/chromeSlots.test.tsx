@@ -183,6 +183,58 @@ describe("HEADER_CONTROL_ENTRIES", () => {
     expect(ids).not.toContain("comments");
     expect(ids).not.toContain("present");
   });
+
+  /**
+   * NIL-579: invite-everyone-here answers "who's here" (presence) and share
+   * answers "what can I do" (actions) -- EditorTopRight.tsx's hairline
+   * divider only sits correctly between the two calls to
+   * `renderHeaderControlEntries(ctx, zone)` if each entry actually carries
+   * the zone that matches the question it answers.
+   */
+  it("assigns invite-everyone-here to the presence zone and share to the actions zone", () => {
+    const byId = Object.fromEntries(HEADER_CONTROL_ENTRIES.map((e) => [e.id, e.zone]));
+    expect(byId["invite-everyone-here"]).toBe("presence");
+    expect(byId["share"]).toBe("actions");
+  });
+});
+
+describe("renderHeaderControlEntries with a zone filter (NIL-579)", () => {
+  const withPeer: ChromeSlotContext = {
+    ...baseCtx,
+    accessLevel: "owner",
+    canEdit: true,
+    peers: [{ id: "p1" } as any],
+  };
+
+  it("renders only the presence entry for zone 'presence'", () => {
+    const output = React.Children.toArray(
+      renderHeaderControlEntries(withPeer, "presence"),
+    ) as React.ReactElement[];
+    const rendered = output
+      .filter((el) => el.props.children != null)
+      .map((el) => String(el.key).replace(/^\.\$/, ""));
+    expect(rendered).toEqual(["invite-everyone-here"]);
+  });
+
+  it("renders only the actions entry for zone 'actions'", () => {
+    const output = React.Children.toArray(
+      renderHeaderControlEntries(withPeer, "actions"),
+    ) as React.ReactElement[];
+    const rendered = output
+      .filter((el) => el.props.children != null)
+      .map((el) => String(el.key).replace(/^\.\$/, ""));
+    expect(rendered).toEqual(["share"]);
+  });
+
+  it("renders both when no zone is given, unchanged from before NIL-579", () => {
+    const output = React.Children.toArray(
+      renderHeaderControlEntries(withPeer),
+    ) as React.ReactElement[];
+    const rendered = output
+      .filter((el) => el.props.children != null)
+      .map((el) => String(el.key).replace(/^\.\$/, ""));
+    expect(rendered).toEqual(["invite-everyone-here", "share"]);
+  });
 });
 
 describe("renderHeaderControlEntries", () => {
