@@ -31,6 +31,7 @@ services:
       # Recommended to set explicitly for portability and multi-instance setups.
       - JWT_SECRET=${JWT_SECRET}
       - CSRF_SECRET=${CSRF_SECRET}
+      - ERROR_TRACKER_DSN=${ERROR_TRACKER_DSN:-}
       # --- Passwort-Reset per Mail -------------------------------------
       - ENABLE_PASSWORD_RESET=${ENABLE_PASSWORD_RESET:-false}
       - MAIL_TRANSPORT=${MAIL_TRANSPORT:-}
@@ -100,6 +101,7 @@ services:
       # Backend URL for nginx proxy (host:port format, no protocol)
       # Override for reverse proxy setups (e.g., excalidash-backend.svc.cluster.local:8000)
       - BACKEND_URL=backend:8000
+      - ERROR_TRACKER_DSN=${ERROR_TRACKER_DSN:-}
     depends_on:
       - backend
     networks:
@@ -121,9 +123,44 @@ services:
       timeout: 10s
       retries: 3
 
+  bugsink:
+    image: bugsink/bugsink:2.5.0
+    profiles: ["observability"]
+    container_name: excalidash-bugsink
+    mem_limit: 512m
+    memswap_limit: 512m
+    ports:
+      - "${BUGSINK_PORT:-8088}:8000"
+    environment:
+      - SECRET_KEY=${BUGSINK_SECRET_KEY:-}
+      - CREATE_SUPERUSER=${BUGSINK_CREATE_SUPERUSER:-}
+      - BASE_URL=${BUGSINK_BASE_URL:-http://localhost:8088}
+      - PORT=8000
+      - SINGLE_USER=True
+      - USER_REGISTRATION=CB_NOBODY
+      - PHONEHOME=False
+      - MINIMIZE_INFORMATION_EXPOSURE=True
+      - BEHIND_HTTPS_PROXY=${BUGSINK_BEHIND_HTTPS_PROXY:-False}
+    volumes:
+      - bugsink-data:/data
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import requests; requests.get('http://127.0.0.1:8000/health/ready', timeout=5).raise_for_status()",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
 networks:
   excalidash-network:
     driver: bridge
 
 volumes:
   backend-data:
+  bugsink-data:

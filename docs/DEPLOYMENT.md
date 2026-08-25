@@ -2,6 +2,66 @@
 
 This page contains the advanced deployment, authentication, OIDC, offline, backup, and operational notes that were previously in the main README.
 
+## Optional self-hosted error tracking (Bugsink)
+
+Error tracking is opt-in twice. The `observability` Compose profile starts a
+persistent Bugsink 2.5.0 service; the separate `ERROR_TRACKER_DSN` value enables
+delivery from the backend and browser. Starting ordinary ExcaliDash without the
+profile does not start Bugsink, and leaving the DSN empty initializes no SDK and
+sends nothing even if Bugsink is running.
+
+1. Set these values in the same `.env` used by Compose. Generate the secret with
+   `openssl rand -base64 50`; use a password you have not used elsewhere.
+
+   ```dotenv
+   BUGSINK_PORT=8088
+   BUGSINK_BASE_URL=https://bugsink.example.com
+   BUGSINK_SECRET_KEY=<at-least-50-random-characters>
+   BUGSINK_CREATE_SUPERUSER=admin@example.com:<strong-password>
+   BUGSINK_BEHIND_HTTPS_PROXY=True
+   ERROR_TRACKER_DSN=
+   ```
+
+2. Start the profile and wait for Bugsink to become healthy.
+
+   ```bash
+   docker compose --env-file .env -f docker-compose.prod.yml \
+     --profile observability up -d
+   docker compose --env-file .env -f docker-compose.prod.yml ps bugsink
+   ```
+
+3. Create the initial team/project idempotently and print its DSN. Bugsink has
+   no `CREATE_PROJECT` setting; this helper executes its Django ORM inside the
+   running container instead.
+
+   ```bash
+   BUGSINK_COMPOSE_FILE=docker-compose.prod.yml BUGSINK_ENV_FILE=.env \
+     ./scripts/bugsink-bootstrap.sh
+   ```
+
+4. Copy the printed `dsn=` value to `ERROR_TRACKER_DSN` in `.env`, then recreate
+   `backend` and `frontend`. A Bugsink DSN is an ingest credential, not an API
+   token; do not reuse the admin password or an API token here.
+
+   ```bash
+   docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend
+   ```
+
+`BUGSINK_BASE_URL` must be an HTTPS address reachable both from the backend
+container and from users' browsers. A loopback DSN is suitable for source-based
+local tests, but not for the published-image Compose deployment: inside the
+backend container, `localhost` is the backend itself.
+
+The SDK integrations deliberately disable default integrations, breadcrumbs and
+default PII. Their `beforeSend` hooks rebuild each outgoing event from a small
+allowlist. Backend auth/storage fields such as email, user/board ids, object
+keys and stored paths stay only in local logs; React component stacks and
+original render-error messages stay local as well. Adapter diagnostics send
+only their existing `seam`, `code`, `fallback` and package-version shape.
+
+Back up the `bugsink-data` volume with the same care as the ExcaliDash backend
+volume: it holds the issue database and the generated project ingest key.
+
 ## Advanced
 
 <details>

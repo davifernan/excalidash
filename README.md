@@ -238,7 +238,7 @@ docker compose up -d
 
 The root README keeps the install path short. See
 [advanced deployment and operations](docs/DEPLOYMENT.md) for reverse proxy,
-auth/OIDC, database provider, offline, backup, password policy, and operational
+auth/OIDC, optional self-hosted error tracking, database provider, offline, backup, password policy, and operational
 details.
 
 For release-candidate validation across multiple local configurations, see the
