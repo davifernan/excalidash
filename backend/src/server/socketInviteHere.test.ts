@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BOOTSTRAP_USER_ID } from "../auth/authMode";
 import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
-import { FakeIo, FakeSocket, room } from "../__tests__/socketTestDoubles";
+import { FakeIo, FakeSocket, room, socketJoinSnapshotPrisma } from "../__tests__/socketTestDoubles";
 import { registerSocketHandlers } from "./socket";
 import { createSocketInviteHereManager } from "./socketInviteHere";
 
@@ -37,6 +37,7 @@ describe("invite here socket flow", () => {
     registerSocketHandlers({
       io: viewIo as any,
       prisma: {
+        ...socketJoinSnapshotPrisma(),
         drawingLinkShare: {
           findFirst: async () => ({
             permission: "view",
