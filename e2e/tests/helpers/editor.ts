@@ -277,7 +277,12 @@ export const injectNoiseImage = async (
   return injected;
 };
 
-/** Wait for a peer's editor to receive one file and return its SHA-256 content hash. */
+/**
+ * Wait for a peer's editor to receive one file and return its SHA-256 content
+ * hash. Decoding and hashing run in a worker: `atob` followed by
+ * `Uint8Array.from(..., callback)` blocked the page's main thread for hundreds
+ * of milliseconds on every multi-megabyte file (NIL-551).
+ */
 export const waitForPeerFile = async (page: Page, fileId: string, timeout = 30_000) => {
   await page.waitForFunction(
     (id) => Boolean((window as any).__EXCALIDASH_TEST__?.getFiles?.()?.[id]),
@@ -286,12 +291,43 @@ export const waitForPeerFile = async (page: Page, fileId: string, timeout = 30_0
   );
   return page.evaluate(async (id) => {
     const dataURL = (window as any).__EXCALIDASH_TEST__.getFiles()[id].dataURL;
-    const binary = atob(dataURL.slice(dataURL.indexOf(",") + 1));
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
-      "",
+    const workerMain = () => {
+      const workerScope = globalThis as any;
+      workerScope.onmessage = async (event: MessageEvent) => {
+        try {
+          const response = await fetch(event.data.dataURL);
+          if (!response.ok) throw new Error(`Could not read peer file: HTTP ${response.status}`);
+          const bytes = await response.arrayBuffer();
+          const digest = await crypto.subtle.digest("SHA-256", bytes);
+          const hash = Array.from(new Uint8Array(digest), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join("");
+          workerScope.postMessage({ hash });
+        } catch (error) {
+          workerScope.postMessage({
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+    };
+    const workerUrl = URL.createObjectURL(
+      new Blob([`(${workerMain.toString()})()`], { type: "text/javascript" }),
     );
+    const worker = new Worker(workerUrl);
+    let result: { hash?: string; error?: string };
+    try {
+      result = await new Promise((resolve, reject) => {
+        worker.onmessage = (event) => resolve(event.data);
+        worker.onerror = (event) => reject(new Error(event.message));
+        worker.postMessage({ dataURL });
+      });
+    } finally {
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+    }
+    if (result.error) throw new Error(result.error);
+    if (!result.hash) throw new Error("Peer-file worker returned no hash");
+    return result.hash;
   }, fileId);
 };
 
@@ -379,7 +415,11 @@ export const activateDocumentWidget = async (page: Page) => {
   const box = await page.locator(".text-document-widget").boundingBox();
   if (!box) throw new Error("The document widget is not on the board.");
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForTimeout(300);
+  await page.waitForFunction(() => {
+    const widget = document.querySelector(".text-document-widget");
+    const inner = widget?.closest(".excalidraw__embeddable-container__inner");
+    return inner instanceof HTMLElement && getComputedStyle(inner).pointerEvents !== "none";
+  });
 };
 
 /** Arm the sticky-note tool and wait for the editor to confirm it, not just the click. */
