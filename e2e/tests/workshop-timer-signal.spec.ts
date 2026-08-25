@@ -71,6 +71,13 @@ test.describe("workshop timer: Start closes the panel, color follows state, fini
 
     await summary(page).click();
     await page.getByRole("button", { name: /^start$/i }).click();
+    // Same socket round trip as the pause below (server decides, then
+    // broadcasts back): the class landing is the signal that the *running*
+    // snapshot has arrived, not merely that the click fired. Reading the
+    // colour straight after the click raced that round trip and compared the
+    // still-idle pill against itself -- red in CI, green locally, because the
+    // round trip is faster on a quiet machine.
+    await expect(page.locator(".workshop-timer--running")).toHaveCount(1);
     const runningColor = await pillBackground(page);
     expect(runningColor).not.toBe(idleColor);
 
