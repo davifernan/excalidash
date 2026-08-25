@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
+import { socketJoinSnapshotPrisma } from "../__tests__/socketTestDoubles";
 import { registerSocketHandlers } from "./socket";
 
 type Emission = { scope: string; event: string; payload: any };
@@ -85,6 +86,7 @@ describe("periodic socket access sweep", () => {
     registerSocketHandlers({
       io: io as any,
       prisma: {
+        ...socketJoinSnapshotPrisma(),
         drawingLinkShare: {
           findFirst: vi.fn(async () => {
             if (blockSweeps) {

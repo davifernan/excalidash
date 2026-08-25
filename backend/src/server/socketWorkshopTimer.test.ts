@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BOOTSTRAP_USER_ID } from "../auth/authMode";
 import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
-import { FakeIo, type FakeSocket, room } from "../__tests__/socketTestDoubles";
+import {
+  FakeIo,
+  type FakeSocket,
+  room,
+  socketJoinSnapshotPrisma,
+} from "../__tests__/socketTestDoubles";
 import { registerSocketHandlers } from "./socket";
 import {
   WORKSHOP_TIMER_COMMAND_EVENT,
@@ -55,6 +60,7 @@ describe("workshop timer room event", () => {
     registerSocketHandlers({
       io: io as any,
       prisma: {
+        ...socketJoinSnapshotPrisma(),
         drawingLinkShare: {
           findFirst: async () => ({
             permission: "view",
