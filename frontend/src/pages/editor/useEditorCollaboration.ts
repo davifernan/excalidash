@@ -45,6 +45,21 @@ import type {
 import { log } from "../../logging";
 export type { Peer } from "./socketCollaborators";
 
+/**
+ * What the connection status chrome (NIL-591) shows.
+ *
+ * "connected" is deliberately not `socket.connected` -- a transport can be up
+ * with the room not yet (re)joined, which is the exact window a stale local
+ * timer state (NIL-591's own motivating bug: local state fell to idle, then
+ * the server's rejoin reply said "finished") lives in. This mirrors
+ * `bindSocketRoomLifecycle`'s own distinction: "connected" only once
+ * `onJoined` fires, "reconnecting" the moment `resetConnectionState` runs
+ * (on every disconnect, and again at the start of each join attempt).
+ * "offline" is `navigator.onLine` going false -- a genuinely different fact
+ * from "reconnecting" (no network at all, vs. a network that is trying).
+ */
+export type ConnectionStatus = "connected" | "reconnecting" | "offline";
+
 type UseEditorCollaborationInput = {
   drawingId?: string;
   collaboration: CollaborationCapability;
@@ -98,6 +113,9 @@ export const useEditorCollaboration = ({
   onDrawingNameChange,
 }: UseEditorCollaborationInput) => {
   const [peers, setPeers] = useState<Peer[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "reconnecting",
+  );
   // Ref because it outlives renders; the draft is state because React draws it.
   const cursorChatRef = useRef<CursorChatController | null>(null);
   const [cursorChatDraft, setCursorChatDraft] = useState<string | null>(null);
@@ -160,6 +178,17 @@ export const useEditorCollaboration = ({
     });
     socketRef.current = socket;
     roomJoinedRef.current = false;
+    // Not reset here on every effect (re-)run: `resetConnectionState` below
+    // already covers a fresh socket correctly -- it fires the moment this
+    // socket actually connects (or immediately, if it's already connected --
+    // see `bindSocketRoomLifecycle`'s `if (socket.connected)` check), which
+    // is a real event, unlike this effect potentially re-running for
+    // unrelated reasons (e.g. a parent re-render producing a new callback
+    // reference). Setting it unconditionally here doubled as a spurious
+    // "reconnecting" flash injected between two renders that were still the
+    // same live, joined connection -- caught by this file's own test suite
+    // once a state-setting act() (unrelated to the socket) triggered a
+    // second effect pass.
     if (import.meta.env.DEV) {
       const socketTestStatus = { connected: socket.connected } as {
         connected: boolean;
@@ -286,6 +315,9 @@ export const useEditorCollaboration = ({
     });
     const resetConnectionState = () => {
       roomJoinedRef.current = false;
+      setConnectionStatus(
+        typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "reconnecting",
+      );
       if (import.meta.env.DEV) {
         const status = (window as any).__EXCALIDASH_SOCKET_STATUS__;
         if (status) status.roomJoined = false;
@@ -325,6 +357,7 @@ export const useEditorCollaboration = ({
       resetConnectionState,
       onJoined: (serverUser) => {
         roomJoinedRef.current = true;
+        setConnectionStatus("connected");
         documentPageSharing.confirmRoomJoined(socket);
         if (import.meta.env.DEV) {
           const status = (window as any).__EXCALIDASH_SOCKET_STATUS__;
@@ -537,10 +570,25 @@ export const useEditorCollaboration = ({
     const onBlur = () => handleActivity(false);
     const onMouseEnter = () => handleActivity(true);
     const onMouseLeave = () => handleActivity(false);
+    // `navigator.onLine` going false is the browser reporting no network at
+    // all -- a stronger, more specific fact than "the socket hasn't rejoined
+    // yet" and worth its own status rather than folding into "reconnecting".
+    // Regaining network does not itself mean the room is rejoined: fall back
+    // to "reconnecting" and let the socket's own `connect`/`onJoined` events
+    // (above) promote it to "connected" once that is actually true again.
+    const onNetworkOffline = () => setConnectionStatus("offline");
+    const onNetworkOnline = () => {
+      // A stale/joined-elsewhere transport can outlive a brief network blip
+      // without ever actually disconnecting, so this must not stomp a
+      // genuinely current "connected" with a spurious "reconnecting".
+      if (!roomJoinedRef.current) setConnectionStatus("reconnecting");
+    };
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
     document.addEventListener("mouseenter", onMouseEnter);
     document.addEventListener("mouseleave", onMouseLeave);
+    window.addEventListener("offline", onNetworkOffline);
+    window.addEventListener("online", onNetworkOnline);
     const container = editorContainerRef.current;
     const unbindWheelZoom = bindCanvasWheelZoom(container);
     return () => {
@@ -549,6 +597,8 @@ export const useEditorCollaboration = ({
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("mouseenter", onMouseEnter);
       document.removeEventListener("mouseleave", onMouseLeave);
+      window.removeEventListener("offline", onNetworkOffline);
+      window.removeEventListener("online", onNetworkOnline);
       socket.off("error");
       socket.off("room-event-error");
       socket.off("element-update");
@@ -682,6 +732,7 @@ export const useEditorCollaboration = ({
 
   return {
     peers,
+    connectionStatus,
     cursorChatRef,
     cursorChatDraft,
     selfIdentity,
