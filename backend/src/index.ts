@@ -44,6 +44,7 @@ import { prisma, configureSqlite, reclaimSqliteFreeSpace } from "./db/prisma";
 import { createDrawingsCacheStore } from "./server/drawingsCache";
 import { registerCsrfProtection } from "./server/csrf";
 import { registerSocketHandlers } from "./server/socket";
+import { createSocketServerOptions } from "./server/socketServerOptions";
 import { PresenceRegistry } from "./server/presenceRegistry";
 import { createHttpsRedirectPolicy, getHttpsRedirectUrl } from "./server/httpsRedirectPolicy";
 import { issueBootstrapSetupCodeIfRequired } from "./auth/bootstrapSetupCode";
@@ -152,16 +153,13 @@ if (trustProxyValue === true) {
 installProcessGuards();
 
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: (origin, cb) => cb(null, isAllowedOrigin(origin ?? undefined)),
-    credentials: true,
-  },
+const io = new Server(
+  httpServer,
+  createSocketServerOptions(isAllowedOrigin, config.socketMaxHttpBufferBytes),
   // Measured: a full 10k-element update is 4.70 MB and the existing maximum
   // embedded-image event is 10.49 MB. 16 MiB admits both together plus margin,
   // while rejecting the former unauthenticated 50 MiB packet before decoding.
-  maxHttpBufferSize: config.socketMaxHttpBufferBytes,
-});
+);
 const parseJsonField = <T>(rawValue: string | null | undefined, fallback: T): T => {
   if (!rawValue) return fallback;
   try {

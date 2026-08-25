@@ -24,7 +24,6 @@ type CoreRoomEventDeps = {
 type ActivityPayload = RoomEventPayload & { isActive: boolean };
 
 const roomName = (drawingId: string) => `drawing_${drawingId}`;
-const ELEMENT_UPDATE_RECEIPT_TIMEOUT_MS = 2_000;
 
 const parseActivityPayload = (value: unknown): ActivityPayload | null => {
   if (!value || typeof value !== "object") return null;
@@ -76,36 +75,12 @@ export const registerCoreRoomEvents = ({
     requireAccess,
     allowPayload: (payload) => allowElementUpdate(payload.drawingId, payload.serializedBytes),
     requireEdit: true,
-    handle: async (payload) => {
-      const relay = {
+    handle: (payload) => {
+      socket.to(roomName(payload.drawingId)).emit("element-update", {
         elements: payload.elements,
         files: payload.files,
         elementOrder: payload.elementOrder,
-      };
-      if (payload.files && Object.keys(payload.files).length > 0) {
-        const delivered = await new Promise<boolean>((resolve) => {
-          socket
-            .to(roomName(payload.drawingId))
-            .timeout(ELEMENT_UPDATE_RECEIPT_TIMEOUT_MS)
-            .emit(
-              "element-update",
-              relay,
-              (error: Error | null, responses: Array<{ ok?: boolean }> = []) => {
-                resolve(!error && responses.every((response) => response?.ok === true));
-              },
-            );
-        });
-        if (!delivered) {
-          return {
-            error: {
-              code: "delivery-unconfirmed",
-              message: "element-update was not confirmed by every connected peer",
-            },
-          };
-        }
-      } else {
-        socket.to(roomName(payload.drawingId)).emit("element-update", relay);
-      }
+      });
       if (payload.elementOrderOmittedBytes) {
         return {
           warning: {

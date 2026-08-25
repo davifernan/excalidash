@@ -459,18 +459,15 @@ export const useEditorCollaboration = ({
     };
     socket.on(
       "element-update",
-      (
-        {
-          elements,
-          files,
-          elementOrder,
-        }: {
-          elements: any[];
-          files?: Record<string, any>;
-          elementOrder?: string[];
-        },
-        receipt?: (response: { ok: true }) => void,
-      ) => {
+      ({
+        elements,
+        files,
+        elementOrder,
+      }: {
+        elements: any[];
+        files?: Record<string, any>;
+        elementOrder?: string[];
+      }) => {
         if (Array.isArray(elements)) {
           for (const el of elements) {
             const id = el?.id;
@@ -489,11 +486,6 @@ export const useEditorCollaboration = ({
           pendingRemoteElementOrderRef.current = elementOrder;
         }
         scheduleRemoteFlush();
-        // Receipt means the transport delivered the packet and this client
-        // admitted it to the local merge queue. The queue itself owns retries
-        // when the editor adapter is temporarily unavailable; waiting for its
-        // next animation frame here couples network reliability to render load.
-        receipt?.({ ok: true });
       },
     );
     socket.on("drawing-server-update", (payload: { drawingId?: string }) => {
