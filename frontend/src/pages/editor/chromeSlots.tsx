@@ -105,6 +105,7 @@ import React from "react";
 import {
   ArrowLeft,
   Download,
+  GitBranch,
   History,
   LayoutTemplate,
   LocateFixed,
@@ -161,6 +162,8 @@ export type ChromeSlotContext = {
   };
   onStartVoteCompose: () => void;
   onInsertTemplate: (templateId: string) => void;
+  /** NIL-570: run the mind map's one explicit layout pass. See `frontend/src/mindMap/index.tsx`. */
+  onArrangeMindMap: () => void;
   onBackClick: () => void;
   onNewNameChange: (value: string) => void;
   onRenameBlur: () => void;
@@ -396,6 +399,23 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
             </MainMenu.Item>
           ))}
         </>
+      ) : null,
+  },
+  {
+    id: "arrange-mind-map",
+    order: 240,
+    // Grouped with the workshop actions above (vote, templates) rather than
+    // canvas-actions below: like those, it is a deliberate one-shot command
+    // on the current board content, not a document-wide setting.
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <MainMenu.Item
+          onSelect={ctx.onArrangeMindMap}
+          icon={<GitBranch size={16} />}
+          data-testid="menu-arrange-mind-map"
+        >
+          Arrange mind map
+        </MainMenu.Item>
       ) : null,
   },
   { id: "canvas-actions-separator", order: 295, render: () => <MainMenu.Separator /> },

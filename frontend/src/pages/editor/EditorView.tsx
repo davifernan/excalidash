@@ -63,6 +63,8 @@ type EditorViewProps = {
   onBackClick: () => void;
   onCanvasChange: (elements: readonly any[], appState: any, files?: Record<string, any>) => void;
   stickyOverlay?: React.ReactNode;
+  mindMapOverlay?: React.ReactNode;
+  onArrangeMindMap: () => void;
   onCanvasDropCapture: (event: React.DragEvent<HTMLDivElement>) => void;
   onExportClick: () => void;
   onLibraryChange: (items: readonly any[]) => void;
@@ -124,6 +126,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onCanvasChange,
   onCanvasDropCapture,
   stickyOverlay,
+  mindMapOverlay,
+  onArrangeMindMap,
   onExportClick,
   onLibraryChange,
   onNavigateHome,
@@ -174,6 +178,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     },
     onStartVoteCompose: voting.openCompose,
     onInsertTemplate,
+    onArrangeMindMap,
     onBackClick,
     onNewNameChange,
     onRenameBlur,
@@ -325,6 +330,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             onClose={onCursorChatClose}
           />
           {stickyOverlay}
+          {mindMapOverlay}
           {commentsOverlay}
         </>
       ) : (

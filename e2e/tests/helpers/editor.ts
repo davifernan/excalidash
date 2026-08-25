@@ -47,6 +47,7 @@ export const scene = (page: Page) =>
       fontSize: element.fontSize,
       text: element.text,
       sticky: element.customData?.excalidash?.sticky ?? null,
+      mindMap: element.customData?.excalidash?.mindMap ?? null,
       schemaVersion: element.customData?.excalidash?.schemaVersion ?? null,
     }));
   });

@@ -18,6 +18,8 @@ import { useEditorCollaboration } from "./editor/useEditorCollaboration";
 import { useEditorPersistence } from "./editor/useEditorPersistence";
 import { useEditorCanvasHandlers } from "./editor/useEditorCanvasHandlers";
 import { useStickyNotesFeature } from "../sticky";
+import { useMindMapFeature } from "../mindMap";
+import { mindMapLayoutRunCount } from "../mindMap/mindMapScene";
 import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
 import { useEditorBroadcast, type DeliveryState } from "./editor/useEditorBroadcast";
@@ -207,6 +209,8 @@ export const Editor: React.FC = () => {
        * the last one.
        */
       getDeliveryState: () => deliveryStateRef.current?.() ?? null,
+      /** NIL-570: see `mindMapScene.ts`'s own comment on why this exists. */
+      getMindMapLayoutRunCount: () => mindMapLayoutRunCount(),
       requestDocumentPage: (elementId: string, page: number) =>
         documentPageRequestRef.current?.(elementId, page) ??
         Promise.resolve({
@@ -556,6 +560,15 @@ export const Editor: React.FC = () => {
     selection: adapter.selection,
     viewport: adapter.viewport,
   });
+  const { mindMapOverlay, onArrangeMindMap, onCanvasChange: handleChangeWithMindMap } =
+    useMindMapFeature({
+      containerRef: editorContainerRef,
+      canEdit,
+      interaction: adapter.interaction,
+      onCanvasChange: handleChangeWithNotes,
+      scene: adapter.scene,
+      selection: adapter.selection,
+    });
   useCursorChatKey({
     containerRef: editorContainerRef,
 
@@ -573,9 +586,9 @@ export const Editor: React.FC = () => {
       setHasSelection(
         Object.values(appState?.selectedElementIds || {}).some((selected) => selected === true),
       );
-      handleChangeWithNotes(elements, appState, files);
+      handleChangeWithMindMap(elements, appState, files);
     },
-    [handleChangeWithNotes, onSelectionChange],
+    [handleChangeWithMindMap, onSelectionChange],
   );
   // A comment/mention/activity deep link arrives as `?thread=<rootId>`
   // (built by the Inbox and Activity pages). Captured once, then stripped
@@ -678,6 +691,8 @@ export const Editor: React.FC = () => {
         onBackClick={handleBackClick}
         onCanvasChange={handleChangeWithSelection}
         stickyOverlay={stickyOverlay}
+        mindMapOverlay={mindMapOverlay}
+        onArrangeMindMap={onArrangeMindMap}
         commentsOverlay={commentsOverlay}
         isCommentsOpen={isCommentsOpen}
         onToggleComments={toggleComments}
