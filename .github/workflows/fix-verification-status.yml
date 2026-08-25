@@ -1,0 +1,132 @@
+# Makes the delta-verification path findable and triggerable for the PR
+# Overseer after a finding-fix push (NIL-595). `checkFixVerificationCoverage`
+# and `checkReviewedHead` (scripts/delivery-contracts.cjs) already existed and
+# were tested, but no workflow ever called them -- the intended path from
+# "Hans found something, I pushed a fix" to "is that fix delta covered" was
+# built and dead.
+#
+# Deliberately NOT wired into `hans-friedrich.yml` and NOT a required check:
+# docs/architecture/FIX_VERIFICATION.md names its reader "the reader consumed
+# by NIL-391, not the enforcement gate itself" (NIL-391 is parked) -- that
+# decision stands. A mandatory gate nobody can satisfy today (there is no
+# automatic way to produce a fix-verification record; a human or Finding
+# Verifier writes one after replaying real evidence) would be exactly the
+# false-red guard that teaches people to stop looking at red.
+#
+# So this is a tool the Overseer reaches for by hand, once, after observing a
+# finding-fix push -- not a trigger on every push (that would print a comment
+# on every routine synchronize event, drowning out the one that matters, the
+# same shape of noise Hans found in the withdrawn NIL-595 draft's own
+# rehearsal). `workflow_dispatch` with a PR number is the whole interface:
+# run it, read the comment it posts, know what command produced that answer.
+name: Fix-Verification Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to check (e.g. 172)"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Compute fix-verification status
+        id: status
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const { checkFixVerificationStatus } = require(`${process.env.GITHUB_WORKSPACE}/scripts/delivery-contracts.cjs`);
+            const prNumber = Number(process.env.PR_NUMBER);
+
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            // Review (inline) comments -- what validateHansReviewRecord checks
+            // a review's own inline-comment count against. Not the same
+            // endpoint as the PR conversation comments below.
+            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            // Conversation comments -- where a fix-verification record
+            // actually gets posted.
+            const issueComments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+
+            const status = checkFixVerificationStatus({
+              pullRequest,
+              reviews,
+              reviewComments,
+              issueComments,
+            });
+
+            core.notice(JSON.stringify(status));
+            await core.summary
+              .addHeading(`Fix-verification status: PR #${prNumber}`)
+              .addRaw(`\`${status.code}\` -- ${status.message}`)
+              .addCodeBlock(JSON.stringify(status, null, 2), "json")
+              .write();
+
+            return status;
+
+      - name: Post status as a PR comment
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          STATUS: ${{ steps.status.outputs.result }}
+        with:
+          script: |
+            const status = JSON.parse(process.env.STATUS);
+            const prNumber = Number(process.env.PR_NUMBER);
+            const marker = `<!-- excalidash-fix-verification-status:v1 pr=${prNumber} head=${status.currentHeadSha} -->`;
+
+            const lines = [
+              marker,
+              `**Fix-verification status** (dispatched by hand -- NIL-595): \`${status.code}\``,
+              "",
+              status.message,
+            ];
+
+            if (status.code === "unverified") {
+              lines.push(
+                "",
+                "This delta has no `excalidash-fix-verification:v1` record yet. This is not a",
+                "blocking check (see `docs/architecture/FIX_VERIFICATION.md` -- the reader is",
+                "not the enforcement gate); it only makes the missing record visible.",
+              );
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: lines.join("\n"),
+            });

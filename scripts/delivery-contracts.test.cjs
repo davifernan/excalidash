@@ -7,6 +7,7 @@ const {
   admitCommitContracts,
   checkCommitContracts,
   checkFixVerificationCoverage,
+  checkFixVerificationStatus,
   checkReviewedHead,
   parseFixVerificationMarker,
   validateHansReview,
@@ -294,6 +295,99 @@ test("reviewed-head check rejects a marker that disagrees with its review record
       }),
     /No valid Hans review with an excalidash-review:v1 marker exists for this PR/,
   );
+});
+
+test("fix-verification status: draft PR has nothing to compare against", () => {
+  assert.deepEqual(
+    checkFixVerificationStatus({
+      pullRequest: { draft: true, head: { sha: FIX_SHA } },
+      reviews: [],
+      reviewComments: [],
+      issueComments: [],
+    }),
+    {
+      code: "draft",
+      currentHeadSha: FIX_SHA,
+      reviewedHeadSha: null,
+      message: "Draft PR -- no reviewed head exists yet to compare against.",
+    },
+  );
+});
+
+test("fix-verification status: no Hans review yet is reported, not thrown", () => {
+  assert.deepEqual(
+    checkFixVerificationStatus({
+      pullRequest: { draft: false, head: { sha: SHA } },
+      reviews: [],
+      reviewComments: [],
+      issueComments: [],
+    }),
+    {
+      code: "no-review",
+      currentHeadSha: SHA,
+      reviewedHeadSha: null,
+      message: "No valid Hans review exists yet for this PR.",
+    },
+  );
+});
+
+test("fix-verification status: current head matches the reviewed head -- nothing to verify", () => {
+  assert.deepEqual(
+    checkFixVerificationStatus({
+      pullRequest: { draft: false, head: { sha: SHA } },
+      reviews: [review()],
+      reviewComments: [],
+      issueComments: [],
+    }),
+    {
+      code: "current",
+      currentHeadSha: SHA,
+      reviewedHeadSha: SHA,
+      message: "The current head is the head Hans reviewed -- no delta to verify.",
+    },
+  );
+});
+
+test("fix-verification status: a corrected head with no record is reported as unverified, not silently green", () => {
+  const result = checkFixVerificationStatus({
+    pullRequest: { draft: false, head: { sha: FIX_SHA } },
+    reviews: [review()],
+    reviewComments: [],
+    issueComments: [],
+  });
+
+  assert.equal(result.code, "unverified");
+  assert.equal(result.currentHeadSha, FIX_SHA);
+  assert.equal(result.reviewedHeadSha, SHA);
+  assert.equal(result.coverage.covered, false);
+  // The message is the actual command to run -- not just "go check the docs".
+  assert.match(result.message, /node scripts\/delivery-contracts\.cjs fix-verification/);
+  assert.match(result.message, new RegExp(SHA));
+  assert.match(result.message, new RegExp(FIX_SHA));
+});
+
+test("fix-verification status: a corrected head with a matching record is reported as verified", () => {
+  const result = checkFixVerificationStatus({
+    pullRequest: { draft: false, head: { sha: FIX_SHA } },
+    reviews: [review()],
+    reviewComments: [],
+    issueComments: [fixVerificationComment()],
+  });
+
+  assert.equal(result.code, "verified");
+  assert.equal(result.coverage.covered, true);
+  assert.equal(result.coverage.record.commentId, 99);
+});
+
+test("fix-verification status: a record for a different delta does not count", () => {
+  const result = checkFixVerificationStatus({
+    pullRequest: { draft: false, head: { sha: NEXT_SHA } },
+    reviews: [review()],
+    reviewComments: [],
+    issueComments: [fixVerificationComment()], // covers SHA..FIX_SHA, not SHA..NEXT_SHA
+  });
+
+  assert.equal(result.code, "unverified");
 });
 
 test("an exact recorded fix delta is machine-readably covered", () => {

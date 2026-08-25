@@ -149,6 +149,11 @@ Review focus: <what an independent reviewer should attack>
   merge order; it does not perform a second code review.
 - Finding fixes stay on the same PR branch. They receive objective red/green evidence or a
   narrow independent verification of only the Hans-reviewed-SHA-to-fix-SHA delta.
+- To check whether a PR's current head already has that delta covered (NIL-595): run the
+  **Fix-Verification Status** GitHub Action by hand (`workflow_dispatch`, PR number), or
+  `node scripts/delivery-contracts.cjs fix-verification-status` -- see
+  `docs/architecture/FIX_VERIFICATION.md`'s "Checking a PR after a finding fix" section. Not a
+  required check; it only makes an uncovered delta visible instead of silently unreviewed.
 - The PR Overseer or Finding Verifier records that evidence in a GitHub PR comment using the
   machine-readable `excalidash-fix-verification:v1` contract in
   `docs/architecture/FIX_VERIFICATION.md`. Prose may summarize the result, but does not cover
