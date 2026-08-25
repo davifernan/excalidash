@@ -113,6 +113,9 @@ type Actor = {
   context: BrowserContext;
   page: Page;
   lastHeartbeatAt: number;
+  /** Set when this actor's loop has run its course. A finished actor stops
+   * sending heartbeats, which is not the same as going silent. */
+  finished: boolean;
   cycles: number;
   errors: string[];
   offline: boolean;
@@ -301,6 +304,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           context,
           page,
           lastHeartbeatAt: Date.now(),
+          finished: false,
           cycles: 0,
           errors: [],
           offline: false,
@@ -347,6 +351,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
       const watchdog = setInterval(() => {
         const now = Date.now();
         for (const actor of actors) {
+          if (actor.finished) continue;
           if (now - actor.lastHeartbeatAt > STALE_MS) {
             violations.push({ actorId: actor.id, engine: actor.engine, sinceMs: now - actor.lastHeartbeatAt });
             if (!tripped) {
@@ -368,6 +373,19 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         while (Date.now() - startedAt < DURATION_MS) {
           await runCycle(actor, drawing.id, widgetId);
           await actor.page.waitForTimeout(CYCLE_MS + Math.random() * CYCLE_MS * 0.5);
+          // The pause between cycles is by design, not a symptom. Without this
+          // heartbeat it counted against STALE_MS, which left far less headroom
+          // than the threshold suggests:
+          //
+          //   STALE_MS  = 3 x CYCLE_MS            = 45_000 ms
+          //   the wait  = CYCLE_MS x 1.0 .. 1.5   = up to 22_500 ms
+          //   left for one actual cycle             22_500 ms
+          //
+          // So any cycle slower than 1.5x CYCLE_MS tripped a false alarm.
+          // Measured under ten concurrent contexts: five actors at once showed
+          // 43-46 s gaps while sitting at cycles=0 or 1 -- none of them stuck,
+          // all of them merely mid-cycle (NIL-563).
+          actor.lastHeartbeatAt = Date.now();
         }
         // End the run online, so the final connectivity check below reflects
         // recovery, not a deliberately-offline actor.
@@ -375,6 +393,15 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           actor.offline = false;
           await actor.context.setOffline(false).catch(() => {});
         }
+        // Actors do not all cross the finish line at the same moment: whoever
+        // is mid-cycle when DURATION_MS elapses keeps going until that cycle
+        // ends. Until this flag existed, an actor that had legitimately
+        // finished simply stopped sending heartbeats -- and the watchdog,
+        // which runs until *every* loop resolves, read that as going silent.
+        // Measured: an instrumented run showed no cycle step over 5 s, yet
+        // reported a 51 s silence. That silence was the finish-line spread,
+        // not a hang (NIL-563).
+        actor.finished = true;
       });
 
       // Raced, not awaited: a stuck loop must lose to the watchdog rather than
