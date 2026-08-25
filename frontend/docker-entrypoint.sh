@@ -8,10 +8,6 @@ export ERROR_TRACKER_DSN="${ERROR_TRACKER_DSN:-}"
 
 echo "Configuring nginx with BACKEND_URL: ${BACKEND_URL}"
 
-# Replace only our custom placeholder and preserve nginx runtime vars like $http_upgrade
-ESCAPED_BACKEND_URL=$(printf '%s\n' "$BACKEND_URL" | sed 's/[\/&]/\\&/g')
-sed "s/__BACKEND_URL__/${ESCAPED_BACKEND_URL}/g" /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
-
 # This image is published once and configured at runtime. Vite variables alone
 # cannot carry an operator's DSN into an already-built image, so write the one
 # deliberately public Sentry-compatible ingest credential before nginx starts.
@@ -23,6 +19,11 @@ case "$ERROR_TRACKER_DSN" in
     exit 1
     ;;
 esac
+
+# Replace only our custom placeholder and preserve nginx runtime vars like $http_upgrade
+ESCAPED_BACKEND_URL=$(printf '%s\n' "$BACKEND_URL" | sed 's/[\/&]/\\&/g')
+sed "s/__BACKEND_URL__/${ESCAPED_BACKEND_URL}/g" /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+
 printf 'window.__EXCALIDASH_RUNTIME_CONFIG__ = { errorTrackerDsn: "%s" };\n' \
   "$ERROR_TRACKER_DSN" > /usr/share/nginx/html/runtime-config.js
 

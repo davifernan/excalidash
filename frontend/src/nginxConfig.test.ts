@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -70,4 +71,25 @@ describe("production nginx upload limits", () => {
     expect(runtimeLocation).toContain('Cache-Control "no-store');
     expect(runtimeLocation).toContain("expires -1;");
   });
+
+  it.each(['"', "<", "\\", " "])(
+    "executes the entrypoint guard and rejects injection character %j",
+    (errorTrackerDsn) => {
+      const entrypoint = resolve(process.cwd(), "docker-entrypoint.sh");
+      const result = spawnSync("/bin/sh", [entrypoint, "true"], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          BACKEND_URL: "backend:8000",
+          ERROR_TRACKER_DSN: errorTrackerDsn,
+        },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr.trim()).toBe(
+        "ERROR: ERROR_TRACKER_DSN contains characters that are not valid in a DSN URL",
+      );
+      expect(result.stdout).not.toContain("Validating nginx configuration");
+    },
+  );
 });
