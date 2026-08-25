@@ -183,7 +183,16 @@ type SlotEntry = {
 };
 
 export type MainMenuSlotEntry = SlotEntry;
-export type HeaderControlSlotEntry = SlotEntry;
+/**
+ * `zone` is NIL-579: the header-control group reads as two kinds of thing,
+ * not one undifferentiated row -- presence (who's here) and actions (what
+ * can I do). `EditorTopRight.tsx` renders presence entries, then a hairline
+ * divider gated on `ctx.peers.length > 0` (the same truth that decides
+ * whether Excalidraw's own avatar list is non-empty), then action entries.
+ * A new header-control entry picks the zone that answers which of those two
+ * questions it is -- not which one has room.
+ */
+export type HeaderControlSlotEntry = SlotEntry & { zone: "presence" | "actions" };
 export type FooterSlotEntry = SlotEntry;
 export type OverlaySlotEntry = { id: string; render: (ctx: ChromeSlotContext) => React.ReactNode };
 
@@ -451,6 +460,7 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
   {
     id: "invite-everyone-here",
     order: 20,
+    zone: "presence",
     render: (ctx) =>
       ctx.canEdit && ctx.peers.length > 0 ? (
         <button
@@ -476,6 +486,7 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
   {
     id: "share",
     order: 30,
+    zone: "actions",
     render: (ctx) =>
       ctx.accessLevel === "owner" && ctx.id ? (
         <button
@@ -503,8 +514,14 @@ const renderSorted = (entries: readonly SlotEntry[], ctx: ChromeSlotContext): Re
 export const renderMainMenuEntries = (ctx: ChromeSlotContext): React.ReactNode =>
   renderSorted(MAIN_MENU_ENTRIES, ctx);
 
-export const renderHeaderControlEntries = (ctx: ChromeSlotContext): React.ReactNode =>
-  renderSorted(HEADER_CONTROL_ENTRIES, ctx);
+export const renderHeaderControlEntries = (
+  ctx: ChromeSlotContext,
+  zone?: "presence" | "actions",
+): React.ReactNode =>
+  renderSorted(
+    zone ? HEADER_CONTROL_ENTRIES.filter((entry) => entry.zone === zone) : HEADER_CONTROL_ENTRIES,
+    ctx,
+  );
 
 export const renderFooterEntries = (ctx: ChromeSlotContext): React.ReactNode => {
   if (FOOTER_ENTRIES.length === 0) return null;
