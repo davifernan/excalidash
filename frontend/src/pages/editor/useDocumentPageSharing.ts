@@ -24,16 +24,30 @@ export const useDocumentPageSharing = ({
 }): {
   controller: DocumentPageController;
   bind: (socket: Socket) => ReturnType<typeof bindSocketDocumentPages>;
+  confirmRoomJoined: (socket: Socket) => void;
 } => {
   const [pages, setPages] = useState<SharedDocumentPages>({});
   const pendingRequestCancelsRef = useRef(new Set<() => void>());
+  const confirmedRoomSocketRef = useRef<Socket | null>(null);
+  const roomJoinWaitersRef = useRef(new Set<() => void>());
 
   useEffect(
     () => () => {
       for (const cancel of pendingRequestCancelsRef.current) cancel();
       pendingRequestCancelsRef.current.clear();
+      roomJoinWaitersRef.current.clear();
+      confirmedRoomSocketRef.current = null;
     },
     [drawingId],
+  );
+
+  const confirmRoomJoined = useCallback(
+    (socket: Socket) => {
+      if (socketRef.current !== socket || !socket.connected) return;
+      confirmedRoomSocketRef.current = socket;
+      for (const notify of [...roomJoinWaitersRef.current]) notify();
+    },
+    [socketRef],
   );
 
   const requestPage = useCallback(
@@ -49,7 +63,7 @@ export const useDocumentPageSharing = ({
       return new Promise((resolve) => {
         let settled = false;
         let retryTimeout: number | null = null;
-        let waitingForConnect = false;
+        let waitingForRoom = false;
 
         const clearRetry = () => {
           if (retryTimeout === null) return;
@@ -58,8 +72,8 @@ export const useDocumentPageSharing = ({
         };
         const cleanup = () => {
           clearRetry();
-          activeSocket.off("connect", onConnect);
           activeSocket.off("disconnect", onDisconnect);
+          roomJoinWaitersRef.current.delete(onRoomJoined);
           pendingRequestCancelsRef.current.delete(cancel);
         };
         const finish = (result: DocumentPageRequestResult) => {
@@ -73,10 +87,10 @@ export const useDocumentPageSharing = ({
             ok: false,
             error: { code: "not-connected", message: "Document page sharing is not connected" },
           });
-        const waitForConnect = () => {
-          if (settled || waitingForConnect) return;
-          waitingForConnect = true;
-          activeSocket.on("connect", onConnect);
+        const waitUntilRoomJoined = () => {
+          if (settled || waitingForRoom) return;
+          waitingForRoom = true;
+          roomJoinWaitersRef.current.add(onRoomJoined);
         };
         const scheduleRetry = () => {
           clearRetry();
@@ -94,9 +108,13 @@ export const useDocumentPageSharing = ({
         };
         function send() {
           if (settled) return;
-          if (!activeSocket.connected) {
+          if (
+            !activeSocket.connected ||
+            socketRef.current !== activeSocket ||
+            confirmedRoomSocketRef.current !== activeSocket
+          ) {
             clearRetry();
-            waitForConnect();
+            waitUntilRoomJoined();
             return;
           }
           activeSocket.emit(
@@ -106,9 +124,9 @@ export const useDocumentPageSharing = ({
           );
           scheduleRetry();
         }
-        function onConnect() {
-          waitingForConnect = false;
-          activeSocket.off("connect", onConnect);
+        function onRoomJoined() {
+          waitingForRoom = false;
+          roomJoinWaitersRef.current.delete(onRoomJoined);
           send();
         }
         function onDisconnect() {
@@ -122,7 +140,7 @@ export const useDocumentPageSharing = ({
             cancel();
             return;
           }
-          waitForConnect();
+          waitUntilRoomJoined();
         }
 
         pendingRequestCancelsRef.current.add(cancel);
@@ -134,10 +152,22 @@ export const useDocumentPageSharing = ({
   );
 
   const bind = useCallback(
-    (socket: Socket) =>
-      bindSocketDocumentPages({ socket, drawingId: drawingId || "", onChange: setPages }),
+    (socket: Socket) => {
+      const binding = bindSocketDocumentPages({
+        socket,
+        drawingId: drawingId || "",
+        onChange: setPages,
+      });
+      return {
+        ...binding,
+        reset() {
+          if (confirmedRoomSocketRef.current === socket) confirmedRoomSocketRef.current = null;
+          binding.reset();
+        },
+      };
+    },
     [drawingId],
   );
 
-  return { controller: { pages, requestPage }, bind };
+  return { controller: { pages, requestPage }, bind, confirmRoomJoined };
 };

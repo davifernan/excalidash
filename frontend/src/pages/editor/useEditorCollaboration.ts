@@ -135,6 +135,7 @@ export const useEditorCollaboration = ({
   const pendingRemoteElementsRef = useRef<Map<string, any>>(new Map());
   const pendingRemoteFilesRef = useRef<Record<string, any>>({});
   const pendingRemoteElementOrderRef = useRef<string[] | null>(null);
+  const pendingRemoteReceiptsRef = useRef<Array<(response: { ok: true }) => void>>([]);
   const remoteFlushScheduledRef = useRef(false);
   const remoteFlushRafIdRef = useRef<number | null>(null);
   const shareToken = getShareLinkToken();
@@ -293,6 +294,7 @@ export const useEditorCollaboration = ({
       pendingRemoteElementsRef.current.clear();
       pendingRemoteFilesRef.current = {};
       pendingRemoteElementOrderRef.current = null;
+      pendingRemoteReceiptsRef.current = [];
       if (remoteFlushRafIdRef.current !== null) {
         cancelAnimationFrame(remoteFlushRafIdRef.current);
       }
@@ -307,6 +309,7 @@ export const useEditorCollaboration = ({
       resetConnectionState,
       onJoined: (serverUser) => {
         roomJoinedRef.current = true;
+        documentPageSharing.confirmRoomJoined(socket);
         if (import.meta.env.DEV) {
           const status = (window as any).__EXCALIDASH_SOCKET_STATUS__;
           if (status) status.roomJoined = true;
@@ -362,6 +365,8 @@ export const useEditorCollaboration = ({
         pendingRemoteFilesRef.current = {};
         const elementOrder = hasPendingOrder ? pendingOrderRaw : null;
         pendingRemoteElementOrderRef.current = null;
+        const receipts = pendingRemoteReceiptsRef.current;
+        pendingRemoteReceiptsRef.current = [];
         const { sceneUpdate, mergedElements, nextFiles, shouldUpdateFiles } =
           buildRemoteSceneUpdate({
             localElements: latestElementsRef.current,
@@ -438,6 +443,11 @@ export const useEditorCollaboration = ({
           latestFilesRef.current = nextFiles;
           lastSyncedFilesRef.current = nextFiles;
         }
+        if (filesAdded && sceneApplied) {
+          receipts.forEach((receipt) => receipt({ ok: true }));
+        } else {
+          pendingRemoteReceiptsRef.current = [...receipts, ...pendingRemoteReceiptsRef.current];
+        }
       } finally {
         isSyncing.current = false;
       }
@@ -458,15 +468,18 @@ export const useEditorCollaboration = ({
     };
     socket.on(
       "element-update",
-      ({
-        elements,
-        files,
-        elementOrder,
-      }: {
-        elements: any[];
-        files?: Record<string, any>;
-        elementOrder?: string[];
-      }) => {
+      (
+        {
+          elements,
+          files,
+          elementOrder,
+        }: {
+          elements: any[];
+          files?: Record<string, any>;
+          elementOrder?: string[];
+        },
+        receipt?: (response: { ok: true }) => void,
+      ) => {
         if (Array.isArray(elements)) {
           for (const el of elements) {
             const id = el?.id;
@@ -484,6 +497,7 @@ export const useEditorCollaboration = ({
         if (Array.isArray(elementOrder) && elementOrder.length > 0) {
           pendingRemoteElementOrderRef.current = elementOrder;
         }
+        if (typeof receipt === "function") pendingRemoteReceiptsRef.current.push(receipt);
         scheduleRemoteFlush();
       },
     );
@@ -543,6 +557,7 @@ export const useEditorCollaboration = ({
       pendingRemoteElementsRef.current.clear();
       pendingRemoteFilesRef.current = {};
       pendingRemoteElementOrderRef.current = null;
+      pendingRemoteReceiptsRef.current = [];
     };
   }, [
     drawingId,

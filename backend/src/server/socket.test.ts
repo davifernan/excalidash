@@ -198,6 +198,46 @@ describe("socket collaboration security and follow state", () => {
     expect(ack).toHaveBeenCalledWith({ ok: true });
   });
 
+  it("only acknowledges file delivery after every connected peer confirms receipt", async () => {
+    const sender = await io.connect("socket-sender");
+    const receiver = await io.connect("socket-receiver");
+    await join(sender);
+    await join(receiver);
+    const failedAck = vi.fn();
+    io.broadcastReceiptError = new Error("receiver did not acknowledge");
+
+    await sender.trigger(
+      "element-update",
+      {
+        drawingId: "drawing-1",
+        elements: [],
+        files: { "file-1": { id: "file-1", dataURL: "data:image/png;base64,bytes" } },
+      },
+      failedAck,
+    );
+
+    expect(failedAck).toHaveBeenCalledWith({
+      ok: false,
+      error: {
+        code: "delivery-unconfirmed",
+        message: "element-update was not confirmed by every connected peer",
+      },
+    });
+
+    const confirmedAck = vi.fn();
+    io.broadcastReceiptError = null;
+    await sender.trigger(
+      "element-update",
+      {
+        drawingId: "drawing-1",
+        elements: [],
+        files: { "file-1": { id: "file-1", dataURL: "data:image/png;base64,bytes" } },
+      },
+      confirmedAck,
+    );
+    expect(confirmedAck).toHaveBeenCalledWith({ ok: true });
+  });
+
   it("relays element content and warns the sender when ordering exceeds its byte budget", async () => {
     const sender = await io.connect("socket-sender");
     const receiver = await io.connect("socket-receiver");

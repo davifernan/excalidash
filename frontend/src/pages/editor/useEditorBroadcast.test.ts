@@ -589,6 +589,7 @@ describe("editor broadcast delivery tracking", () => {
 
   it.each([
     { code: "rate-limited", expectedEmits: 2 },
+    { code: "delivery-unconfirmed", expectedEmits: 2 },
     { code: "access-denied", expectedEmits: 1 },
   ])("retries only retryable acknowledgement errors ($code)", ({ code, expectedEmits }) => {
     vi.useFakeTimers();

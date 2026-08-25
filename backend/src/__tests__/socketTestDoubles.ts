@@ -15,10 +15,11 @@ class FakeOperator {
     private senderId: string,
     private scope: string,
     private isVolatile = false,
+    private receiptError: () => Error | null = () => null,
   ) {}
 
   get volatile() {
-    return new FakeOperator(this.emissions, this.senderId, this.scope, true);
+    return new FakeOperator(this.emissions, this.senderId, this.scope, true, this.receiptError);
   }
 
   /** Socket.IO's own exclusion; recorded so a test can assert who was left out. */
@@ -27,7 +28,15 @@ class FakeOperator {
     return this;
   }
 
-  emit(event: string, payload: any) {
+  timeout(_timeoutMs: number) {
+    return this;
+  }
+
+  emit(
+    event: string,
+    payload: any,
+    receipt?: (error: Error | null, responses?: Array<{ ok: true }>) => void,
+  ) {
     this.emissions.push({
       senderId: this.senderId,
       scope: this.scope,
@@ -38,6 +47,7 @@ class FakeOperator {
       // break every existing deep-equality assertion over an emission.
       ...(this.excluded.length ? { excluded: this.excluded } : {}),
     });
+    receipt?.(this.receiptError(), []);
   }
 }
 
@@ -57,6 +67,7 @@ export class FakeSocket {
   constructor(
     readonly id: string,
     private emissions: Emission[],
+    private receiptError: () => Error | null = () => null,
   ) {
     this.rooms = new Set([id]);
   }
@@ -74,7 +85,7 @@ export class FakeSocket {
   }
 
   to(scope: string) {
-    return new FakeOperator(this.emissions, this.id, scope);
+    return new FakeOperator(this.emissions, this.id, scope, false, this.receiptError);
   }
 
   async join(scope: string) {
@@ -101,6 +112,7 @@ export class FakeSocket {
 
 export class FakeIo {
   readonly emissions: Emission[] = [];
+  broadcastReceiptError: Error | null = null;
   private middleware: ((socket: FakeSocket, next: (error?: Error) => void) => any) | null = null;
   private connectionHandler: ((socket: FakeSocket) => void) | null = null;
 
@@ -123,7 +135,7 @@ export class FakeIo {
    * argument.
    */
   async connect(id: string, auth: Record<string, unknown> = {}) {
-    const socket = new FakeSocket(id, this.emissions);
+    const socket = new FakeSocket(id, this.emissions, () => this.broadcastReceiptError);
     Object.assign(socket.handshake.auth, auth);
     await new Promise<void>((resolve, reject) => {
       this.middleware?.(socket, (error?: Error) => (error ? reject(error) : resolve()));

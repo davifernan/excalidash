@@ -14,6 +14,7 @@ describe("requesting an authoritative document page", () => {
     const { result } = renderHook(() =>
       useDocumentPageSharing({ drawingId: "board-1", socketRef }),
     );
+    act(() => result.current.confirmRoomJoined(socket as any));
 
     let response: unknown;
     await act(async () => {
@@ -47,7 +48,7 @@ describe("requesting an authoritative document page", () => {
     expect(socket.emit).not.toHaveBeenCalled();
 
     socket.connected = true;
-    listeners.get("connect")?.();
+    act(() => result.current.confirmRoomJoined(socket as any));
     expect(socket.emit).toHaveBeenCalledOnce();
     acknowledgements[0]?.({ ok: false, error: { code: "gone", message: "Widget is gone" } });
 
@@ -55,6 +56,24 @@ describe("requesting an authoritative document page", () => {
       ok: false,
       error: { code: "gone", message: "Widget is gone" },
     });
+  });
+
+  it("does not send a queued command until the reconnected socket has rejoined the room", async () => {
+    const socket = {
+      connected: true,
+      emit: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+    const { result } = renderHook(() =>
+      useDocumentPageSharing({ drawingId: "board-1", socketRef: { current: socket as any } }),
+    );
+
+    void result.current.controller.requestPage("widget-1", 4);
+    expect(socket.emit).not.toHaveBeenCalled();
+
+    act(() => result.current.confirmRoomJoined(socket as any));
+    expect(socket.emit).toHaveBeenCalledOnce();
   });
 
   it("keeps a slow real acknowledgement alive while retrying", async () => {
@@ -69,6 +88,7 @@ describe("requesting an authoritative document page", () => {
     const { result } = renderHook(() =>
       useDocumentPageSharing({ drawingId: "board-1", socketRef: { current: socket as any } }),
     );
+    act(() => result.current.confirmRoomJoined(socket as any));
 
     const response = result.current.controller.requestPage("widget-1", 4);
     expect(socket.emit).toHaveBeenCalledOnce();
@@ -99,6 +119,7 @@ describe("requesting an authoritative document page", () => {
     const { result } = renderHook(() =>
       useDocumentPageSharing({ drawingId: "board-1", socketRef: { current: socket as any } }),
     );
+    act(() => result.current.confirmRoomJoined(socket as any));
 
     const response = result.current.controller.requestPage("widget-1", 4);
     socket.active = false;

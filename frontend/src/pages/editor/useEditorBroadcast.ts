@@ -212,7 +212,11 @@ export const useEditorBroadcast = ({
         const acknowledge = (transportError: unknown, response?: ElementUpdateAck) => {
           if (attemptSettled || deliveryGenerationRef.current !== generation) return;
           attemptSettled = true;
-          if (transportError || response?.error?.code === "rate-limited") {
+          if (
+            transportError ||
+            response?.error?.code === "rate-limited" ||
+            response?.error?.code === "delivery-unconfirmed"
+          ) {
             const message = response?.error?.message;
             if (typeof message === "string") toast.error(message);
             sceneRetryTimeoutRef.current = window.setTimeout(() => {
@@ -358,7 +362,11 @@ export const useEditorBroadcast = ({
       attemptSettled = true;
       activeFileDeliveryRef.current = null;
 
-      if (transportError || response?.error?.code === "rate-limited") {
+      if (
+        transportError ||
+        response?.error?.code === "rate-limited" ||
+        response?.error?.code === "delivery-unconfirmed"
+      ) {
         const message = response?.error?.message;
         if (typeof message === "string") toast.error(message);
         for (const fileId of attemptFileIds) {

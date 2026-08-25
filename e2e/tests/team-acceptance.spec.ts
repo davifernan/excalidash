@@ -63,6 +63,12 @@ const CEILING = {
 
 const openEditor = (page: Page, drawingId: string) => openEditorReady(page, drawingId);
 
+const requestDocumentPage = (page: Page, elementId: string, targetPage: number) =>
+  page.evaluate(
+    ({ id, pageNumber }) => (window as any).__EXCALIDASH_TEST__.requestDocumentPage(id, pageNumber),
+    { id: elementId, pageNumber: targetPage },
+  );
+
 const socketConnected = (page: Page) =>
   page.evaluate(() => (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true);
 
@@ -269,6 +275,37 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         expect(widgets).toHaveLength(1);
         widgetId = widgets[0].id;
         expect(widgetId).toBeTruthy();
+      });
+
+      await test.step("fabricated widgets and invalid pages receive structured refusals", async () => {
+        // The widget is painted and broadcast before the debounced scene save
+        // creates its authoritative DocumentPageView row. Confirm that server
+        // handoff first; otherwise the real id and a fabricated id are both
+        // legitimately "not found" and the out-of-range probe asks nothing.
+        await expect
+          .poll(() => requestDocumentPage(host, widgetId, 1), {
+            timeout: CEILING.ui,
+            message: "the visible document widget never became authoritative on the server",
+          })
+          .toEqual({ ok: true });
+
+        const fabricatedWidget = await requestDocumentPage(host, "nil330_fabricated_widget", 1);
+        expect(fabricatedWidget).toEqual({
+          ok: false,
+          error: {
+            code: "document-widget-not-found",
+            message: "Document widget is not part of this board",
+          },
+        });
+
+        const invalidPage = await requestDocumentPage(host, widgetId, 2_147_483_647);
+        expect(invalidPage).toEqual({
+          ok: false,
+          error: {
+            code: "document-page-out-of-range",
+            message: "Document page does not exist",
+          },
+        });
       });
 
       await test.step("a 2 MB file syncs silently; 14 MB, 15 MB and an over-ceiling file are refused, not lost", async () => {

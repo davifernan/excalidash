@@ -28,6 +28,7 @@ import type { PreviewTransaction } from "../integrations/excalidraw/capabilities
 import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
 import { toast } from "sonner";
+import type { DocumentPageRequestResult } from "./editor/documentPages";
 export const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -135,6 +136,9 @@ export const Editor: React.FC = () => {
   // The delivery hook is created further down; the harness reads it through
   // this ref so the effect below neither has to move nor depend on it.
   const deliveryStateRef = useRef<(() => DeliveryState) | null>(null);
+  const documentPageRequestRef = useRef<
+    ((elementId: string, page: number) => Promise<DocumentPageRequestResult>) | null
+  >(null);
   useEffect(() => {
     // Only once the editor has actually handed its handle over. The suite uses
     // this global as its readiness signal -- the old one was set at exactly that
@@ -198,6 +202,12 @@ export const Editor: React.FC = () => {
        * the last one.
        */
       getDeliveryState: () => deliveryStateRef.current?.() ?? null,
+      requestDocumentPage: (elementId: string, page: number) =>
+        documentPageRequestRef.current?.(elementId, page) ??
+        Promise.resolve({
+          ok: false as const,
+          error: { code: "not-connected", message: "Document page sharing is not connected" },
+        }),
       /**
        * Writing, too. Some specs plant an element or a file to drive a live
        * path; going through `scene.apply` and `files.add` means they take the
@@ -337,6 +347,9 @@ export const Editor: React.FC = () => {
     onAccessDenied: handleSocketAccessDenied,
     onDrawingNameChange: setDrawingName,
   });
+  useEffect(() => {
+    documentPageRequestRef.current = documentPages.requestPage;
+  }, [documentPages.requestPage]);
   useLibraryImportFromUrl({ ui: adapter.ui, isReady, user });
   const frames = useFrameNavigator(adapter.scene, isReady);
   const handleInsertTemplate = useCallback(

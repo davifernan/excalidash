@@ -60,6 +60,7 @@ vi.mock("./useDocumentPageSharing", () => ({
   useDocumentPageSharing: () => ({
     controller: {},
     bind: () => ({ reset: vi.fn(), dispose: vi.fn() }),
+    confirmRoomJoined: vi.fn(),
   }),
 }));
 vi.mock("./inviteHere", () => ({
@@ -218,7 +219,10 @@ describe("editor collaboration reconnect state", () => {
       ([event]) => event === "element-update",
     )?.[1];
 
-    act(() => elementUpdate({ elements: [element], files: { "file-1": file } }));
+    const receipt = vi.fn();
+    act(() => elementUpdate({ elements: [element], files: { "file-1": file } }, receipt));
+
+    expect(receipt).not.toHaveBeenCalled();
     act(() => flush?.(0));
 
     expect(addFiles).toHaveBeenCalledWith([file]);
@@ -226,6 +230,7 @@ describe("editor collaboration reconnect state", () => {
       [expect.objectContaining({ kind: "replaceDocument" })],
       { capture: "never" },
     );
+    expect(receipt).toHaveBeenCalledWith({ ok: true });
     unmount();
   });
 
