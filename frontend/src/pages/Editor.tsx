@@ -20,6 +20,7 @@ import { useEditorCanvasHandlers } from "./editor/useEditorCanvasHandlers";
 import { useStickyNotesFeature } from "../sticky";
 import { useMindMapFeature } from "../mindMap";
 import { mindMapLayoutRunCount } from "../mindMap/mindMapScene";
+import { useAmbientTreeDrag } from "../ambientTree/useAmbientTreeDrag";
 import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
 import { useEditorBroadcast, type DeliveryState } from "./editor/useEditorBroadcast";
@@ -585,6 +586,12 @@ export const Editor: React.FC = () => {
     chatRef: cursorChatRef,
   });
 
+  const { onSceneChange: onAmbientTreeSceneChange } = useAmbientTreeDrag({
+    canEdit,
+    scene: adapter.scene,
+    selection: adapter.selection,
+  });
+
   const [hasSelection, setHasSelection] = useState(false);
   const handleChangeWithSelection = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
@@ -592,9 +599,13 @@ export const Editor: React.FC = () => {
       setHasSelection(
         Object.values(appState?.selectedElementIds || {}).some((selected) => selected === true),
       );
+      // Ambient tree drag first: on every board, tool-less, reading only
+      // native arrow bindings (NIL-593) -- independent of the mind-map
+      // feature below it, which still owns its own tagged nodes.
+      onAmbientTreeSceneChange();
       handleChangeWithMindMap(elements, appState, files);
     },
-    [handleChangeWithMindMap, onSelectionChange],
+    [handleChangeWithMindMap, onAmbientTreeSceneChange, onSelectionChange],
   );
   // A comment/mention/activity deep link arrives as `?thread=<rootId>`
   // (built by the Inbox and Activity pages). Captured once, then stripped

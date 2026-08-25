@@ -90,6 +90,12 @@ const optionalId = (value: unknown): ElementId | null =>
 const num = (value: unknown, fallback: number): number =>
   typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
+const arrowBinding = (value: unknown): { elementId: ElementId } | null => {
+  if (!value || typeof value !== "object") return null;
+  const elementId = (value as { elementId?: unknown }).elementId;
+  return typeof elementId === "string" ? { elementId: asId(elementId) } : null;
+};
+
 /**
  * The read projection.
  *
@@ -125,6 +131,8 @@ export const summarise = (element: Record<string, unknown>): ElementSummary => (
         )
         .map((ref) => ({ id: asId(ref.id), type: ref.type as "arrow" | "text" }))
     : null,
+  startBinding: arrowBinding(element.startBinding),
+  endBinding: arrowBinding(element.endBinding),
 });
 
 export const readBoardSettings = (appState: Record<string, unknown>): BoardSettings => ({
