@@ -67,8 +67,8 @@ describe("document bookkeeping", () => {
   });
 
   afterAll(async () => {
-    await cleanupTestDb(prisma);
-    await rm(storageDir, { recursive: true, force: true });
+    if (prisma) await cleanupTestDb(prisma);
+    if (storageDir) await rm(storageDir, { recursive: true, force: true });
   });
 
   beforeEach(async () => {

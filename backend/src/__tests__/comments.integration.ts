@@ -23,7 +23,7 @@ describe("Comments, mentions, activity and inbox", () => {
   });
 
   afterAll(async () => {
-    await prisma.$disconnect();
+    if (prisma) await prisma.$disconnect();
   });
 
   const makeUser = async (email: string, name: string) => {

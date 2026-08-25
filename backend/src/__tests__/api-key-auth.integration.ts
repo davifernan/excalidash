@@ -82,7 +82,7 @@ describe("API key authentication", () => {
   });
 
   afterAll(async () => {
-    await prisma.$disconnect();
+    if (prisma) await prisma.$disconnect();
   });
 
   it("accepts API key bearer auth for write API requests without CSRF", async () => {
