@@ -9,7 +9,7 @@
  * checkable: nothing here passes a viewport, a selection or a clock into the
  * pure core, and every pure call's inputs are visible in one function.
  */
-import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
+import type { BoundElementRef, ElementSummary, SceneOp } from "../integrations/excalidraw/types";
 import { readMindMap, readMindMapProjection } from "../integrations/excalidraw/customData";
 import {
   compareStableStrings,
@@ -22,6 +22,7 @@ import { layoutMindMap, MIND_MAP_LAYOUT_V1, type MindMapLayoutPosition } from ".
 import {
   createMindMapEdge,
   createMindMapNode,
+  mergeEdgeBinding,
   newMindMapElementId,
   type NodeBox,
 } from "./mindMapElements";
@@ -90,8 +91,17 @@ export function normalizeLiveMap(
  * One layout run, materialized as ops: patch every node whose coordinates
  * changed, and replace every projection edge for this map with a fresh one
  * built from the new coordinates (cheaper and simpler than patching arrow
- * geometry in place, and correct regardless of how many endpoints moved --
- * see `mindMapElements.ts`'s file comment for why edges are not patched).
+ * geometry in place, and correct regardless of how many endpoints moved).
+ * Each fresh edge is a real bound arrow (NIL-575): its own `startBinding`/
+ * `endBinding` come from `createMindMapEdge`, and this function patches the
+ * *shape's* `boundElements` on both endpoints to match -- native binding is
+ * two-way by construction, or it is worse than the geometric edges it
+ * replaced (see `mindMapElements.ts`'s file comment).
+ *
+ * A brand-new node (inserted earlier in the same ops batch by the caller,
+ * see `addNodeOps`) has no entry in `liveById` yet; its own `boundElements`
+ * patch still lands correctly because `SceneCapability.apply` processes this
+ * function's ops in order, after that earlier insert, within the same call.
  *
  * Never called from `onChange`, a pointer move, a remote update, save,
  * restore or reconnect -- only from an explicit structural action or the
@@ -120,6 +130,7 @@ export function layoutOps(
     // `addNodeOps`) is inserted with this position directly, so it needs a
     // box for the edge-drawing pass below without needing a patch here.
     boxesById.set(node.elementId, {
+      id: node.elementId,
       x: position.x,
       y: position.y,
       width: MIND_MAP_LAYOUT_V1.nodeWidth,
@@ -149,19 +160,37 @@ export function layoutOps(
     }
   }
 
-  const staleEdgeIds = existingEdges.map((edge) => edge.id);
-  if (staleEdgeIds.length > 0) ops.push({ kind: "remove", ids: staleEdgeIds as never });
+  const staleEdgeIds = new Set(existingEdges.map((edge) => edge.id));
+  if (staleEdgeIds.size > 0) ops.push({ kind: "remove", ids: [...staleEdgeIds] as never });
+
+  const newEdgeRefsByNode = new Map<string, BoundElementRef[]>();
+  const addRef = (nodeId: string, ref: BoundElementRef) => {
+    const list = newEdgeRefsByNode.get(nodeId) ?? [];
+    list.push(ref);
+    newEdgeRefsByNode.set(nodeId, list);
+  };
 
   for (const node of map.nodes) {
     if (node.parentId === null) continue;
     const parentBox = boxesById.get(node.parentId);
     const childBox = boxesById.get(node.elementId);
     if (!parentBox || !childBox) continue;
+    const edgeId = newMindMapElementId();
     ops.push({
       kind: "insert",
-      elements: [
-        createMindMapEdge(newMindMapElementId(), map.mapId, node.elementId, parentBox, childBox),
-      ],
+      elements: [createMindMapEdge(edgeId, map.mapId, parentBox, childBox)],
+    });
+    const ref: BoundElementRef = { id: edgeId as never, type: "arrow" };
+    addRef(node.parentId, ref);
+    addRef(node.elementId, ref);
+  }
+
+  for (const [nodeId, refs] of newEdgeRefsByNode) {
+    const live = liveById.get(nodeId);
+    ops.push({
+      kind: "patch",
+      id: nodeId as never,
+      changes: { boundElements: mergeEdgeBinding(live?.boundElements ?? null, staleEdgeIds, refs) },
     });
   }
 

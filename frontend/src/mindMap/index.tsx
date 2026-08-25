@@ -45,9 +45,9 @@ export function useMindMapFeature({
 
   const handleCanvasChange = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
-      // Drag detection first: it only reads the scene and appState, and its
-      // own follow-up `scene.apply` (if any) should land before the
-      // integrity pass looks at the board, not after.
+      // Drag detection first: it only reads the scene, and its own
+      // follow-up `scene.apply` (if any) should land before the integrity
+      // pass looks at the board, not after.
       onDragSceneChange();
       onIntegritySceneChange(elements);
       onCanvasChange(elements, appState, files);

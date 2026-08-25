@@ -58,9 +58,26 @@ describe("addNodeOps", () => {
       (op) => op.kind === "insert" && (op.elements[0] as any).id === result!.newNodeId,
     );
     expect(insertOp).toBeDefined();
-    // Root itself never moves for its own first child (nothing else on its level).
-    const rootPatch = result!.ops.find((op) => op.kind === "patch" && op.id === root.id);
-    expect(rootPatch).toBeUndefined();
+    // Root itself never moves for its own first child (nothing else on its
+    // level) -- it does still get a `boundElements` patch (NIL-575: the new
+    // edge is a real bound arrow, native binding on both ends).
+    const rootPositionPatch = result!.ops.find(
+      (op) => op.kind === "patch" && op.id === root.id && "x" in op.changes,
+    );
+    expect(rootPositionPatch).toBeUndefined();
+    const rootBindingPatch = result!.ops.find(
+      (op) => op.kind === "patch" && op.id === root.id && "boundElements" in op.changes,
+    ) as any;
+    expect(rootBindingPatch).toBeDefined();
+    // Exactly the new edge, native and bidirectional: root's own boundElements
+    // now names the arrow the new child insert also carries a matching
+    // startBinding/endBinding for (checked in the mindMapElements tests).
+    const newEdge = result!.ops.find(
+      (op) => op.kind === "insert" && (op.elements[0] as any).type === "arrow",
+    ) as any;
+    expect(rootBindingPatch.changes.boundElements).toEqual([
+      { id: newEdge.elements[0].id, type: "arrow" },
+    ]);
   });
 
   it("adds a sibling under the same parent, never as a second root", () => {

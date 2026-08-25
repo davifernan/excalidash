@@ -48,7 +48,14 @@ export const scene = (page: Page) =>
       text: element.text,
       sticky: element.customData?.excalidash?.sticky ?? null,
       mindMap: element.customData?.excalidash?.mindMap ?? null,
+      mindMapProjection: element.customData?.excalidash?.mindMapProjection ?? null,
       schemaVersion: element.customData?.excalidash?.schemaVersion ?? null,
+      // NIL-575: the native two-way binding a mind-map edge now carries --
+      // the arrow's own half (startBinding/endBinding) and, on any element,
+      // which bound arrows/labels it carries the other half for.
+      startBinding: element.startBinding ?? null,
+      endBinding: element.endBinding ?? null,
+      boundElements: element.boundElements ?? null,
     }));
   });
 

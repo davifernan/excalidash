@@ -117,6 +117,14 @@ export const summarise = (element: Record<string, unknown>): ElementSummary => (
       ? (structuredClone(element.customData) as Record<string, unknown>)
       : null,
   name: typeof element.name === "string" ? element.name : null,
+  boundElements: Array.isArray(element.boundElements)
+    ? element.boundElements
+        .filter(
+          (ref): ref is { id: unknown; type: unknown } =>
+            !!ref && typeof ref === "object" && (ref.type === "arrow" || ref.type === "text"),
+        )
+        .map((ref) => ({ id: asId(ref.id), type: ref.type as "arrow" | "text" }))
+    : null,
 });
 
 export const readBoardSettings = (appState: Record<string, unknown>): BoardSettings => ({

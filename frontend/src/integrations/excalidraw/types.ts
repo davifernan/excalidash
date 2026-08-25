@@ -41,12 +41,23 @@ export type SceneDocument = {
 };
 
 /**
+ * One end of a native Excalidraw binding, as recorded on the *shape* side
+ * (`ExcalidrawElement.boundElements`). The arrow side of the same binding is
+ * `startBinding`/`endBinding`, which this layer does not expose -- nothing
+ * yet needs to read them, and this ref is enough to keep a shape's own list
+ * in sync when a bound element is added or removed. See `ElementPatch`'s own
+ * comment for why this exists at all.
+ */
+export type BoundElementRef = { readonly id: ElementId; readonly type: "arrow" | "text" };
+
+/**
  * What product code is actually allowed to know about an element.
  *
  * Every field here is read by a real consumer today: geometry and `angle` by
  * the sticky hit-testing and handles, `frameId` by the placement code,
  * `containerId` by the hint, `link` by the widget identification, `customData`
- * by both sticky and widgets.
+ * by both sticky and widgets, `boundElements` by the mind map (NIL-575) to
+ * keep a node's native bindings in sync when its edges change.
  */
 export type ElementSummary = {
   readonly id: ElementId;
@@ -68,6 +79,13 @@ export type ElementSummary = {
    * a workshop template created.
    */
   readonly name: string | null;
+  /**
+   * Which bound arrows/labels this shape natively knows about, or `null` when
+   * the element carries none. Read-only mirror of the raw field; write it
+   * back through `ElementPatch.boundElements`, never by reaching around this
+   * layer at the raw element.
+   */
+  readonly boundElements: readonly BoundElementRef[] | null;
 };
 
 /**
@@ -134,6 +152,18 @@ export type ElementPatch = {
   readonly strokeColor?: string;
   readonly fontSize?: number;
   readonly customData?: Readonly<Record<string, unknown>>;
+  /**
+   * The whole list, replacing whatever the shape had (NIL-575). Named and
+   * scoped to exactly this field -- not "the raw element is now open" -- so
+   * the contract in `SceneDocument`'s own comment ("opaque and lossless...
+   * product code never reads fields off it") keeps holding for everything
+   * else. A caller that wants to add or remove one binding reads the
+   * shape's current `ElementSummary.boundElements` first and patches the
+   * whole array back; there is no merge-one-entry helper because the only
+   * consumer today (`mindMapElements.ts`) always already has the full
+   * current list in hand when it needs this.
+   */
+  readonly boundElements?: readonly BoundElementRef[];
 };
 
 export type SceneFile = {

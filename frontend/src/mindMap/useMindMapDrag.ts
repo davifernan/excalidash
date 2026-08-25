@@ -40,12 +40,48 @@
  * the only single-element layout write is a brand-new root, which has no
  * parent/subtree edge for this hook to touch and so is a harmless no-op
  * even if this hook does look at it.
+ *
+ * ## NIL-576: one undo, verified -- but not by the mechanism first assumed
+ *
+ * NIL-570's own handoff claimed this follow-up patch was "a second, separate
+ * undo step" -- reasoned from source (`store.commit()` runs before
+ * `props.onChange` in `componentDidUpdate`, so a correction issued from this
+ * hook's `onSceneChange` necessarily lands after the native drag's own
+ * capture), but never actually pressed `Ctrl+Z` in a browser to check. It
+ * was wrong: measured directly (two-node subtree drag, then one `Ctrl+Z`),
+ * a single undo fully reverts the dragged node AND the rest of the subtree
+ * together, every time (`mind-map-native-binding.spec.ts`). Something in
+ * Excalidraw's own store folds this hook's `capture: "immediate"`
+ * correction into the same history entry as the native drag despite the
+ * two `scene.apply`/native-`setState` calls being chronologically separate
+ * -- not fully isolated (candidates: how `Snapshot.maybeClone` diffs
+ * against the pre-drag baseline rather than a just-native-committed one;
+ * some rapid-successive-capture coalescing in the store), but the practical
+ * outcome is exactly the epic's contract and is now pinned down by a real
+ * test rather than left as an assumption either way.
+ *
+ * A different fix was tried first and **rejected** on measurement, not
+ * theory -- worth recording so nobody reaches for it again expecting it to
+ * help: a `pointerup` listener in the DOM **capture phase** on the editor
+ * container (which does run before Excalidraw's own bubble-phase/`window`
+ * listener for the same event -- confirmed in `dist/dev/index.js`,
+ * `window.addEventListener("pointerup", onPointerUp)`, no capture flag),
+ * issuing this hook's correction *before* Excalidraw's own native-drag
+ * capture instead of after. Measured against the same scenario, it made
+ * things *worse*: two separate undo steps, in the opposite order (the
+ * native move reverted first, the subtree correction needed a second,
+ * separate `Ctrl+Z`). Reordering which `setState` fires first inside the
+ * same native event does not make React 18 batch them into one commit here
+ * -- whatever mechanism gives the plain `onSceneChange`-after ordering its
+ * single-entry behaviour, firing before breaks it. So this hook fires its
+ * correction from `onSceneChange`, same as it always has; the fix for
+ * NIL-576 turned out to be the test, not the code.
  */
 import { useRef } from "react";
 import type { SceneCapability, SelectionCapability } from "../integrations/excalidraw/capabilities";
-import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
+import type { BoundElementRef, ElementSummary, SceneOp } from "../integrations/excalidraw/types";
 import { readMindMapProjection } from "../integrations/excalidraw/customData";
-import { createMindMapEdge, newMindMapElementId } from "./mindMapElements";
+import { createMindMapEdge, mergeEdgeBinding, newMindMapElementId } from "./mindMapElements";
 import { normalizeLiveMap, readMindMapEdges, readMindMapNodes } from "./mindMapScene";
 import { subtreeElementIds } from "./model";
 
@@ -57,15 +93,6 @@ type Options = {
 
 type LivePosition = { readonly x: number; readonly y: number };
 
-/**
- * Known gap, tracked as NIL-576: the follow-up patch below lands after
- * Excalidraw's own drag already committed its one history step, so it is a
- * second step rather than folded into the first. One user drag currently
- * undoes in two steps. Closing that needs `SceneCapability` to expose a way
- * to extend the in-flight history capture, which is shared-contract growth
- * this package is not making unilaterally mid-package (the same reasoning
- * `mindMapElements.ts` gives for not extending it for `boundElements`).
- */
 export function useMindMapDrag({ canEdit, scene, selection }: Options) {
   const previousPositions = useRef<Map<string, LivePosition>>(new Map());
 
@@ -159,7 +186,10 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
       const parentMoved = parentId !== null && parentId !== undefined && movedIds.has(parentId);
       if (childMoved && parentMoved) {
         // Wholly inside the moved subtree: translate like any other
-        // element, same delta, geometry (relative points) unchanged.
+        // element, same delta, geometry (relative points) and native
+        // binding unchanged -- the arrow keeps the same id, so its
+        // `startBinding`/`endBinding` and the shapes' `boundElements` stay
+        // exactly as they were.
         ops.push({
           kind: "patch",
           id: edge.id as never,
@@ -167,7 +197,9 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
         });
       } else if (projection.childId === draggedId) {
         // The one edge crossing into the subtree: its parent end did not
-        // move, so it is rebuilt from both boxes rather than translated.
+        // move, so it is rebuilt from both boxes rather than translated --
+        // a fresh real bound arrow again (NIL-575), with `boundElements`
+        // patched on both the surviving parent and the dragged node.
         incomingEdge = edge;
       }
     }
@@ -176,28 +208,48 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
       const parentId = parentById.get(draggedId);
       const parentLive = parentId ? liveById.get(parentId as never) : null;
       if (parentLive) {
+        const newEdgeId = newMindMapElementId();
+        const removedEdgeIds = new Set([incomingEdge.id as string]);
         ops.push({ kind: "remove", ids: [incomingEdge.id] as never });
         ops.push({
           kind: "insert",
           elements: [
             createMindMapEdge(
-              newMindMapElementId(),
+              newEdgeId,
               relation.mapId,
-              draggedId,
               {
+                id: parentId as string,
                 x: parentLive.x,
                 y: parentLive.y,
                 width: parentLive.width,
                 height: parentLive.height,
               },
               {
+                id: draggedId,
                 x: after.x,
                 y: after.y,
-                width: liveById.get(draggedId as never)?.width ?? 0,
-                height: liveById.get(draggedId as never)?.height ?? 0,
+                width: draggedNode.summary.width,
+                height: draggedNode.summary.height,
               },
             ),
           ],
+        });
+        const ref: BoundElementRef = { id: newEdgeId as never, type: "arrow" };
+        ops.push({
+          kind: "patch",
+          id: parentLive.id as never,
+          changes: {
+            boundElements: mergeEdgeBinding(parentLive.boundElements, removedEdgeIds, [ref]),
+          },
+        });
+        ops.push({
+          kind: "patch",
+          id: draggedId as never,
+          changes: {
+            boundElements: mergeEdgeBinding(draggedNode.summary.boundElements, removedEdgeIds, [
+              ref,
+            ]),
+          },
         });
       }
     }

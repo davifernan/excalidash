@@ -58,6 +58,7 @@ describe("the read projection", () => {
   it("copies only the fields the contract names", () => {
     expect(Object.keys(summarise(element())).sort()).toEqual([
       "angle",
+      "boundElements",
       "containerId",
       "customData",
       "frameId",
@@ -87,6 +88,50 @@ describe("the read projection", () => {
     const summary = summarise(raw) as unknown as Record<string, unknown>;
     summary.x = 999;
     expect(raw.x).toBe(10);
+  });
+
+  it("reads boundElements, or null when the element carries none (NIL-575)", () => {
+    expect(summarise(element()).boundElements).toBeNull();
+    expect(
+      summarise(element({ boundElements: [{ id: "arrow-1", type: "arrow" }] })).boundElements,
+    ).toEqual([{ id: "arrow-1", type: "arrow" }]);
+  });
+
+  it("drops a boundElements entry of an unrecognised type rather than passing it through blind", () => {
+    expect(
+      summarise(
+        element({
+          boundElements: [
+            { id: "arrow-1", type: "arrow" },
+            { id: "x", type: "frame" },
+          ],
+        }),
+      ).boundElements,
+    ).toEqual([{ id: "arrow-1", type: "arrow" }]);
+  });
+
+  /**
+   * Counter-test: break the enforcement by reverting `summarise` to the
+   * pre-NIL-575 version that never reads `boundElements` at all -- a
+   * plausible regression if a future edit to this function drops the field
+   * again. Copied here rather than `git checkout --`, per NIL-570/575/576's
+   * evidence rule.
+   */
+  it("regression guard: a summarise without boundElements support would fail the read test above", () => {
+    const summariseWithoutBoundElements = (raw: Record<string, unknown>) => {
+      const { boundElements: _dropped, ...rest } = summarise(raw) as unknown as Record<
+        string,
+        unknown
+      >;
+      return rest;
+    };
+    const broken = summariseWithoutBoundElements(
+      element({ boundElements: [{ id: "arrow-1", type: "arrow" }] }),
+    );
+    expect(broken.boundElements).toBeUndefined();
+    expect(
+      summarise(element({ boundElements: [{ id: "arrow-1", type: "arrow" }] })).boundElements,
+    ).toEqual([{ id: "arrow-1", type: "arrow" }]);
   });
 });
 
@@ -300,5 +345,38 @@ describe("a patch op and the bookkeeping the merge reads", () => {
     expect(patched.fontSize).toBe(28);
     expect(patched.version).toBeGreaterThan(3);
     expect(patched.versionNonce).not.toBe(111);
+  });
+
+  /**
+   * NIL-575's write side: a shape's `boundElements` patches through like any
+   * other field, and round-trips back out through `summarise` unchanged --
+   * the two-way binding contract (arrow knows the shape via
+   * `start`/`endBinding`, shape knows the arrow via `boundElements`) is only
+   * as good as this write actually landing.
+   */
+  it("patches boundElements, and summarise reads the result back", () => {
+    const element = { id: "e1", type: "rectangle", x: 0, y: 0, boundElements: null };
+    let written: any = null;
+    const api = {
+      getSceneElements: () => [element],
+      getSceneElementsIncludingDeleted: () => [element],
+      getAppState: () => ({}),
+      updateScene: (scene: any) => {
+        written = scene;
+      },
+    };
+    const scene = createSceneCapability(() => api as never);
+
+    const result = scene.apply([
+      {
+        kind: "patch",
+        id: "e1" as never,
+        changes: { boundElements: [{ id: "arrow-1" as never, type: "arrow" }] },
+      },
+    ]);
+
+    expect(result.ok).toBe(true);
+    const patched = written.elements.find((e: any) => e.id === "e1");
+    expect(summarise(patched).boundElements).toEqual([{ id: "arrow-1", type: "arrow" }]);
   });
 });
