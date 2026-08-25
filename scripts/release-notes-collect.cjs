@@ -14,7 +14,7 @@
  * the release actually happens.
  *
  * Adapter split (same shape as pipeline-sentinel.cjs's createLiveAdapter):
- * `collect()` takes injected `listMerges`/`getPrBody` functions so the
+ * `collect()` takes injected `listDeliveries`/`getPrBody` functions so the
  * grouping and rendering logic can be tested without a real repository or
  * `gh` credentials. `createLiveCollector()` wires the real `git`/`gh` calls
  * for the CLI entry point used by .github/workflows/release.yml.
@@ -83,25 +83,25 @@ function renderNotesMarkdown({ added = [], fixed = [], changed = [] }) {
 }
 
 /**
- * Walks merge commits in `previousRef..headRef`, resolves each to a PR
- * number, and asks the injected adapter for that PR's body and the commit
- * subjects on its branch. Skips (with a warning, not a failure) any merge
+ * Walks the PR deliveries resolved for `previousRef..headRef` and asks the
+ * injected adapter for each PR's body and commit subjects. Skips (with a
+ * warning, not a failure) any delivery
  * that yields no PR number, no fetchable body, or no usable User-Facing
  * sentence -- an incomplete note is a smaller failure than an aborted
  * release, and the draft is reviewed by a human before it goes out.
  */
-function collect({ listMerges, getPrBody, getPrCommitSubjects }) {
-  const merges = listMerges();
+function collect({ listDeliveries, getPrBody, getPrCommitSubjects }) {
+  const deliveries = listDeliveries();
   const added = [];
   const fixed = [];
   const changed = [];
   const warnings = [];
   const seen = new Set();
 
-  for (const merge of merges) {
-    const prNumber = extractPrNumber(merge.subject);
+  for (const delivery of deliveries) {
+    const prNumber = extractPrNumber(delivery.subject);
     if (prNumber === null) {
-      warnings.push(`${merge.sha.slice(0, 12)}: no PR number found in "${merge.subject}", skipped`);
+      warnings.push(`${delivery.sha.slice(0, 12)}: no PR number found in "${delivery.subject}", skipped`);
       continue;
     }
 
@@ -119,7 +119,7 @@ function collect({ listMerges, getPrBody, getPrCommitSubjects }) {
       continue;
     }
 
-    const subjects = getPrCommitSubjects(prNumber, merge);
+    const subjects = getPrCommitSubjects(prNumber, delivery);
     const bucket = categorize(subjects);
     // The same User-Facing sentence legitimately reaches this loop more than
     // once: a delivery is merged into a collect branch, and that branch is
@@ -139,7 +139,7 @@ function collect({ listMerges, getPrBody, getPrCommitSubjects }) {
     else changed.push(sentence);
   }
 
-  return { added, fixed, changed, warnings, mergesScanned: merges.length };
+  return { added, fixed, changed, warnings, deliveriesScanned: deliveries.length };
 }
 
 function git(args) {
@@ -148,6 +148,11 @@ function git(args) {
 
 function ghJson(args) {
   return JSON.parse(execFileSync("gh", args, { encoding: "utf8" }));
+}
+
+function ghLines(args) {
+  const output = execFileSync("gh", args, { encoding: "utf8" }).trim();
+  return output ? output.split("\n") : [];
 }
 
 /**
@@ -164,41 +169,71 @@ function ghJson(args) {
  * creating a fresh, unverified commit. `v0.7.0-nilo.4` shipped with empty
  * notes because of exactly this.
  *
- * Split out from the live adapter so it can be tested without git or `gh`:
- * the bug this exists to prevent lives in the walking logic, not in the I/O.
+ * The direction of the lookup matters. GitHub's
+ * `GET repos/{repo}/commits/{sha}/pulls` is an association search, not a
+ * stable delivery record: when several PRs are collected into one branch
+ * and that branch reaches `main` as one SHA, repeated calls can associate
+ * different PRs with the commits. That made two v0.8.0 collection runs
+ * disagree and silently omitted #134 once (NIL-574).
+ *
+ * The PR record has the canonical relation in the other direction:
+ * `merge_commit_sha`. GitHub records the same collected SHA on every PR in
+ * the batch (#132 and #134 both point at 99a0369), so intersecting all
+ * merged PR records with the local range is complete and deterministic.
+ * PR number is the stable tie-breaker when several PRs share one SHA.
+ *
+ * Split out from the live adapter so both the exact v0.8.0 history and the
+ * ordering rule can be tested without making every unit test depend on `gh`.
  */
-function resolveDeliveries({ listCommitShas, resolvePrNumbers }) {
+function resolveDeliveries({ listCommitShas, listMergedPullRequests }) {
+  const commitOrder = new Map(
+    listCommitShas().map((sha, index) => [sha, index]),
+  );
   const seen = new Set();
-  const deliveries = [];
-  for (const sha of listCommitShas()) {
-    let numbers;
-    try {
-      numbers = resolvePrNumbers(sha);
-    } catch {
-      // A commit with no resolvable PR is normal (a direct hotfix, a commit
-      // older than the PR history). Skipping it is the same outcome the
-      // merge-based scan had, minus the crash.
-      continue;
-    }
-    for (const number of numbers || []) {
-      if (seen.has(number)) continue;
-      seen.add(number);
-      deliveries.push({ sha, subject: `#${number}` });
-    }
-  }
+  const deliveries = (listMergedPullRequests() || [])
+    .filter((pull) => commitOrder.has(pull.mergeCommitSha))
+    .sort((left, right) =>
+      commitOrder.get(left.mergeCommitSha) - commitOrder.get(right.mergeCommitSha) ||
+      left.number - right.number)
+    .filter((pull) => {
+      if (seen.has(pull.number)) return false;
+      seen.add(pull.number);
+      return true;
+    })
+    .map((pull) => ({
+      sha: pull.mergeCommitSha,
+      subject: `#${pull.number}`,
+    }));
+
   return deliveries;
+}
+
+function listMergedPullRequests(repo) {
+  // Project only the two required fields on every page before `gh` writes
+  // them to stdout. Parsing entire PR records eventually exceeds Node's
+  // execFileSync buffer even though the useful result is only a few bytes
+  // per PR.
+  return ghLines([
+    "api",
+    "--paginate",
+    `repos/${repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100`,
+    "--jq",
+    '.[] | select(.merged_at != null and .merge_commit_sha != null) | [.number, .merge_commit_sha] | @tsv',
+  ]).map((line) => {
+    const [number, mergeCommitSha] = line.split("\t");
+    return { number: Number(number), mergeCommitSha };
+  });
 }
 
 function createLiveCollector({ repo }) {
   return {
-    listMerges(range) {
+    listDeliveries(range) {
       return resolveDeliveries({
         listCommitShas: () => {
-          const log = git(["log", "--format=%H", range]);
+          const log = git(["log", "--reverse", "--topo-order", "--format=%H", range]);
           return log ? log.split("\n").filter(Boolean) : [];
         },
-        resolvePrNumbers: (sha) =>
-          ghJson(["api", `repos/${repo}/commits/${sha}/pulls`, "--jq", "[.[].number]"]),
+        listMergedPullRequests: () => listMergedPullRequests(repo),
       });
     },
     getPrBody(prNumber) {
@@ -220,7 +255,7 @@ function main() {
   const adapter = createLiveCollector({ repo });
   const range = previousRef ? `${previousRef}..${headRef}` : headRef;
   const result = collect({
-    listMerges: () => adapter.listMerges(range),
+    listDeliveries: () => adapter.listDeliveries(range),
     getPrBody: adapter.getPrBody,
     getPrCommitSubjects: adapter.getPrCommitSubjects,
   });

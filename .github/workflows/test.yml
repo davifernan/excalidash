@@ -34,6 +34,10 @@ jobs:
           node-version: '24'
       - run: node --test scripts/*.test.cjs
       - run: node scripts/delivery-routing-probe.cjs
+      - name: Prove release notes cover the real v0.8.0 collected merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release-notes-collect.test.sh
       # Named explicitly rather than left to the counterprobe, same reasoning
       # as adapter-boundary.cjs in frontend-typecheck: `node --test
       # scripts/*.test.cjs` above does pick real-auth-boundary.test.cjs up,
