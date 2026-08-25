@@ -206,9 +206,9 @@ describe("PdfWidget", () => {
     expect(dividerIndex).toBe(1);
     expect(actionsIndex).toBe(2);
     expect(
-      controls?.querySelector(".pdf-widget__actions")?.contains(
-        screen.getByRole("link", { name: "Download original PDF" }),
-      ),
+      controls
+        ?.querySelector(".pdf-widget__actions")
+        ?.contains(screen.getByRole("link", { name: "Download original PDF" })),
     ).toBe(true);
   });
 });

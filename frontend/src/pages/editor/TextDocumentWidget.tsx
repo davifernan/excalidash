@@ -276,11 +276,7 @@ export const TextDocumentWidget = ({
                       disabled={saving}
                       onClick={() => void saveDraft()}
                     >
-                      {saving ? (
-                        <Loader2 size={17} className="animate-spin" />
-                      ) : (
-                        <Save size={17} />
-                      )}
+                      {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
                     </button>
                     <button
                       type="button"
