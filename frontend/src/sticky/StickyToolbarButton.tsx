@@ -18,7 +18,7 @@
  */
 import React from "react";
 import { createPortal } from "react-dom";
-import { useToolbarElement } from "./useToolbarElement";
+import { useToolbarSlot } from "../integrations/excalidraw/useToolbarSlot";
 import { STICKY_SHORTCUT, type StickyColor } from "./stickyNote";
 
 const NoteIcon = ({ color }: { color: StickyColor }) => (
@@ -48,7 +48,7 @@ type Props = {
 };
 
 export const StickyToolbarButton: React.FC<Props> = ({ containerRef, armed, color, onArm }) => {
-  const toolbar = useToolbarElement(containerRef);
+  const toolbar = useToolbarSlot(containerRef);
   if (!toolbar) return null;
 
   return createPortal(

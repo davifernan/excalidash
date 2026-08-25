@@ -14,21 +14,15 @@
  * `ChromeSlotContext` rather than owning it, the same way every other slot
  * entry reads whatever field of the context it needs.
  */
-import type React from "react";
+import { LockKeyhole, Pencil } from "lucide-react";
 import type { ChromeSlotContext } from "../chromeSlots";
-
-const row: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.125rem",
-  width: "100%",
-  padding: "0.25rem 0",
-};
+import "./boardNameMenuEntry.css";
 
 export const BoardNameMenuEntry = ({ ctx }: { ctx: ChromeSlotContext }) => {
   if (ctx.isRenaming) {
     return (
-      <form onSubmit={ctx.onRenameSubmit} style={row}>
+      <form onSubmit={ctx.onRenameSubmit} className="board-name-menu-entry">
+        <Pencil size={16} aria-hidden />
         <input
           autoFocus
           type="text"
@@ -37,43 +31,24 @@ export const BoardNameMenuEntry = ({ ctx }: { ctx: ChromeSlotContext }) => {
           onBlur={ctx.onRenameBlur}
           aria-label="Drawing name"
           data-testid="menu-board-name-input"
-          style={{
-            font: "inherit",
-            fontWeight: 600,
-            padding: "0.25rem 0.4rem",
-            borderRadius: "var(--border-radius-md, 0.375rem)",
-            border: "1px solid var(--color-primary, #6965db)",
-            background: "transparent",
-            color: "inherit",
-            outline: "none",
-            width: "100%",
-          }}
+          className="board-name-menu-entry__input"
         />
       </form>
     );
   }
 
   return (
-    <div
-      style={row}
-      onDoubleClick={ctx.canEdit ? ctx.onRenameStart : undefined}
-      title={ctx.canEdit ? `${ctx.drawingName} — double-click to rename` : ctx.drawingName}
+    <button
+      type="button"
+      className="board-name-menu-entry"
+      onClick={ctx.canEdit ? ctx.onRenameStart : undefined}
+      title={ctx.canEdit ? `${ctx.drawingName} — click to rename` : ctx.drawingName}
       data-testid="menu-board-name"
+      disabled={!ctx.canEdit}
     >
-      <span
-        style={{
-          fontWeight: 600,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          cursor: ctx.canEdit ? "text" : "default",
-        }}
-      >
-        {ctx.drawingName}
-      </span>
-      {!ctx.canEdit ? (
-        <span style={{ fontSize: "0.6875rem", opacity: 0.65 }}>Read-only</span>
-      ) : null}
-    </div>
+      {ctx.canEdit ? <Pencil size={16} aria-hidden /> : <LockKeyhole size={16} aria-hidden />}
+      <span className="board-name-menu-entry__value">{ctx.drawingName}</span>
+      {!ctx.canEdit ? <span className="board-name-menu-entry__status">Read-only</span> : null}
+    </button>
   );
 };

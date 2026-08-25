@@ -42,17 +42,17 @@ describe("BoardNameMenuEntry", () => {
     expect(screen.queryByLabelText("Drawing name")).not.toBeInTheDocument();
   });
 
-  it("starts a rename on double-click when editable", () => {
+  it("starts a rename on click when editable", () => {
     const onRenameStart = vi.fn();
     render(<BoardNameMenuEntry ctx={{ ...baseCtx, onRenameStart }} />);
-    fireEvent.doubleClick(screen.getByTestId("menu-board-name"));
+    fireEvent.click(screen.getByTestId("menu-board-name"));
     expect(onRenameStart).toHaveBeenCalledTimes(1);
   });
 
-  it("does not start a rename on double-click for a read-only visitor", () => {
+  it("does not start a rename on click for a read-only visitor", () => {
     const onRenameStart = vi.fn();
     render(<BoardNameMenuEntry ctx={{ ...baseCtx, canEdit: false, onRenameStart }} />);
-    fireEvent.doubleClick(screen.getByTestId("menu-board-name"));
+    fireEvent.click(screen.getByTestId("menu-board-name"));
     expect(onRenameStart).not.toHaveBeenCalled();
   });
 

@@ -37,6 +37,30 @@ test.describe("workshop timer position", () => {
     expect(container.y + container.height - (box.y + box.height)).toBeCloseTo(16, 0);
   });
 
+  test("the handle, timer and reset action form one visual bar", async ({ page }) => {
+    await openEditor(page, drawingId);
+    const styles = await corner(page).evaluate((element) => {
+      const parent = getComputedStyle(element);
+      const children = [
+        element.querySelector("[data-testid=workshop-timer-corner-handle]"),
+        element.querySelector(".workshop-timer__summary"),
+        element.querySelector("[data-testid=workshop-timer-corner-reset]"),
+      ].map((child) => getComputedStyle(child!));
+      return {
+        parentBackground: parent.backgroundColor,
+        childBackgrounds: children.map((style) => style.backgroundColor),
+        childShadows: children.map((style) => style.boxShadow),
+      };
+    });
+    expect(styles.parentBackground).not.toBe("rgba(0, 0, 0, 0)");
+    expect(styles.childBackgrounds).toEqual([
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+    ]);
+    expect(styles.childShadows).toEqual(["none", "none", "none"]);
+  });
+
   test("drags to wherever the handle is pulled, and a plain click still opens the panel", async ({
     page,
   }) => {

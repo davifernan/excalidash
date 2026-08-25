@@ -19,15 +19,26 @@
  * turns three separate boxes into one flush bar without touching how
  * Excalidraw lays any of them out.
  */
-.layer-ui__wrapper__top-right {
+.excalidraw .layer-ui__wrapper__top-right {
   display: flex;
   align-items: center;
   gap: 0.15rem;
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 0 0.25rem;
   height: 2.25rem;
   border-radius: var(--border-radius-lg, 0.5rem);
   background: var(--island-bg-color, #fff);
   box-shadow: var(--shadow-island, 0 1px 4px rgba(0, 0, 0, 0.15));
+}
+
+/* Excalidraw owns this node and renders it even when every optional child is
+   absent. Keep that foreign-markup dependency explicit: an upgrade that adds
+   an unexpected placeholder makes the empty bar visibly reappear, rather than
+   silently weakening this guard. */
+.excalidraw .layer-ui__wrapper__top-right:empty {
+  display: none;
 }
 
 .layer-ui__wrapper__top-right .editor-header-controls {
@@ -114,12 +125,9 @@
 }
 
 /**
- * The control that stays: Excalidraw's own standalone laser toggle, normally
- * shown only while `isCollaborating` is true. EditorView.tsx now passes that
- * prop as a constant `true` so this exists in every state, including alone on
- * a board -- see EditorView.tsx's comment on that prop for the full
- * reasoning. `toolBar.laser`'s own tooltip already carries a shortcut on the
- * flyout copy; this one has none, so NIL-374's "K" hint is added here.
+ * The control that stays is portalled into `.App-toolbar` through the local UI
+ * capability (laserToolbarButton.tsx), directly after Sticky Note. Its tooltip
+ * carries K; the visual hint is repeated here to match the other tools.
  */
 .ToolIcon__LaserPointer {
   position: relative;

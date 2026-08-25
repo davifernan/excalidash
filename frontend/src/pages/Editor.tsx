@@ -29,6 +29,7 @@ import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
 import { toast } from "sonner";
 import type { DocumentPageRequestResult } from "./editor/documentPages";
+import { LaserToolbarButton } from "./editor/slots/laserToolbarButton";
 export const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -656,6 +657,9 @@ export const Editor: React.FC = () => {
         onShareOpen={() => setIsShareOpen(true)}
         onHistoryOpen={() => setIsHistoryOpen(true)}
       />
+      {canEdit ? (
+        <LaserToolbarButton containerRef={editorContainerRef} interaction={adapter.interaction} />
+      ) : null}
       <EditorDialogs
         drawingId={id}
         drawingName={drawingName}

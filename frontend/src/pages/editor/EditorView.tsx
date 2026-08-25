@@ -217,17 +217,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
             excalidrawAPI={onSetExcalidrawAPI}
             UIOptions={UIOptions}
             viewModeEnabled={!canEdit}
-            // Always on, not `peers.length > 0` (NIL-374): Excalidraw shows its
-            // standalone laser toggle only while this is true, and that toggle
-            // is now the *only* way to the laser tool -- the always-present
-            // duplicate in the extra-tools flyout is hidden in
-            // editorChrome.css. A laser control that vanished the moment you
-            // are alone on a board would be a regression, not a cleanup.
-            // Nothing else in this application reads `isCollaborating`: the
-            // presence pill and avatar list key off `collaborators.size`, and
-            // this application never renders Excalidraw's default welcome
-            // screen, the prop's only other consumer.
-            isCollaborating
+            // Excalidraw's `isCollaborating` prop creates a second standalone
+            // laser island. ExcaliDash supplies the same action through its
+            // toolbar capability instead (laserToolbarButton.tsx), where it is
+            // available alone and sits directly after Sticky Note.
             validateEmbeddable={validateEmbeddableLink}
             renderEmbeddable={(element, appState) => {
               const data = getAssetWidgetData(element);

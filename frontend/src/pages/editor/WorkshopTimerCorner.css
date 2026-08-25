@@ -2,8 +2,13 @@
   position: absolute;
   z-index: 4;
   display: flex;
-  align-items: flex-end;
-  gap: 0.25rem;
+  align-items: center;
+  gap: 0;
+  padding: 3px;
+  border: 1px solid var(--button-hover-border, transparent);
+  border-radius: var(--border-radius-lg, 0.5rem);
+  background: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
   /* Excalidraw turns this off mid-gesture; inheriting it means the widget
      does not steal a draw that merely passes over its corner. */
   pointer-events: var(--ui-pointerEvents);
@@ -20,16 +25,24 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.75rem;
+  height: 2rem;
   padding: 0;
-  border: 1px solid var(--button-hover-border, transparent);
+  border: 0;
   border-radius: var(--border-radius-md, 0.375rem);
-  background: var(--island-bg-color);
-  box-shadow: var(--shadow-island);
+  background: transparent;
+  box-shadow: none;
   color: var(--text-primary-color);
   cursor: pointer;
   touch-action: none;
+}
+
+.workshop-timer-corner .workshop-timer__summary {
+  min-height: 2rem;
+  padding-block: 4px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workshop-timer-corner__handle {

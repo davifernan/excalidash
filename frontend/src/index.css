@@ -44,31 +44,3 @@ html.dark body {
   font-weight: normal;
   font-style: normal;
 }
-
-/*
- * Room for our own island in the top-left corner.
- *
- * Excalidraw stacks its hamburger and the shape properties panel from the very
- * top of its container. Our island — back button and board name — sits in the
- * same corner, so Excalidraw's column starts one island lower. 3rem is the
- * island (2.25rem) plus the gap Excalidraw already uses between its own pieces.
- *
- * This reaches into an Excalidraw class name, which is a dependency on markup
- * rather than on an API. It is a deliberate one, the same bargain the sticky
- * note button already makes: if a future version renames the class, our island
- * lands on top of the hamburger — visible immediately, not a silent failure.
- */
-.excalidraw .App-menu_top__left {
-  margin-block-start: 3rem;
-}
-
-/*
- * The offset holds at every height.
- *
- * It used to be dropped below 600px, on the theory that the vertical room
- * mattered more than the overlap. Measured at 800x550 the overlap is total:
- * our island and Excalidraw's hamburger both sit at (16,16), one on top of the
- * other. Excalidraw already caps its properties panel at the window height
- * minus 166px, so it copes with the offset; a menu button hidden underneath an
- * island does not cope with anything.
- */

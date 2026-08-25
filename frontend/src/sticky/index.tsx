@@ -20,7 +20,7 @@ import { useStickyHint } from "./useStickyHint";
 import { useStickyKeys } from "./useStickyKeys";
 import { useStickyNotes } from "./useStickyNotes";
 import { useStickyUpkeep } from "./useStickyUpkeep";
-import { useToolbarElement } from "./useToolbarElement";
+import { useToolbarSlot } from "../integrations/excalidraw/useToolbarSlot";
 
 type Options = {
   containerRef: React.RefObject<HTMLElement>;
@@ -63,7 +63,7 @@ export function useStickyNotesFeature({
   useStickyKeys({ containerRef, canEdit, elements, interaction, scene, selection });
   useStickyHint({ containerRef, canEdit, interaction, ready, scene, selection });
   const { onSceneChange } = useStickyUpkeep({ canEdit, interaction, scene });
-  const toolbar = useToolbarElement(containerRef);
+  const toolbar = useToolbarSlot(containerRef);
 
   const handleCanvasChange = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {

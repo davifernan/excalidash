@@ -1,5 +1,7 @@
 import React from "react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import "./editorChrome.css";
 import {
   FOOTER_ENTRIES,
   HEADER_CONTROL_ENTRIES,
@@ -195,6 +197,27 @@ describe("renderHeaderControlEntries", () => {
       renderHeaderControlEntries(viewer),
     ) as React.ReactElement[];
     expect(output.every((el) => el.props.children == null)).toBe(true);
+  });
+});
+
+describe("the visible top-right wrapper", () => {
+  it("does not paint Excalidraw's wrapper when it has no children", () => {
+    const { rerender } = render(
+      <div className="excalidraw">
+        <div className="layer-ui__wrapper__top-right" data-testid="top-right-wrapper" />
+      </div>,
+    );
+    const wrapper = screen.getByTestId("top-right-wrapper");
+    expect(getComputedStyle(wrapper).display).toBe("none");
+
+    rerender(
+      <div className="excalidraw">
+        <div className="layer-ui__wrapper__top-right" data-testid="top-right-wrapper">
+          <button type="button">Share</button>
+        </div>
+      </div>,
+    );
+    expect(getComputedStyle(screen.getByTestId("top-right-wrapper")).display).toBe("flex");
   });
 });
 

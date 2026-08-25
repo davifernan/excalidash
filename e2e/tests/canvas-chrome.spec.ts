@@ -45,14 +45,39 @@ test.describe("the hamburger carries the board's identity and the way back", () 
     // container, so check containment rather than the testid directly.
     await expect(menuItems.first().getByTestId("menu-board-name")).toHaveCount(1);
 
-    await page.getByTestId("menu-board-name").dblclick();
+    const boardNameStyle = await page.getByTestId("menu-board-name").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { borderStyle: style.borderStyle, backgroundColor: style.backgroundColor };
+    });
+    expect(boardNameStyle.borderStyle).toBe("solid");
+    expect(boardNameStyle.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+
+    const boardNameText = await page
+      .getByTestId("menu-board-name")
+      .locator(".board-name-menu-entry__value")
+      .boundingBox();
+    const backText = await page.getByTestId("menu-back-to-dashboard").evaluate((element) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        if (node.textContent?.trim() === "Back to dashboard") {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          return range.getBoundingClientRect().toJSON();
+        }
+      }
+      return null;
+    });
+    expect(boardNameText).not.toBeNull();
+    expect(backText).not.toBeNull();
+    expect(boardNameText!.x).toBeCloseTo(backText!.x, 0);
+
+    await page.getByTestId("menu-board-name").click();
     const nameInput = page.getByLabel("Drawing name");
     await nameInput.fill("Renamed via menu");
     await nameInput.press("Enter");
 
-    await expect.poll(async () => (await getDrawing(api, drawingId)).name).toBe(
-      "Renamed via menu",
-    );
+    await expect.poll(async () => (await getDrawing(api, drawingId)).name).toBe("Renamed via menu");
   });
 
   test("back to dashboard comes after the board name and returns to the drawings list", async ({
@@ -88,6 +113,15 @@ test.describe("the hamburger carries the board's identity and the way back", () 
     const menuItems = page.locator('[data-testid="dropdown-menu"] .dropdown-menu-container > *');
     await expect(menuItems.last()).toContainText("Help");
   });
+
+  test("the hamburger starts on the same row as the tool bar", async ({ page }) => {
+    await openEditor(page, drawingId);
+    const hamburger = await page.getByTestId("main-menu-trigger").boundingBox();
+    const toolbar = await page.locator(".App-toolbar").boundingBox();
+    expect(hamburger).not.toBeNull();
+    expect(toolbar).not.toBeNull();
+    expect(hamburger!.y).toBeCloseTo(toolbar!.y, 0);
+  });
 });
 
 test.describe("the top-right control group reads as one bar", () => {
@@ -104,24 +138,37 @@ test.describe("the top-right control group reads as one bar", () => {
     if (drawingId) await deleteDrawing(api, drawingId).catch(() => {});
   });
 
-  test("Excalidraw's own Library trigger drops its own background inside the shared bar", async ({
-    page,
-  }) => {
+  test("the shared bar hugs its controls and an empty wrapper paints nothing", async ({ page }) => {
     await openEditor(page, drawingId);
 
-    const wrapperBg = await page
-      .locator(".layer-ui__wrapper__top-right")
-      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    const wrapper = page.locator(".layer-ui__wrapper__top-right");
+    const wrapperBg = await wrapper.evaluate((el) => getComputedStyle(el).backgroundColor);
     const libraryBg = await page
       .locator(".layer-ui__wrapper__top-right .sidebar-trigger.default-sidebar-trigger")
       .evaluate((el) => getComputedStyle(el).backgroundColor);
 
     expect(wrapperBg).not.toBe("rgba(0, 0, 0, 0)");
     expect(libraryBg).toBe("rgba(0, 0, 0, 0)");
+
+    const wrapperBox = (await wrapper.boundingBox())!;
+    const contentBounds = await wrapper.evaluate((element) => {
+      const boxes = [...element.children].map((child) => child.getBoundingClientRect());
+      return {
+        left: Math.min(...boxes.map((box) => box.left)),
+        right: Math.max(...boxes.map((box) => box.right)),
+      };
+    });
+    expect(wrapperBox.width - (contentBounds.right - contentBounds.left)).toBeLessThanOrEqual(10);
+
+    // Excalidraw owns the wrapper. Removing its optional children models the
+    // empty state at the actual DOM/CSS seam rather than re-testing the slot
+    // registry's return value.
+    await wrapper.evaluate((element) => element.replaceChildren());
+    await expect(wrapper).toBeHidden();
   });
 });
 
-test.describe("the laser pointer -- one control, present alone (NIL-374)", () => {
+test.describe("the laser pointer -- one toolbar control, present alone (NIL-374)", () => {
   let drawingId: string;
   let api: APIRequestContext;
 
@@ -135,13 +182,26 @@ test.describe("the laser pointer -- one control, present alone (NIL-374)", () =>
     if (drawingId) await deleteDrawing(api, drawingId).catch(() => {});
   });
 
-  test("the standalone toggle is visible alone on a board, and the flyout duplicate is hidden", async ({
+  test("the toggle follows Sticky Note inside the toolbar, and the flyout duplicate is hidden", async ({
     page,
   }) => {
     await openEditor(page, drawingId);
 
-    const standalone = page.getByTestId("toolbar-LaserPointer");
-    await expect(standalone).toBeVisible();
+    const laser = page.getByTestId("toolbar-LaserPointer");
+    await expect(laser).toBeVisible();
+    await expect(
+      page.locator(
+        ".App-toolbar-container > .Island:not(.App-toolbar):has(.ToolIcon__LaserPointer)",
+      ),
+    ).toHaveCount(0);
+
+    const toolbarBox = (await page.locator(".App-toolbar").boundingBox())!;
+    const stickyBox = (await page.getByTestId("toolbar-sticky").boundingBox())!;
+    const laserBox = (await page.locator(".ToolIcon__LaserPointer").boundingBox())!;
+    expect(laserBox.x).toBeGreaterThanOrEqual(stickyBox.x + stickyBox.width - 1);
+    expect(laserBox.x + laserBox.width).toBeLessThanOrEqual(toolbarBox.x + toolbarBox.width + 1);
+    expect(laserBox.y).toBeGreaterThanOrEqual(toolbarBox.y - 1);
+    expect(laserBox.y + laserBox.height).toBeLessThanOrEqual(toolbarBox.y + toolbarBox.height + 1);
 
     await page.locator(".App-toolbar__extra-tools-trigger").click();
     await expect(page.getByTestId("toolbar-laser")).toHaveCount(1);
