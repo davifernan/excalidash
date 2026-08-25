@@ -222,7 +222,7 @@ describe("editor collaboration reconnect state", () => {
     const receipt = vi.fn();
     act(() => elementUpdate({ elements: [element], files: { "file-1": file } }, receipt));
 
-    expect(receipt).not.toHaveBeenCalled();
+    expect(receipt).toHaveBeenCalledWith({ ok: true });
     act(() => flush?.(0));
 
     expect(addFiles).toHaveBeenCalledWith([file]);
@@ -230,7 +230,6 @@ describe("editor collaboration reconnect state", () => {
       [expect.objectContaining({ kind: "replaceDocument" })],
       { capture: "never" },
     );
-    expect(receipt).toHaveBeenCalledWith({ ok: true });
     unmount();
   });
 
@@ -288,7 +287,9 @@ describe("editor collaboration reconnect state", () => {
       ([event]) => event === "element-update",
     )?.[1];
 
-    act(() => elementUpdate({ elements: [], files: { "file-1": file } }));
+    const receipt = vi.fn();
+    act(() => elementUpdate({ elements: [], files: { "file-1": file } }, receipt));
+    expect(receipt).toHaveBeenCalledWith({ ok: true });
     act(() => flush?.(0));
 
     expect(error).toHaveBeenCalledWith("Live collaboration could not update the editor.");

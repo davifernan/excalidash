@@ -135,7 +135,6 @@ export const useEditorCollaboration = ({
   const pendingRemoteElementsRef = useRef<Map<string, any>>(new Map());
   const pendingRemoteFilesRef = useRef<Record<string, any>>({});
   const pendingRemoteElementOrderRef = useRef<string[] | null>(null);
-  const pendingRemoteReceiptsRef = useRef<Array<(response: { ok: true }) => void>>([]);
   const remoteFlushScheduledRef = useRef(false);
   const remoteFlushRafIdRef = useRef<number | null>(null);
   const shareToken = getShareLinkToken();
@@ -294,7 +293,6 @@ export const useEditorCollaboration = ({
       pendingRemoteElementsRef.current.clear();
       pendingRemoteFilesRef.current = {};
       pendingRemoteElementOrderRef.current = null;
-      pendingRemoteReceiptsRef.current = [];
       if (remoteFlushRafIdRef.current !== null) {
         cancelAnimationFrame(remoteFlushRafIdRef.current);
       }
@@ -365,8 +363,6 @@ export const useEditorCollaboration = ({
         pendingRemoteFilesRef.current = {};
         const elementOrder = hasPendingOrder ? pendingOrderRaw : null;
         pendingRemoteElementOrderRef.current = null;
-        const receipts = pendingRemoteReceiptsRef.current;
-        pendingRemoteReceiptsRef.current = [];
         const { sceneUpdate, mergedElements, nextFiles, shouldUpdateFiles } =
           buildRemoteSceneUpdate({
             localElements: latestElementsRef.current,
@@ -443,11 +439,6 @@ export const useEditorCollaboration = ({
           latestFilesRef.current = nextFiles;
           lastSyncedFilesRef.current = nextFiles;
         }
-        if (filesAdded && sceneApplied) {
-          receipts.forEach((receipt) => receipt({ ok: true }));
-        } else {
-          pendingRemoteReceiptsRef.current = [...receipts, ...pendingRemoteReceiptsRef.current];
-        }
       } finally {
         isSyncing.current = false;
       }
@@ -497,8 +488,12 @@ export const useEditorCollaboration = ({
         if (Array.isArray(elementOrder) && elementOrder.length > 0) {
           pendingRemoteElementOrderRef.current = elementOrder;
         }
-        if (typeof receipt === "function") pendingRemoteReceiptsRef.current.push(receipt);
         scheduleRemoteFlush();
+        // Receipt means the transport delivered the packet and this client
+        // admitted it to the local merge queue. The queue itself owns retries
+        // when the editor adapter is temporarily unavailable; waiting for its
+        // next animation frame here couples network reliability to render load.
+        receipt?.({ ok: true });
       },
     );
     socket.on("drawing-server-update", (payload: { drawingId?: string }) => {
@@ -557,7 +552,6 @@ export const useEditorCollaboration = ({
       pendingRemoteElementsRef.current.clear();
       pendingRemoteFilesRef.current = {};
       pendingRemoteElementOrderRef.current = null;
-      pendingRemoteReceiptsRef.current = [];
     };
   }, [
     drawingId,
