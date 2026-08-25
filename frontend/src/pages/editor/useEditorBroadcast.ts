@@ -132,6 +132,11 @@ const oversizedImageNotice = (
   return `Image near canvas position (${x}, ${y}) is too large for live collaboration (${megabytes} MB).`;
 };
 
+const oversizedImageFallbackNotice = (payloadBytes: number): string => {
+  const megabytes = (payloadBytes / (1024 * 1024)).toFixed(1);
+  return `An image from the previous board is too large for live collaboration (${megabytes} MB).`;
+};
+
 export const useEditorBroadcast = ({
   drawingId,
   files,
@@ -531,6 +536,24 @@ export const useEditorBroadcast = ({
     drainSceneDeliveryRef.current = drainSceneDelivery;
   }, [drainFileDeliveries, drainSceneDelivery]);
 
+  const deliverPendingRejectionNoticesAndResetDrawing = useCallback(
+    (nextDrawingId: string | undefined) => {
+      if (rejectedFilesDrawingIdRef.current === nextDrawingId) return;
+      for (const notice of rejectedFileNoticesRef.current.values()) {
+        toast.error(oversizedImageFallbackNotice(notice.payloadBytes));
+      }
+      rejectedFileAttemptsRef.current.clear();
+      rejectedFileNoticesRef.current.clear();
+      acknowledgedFileIdsRef.current = [];
+      rejectedFilesDrawingIdRef.current = nextDrawingId;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    deliverPendingRejectionNoticesAndResetDrawing(drawingId);
+  }, [deliverPendingRejectionNoticesAndResetDrawing, drawingId]);
+
   const queueUpdate = useCallback(
     (elements: readonly any[], currentFiles?: Record<string, any>, filesOnly = false): boolean => {
       if (!socketRef.current || !drawingId) return false;
@@ -559,12 +582,7 @@ export const useEditorBroadcast = ({
         !filesOnly &&
         shouldSaveBoardSettings(lastPersistedAppStateSigRef.current, latestAppStateRef.current);
 
-      if (rejectedFilesDrawingIdRef.current !== drawingId) {
-        rejectedFileAttemptsRef.current.clear();
-        rejectedFileNoticesRef.current.clear();
-        acknowledgedFileIdsRef.current = [];
-        rejectedFilesDrawingIdRef.current = drawingId;
-      }
+      deliverPendingRejectionNoticesAndResetDrawing(drawingId);
       for (const fileId of rejectedFileAttemptsRef.current.keys()) {
         if (!(fileId in nextFiles) || !(fileId in rawFilesDelta)) {
           rejectedFileAttemptsRef.current.delete(fileId);
@@ -653,6 +671,7 @@ export const useEditorBroadcast = ({
       files,
       debouncedSave,
       debouncedSavePreview,
+      deliverPendingRejectionNoticesAndResetDrawing,
       drawingId,
       hasElementChanged,
       lastLocalChangeAtRef,

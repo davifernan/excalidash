@@ -909,4 +909,35 @@ describe("getDeliveryState", () => {
       acknowledgedFileIds: [],
     });
   });
+
+  it("reports a pending oversized image when the board changes before its element appears", () => {
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+    const files = {
+      oversized: {
+        id: "oversized",
+        dataURL: `data:image/png;base64,${"x".repeat(12 * 1024 * 1024)}`,
+      },
+    };
+    const { result, rerender } = renderHook(
+      ({ drawingId }) =>
+        useEditorBroadcast(
+          params({
+            drawingId,
+            socketRef: ref<any>({ emit: vi.fn() }),
+            files: { read: () => ({ ok: true, value: files }) } as any,
+          }),
+        ),
+      { initialProps: { drawingId: "drawing-1" } },
+    );
+
+    act(() => result.current.broadcastFiles(files));
+    expect(error).not.toHaveBeenCalled();
+
+    rerender({ drawingId: "drawing-2" });
+
+    expect(error).toHaveBeenCalledWith(
+      "An image from the previous board is too large for live collaboration (12.0 MB).",
+    );
+    expect(error.mock.calls.flat().join(" ")).not.toContain("oversized");
+  });
 });
