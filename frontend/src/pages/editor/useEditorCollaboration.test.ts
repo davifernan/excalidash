@@ -401,6 +401,99 @@ describe("editor collaboration reconnect state", () => {
     unmount();
   });
 
+  it("keeps cursor rate-limit protection internal without hiding actionable rate limits", () => {
+    const info = vi.spyOn(toast, "info").mockImplementation(() => "toast-id");
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { unmount } = renderHook(() =>
+      useEditorCollaboration({
+        ...capabilities(),
+        drawingId: "drawing-1",
+        me: { id: "user-1", name: "User", initials: "U", color: "#000" },
+        isReady: true,
+        excalidrawAPI: ref<any>(null),
+        editorContainerRef: ref<HTMLDivElement | null>(null),
+        lastSyncedFilesRef: ref({}),
+        lastSyncedElementOrderSigRef: ref("order"),
+        latestElementsRef: ref([]),
+        latestFilesRef: ref({}),
+        computeElementOrderSig: () => "order",
+        recordElementVersion: vi.fn(),
+        onAccessDenied: vi.fn(),
+        onDrawingNameChange: vi.fn(),
+      }),
+    );
+    const roomEventError = mocks.socket.on.mock.calls.find(
+      ([event]) => event === "room-event-error",
+    )?.[1];
+
+    act(() =>
+      roomEventError({
+        event: "cursor-move",
+        error: { code: "rate-limited", message: "cursor-move rate limit exceeded" },
+      }),
+    );
+
+    expect(info).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+
+    act(() =>
+      roomEventError({
+        event: "document-page-command",
+        error: {
+          code: "rate-limited",
+          message: "document-page-command rate limit exceeded",
+        },
+      }),
+    );
+
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith("document-page-command rate limit exceeded");
+    expect(error).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("limits a rapid pointer stream to twenty cursor emissions per second", () => {
+    let now = 1_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const { result, unmount } = renderHook(() =>
+      useEditorCollaboration({
+        ...capabilities(),
+        drawingId: "drawing-1",
+        me: { id: "user-1", name: "User", initials: "U", color: "#000" },
+        isReady: true,
+        excalidrawAPI: ref<any>(null),
+        editorContainerRef: ref<HTMLDivElement | null>(null),
+        lastSyncedFilesRef: ref({}),
+        lastSyncedElementOrderSigRef: ref("order"),
+        latestElementsRef: ref([]),
+        latestFilesRef: ref({}),
+        computeElementOrderSig: () => "order",
+        recordElementVersion: vi.fn(),
+        onAccessDenied: vi.fn(),
+        onDrawingNameChange: vi.fn(),
+      }),
+    );
+
+    act(() => {
+      for (let millisecond = 0; millisecond < 1_000; millisecond += 1) {
+        now = 1_000 + millisecond;
+        result.current.onPointerUpdate({
+          pointer: { x: millisecond, y: millisecond },
+          button: "down",
+        });
+      }
+    });
+
+    const cursorEmits = mocks.socket.emit.mock.calls.filter(([event]) => event === "cursor-move");
+    expect(cursorEmits).toHaveLength(20);
+    expect(cursorEmits[0][1]).toMatchObject({
+      drawingId: "drawing-1",
+      pointer: { x: 0, y: 0 },
+    });
+    unmount();
+  });
+
   it("keeps confirmed file markers when the room lifecycle resets for reconnect", () => {
     const confirmedFiles = {
       image: { id: "image", dataURL: "data:image/png;base64,bytes" },
