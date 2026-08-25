@@ -16,6 +16,8 @@ export type TextAsset = {
   name: string;
   sizeBytes: number | null;
   pageCount: null;
+  /** SHA-256 of the immutable source bytes this view was loaded from. */
+  revision?: string | null;
 };
 
 export type DocumentAsset = PdfAsset | TextAsset;
@@ -84,6 +86,36 @@ export const getDocumentContent = async (drawingId: string, assetId: string): Pr
   const response = await api.get<string>(`${assetPath(drawingId, assetId)}/content`, {
     responseType: "text",
   });
+  return response.data;
+};
+
+export type ReplacedMarkdownAsset = TextAsset & {
+  kind: "MARKDOWN";
+  revision: string;
+  drawingVersion: number;
+  element: Record<string, unknown>;
+};
+
+export const replaceMarkdownContent = async (
+  drawingId: string,
+  assetId: string,
+  elementId: string,
+  content: string,
+  revision: string,
+  editToken: string,
+): Promise<ReplacedMarkdownAsset> => {
+  const response = await api.put<ReplacedMarkdownAsset>(
+    `${assetPath(drawingId, assetId)}/content`,
+    content,
+    {
+      params: { elementId },
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "If-Match": `"${revision}"`,
+        "X-Document-Edit-Token": editToken,
+      },
+    },
+  );
   return response.data;
 };
 

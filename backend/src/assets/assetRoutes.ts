@@ -20,11 +20,27 @@ import {
 import { resolveStoragePath } from "./assetStorage";
 import { logger } from "../logger";
 import type { StoredFile } from "./assetStorage";
-import { AssetTooLargeError, QuotaExceededError, createAsset, usedBytesFor } from "./assetService";
+import {
+  AssetTooLargeError,
+  QuotaExceededError,
+  captureSnapshotAssets,
+  createAsset,
+  usedBytesFor,
+} from "./assetService";
 import { PdfRejectedError } from "./pdfRenderer";
 import { QueueAbortedError, QueueCapacityError } from "./pageCache";
 import { InvalidTextDocumentError, MAX_TEXT_UPLOAD_BYTES, validatedTextUpload } from "./textUpload";
 import { paginateDocumentSource } from "./documentPagination";
+import { syncDrawingDocumentState } from "./documentWidgetState";
+import { readWidgetRecord, withWidgetRecord } from "./customDataSchema";
+import type { DocumentEditLockRegistry } from "../server/documentEditLocks";
+import {
+  DOCUMENT_EDIT_LOCK_EVENT,
+  documentEditLockSnapshot,
+} from "../server/socketDocumentEditLocks";
+import { encodeSnapshotField } from "../snapshots/snapshotCodec";
+import { pruneDrawingSnapshots } from "../snapshots/snapshotRetention";
+import { config } from "../config";
 
 const ID = /^[\w-]{1,64}$/;
 const MAX_ASSET_NAME_LENGTH = 255;
@@ -78,6 +94,10 @@ export type AssetRouteDeps = {
   optimizeUpload?: (
     stored: Readonly<StoredFile & { path: string }>,
   ) => Promise<{ note: string | null }>;
+  /** Shared with Socket.IO; required for the enforced Markdown write path. */
+  documentEditLocks?: DocumentEditLockRegistry;
+  io?: any;
+  invalidateDrawingsCache?: () => void;
 };
 
 const principalOf = (req: Request) =>
@@ -131,6 +151,41 @@ const normalizedAssetName = (value: unknown): string | null => {
   const name = value.trim();
   if (!name || name.length > MAX_ASSET_NAME_LENGTH || CONTROL_CHARACTER.test(name)) return null;
   return name;
+};
+
+const bumpedWidgetElement = (
+  element: unknown,
+  expectedAssetId: string,
+  nextAssetId: string,
+): Record<string, unknown> | null => {
+  const widget = readWidgetRecord(element);
+  if (!widget || widget.kind !== "markdown" || widget.assetId !== expectedAssetId) return null;
+  const current = element as Record<string, unknown>;
+  return {
+    ...withWidgetRecord(current, { kind: "markdown", assetId: nextAssetId }),
+    version: (typeof current.version === "number" ? current.version : 0) + 1,
+    versionNonce: Math.floor(Math.random() * 2 ** 31),
+    updated: Date.now(),
+  };
+};
+
+export const replaceMarkdownWidgetAsset = (
+  elements: unknown,
+  elementId: string,
+  expectedAssetId: string,
+  nextAssetId: string,
+): Record<string, unknown>[] | null => {
+  if (!Array.isArray(elements)) return null;
+  let replaced = false;
+  const next = elements.map((element) => {
+    if (!element || typeof element !== "object" || (element as any).id !== elementId)
+      return element;
+    const updated = bumpedWidgetElement(element, expectedAssetId, nextAssetId);
+    if (!updated) return element;
+    replaced = true;
+    return updated;
+  });
+  return replaced ? (next as Record<string, unknown>[]) : null;
 };
 
 /** A filename safe to put in a header, plus the exact one for clients that can read it. */
@@ -356,6 +411,212 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
     }),
   );
 
+  // Replace immutable Markdown bytes and atomically move this one live widget
+  // to the replacement Asset. The old Asset remains reachable from the
+  // snapshot made below, so editing today cannot rewrite yesterday's history.
+  app.put(
+    "/drawings/:drawingId/assets/:assetId/content",
+    deps.requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const documentEditLocks = deps.documentEditLocks;
+      if (!documentEditLocks) {
+        return res.status(503).json({ error: "Markdown editing is unavailable" });
+      }
+      const found = await authorizedAsset(deps, req);
+      if (!found?.link || found.link.state !== "ACTIVE" || found.asset.kind !== "MARKDOWN") {
+        return res.status(404).json({ error: "Markdown document not found" });
+      }
+      if (!canEditDrawing(found.access)) {
+        return res.status(403).json({
+          error: "Read-only access",
+          message: "You can view this board but not edit its Markdown files.",
+        });
+      }
+
+      const elementId = typeof req.query.elementId === "string" ? req.query.elementId : "";
+      if (!ID.test(elementId)) {
+        return res.status(400).json({ error: "Invalid document widget" });
+      }
+      const expectedRevision = `"${found.asset.blob.sha256}"`;
+      if (!req.headers["if-match"]) {
+        return res.status(428).json({
+          error: "Document revision required",
+          code: "DOCUMENT_REVISION_REQUIRED",
+        });
+      }
+      if (req.headers["if-match"] !== expectedRevision) {
+        return res.status(409).json({
+          error: "Document changed",
+          code: "DOCUMENT_REVISION_CONFLICT",
+          message: "This Markdown file changed after editing began. Your draft was not saved.",
+        });
+      }
+
+      const editToken = String(req.headers["x-document-edit-token"] ?? "");
+      const lock = documentEditLocks.validate(found.drawingId, found.asset.id, editToken);
+      if (!lock) {
+        return res.status(409).json({
+          error: "Edit lock lost",
+          code: "DOCUMENT_EDIT_LOCK_LOST",
+          message:
+            "The edit lock ended before this draft could be saved. Your draft is still open.",
+        });
+      }
+
+      const before = await deps.prisma.drawing.findUnique({
+        where: { id: found.drawingId },
+        select: { elements: true, userId: true },
+      });
+      const beforeElements = before ? JSON.parse(before.elements) : null;
+      if (
+        !before ||
+        !replaceMarkdownWidgetAsset(beforeElements, elementId, found.asset.id, found.asset.id)
+      ) {
+        return res.status(409).json({
+          error: "Document changed",
+          code: "DOCUMENT_WIDGET_CHANGED",
+          message: "This widget now points to another file. Your draft was not saved.",
+        });
+      }
+
+      const textChunks: Buffer[] = [];
+      const source = Readable.from(
+        (async function* () {
+          for await (const chunk of validatedTextUpload(req)) {
+            textChunks.push(chunk);
+            yield chunk;
+          }
+        })(),
+      );
+
+      try {
+        const created = await createAsset(
+          {
+            prisma: deps.prisma,
+            storageDir: deps.storageDir,
+            maxUploadBytes: Math.min(deps.maxUploadBytes, MAX_TEXT_UPLOAD_BYTES),
+            maxPerUserBytes: deps.maxPerUserBytes,
+          },
+          {
+            ownerUserId: before.userId,
+            uploadedByUserId: req.user?.id ?? null,
+            drawingId: found.drawingId,
+            kind: "MARKDOWN",
+            originalName: found.asset.originalName,
+            mimeType: "text/markdown; charset=utf-8",
+            source,
+          },
+        );
+        const content = Buffer.concat(textChunks).toString("utf8");
+        const pageCount = paginateDocumentSource(content, "MARKDOWN").length;
+        await deps.prisma.asset.update({
+          where: { id: created.asset.id },
+          data: { pageCount },
+        });
+
+        if (!documentEditLocks.validate(found.drawingId, found.asset.id, editToken)) {
+          return res.status(409).json({
+            error: "Edit lock lost",
+            code: "DOCUMENT_EDIT_LOCK_LOST",
+            message:
+              "The edit lock ended before this draft could be saved. Your draft is still open.",
+          });
+        }
+
+        const updated = await deps.prisma.$transaction(
+          async (tx: any) => {
+            const drawing = await tx.drawing.findUnique({ where: { id: found.drawingId } });
+            if (!drawing) throw new Error("DOCUMENT_WIDGET_CHANGED");
+            const currentElements = JSON.parse(drawing.elements);
+            const nextElements = replaceMarkdownWidgetAsset(
+              currentElements,
+              elementId,
+              found.asset.id,
+              created.asset.id,
+            );
+            if (!nextElements) throw new Error("DOCUMENT_WIDGET_CHANGED");
+
+            const snapshot = await tx.drawingSnapshot.create({
+              data: {
+                drawingId: found.drawingId,
+                version: drawing.version,
+                elements: encodeSnapshotField(drawing.elements, config.enableSnapshotCompression),
+                appState: encodeSnapshotField(drawing.appState, config.enableSnapshotCompression),
+                files: encodeSnapshotField(drawing.files, config.enableSnapshotCompression),
+              },
+            });
+            await captureSnapshotAssets(tx, snapshot.id, found.drawingId);
+
+            const result = await tx.drawing.updateMany({
+              where: { id: found.drawingId, version: drawing.version },
+              data: { elements: JSON.stringify(nextElements), version: { increment: 1 } },
+            });
+            if (result.count !== 1) throw new Error("DOCUMENT_VERSION_CONFLICT");
+            await syncDrawingDocumentState(tx, found.drawingId, nextElements);
+            await pruneDrawingSnapshots(tx, found.drawingId, config.snapshotMaxCountPerDrawing);
+            return {
+              drawing: await tx.drawing.findUniqueOrThrow({ where: { id: found.drawingId } }),
+              element: nextElements.find((element) => element.id === elementId),
+            };
+          },
+          { timeout: 15_000 },
+        );
+
+        const released = documentEditLocks.releaseToken(found.drawingId, found.asset.id, editToken);
+        deps.invalidateDrawingsCache?.();
+        if (deps.io) {
+          const room = deps.io.to(`drawing_${found.drawingId}`);
+          const peers = released ? room.except(released.presenceId) : room;
+          peers.emit("document-asset-replaced", {
+            drawingId: found.drawingId,
+            elementId,
+            previousAssetId: found.asset.id,
+            assetId: created.asset.id,
+            drawingVersion: updated.drawing.version,
+            element: updated.element,
+          });
+          deps.io
+            .to(`drawing_${found.drawingId}`)
+            .emit(
+              DOCUMENT_EDIT_LOCK_EVENT,
+              documentEditLockSnapshot(documentEditLocks, found.drawingId),
+            );
+        }
+
+        res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
+        return res.json({
+          id: created.asset.id,
+          kind: "MARKDOWN",
+          name: created.asset.originalName,
+          sizeBytes: created.sizeBytes,
+          pageCount,
+          revision: created.blob.sha256,
+          drawingVersion: updated.drawing.version,
+          element: updated.element,
+        });
+      } catch (err) {
+        if (err instanceof InvalidTextDocumentError) {
+          return res.status(422).json({ error: "Invalid text document", message: err.message });
+        }
+        if (err instanceof AssetTooLargeError) {
+          return res.status(413).json({ error: "File too large", message: err.message });
+        }
+        if (err instanceof QuotaExceededError) {
+          return res.status(507).json({ error: "Storage limit reached", message: err.message });
+        }
+        if (err instanceof Error && err.message.startsWith("DOCUMENT_")) {
+          return res.status(409).json({
+            error: "Document changed",
+            code: err.message,
+            message:
+              "The board changed while this draft was being saved. Your draft is still open.",
+          });
+        }
+        throw err;
+      }
+    }),
+  );
+
   // Served as source bytes; the widget renders Markdown as React elements.
   app.get(
     "/drawings/:drawingId/assets/:assetId/content",
@@ -396,6 +657,7 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
         name: found.asset.originalName,
         pageCount: found.asset.pageCount,
         sizeBytes: found.asset.blob?.sizeBytes ?? null,
+        revision: found.asset.blob?.sha256 ?? null,
       });
     }),
   );

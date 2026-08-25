@@ -30,6 +30,10 @@ import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTem
 import { toast } from "sonner";
 import type { DocumentPageRequestResult } from "./editor/documentPages";
 import { LaserToolbarButton } from "./editor/slots/laserToolbarButton";
+import {
+  applyDocumentAssetReplacement,
+  type DocumentAssetReplacement,
+} from "./editor/documentAssetReplacement";
 export const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -319,6 +323,7 @@ export const Editor: React.FC = () => {
     followers,
     workshopTimer,
     documentPages,
+    documentEdits,
     socketRef,
     roomJoinedRef,
     isSyncing,
@@ -340,6 +345,7 @@ export const Editor: React.FC = () => {
     lastSyncedElementOrderSigRef,
     latestElementsRef,
     latestFilesRef,
+    currentDrawingVersionRef,
     computeElementOrderSig,
     recordElementVersion,
     scene: adapter.scene,
@@ -361,6 +367,34 @@ export const Editor: React.FC = () => {
       if (!result.ok) toast.error(`Could not insert the ${template.label} template.`);
     },
     [adapter.scene],
+  );
+  const handleDocumentAssetReplacement = useCallback(
+    async (replacement: DocumentAssetReplacement) => {
+      currentDrawingVersionRef.current = Math.max(
+        currentDrawingVersionRef.current ?? 0,
+        replacement.drawingVersion,
+      );
+      const applied = await (async () => {
+        isSyncing.current = true;
+        try {
+          return await applyDocumentAssetReplacement(adapter.scene, replacement, "immediate");
+        } finally {
+          isSyncing.current = false;
+        }
+      })();
+      if (!applied.ok) {
+        toast.error(
+          "The Markdown file was saved, but the canvas could not update. Reload the board.",
+        );
+        return false;
+      }
+      latestElementsRef.current = latestElementsRef.current.map((element) =>
+        element?.id === replacement.elementId ? replacement.element : element,
+      );
+      recordElementVersion(replacement.element);
+      return true;
+    },
+    [adapter.scene, isSyncing, recordElementVersion],
   );
   const persistenceRefs = React.useMemo(
     () => ({
@@ -632,6 +666,8 @@ export const Editor: React.FC = () => {
         theme={theme}
         workshopTimer={workshopTimer}
         documentPages={documentPages}
+        documentEdits={documentEdits}
+        onDocumentAssetReplacement={handleDocumentAssetReplacement}
         presenting={{ ...presenting, canTakeover: accessLevel === "owner" }}
         frames={frames}
         voting={{ ...voting, canModerate: canEdit }}

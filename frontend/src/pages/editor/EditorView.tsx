@@ -11,6 +11,8 @@ import type { Peer } from "./useEditorCollaboration";
 import type { Follower } from "./followMode";
 import type { WorkshopTimerController } from "./workshopTimer";
 import type { DocumentPageController } from "./documentPages";
+import type { DocumentEditController } from "./useDocumentEditLocks";
+import type { DocumentAssetReplacement } from "./documentAssetReplacement";
 import { WorkshopTimerCorner } from "./WorkshopTimerCorner";
 import { InviteHereOverlay, type InviteHereUiState } from "./InviteHereOverlay";
 import { CursorChatComposer } from "./CursorChatComposer";
@@ -48,6 +50,8 @@ type EditorViewProps = {
   theme: string;
   workshopTimer: WorkshopTimerController;
   documentPages: DocumentPageController;
+  documentEdits: DocumentEditController;
+  onDocumentAssetReplacement: (replacement: DocumentAssetReplacement) => Promise<boolean>;
   inviteHere: InviteHereUiState;
   presenting: PresentationUiState;
   frames: readonly FrameSummary[];
@@ -106,6 +110,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
   theme,
   workshopTimer,
   documentPages,
+  documentEdits,
+  onDocumentAssetReplacement,
   inviteHere,
   presenting,
   frames,
@@ -252,6 +258,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
                   theme={appState.theme}
                   canEdit={canEdit}
                   toolbar={toolbar}
+                  editLock={documentEdits.locks[data.assetId] ?? null}
+                  onAcquireEditLock={() => documentEdits.acquire(data.assetId)}
+                  onReleaseEditLock={(token) => documentEdits.release(data.assetId, token)}
+                  onDocumentAssetReplacement={onDocumentAssetReplacement}
                   sharing={{
                     elementId: element.id,
                     sharedPage: documentPages.pages[element.id]?.page,
