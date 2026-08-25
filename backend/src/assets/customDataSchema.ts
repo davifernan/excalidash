@@ -20,10 +20,29 @@ export type WidgetRecord = {
   assetId: string;
 };
 
+export type MindMapRecord = {
+  mapId: string;
+  parentId: string | null;
+  orderKey: string;
+};
+
+export type MindMapProjectionRecord = {
+  mapId: string;
+  childId: string;
+};
+
 const WIDGET_KINDS = new Set<string>(["pdf", "markdown", "text"]);
 
 const isBag = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readNamespace = (element: unknown): Record<string, unknown> | null => {
+  if (!isBag(element)) return null;
+  const customData = element.customData;
+  if (!isBag(customData)) return null;
+  const own = customData[NAMESPACE];
+  return isBag(own) && own.schemaVersion === SCHEMA_VERSION ? own : null;
+};
 
 /**
  * Read the widget record off an element, or nothing.
@@ -33,15 +52,36 @@ const isBag = (value: unknown): value is Record<string, unknown> =>
  * that would blank a working widget.
  */
 export function readWidgetRecord(element: unknown): WidgetRecord | null {
-  if (!isBag(element)) return null;
-  const customData = element.customData;
-  if (!isBag(customData)) return null;
-  const own = customData[NAMESPACE];
-  if (!isBag(own) || own.schemaVersion !== SCHEMA_VERSION) return null;
+  const own = readNamespace(element);
+  if (!own) return null;
   const widget = own.widget;
   if (!isBag(widget)) return null;
   const { kind, assetId } = widget;
   if (typeof kind !== "string" || !WIDGET_KINDS.has(kind)) return null;
   if (typeof assetId !== "string" || assetId.length === 0) return null;
   return { kind: kind as WidgetKind, assetId };
+}
+
+/**
+ * Server-side validation for the same semantic node record the adapter writes.
+ * The server does not infer relationships from arrows and does not repair an
+ * invalid tree while saving or restoring a drawing.
+ */
+export function readMindMapRecord(element: unknown): MindMapRecord | null {
+  const own = readNamespace(element);
+  if (!own || !isBag(own.mindMap)) return null;
+  const { mapId, parentId, orderKey } = own.mindMap;
+  if (typeof mapId !== "string" || mapId.length === 0) return null;
+  if (parentId !== null && (typeof parentId !== "string" || parentId.length === 0)) return null;
+  if (typeof orderKey !== "string" || orderKey.length === 0) return null;
+  return { mapId, parentId, orderKey };
+}
+
+export function readMindMapProjectionRecord(element: unknown): MindMapProjectionRecord | null {
+  const own = readNamespace(element);
+  if (!own || !isBag(own.mindMapProjection)) return null;
+  const { mapId, childId } = own.mindMapProjection;
+  if (typeof mapId !== "string" || mapId.length === 0) return null;
+  if (typeof childId !== "string" || childId.length === 0) return null;
+  return { mapId, childId };
 }

@@ -11,7 +11,13 @@
  *
  * One namespace, one version, one parser, one writer:
  *
- *   customData.excalidash = { schemaVersion, sticky?, widget? }
+ *   customData.excalidash = {
+ *     schemaVersion,
+ *     sticky?,
+ *     widget?,
+ *     mindMap?,
+ *     mindMapProjection?
+ *   }
  *
  * Authority stays on the server. Comments, permissions and authorship are
  * never stored here; at most a stable reference to them.
@@ -41,10 +47,41 @@ export type WidgetRecord = {
   readonly assetId: string;
 };
 
+/**
+ * The authoritative relationship for one mind-map node.
+ *
+ * It deliberately lives on the child rather than on the visible arrow. This
+ * keeps one semantic edge in one place when two clients add siblings at the
+ * same time. The root carries the same record with `parentId: null`.
+ */
+export type MindMapRecord = {
+  readonly mapId: string;
+  readonly parentId: string | null;
+  readonly orderKey: string;
+};
+
+/**
+ * Marker for an ordinary bound arrow that projects a semantic relationship.
+ * It is a rendering aid only; `MindMapRecord.parentId` remains authoritative.
+ */
+export type MindMapProjectionRecord = {
+  readonly mapId: string;
+  readonly childId: string;
+};
+
 export type ExcalidashData = {
   readonly schemaVersion: typeof SCHEMA_VERSION;
   readonly sticky?: StickyRecord;
   readonly widget?: WidgetRecord;
+  readonly mindMap?: MindMapRecord;
+  readonly mindMapProjection?: MindMapProjectionRecord;
+};
+
+export type ExcalidashDataPatch = {
+  readonly sticky?: StickyRecord | null;
+  readonly widget?: WidgetRecord | null;
+  readonly mindMap?: MindMapRecord | null;
+  readonly mindMapProjection?: MindMapProjectionRecord | null;
 };
 
 type Bag = Record<string, unknown>;
@@ -81,6 +118,25 @@ const parseWidget = (value: unknown): WidgetRecord | undefined => {
   return { kind, assetId };
 };
 
+const parseMindMap = (value: unknown): MindMapRecord | undefined => {
+  if (!isBag(value)) return undefined;
+  const mapId = str(value.mapId);
+  const parentId = value.parentId === null ? null : str(value.parentId);
+  const orderKey = str(value.orderKey);
+  if (mapId === null || (parentId === null && value.parentId !== null) || orderKey === null) {
+    return undefined;
+  }
+  return { mapId, parentId, orderKey };
+};
+
+const parseMindMapProjection = (value: unknown): MindMapProjectionRecord | undefined => {
+  if (!isBag(value)) return undefined;
+  const mapId = str(value.mapId);
+  const childId = str(value.childId);
+  if (mapId === null || childId === null) return undefined;
+  return { mapId, childId };
+};
+
 /**
  * Read this application's data off an element.
  *
@@ -97,12 +153,16 @@ export const readExcalidashData = (element: unknown): ExcalidashData | null => {
 
   const sticky = parseSticky(own.sticky);
   const widget = parseWidget(own.widget);
-  if (!sticky && !widget) return null;
+  const mindMap = parseMindMap(own.mindMap);
+  const mindMapProjection = parseMindMapProjection(own.mindMapProjection);
+  if (!sticky && !widget && !mindMap && !mindMapProjection) return null;
 
   return {
     schemaVersion: SCHEMA_VERSION,
     ...(sticky ? { sticky } : {}),
     ...(widget ? { widget } : {}),
+    ...(mindMap ? { mindMap } : {}),
+    ...(mindMapProjection ? { mindMapProjection } : {}),
   };
 };
 
@@ -111,6 +171,12 @@ export const readSticky = (element: unknown): StickyRecord | null =>
 
 export const readWidget = (element: unknown): WidgetRecord | null =>
   readExcalidashData(element)?.widget ?? null;
+
+export const readMindMap = (element: unknown): MindMapRecord | null =>
+  readExcalidashData(element)?.mindMap ?? null;
+
+export const readMindMapProjection = (element: unknown): MindMapProjectionRecord | null =>
+  readExcalidashData(element)?.mindMapProjection ?? null;
 
 /**
  * Produce the customData bag for an element carrying this data.
@@ -121,12 +187,24 @@ export const readWidget = (element: unknown): WidgetRecord | null =>
  */
 export const withExcalidashData = (
   element: unknown,
-  data: { sticky?: StickyRecord; widget?: WidgetRecord },
+  data: ExcalidashDataPatch,
 ): Record<string, unknown> => {
   const existing = isBag(element) && isBag(element.customData) ? element.customData : {};
   const previous = isBag(existing[NAMESPACE]) ? (existing[NAMESPACE] as Bag) : {};
-  const sticky = data.sticky ?? (parseSticky(previous.sticky) || undefined);
-  const widget = data.widget ?? (parseWidget(previous.widget) || undefined);
+  const sticky = data.sticky === null ? undefined : (data.sticky ?? parseSticky(previous.sticky));
+  const widget = data.widget === null ? undefined : (data.widget ?? parseWidget(previous.widget));
+  const mindMap =
+    data.mindMap === null
+      ? undefined
+      : (data.mindMap ??
+        (Object.prototype.hasOwnProperty.call(previous, "mindMap") ? previous.mindMap : undefined));
+  const mindMapProjection =
+    data.mindMapProjection === null
+      ? undefined
+      : (data.mindMapProjection ??
+        (Object.prototype.hasOwnProperty.call(previous, "mindMapProjection")
+          ? previous.mindMapProjection
+          : undefined));
 
   return {
     ...existing,
@@ -134,6 +212,8 @@ export const withExcalidashData = (
       schemaVersion: SCHEMA_VERSION,
       ...(sticky ? { sticky } : {}),
       ...(widget ? { widget } : {}),
+      ...(mindMap !== undefined ? { mindMap } : {}),
+      ...(mindMapProjection !== undefined ? { mindMapProjection } : {}),
     },
   };
 };
