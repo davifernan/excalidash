@@ -15,6 +15,7 @@ import {
   constants as zlibConstants,
 } from "node:zlib";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
@@ -156,9 +157,16 @@ export async function storeStream(
       }),
     );
   }
-  stages.push(createWriteStream(staging));
+  const destination = createWriteStream(staging);
+  stages.push(destination);
 
   try {
+    // createWriteStream opens its path asynchronously. If an immediately
+    // failing source is consumed before that open finishes, pipeline can
+    // reject and the cleanup can observe no file yet; the delayed open then
+    // creates the .part file after cleanup has already returned. Do not let a
+    // fallible source produce anything until the staging path exists.
+    await once(destination, "open");
     await pipeline(stages as [Readable, ...any[]]);
   } catch (err) {
     await rm(staging, { force: true });
