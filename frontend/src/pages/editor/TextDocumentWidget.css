@@ -166,16 +166,6 @@
   user-select: none;
 }
 
-.text-document-widget__name {
-  max-width: 150px;
-  overflow: hidden;
-  padding: 0 3px;
-  font-weight: 600;
-  line-height: 30px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .text-document-widget__button {
   display: inline-flex;
   width: 30px;
@@ -216,5 +206,4 @@
   .text-document-widget__plain {
     font-size: 11px;
   }
-
 }

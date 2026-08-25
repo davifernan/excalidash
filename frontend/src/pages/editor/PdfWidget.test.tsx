@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getPdfAsset, getPdfPageUrl } from "../../api";
+import { getPdfAsset, getPdfPageUrl, renameDocumentAsset } from "../../api";
 import { PdfWidget } from "./PdfWidget";
 
 // A widget that is not sharing its page with anybody: the same object every
@@ -24,6 +24,7 @@ vi.mock("../../api", () => ({
     (drawingId: string, assetId: string, page: number) =>
       `/api/drawings/${drawingId}/assets/${assetId}/pages/${page}`,
   ),
+  renameDocumentAsset: vi.fn(),
 }));
 
 const asset = {
@@ -43,6 +44,7 @@ const loadPendingPage = (container: HTMLElement) => {
 describe("PdfWidget", () => {
   beforeEach(() => {
     vi.mocked(getPdfAsset).mockResolvedValue(asset);
+    vi.mocked(renameDocumentAsset).mockResolvedValue(asset);
   });
 
   it("keeps the previous page visible while switching pages", async () => {
@@ -143,5 +145,33 @@ describe("PdfWidget", () => {
       />,
     );
     expect(screen.queryByRole("toolbar", { name: "PDF controls" })).toBeNull();
+  });
+
+  it("renames the file from the floating toolbar", async () => {
+    vi.mocked(renameDocumentAsset).mockResolvedValue({ ...asset, name: "Workshop brief.pdf" });
+    render(
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename Project brief.pdf" }));
+    const input = screen.getByRole("textbox", { name: "Document filename" });
+    fireEvent.change(input, { target: { value: "Workshop brief.pdf" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() =>
+      expect(renameDocumentAsset).toHaveBeenCalledWith(
+        "drawing-1",
+        "asset-1",
+        "Workshop brief.pdf",
+      ),
+    );
+    expect(await screen.findByRole("button", { name: "Rename Workshop brief.pdf" })).toBeVisible();
   });
 });

@@ -17,41 +17,57 @@ export const ElementFloatingToolbar = ({ target, label, children }: Props) => {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<ToolbarPlacement | null>(null);
 
+  const host = target?.host ?? null;
+  const anchorLeft = target?.anchor.left ?? null;
+  const anchorTop = target?.anchor.top ?? null;
+  const anchorRight = target?.anchor.right ?? null;
+  const anchorBottom = target?.anchor.bottom ?? null;
+
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
-    if (!target || !toolbar) {
+    if (
+      !host ||
+      !toolbar ||
+      anchorLeft === null ||
+      anchorTop === null ||
+      anchorRight === null ||
+      anchorBottom === null
+    ) {
       setPlacement(null);
       return;
     }
 
     const measure = () => {
-      const hostRect = target.host.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
       const toolbarRect = toolbar.getBoundingClientRect();
       const localAnchor = {
-        left: target.anchor.left - hostRect.left,
-        top: target.anchor.top - hostRect.top,
-        right: target.anchor.right - hostRect.left,
-        bottom: target.anchor.bottom - hostRect.top,
+        left: anchorLeft - hostRect.left,
+        top: anchorTop - hostRect.top,
+        right: anchorRight - hostRect.left,
+        bottom: anchorBottom - hostRect.top,
       };
-      setPlacement(
-        placeFloatingToolbar(
-          localAnchor,
-          { width: toolbarRect.width, height: toolbarRect.height },
-          { width: hostRect.width, height: hostRect.height },
-        ),
+      const next = placeFloatingToolbar(
+        localAnchor,
+        { width: toolbarRect.width, height: toolbarRect.height },
+        { width: hostRect.width, height: hostRect.height },
+      );
+      setPlacement((current) =>
+        current?.left === next.left && current.top === next.top && current.side === next.side
+          ? current
+          : next,
       );
     };
 
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(target.host);
+    observer?.observe(host);
     observer?.observe(toolbar);
     window.addEventListener("resize", measure);
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [target]);
+  }, [anchorBottom, anchorLeft, anchorRight, anchorTop, host]);
 
   if (!target) return null;
 

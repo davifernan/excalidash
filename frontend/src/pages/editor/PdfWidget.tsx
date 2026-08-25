@@ -1,20 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
-import { getPdfAsset, getPdfOriginalUrl, getPdfPageUrl, type PdfAsset } from "../../api";
+import {
+  getPdfAsset,
+  getPdfOriginalUrl,
+  getPdfPageUrl,
+  renameDocumentAsset,
+  type PdfAsset,
+} from "../../api";
 import { useSharedDocumentPage, type DocumentPageSharing } from "./useSharedDocumentPage";
 import { ElementFloatingToolbar } from "./ElementFloatingToolbar";
 import type { FloatingToolbarTarget } from "./floatingToolbarGeometry";
+import { EditableAssetName } from "./EditableAssetName";
 import "./PdfWidget.css";
 
 type PdfWidgetProps = {
   assetId: string;
   drawingId: string;
   theme: "light" | "dark";
+  canEdit?: boolean;
   sharing: DocumentPageSharing;
   toolbar: FloatingToolbarTarget | null;
 };
 
-export const PdfWidget = ({ assetId, drawingId, theme, sharing, toolbar }: PdfWidgetProps) => {
+export const PdfWidget = ({
+  assetId,
+  drawingId,
+  theme,
+  canEdit = false,
+  sharing,
+  toolbar,
+}: PdfWidgetProps) => {
   const [asset, setAsset] = useState<PdfAsset | null>(null);
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -113,9 +128,14 @@ export const PdfWidget = ({ assetId, drawingId, theme, sharing, toolbar }: PdfWi
       {asset ? (
         <ElementFloatingToolbar target={toolbar} label="PDF controls">
           <div className="pdf-widget__controls">
-            <span className="pdf-widget__name" title={asset.name}>
-              {asset.name}
-            </span>
+            <EditableAssetName
+              name={asset.name}
+              canEdit={canEdit}
+              onRename={async (name) => {
+                const renamed = await renameDocumentAsset(drawingId, assetId, name);
+                setAsset((current) => (current ? { ...current, name: renamed.name } : current));
+              }}
+            />
             <button
               type="button"
               className="pdf-widget__button"

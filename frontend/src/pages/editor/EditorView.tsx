@@ -252,6 +252,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                   data={data}
                   drawingId={id}
                   theme={appState.theme}
+                  canEdit={canEdit}
                   toolbar={toolbar}
                   sharing={{
                     elementId: element.id,

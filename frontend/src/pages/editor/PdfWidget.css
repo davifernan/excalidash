@@ -61,16 +61,6 @@
   color: inherit;
 }
 
-.pdf-widget__name {
-  max-width: 150px;
-  overflow: hidden;
-  padding: 0 3px;
-  font-weight: 600;
-  line-height: 30px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .pdf-widget__button {
   display: inline-flex;
   width: 30px;

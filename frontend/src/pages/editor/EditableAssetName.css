@@ -1,0 +1,44 @@
+.editable-asset-name {
+  width: 150px;
+  min-width: 0;
+}
+
+.editable-asset-name__label,
+.editable-asset-name__button,
+.editable-asset-name__input {
+  display: block;
+  width: 150px;
+  min-width: 0;
+  height: 30px;
+  overflow: hidden;
+  border-radius: 5px;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  line-height: 30px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editable-asset-name__label {
+  padding: 0 3px;
+}
+
+.editable-asset-name__button {
+  border: 0;
+  background: transparent;
+  padding: 0 3px;
+  text-align: left;
+  cursor: text;
+}
+
+.editable-asset-name__button:hover {
+  background: rgb(99 102 241 / 14%);
+}
+
+.editable-asset-name__input {
+  border: 1px solid #6366f1;
+  background: transparent;
+  padding: 0 5px;
+  outline: none;
+}

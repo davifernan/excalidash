@@ -6,6 +6,7 @@ import {
   getDocumentAsset,
   getDocumentContent,
   getDocumentOriginalUrl,
+  renameDocumentAsset,
   type TextAsset,
 } from "../../api";
 import type { AssetWidgetKind } from "./pdfWidgetElements";
@@ -13,6 +14,7 @@ import { paginateDocumentOffThread } from "./documentPaginationWorker";
 import { useSharedDocumentPage, type DocumentPageSharing } from "./useSharedDocumentPage";
 import { ElementFloatingToolbar } from "./ElementFloatingToolbar";
 import type { FloatingToolbarTarget } from "./floatingToolbarGeometry";
+import { EditableAssetName } from "./EditableAssetName";
 import "./TextDocumentWidget.css";
 
 const markdownComponents: Components = {
@@ -37,6 +39,7 @@ type TextDocumentWidgetProps = {
   assetId: string;
   drawingId: string;
   theme: "light" | "dark";
+  canEdit?: boolean;
   widgetKind: Extract<AssetWidgetKind, "markdown" | "text">;
   sharing: DocumentPageSharing;
   toolbar: FloatingToolbarTarget | null;
@@ -48,6 +51,7 @@ export const TextDocumentWidget = ({
   assetId,
   drawingId,
   theme,
+  canEdit = false,
   widgetKind,
   sharing,
   toolbar,
@@ -141,9 +145,18 @@ export const TextDocumentWidget = ({
       {loaded && pages ? (
         <ElementFloatingToolbar target={toolbar} label="Document controls">
           <div className="text-document-widget__controls">
-            <span className="text-document-widget__name" title={loaded.asset.name}>
-              {loaded.asset.name}
-            </span>
+            <EditableAssetName
+              name={loaded.asset.name}
+              canEdit={canEdit}
+              onRename={async (name) => {
+                const renamed = await renameDocumentAsset(drawingId, assetId, name);
+                setLoaded((current) =>
+                  current
+                    ? { ...current, asset: { ...current.asset, name: renamed.name } }
+                    : current,
+                );
+              }}
+            />
             {pageCount > 1 ? (
               <>
                 <button

@@ -79,7 +79,10 @@ test.describe("the ghost note under the pointer", () => {
     // could ever be placed.
     expect(seen.pointerEvents).toBe("none");
 
-    await page.locator("canvas").last().click({ position: { x: 560, y: 270 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 560, y: 270 } });
     await page.waitForFunction(() =>
       (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
@@ -112,7 +115,18 @@ test.describe("the ghost note under the pointer", () => {
     await openEditor(page, drawingId);
     const box = (await page.locator("canvas").last().boundingBox())!;
     await armTool(page);
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 400, y: 300 } });
+    await page.keyboard.press("Escape");
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 400, y: 300 } });
+    await expect(page.getByRole("toolbar", { name: "Note colour" })).toBeVisible();
     await page.getByRole("button", { name: "Blue", exact: true }).click();
+    await armTool(page);
     await page.mouse.move(box.x + 560, box.y + 270, { steps: 6 });
     await page.waitForTimeout(200);
 

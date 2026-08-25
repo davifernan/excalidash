@@ -8,6 +8,7 @@ type AssetWidgetProps = {
   data: AssetWidgetData;
   drawingId: string;
   theme: "light" | "dark";
+  canEdit: boolean;
   sharing: DocumentPageSharing;
   toolbar: FloatingToolbarTarget | null;
 };
@@ -15,30 +16,33 @@ type AssetWidgetProps = {
 type WidgetComponent = (props: AssetWidgetProps) => React.ReactNode;
 
 const widgets: Record<AssetWidgetKind, WidgetComponent> = {
-  pdf: ({ data, drawingId, theme, sharing, toolbar }) => (
+  pdf: ({ data, drawingId, theme, canEdit, sharing, toolbar }) => (
     <PdfWidget
       assetId={data.assetId}
       drawingId={drawingId}
       theme={theme}
+      canEdit={canEdit}
       sharing={sharing}
       toolbar={toolbar}
     />
   ),
-  markdown: ({ data, drawingId, theme, sharing, toolbar }) => (
+  markdown: ({ data, drawingId, theme, canEdit, sharing, toolbar }) => (
     <TextDocumentWidget
       assetId={data.assetId}
       drawingId={drawingId}
       theme={theme}
+      canEdit={canEdit}
       widgetKind="markdown"
       sharing={sharing}
       toolbar={toolbar}
     />
   ),
-  text: ({ data, drawingId, theme, sharing, toolbar }) => (
+  text: ({ data, drawingId, theme, canEdit, sharing, toolbar }) => (
     <TextDocumentWidget
       assetId={data.assetId}
       drawingId={drawingId}
       theme={theme}
+      canEdit={canEdit}
       widgetKind="text"
       sharing={sharing}
       toolbar={toolbar}

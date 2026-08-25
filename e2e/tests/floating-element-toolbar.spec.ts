@@ -57,6 +57,23 @@ test("document controls stay viewport-sized and visible at the top edge", async 
     expect(new Set(measurements.map(({ toolbar: box }) => Math.round(box.height))).size).toBe(1);
     console.log(`NIL-565 zoom measurements: ${JSON.stringify(measurements)}`);
 
+    await page.getByRole("button", { name: "Rename workshop-notes.md" }).click();
+    const filename = page.getByRole("textbox", { name: "Document filename" });
+    await filename.fill("workshop-agenda.md");
+    await filename.press("Enter");
+    await expect(page.getByRole("button", { name: "Rename workshop-agenda.md" })).toBeVisible();
+
+    await page.reload();
+    await page.waitForSelector("canvas");
+    await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
+    await expect(page.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
+    await activateDocumentWidget(page);
+    await expect(page.getByRole("button", { name: "Rename workshop-agenda.md" })).toBeVisible();
+    await page.screenshot({
+      path: "test-results/floating-toolbar-renamed.png",
+      fullPage: false,
+    });
+
     await page.evaluate(() => {
       const api = (window as any).__EXCALIDASH_TEST__;
       const elements = api.getSceneElements();
