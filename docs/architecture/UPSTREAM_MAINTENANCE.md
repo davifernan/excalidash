@@ -149,23 +149,35 @@ und er zeigte auf einen Commit, der kein Vorfahr unseres `main` ist. Unser eigen
 beiden Remotes -- genau diesem Arbeitsbaum -- `git describe` glaubt, bekommt Upstreams
 Antwort fuer unseren Commit.
 
-**Regel, dauerhaft:** jeder eigene Release-Tag dieses Forks traegt das Suffix `-nilo.N`,
-nach dem Muster, das `v0.5.1-nilo.1`/`v0.5.1-nilo.2` schon vor dieser Regel etabliert
-hatten. `N` startet bei `1` je nominaler Version und zaehlt bei einem weiteren Tag auf
-demselben `X.Y.Z` hoch. Ein **blanker** `vX.Y.Z`-Tag ohne Suffix wird von diesem Fork nie
-neu angelegt -- dieser Namensraum gehoert Upstream, auch wenn eine bestimmte Nummer bei uns
-gerade frei aussieht, weil sie es lokal (noch) ist. `v0.6.0-nilo.1` (dieser Nachtrag) und
-`v0.7.0-nilo.1` (der naechste eigene Release ab diesem Package) folgen dem Muster.
+**Regel, dauerhaft:** eigene Release-Tags sind **blankes Semver** -- `vX.Y.Z`, ohne Suffix.
+Bis zum 25.08.2026 trugen sie `-nilo.N`, um dem Upstream-Namensraum auszuweichen. Das war ein
+Ausweichen, keine Pruefung: es verhinderte die Kollision nur, solange sich alle an die
+Konvention hielten, und es setzte den Fork-Namen in jede oeffentliche Versionsnummer.
+
+Die Kollision wird jetzt **geprueft statt umgangen** -- siehe den CI-Waechter unten. Wenn ein
+`vX.Y.Z` existiert, das kein Vorfahr unseres Commits ist, faellt der Bau, statt dass wir hoffen,
+dass niemand den Namen belegt hat. Das ist die stabilere Loesung: eine Konvention haelt, bis sie
+jemand vergisst; eine Pruefung haelt.
+
+**Was daraus folgt, wenn die Nummer schon belegt ist:** VERSION auf eine Zahl heben, die
+nichts beansprucht. **Kein Suffix erfinden**, um am Waechter vorbeizukommen -- damit waere man
+wieder beim Ausweichen, nur ohne die Doku, die erklaert warum.
+
+Die bestehenden Tags `v0.5.1-nilo.1`, `v0.5.1-nilo.2`, `v0.6.0-nilo.1` und `v0.7.0-nilo.1` bis
+`.4` bleiben, wo sie sind. Tags werden nicht umgeschrieben; wer sie gezogen hat, behaelt sie.
+Der naechste eigene Release traegt blankes Semver.
 
 **Nie `git push own --tags`.** Der Befehl pusht alle lokalen Tag-Refs, einschliesslich
 jedem Upstream-Tag, den man je von `origin` gefetcht hat -- er wuerde genau die Kollision,
 die diese Regel vermeiden soll, aktiv in unser eigenes Fork-Repo hineinschieben. Immer den
-exakten Tag-Ref pushen: `git push own refs/tags/vX.Y.Z-nilo.N`.
+exakten Tag-Ref pushen: `git push own refs/tags/vX.Y.Z`.
 
 **CI-Waechter:** `scripts/release-tag-guard.cjs` (Job "Delivery Contract Tests", Schritt
-"Check the release tag guard") laeuft bei jedem PR und lehnt ab, wenn ein blanker
+"Check the release tag guard") laeuft bei jedem PR und lehnt ab, wenn ein
 `v<VERSION>`-Tag existiert, der kein Vorfahr des geprueften Commits ist -- der Fall, der
-`v0.6.0` real getroffen hat. Er sieht in CI nur die Tags des eigenen `own`-Remotes (der
+`v0.6.0` real getroffen hat. **Seit dem Wegfall des Suffixes ist er nicht mehr die zweite
+Verteidigungslinie, sondern die erste und einzige.** Wer ihn abschaltet oder umgeht, holt sich
+die Kollision von 2026-08-24 zurueck. Er sieht in CI nur die Tags des eigenen `own`-Remotes (der
 Runner klont nur dieses Repo, nie `origin`); lokal, wo beide Remotes konfiguriert sind, ist
 er strenger, weil er dort auch Upstreams Tags sieht.
 

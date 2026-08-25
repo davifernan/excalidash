@@ -15,7 +15,7 @@
  *
  * The fix is not "never collide" (we do not control upstream's numbering)
  * but "never let a collision go unnoticed": our own release tags always
- * carry the `-nilo.N` suffix (docs/architecture/UPSTREAM_MAINTENANCE.md,
+ * are plain semver; this check is what keeps them safe (docs/architecture/UPSTREAM_MAINTENANCE.md,
  * "Tag-Namensraum"), so a *bare* `vX.Y.Z` tag existing in this repository is
  * either legitimately ours from before that rule (must be our ancestor) or a
  * foreign one that must never be reused. This check cannot see upstream's
@@ -79,12 +79,12 @@ function evaluateBareTagSafety({ version, tagExists, isAncestor }) {
   return {
     ok: false,
     findings: [
-      `bare tag \`${tag}\` exists in this repository but is NOT an ancestor of the checked commit -- ` +
-        `it names a different piece of history than VERSION currently claims. Our own release tags carry ` +
-        `the \`-nilo.N\` suffix (see docs/architecture/UPSTREAM_MAINTENANCE.md, "Tag-Namensraum"); a bare ` +
-        `\`${tag}\` that isn't our own ancestor is either a foreign tag that must never be reused, or a ` +
-        `force-moved tag, which is worse. Bump VERSION to a number nothing already claims, or tag this ` +
-        `point as \`${tag}-nilo.1\` instead of reusing the bare name.`,
+      `tag \`${tag}\` exists in this repository but is NOT an ancestor of the checked commit -- ` +
+        `it names a different piece of history than VERSION currently claims. That is either a foreign ` +
+        `tag -- upstream's \`vX.Y.Z\` namespace overlaps ours -- which must never be reused, or a ` +
+        `force-moved tag, which is worse. Bump VERSION to a number nothing already claims. ` +
+        `See docs/architecture/UPSTREAM_MAINTENANCE.md, "Tag-Namensraum": this check is what makes ` +
+        `plain semver tags safe here, so do not work around it by inventing a suffix.`,
     ],
   };
 }

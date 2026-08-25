@@ -10,7 +10,7 @@ name: Release
 # wins, and a cancelled push leaves no half-written image tag behind (a
 # registry only accepts a manifest atomically). A release tag never gets
 # superseded by a newer one with the SAME name -- there is nothing for a
-# second run of `v0.7.0-nilo.1` to legitimately race against. Cancelling a
+# second run of `v0.7.0` to legitimately race against. Cancelling a
 # release mid-flight is how you get a tag with no GitHub Release, or a draft
 # release with half its images missing: a half-published release that nobody
 # can see is *worse* than a stalled workflow, because nothing signals that
@@ -35,11 +35,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*-nilo.*'
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag to (re-)run, e.g. v0.7.0-nilo.1 (for recovering a failed/interrupted run)'
+        description: 'Existing release tag to (re-)run, e.g. v0.7.0 (for recovering a failed/interrupted run)'
         required: true
 
 concurrency:
@@ -64,12 +64,11 @@ jobs:
         id: tag
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-nilo\.[0-9]+$ ]]; then
-            echo "::error::'$TAG' does not match vX.Y.Z-nilo.N -- see docs/architecture/UPSTREAM_MAINTENANCE.md (\"Tag-Namensraum\") for why a bare vX.Y.Z is never used here."
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' does not match vX.Y.Z. Release tags are plain semver; scripts/release-tag-guard.cjs is what keeps a foreign tag of the same name from being reused -- see docs/architecture/UPSTREAM_MAINTENANCE.md (\"Tag-Namensraum\")."
             exit 1
           fi
           VERSION="${TAG#v}"
-          VERSION="${VERSION%-nilo.*}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -119,7 +118,7 @@ jobs:
           # is asking about, so it has to take itself out of the count: the
           # first attempt would otherwise see itself as `incomplete`, and every
           # retry would additionally see the previous attempt as `failed`. Both
-          # were observed on the first real release (v0.7.0-nilo.1, 24.08.2026).
+          # were observed on the first real release (24.08.2026).
           # Excluding every run of THIS workflow on THIS sha -- not just
           # `github.run_id` -- is what makes a re-run possible at all.
           SELF_RUNS="$(gh api \
@@ -151,10 +150,10 @@ jobs:
       - name: Find the previous release tag
         id: previous
         run: |
-          PREVIOUS="$(git describe --tags --match 'v*.*.*-nilo.*' --abbrev=0 "${{ steps.tag.outputs.tag }}^" 2>/dev/null || true)"
+          PREVIOUS="$(git describe --tags --match 'v*.*.*' --abbrev=0 "${{ steps.tag.outputs.tag }}^" 2>/dev/null || true)"
           echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
           if [ -z "$PREVIOUS" ]; then
-            echo "No previous -nilo. release tag found -- this is the first one; notes cover the whole reachable history."
+            echo "No previous release tag found -- this is the first one; notes cover the whole reachable history."
           else
             echo "Previous release tag: $PREVIOUS"
           fi
@@ -203,7 +202,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Versioned tags only (:X.Y.Z and :vX.Y.Z-nilo.N) -- :latest and
+      # Versioned tags only (:X.Y.Z and :vX.Y.Z) -- :latest and
       # :sha-<short> are publish-images.yml's job on every green main push,
       # and re-tagging :latest here would fight that workflow's own
       # concurrency group for no reason: this commit already has both.
