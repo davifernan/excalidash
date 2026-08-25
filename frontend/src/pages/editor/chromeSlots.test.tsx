@@ -210,7 +210,8 @@ describe("renderHeaderControlEntries with a zone filter (NIL-579)", () => {
     const output = React.Children.toArray(
       renderHeaderControlEntries(withPeer, "presence"),
     ) as React.ReactElement[];
-    const rendered = output.filter((el) => el.props.children != null)
+    const rendered = output
+      .filter((el) => el.props.children != null)
       .map((el) => String(el.key).replace(/^\.\$/, ""));
     expect(rendered).toEqual(["invite-everyone-here"]);
   });
@@ -219,7 +220,8 @@ describe("renderHeaderControlEntries with a zone filter (NIL-579)", () => {
     const output = React.Children.toArray(
       renderHeaderControlEntries(withPeer, "actions"),
     ) as React.ReactElement[];
-    const rendered = output.filter((el) => el.props.children != null)
+    const rendered = output
+      .filter((el) => el.props.children != null)
       .map((el) => String(el.key).replace(/^\.\$/, ""));
     expect(rendered).toEqual(["share"]);
   });
@@ -228,7 +230,8 @@ describe("renderHeaderControlEntries with a zone filter (NIL-579)", () => {
     const output = React.Children.toArray(
       renderHeaderControlEntries(withPeer),
     ) as React.ReactElement[];
-    const rendered = output.filter((el) => el.props.children != null)
+    const rendered = output
+      .filter((el) => el.props.children != null)
       .map((el) => String(el.key).replace(/^\.\$/, ""));
     expect(rendered).toEqual(["invite-everyone-here", "share"]);
   });
