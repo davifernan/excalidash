@@ -43,6 +43,14 @@ export const INTERNAL_SELECTORS = {
   interactiveCanvas: "canvas.excalidraw__canvas.interactive",
 } as const;
 
+// Unlike INTERNAL_SELECTORS these may legitimately be absent in a healthy
+// editor, so the compatibility canary must not report their absence as a seam
+// failure. The shape-actions panel exists only while a selected element has
+// editable properties.
+const OPTIONAL_INTERNAL_SELECTORS = {
+  shapeActions: ".App-menu__left",
+} as const;
+
 const report = <T>(result: CapabilityResult<T>): CapabilityResult<T> => {
   if (!result.ok) reportFailure(result as CapabilityFailure, packageVersion());
   return result;
@@ -202,6 +210,13 @@ export const findToolbarIsland = (toolbar: HTMLElement | null): CapabilityResult
   }
   return ok(toolbar.closest<HTMLElement>(INTERNAL_SELECTORS.toolbar) ?? toolbar);
 };
+
+/** Visible editor chrome a selected element's floating controls must clear. */
+export const findFloatingToolbarObstacleElements = (root: HTMLElement): HTMLElement[] =>
+  [
+    root.querySelector<HTMLElement>(INTERNAL_SELECTORS.toolbar),
+    root.querySelector<HTMLElement>(OPTIONAL_INTERNAL_SELECTORS.shapeActions),
+  ].filter((element): element is HTMLElement => element !== null);
 
 /**
  * Begin a drag on the editor's canvas at a point on screen.

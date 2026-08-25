@@ -1,16 +1,17 @@
 .element-floating-toolbar {
   position: absolute;
+  box-sizing: border-box;
   z-index: 6;
   display: flex;
   max-width: calc(100% - 16px);
   min-height: 42px;
   align-items: center;
-  overflow-x: auto;
-  border: 1px solid rgb(0 0 0 / 10%);
+  overflow: hidden;
+  border: 1px solid var(--default-border-color, rgb(0 0 0 / 10%));
   border-radius: 10px;
-  background: #fff;
+  background: var(--island-bg-color, #fff);
   box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
-  color: #1f2937;
+  color: var(--icon-fill-color, #1f2937);
   font-family: system-ui, sans-serif;
   font-size: 12px;
   line-height: 1;
@@ -18,8 +19,32 @@
   user-select: none;
 }
 
-.excalidraw.theme--dark .element-floating-toolbar {
-  border-color: rgb(255 255 255 / 14%);
-  background: #262626;
-  color: #f5f5f5;
+/* A document can be taller and wider than the viewport at high zoom. In that
+ * true last-resort case, reflow the same fixed-pixel controls into the narrow
+ * side strip instead of covering the document. */
+.element-floating-toolbar[data-layout="compact"] {
+  width: 104px;
+}
+
+.element-floating-toolbar[data-layout="compact"] .pdf-widget__controls,
+.element-floating-toolbar[data-layout="compact"] .text-document-widget__controls {
+  box-sizing: border-box;
+  width: 100%;
+  flex-direction: column;
+}
+
+.element-floating-toolbar[data-layout="compact"] .editable-asset-name,
+.element-floating-toolbar[data-layout="compact"] .editable-asset-name__label,
+.element-floating-toolbar[data-layout="compact"] .editable-asset-name__button,
+.element-floating-toolbar[data-layout="compact"] .editable-asset-name__input {
+  width: 100%;
+  flex-basis: 30px;
+}
+
+.element-floating-toolbar[data-layout="compact"] .pdf-widget__page-number,
+.element-floating-toolbar[data-layout="compact"] .text-document-widget__page-number {
+  width: 100%;
+  min-width: 0;
+  flex-basis: 30px;
+  line-height: 30px;
 }
