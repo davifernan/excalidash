@@ -11,7 +11,17 @@
  * (NIL-570/NIL-576): `appState.draggingElement` only covers an element still
  * being *drawn*, never one being moved. This hook still detects a drag from
  * ordinary scene snapshots via `onSceneChange`, comparing live positions
- * tick to tick.
+ * tick to tick -- the actual comparison lives in the shared
+ * `useTickDragDetection` (`frontend/src/hooks/`), extracted once
+ * `useAmbientTreeDrag.ts` (NIL-593) needed the identical logic (PR #175
+ * review, Low finding). This hook's own tick-to-tick collision window (two
+ * people dragging/selecting the exact same node in the exact same actively-
+ * used mind map) stays exactly as narrow as it always was; unlike
+ * `useAmbientTreeDrag.ts`, this hook does not additionally guard against an
+ * incoming realtime-sync tick being misread as a local one -- that guard
+ * was added there because ambient mode runs this same detection over every
+ * bound shape on every board, not because this file's own copy started
+ * doing anything differently.
  *
  * ## v2: per-tick translate, end-of-drag reparent decision (NIL-571)
  *
@@ -43,6 +53,7 @@
  * per-tick translate already put it, a plain move rather than a lost node.
  */
 import { useEffect, useRef, useState } from "react";
+import { useTickDragDetection, type TrackedPosition } from "../hooks/useTickDragDetection";
 import type { SceneCapability, SelectionCapability } from "../integrations/excalidraw/capabilities";
 import type { BoundElementRef, ElementSummary, SceneOp } from "../integrations/excalidraw/types";
 import { readMindMapProjection } from "../integrations/excalidraw/customData";
@@ -62,8 +73,6 @@ type Options = {
   selection: Pick<SelectionCapability, "read">;
 };
 
-type LivePosition = { readonly x: number; readonly y: number };
-
 /** What a drag is doing right now, for `MindMapDropHighlight.tsx` to render. */
 export type MindMapDragPreview = {
   readonly draggedId: string;
@@ -72,7 +81,7 @@ export type MindMapDragPreview = {
 };
 
 export function useMindMapDrag({ canEdit, scene, selection }: Options) {
-  const previousTick = useRef<Map<string, LivePosition>>(new Map());
+  const { detect, reset } = useTickDragDetection();
   const activeDragId = useRef<string | null>(null);
   const [preview, setPreview] = useState<MindMapDragPreview | null>(null);
 
@@ -117,38 +126,29 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
 
     const summaries = scene.summaries();
     if (!summaries.ok) {
-      previousTick.current = new Map();
+      reset();
       activeDragId.current = null;
       setPreview(null);
       return;
     }
 
     const nodes = readMindMapNodes(summaries.value);
-    const current = new Map<string, LivePosition>(
-      nodes.map((node) => [node.summary.id, { x: node.summary.x, y: node.summary.y }]),
-    );
-    const previous = previousTick.current;
-    previousTick.current = current;
-
-    const moved: string[] = [];
-    for (const [id, position] of current) {
-      const before = previous.get(id);
-      if (before && (before.x !== position.x || before.y !== position.y)) moved.push(id);
-    }
+    const positions: TrackedPosition[] = nodes.map((node) => ({
+      id: node.summary.id,
+      x: node.summary.x,
+      y: node.summary.y,
+    }));
 
     const selected = selection.read();
     const soleSelectedId =
       selected.ok && selected.value.selectedIds.length === 1 ? selected.value.selectedIds[0] : null;
 
-    // A drag is "in progress" if exactly one node moved this tick and it is
-    // the sole selection -- same signal v1 always used. Anything else (0,
-    // 2+, or a selection mismatch) means no drag is happening right now.
-    const activeId = moved.length === 1 && moved[0] === soleSelectedId ? moved[0] : null;
+    const tick = detect(positions, soleSelectedId);
 
-    if (activeId) {
+    if (tick) {
+      const { activeId, before } = tick;
       const draggedNode = nodes.find((node) => node.summary.id === activeId);
-      const before = previous.get(activeId);
-      if (!draggedNode || !before) return;
+      if (!draggedNode) return;
 
       activeDragId.current = activeId;
 

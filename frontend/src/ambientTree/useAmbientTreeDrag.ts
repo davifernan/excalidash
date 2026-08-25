@@ -58,8 +58,57 @@
  * out of this module's graph entirely, on both ends of every edge: v1
  * boards keep working exactly as they do today, and this module never
  * looks at them.
+ *
+ * ## Why an incoming realtime sync tick must not be read as a local drag
+ * (PR #175 review, Medium finding)
+ *
+ * `useTickDragDetection`'s "exactly one tracked shape moved this tick and
+ * it is the sole selection" signal is the same one `useMindMapDrag.ts`
+ * always used, and was defensible there: it only ever ran inside one
+ * actively-used mind map, so two people colliding on the exact same node at
+ * the exact same instant was a narrow window. This module runs ambiently
+ * over every bound shape on every board, for every collaborator, all the
+ * time -- the same pattern inherited from v1 without inheriting the reason
+ * it was safe there. Measured concretely: editor B has clicked a box (no
+ * drag, just a selection) while editor A drags that exact box along with
+ * its bound children. `onSceneChange` fires on every scene change
+ * regardless of origin (`Editor.tsx`'s `handleChangeWithSelection` does not
+ * distinguish a local pointer tick from an incoming realtime-sync scene
+ * replace), so B's own `useTickDragDetection` sees A's synced tick land on
+ * the shape B already has selected and reads it as B's own local drag --
+ * translating the subtree a second time. A smoothly incremental drag's own
+ * delta math happens to converge to the same numeric final position either
+ * way (measured, see `ambient-tree-drag.spec.ts`'s own comment on its
+ * `getAmbientTreeDragApplyCount` assertion) but the extra, unwanted
+ * translate still genuinely runs on B, which is what this guards against.
+ *
+ * The obvious-looking fix would reuse `useEditorCollaboration.ts`'s
+ * `isSyncing` ref, which is set `true` for the synchronous span of
+ * `flushRemoteUpdates`'s own `scene.apply` call (`useEditorCanvasHandlers
+ * .ts`'s `handleCanvasChange` already gates its first line on that exact
+ * ref, to skip re-broadcasting a change this client did not originate) --
+ * but a real two-context measurement (`ambient-tree-drag.spec.ts`) showed
+ * it reads `false` by the time THIS hook's `onSceneChange` actually runs
+ * for a remote-driven tick: Excalidraw's `onChange` prop does not fire
+ * reentrantly inside that `scene.apply` call the way the file comment
+ * above assumes for a *locally*-originated one -- it fires on a later
+ * render pass, once `flushRemoteUpdates`'s own `finally` has already reset
+ * the ref back to `false`. `appState.draggingElement` does not help either
+ * (also measured): despite `Editor.tsx` exposing it to `StickyHandles` as
+ * `isDragging`, it stayed `null` throughout a real drag of an *existing*
+ * shape in this Excalidraw version -- it only ever covers an element still
+ * being drawn, exactly as this file's own top comment already says.
+ *
+ * What actually works, because it needs neither of those: track the
+ * client's own physical pointer state directly, via a plain
+ * `pointerdown`/`pointerup` listener on `window`. A remote-sync tick can
+ * land at any time regardless of whether *this* client's mouse happens to
+ * be down; requiring it to be down is what a genuine local drag actually
+ * looks like, unconditionally, with no dependency on collaboration
+ * internals or their exact timing.
  */
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { useTickDragDetection, type TrackedPosition } from "../hooks/useTickDragDetection";
 import type { SceneCapability, SelectionCapability } from "../integrations/excalidraw/capabilities";
 import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
 import { ambientSubtreeIds, type ArrowEdge, type ShapeBox } from "./ambientTree";
@@ -70,52 +119,88 @@ const isV1MindMapElement = (element: ElementSummary): boolean => {
   return !!excalidash?.mindMap;
 };
 
+/**
+ * Test-only counter, wired into `__EXCALIDASH_TEST__` the same way
+ * `mindMapLayoutRunCount` is (NIL-570) -- how many times this hook actually
+ * translated a subtree. Used by `ambient-tree-drag.spec.ts` to prove that a
+ * client which never locally drags anything (only clicks to select) never
+ * runs this at all, even while another client's drag syncs in (PR #175
+ * review, Medium finding): the number itself can coincidentally still
+ * converge to a numerically-correct final position even when this fires
+ * wrongly (an incremental drag's own delta-from-known-baseline math happens
+ * to match the real one), so the count of *applications*, not the resulting
+ * position, is the reliable signal.
+ */
+let applyCount = 0;
+export const ambientTreeDragApplyCount = (): number => applyCount;
+
 type Options = {
   canEdit: boolean;
   scene: Pick<SceneCapability, "apply" | "summaries">;
   selection: Pick<SelectionCapability, "read">;
 };
 
-type LivePosition = { readonly x: number; readonly y: number };
-
 export function useAmbientTreeDrag({ canEdit, scene, selection }: Options) {
-  const previousTick = useRef<Map<string, LivePosition>>(new Map());
+  const { detect, reset } = useTickDragDetection();
+  // Measured, not assumed: `useEditorCollaboration.ts`'s `isSyncing` ref
+  // looked like the obvious signal (it is set for the synchronous span of
+  // `flushRemoteUpdates`'s own `scene.apply` call, and
+  // `useEditorCanvasHandlers.ts` already gates on it for a related reason)
+  // but a real two-context repro (`ambient-tree-drag.spec.ts`) showed it
+  // reads `false` by the time this hook's `onSceneChange` actually runs for
+  // a remote-driven tick -- Excalidraw's `onChange` prop does not fire
+  // reentrantly inside that `scene.apply` call, only on a later render pass
+  // once `flushRemoteUpdates`'s own `finally` has already reset the ref.
+  // Tracking the real pointer state directly sidesteps that timing gap
+  // entirely: a remote-sync tick can land at any time regardless of this
+  // client's own mouse state, so requiring the mouse to actually be held
+  // down locally is a precise, self-contained substitute -- see this file's
+  // own comment on the Medium finding for the full story.
+  const isPointerDown = useRef(false);
+
+  useEffect(() => {
+    const onPointerDown = () => {
+      isPointerDown.current = true;
+    };
+    const onPointerUp = () => {
+      isPointerDown.current = false;
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, []);
 
   const onSceneChange = () => {
     if (!canEdit) return;
 
     const summaries = scene.summaries();
     if (!summaries.ok) {
-      previousTick.current = new Map();
+      reset();
       return;
     }
 
     const shapes = summaries.value.filter(
       (element) => !element.isDeleted && element.type !== "arrow" && !isV1MindMapElement(element),
     );
-    const current = new Map<string, LivePosition>(
-      shapes.map((shape) => [shape.id, { x: shape.x, y: shape.y }]),
-    );
-    const previous = previousTick.current;
-    previousTick.current = current;
-
-    const moved: string[] = [];
-    for (const [id, position] of current) {
-      const before = previous.get(id);
-      if (before && (before.x !== position.x || before.y !== position.y)) moved.push(id);
-    }
+    const positions: TrackedPosition[] = shapes.map((shape) => ({
+      id: shape.id,
+      x: shape.x,
+      y: shape.y,
+    }));
 
     const selected = selection.read();
     const soleSelectedId =
       selected.ok && selected.value.selectedIds.length === 1 ? selected.value.selectedIds[0] : null;
-    // A drag is "in progress" if exactly one shape moved this tick and it is
-    // the sole selection -- the same signal v1 always used.
-    const activeId = moved.length === 1 && moved[0] === soleSelectedId ? moved[0] : null;
-    if (!activeId) return;
-
-    const before = previous.get(activeId);
-    const after = current.get(activeId);
-    if (!before || !after) return;
+    const tick = detect(positions, soleSelectedId);
+    if (!tick) return;
+    // Checked only once a tick otherwise looks like a local drag, not up
+    // front: `detect` must still see every tick to keep its own position
+    // baseline current, remote-driven or not.
+    if (!isPointerDown.current) return;
+    const { activeId, before, after } = tick;
     const dx = after.x - before.x;
     const dy = after.y - before.y;
     if (dx === 0 && dy === 0) return;
@@ -174,7 +259,10 @@ export function useAmbientTreeDrag({ canEdit, scene, selection }: Options) {
         changes: { x: arrow.x + dx, y: arrow.y + dy },
       });
     }
-    if (ops.length > 0) scene.apply(ops, { capture: "eventually" });
+    if (ops.length > 0) {
+      applyCount += 1;
+      scene.apply(ops, { capture: "eventually" });
+    }
   };
 
   return { onSceneChange };
