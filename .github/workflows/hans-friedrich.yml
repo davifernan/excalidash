@@ -18,7 +18,11 @@ name: Hans-Friedrich
 
 on:
   pull_request:
-    types: [opened, ready_for_review]
+    # `edited` (NIL-585): eine Body-Korrektur loest die Zulassung selbst aus.
+    # Vorher war der einzige Weg `gh pr ready --undo && gh pr ready` -- ein
+    # undokumentierter Umweg, den ein Agent nicht kennt und der am 25.08.2026
+    # drei fertige PRs je ~55 Minuten aufgehalten hat.
+    types: [opened, ready_for_review, edited]
 
 permissions:
   contents: read
@@ -153,8 +157,13 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/delivery-contracts.cjs commits
 
+      # `edited` runs the admission check for fast feedback but must never
+      # summon Hans (NIL-585): there is no guard against a second review of the
+      # same head, so a body edit after a completed review would produce one --
+      # exactly what AGENTS.md's one-shot contract forbids. Only
+      # `opened`/`ready_for_review` actually ask for a review.
       - name: Ask Multica for a review
-        if: steps.admission.outcome == 'success'
+        if: steps.admission.outcome == 'success' && github.event.action != 'edited'
         env:
           # Repository secret. The token in the URL is the calling credential —
           # rotate it in Multica (Autopilot -> Trigger -> Rotate URL) and update
