@@ -135,8 +135,8 @@ test.describe("sticky notes", () => {
   test("still shows its opening lines when nothing fits, instead of refusing", async ({
     page,
   }) => {
-    // stickyFit.ts walks the font-size ladder down to 8pt and, if even that
-    // overflows, keeps the smallest layout anyway rather than returning
+    // stickyFit.ts shrinks continuously down to MIN_FONT_SIZE (8pt, NIL-580)
+    // and, if even that overflows, keeps the smallest layout anyway rather than returning
     // nothing (its own comment: "a note somebody pasted an essay into still
     // shows its opening lines instead of turning blank"). That fallback was
     // measured at the unit level (fits === false) but never watched render

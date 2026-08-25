@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { setCustomTextMetricsProvider } from "@excalidraw/excalidraw";
-import { FONT_SIZE_LADDER, fitTextToNote, ladderFrom } from "./stickyFit";
+import { MIN_FONT_SIZE, fitTextToNote } from "./stickyFit";
 import { STICKY_BASE_FONT_SIZE, STICKY_SIZE, createStickyNote } from "./stickyNote";
 
 /**
@@ -60,18 +60,37 @@ const noteWith = (text: string) => {
   return { note, text: label(note, text) };
 };
 
-describe("the ladder", () => {
-  it("starts at the note's own size and only goes down", () => {
-    expect(ladderFrom(20)).toEqual([20, 16, 12, 10, 8]);
+describe("continuous shrink, not a ladder", () => {
+  it("produces sizes between rungs the old ladder never had", () => {
+    // 36/28/20/16/12/10/8 was the old ladder. A body of text sized to need
+    // something strictly between two old rungs (here: between 16 and 20) must
+    // land on a real in-between number, not snap to either neighbour.
+    const long = Array.from({ length: 20 }, (_, i) => `word${i}`).join(" ");
+    const { note, text } = noteWith(long);
+    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
+    expect(fit.fontSize).toBeLessThan(20);
+    expect(fit.fontSize).toBeGreaterThan(16);
+    expect([36, 28, 20, 16, 12, 10, 8]).not.toContain(fit.fontSize);
   });
 
-  it("offers a chosen size the ladder does not contain", () => {
-    expect(ladderFrom(15)[0]).toBe(15);
+  it("shrinks strictly with length instead of jumping between fixed steps", () => {
+    // Three lengths on either side of an old rung boundary (16/12) should each
+    // get their own distinct size, not collapse onto the same rung.
+    const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
+    const sizes = [18, 24, 30].map((n) => {
+      const { note, text } = noteWith(words(n));
+      return fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!.fontSize;
+    });
+    expect(sizes[0]).toBeGreaterThan(sizes[1]);
+    expect(sizes[1]).toBeGreaterThan(sizes[2]);
   });
 
-  it("never grows past what the author picked", () => {
-    expect(Math.max(...ladderFrom(12))).toBe(12);
-    expect(FONT_SIZE_LADDER[0]).toBeGreaterThan(12);
+  it("never shrinks below the reasoned floor", () => {
+    const essay = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
+    const { note, text } = noteWith(essay);
+    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
+    expect(fit.fontSize).toBe(MIN_FONT_SIZE);
+    expect(fit.fits).toBe(false);
   });
 });
 
@@ -105,7 +124,7 @@ describe("fitting the writing to the note", () => {
     const { note, text } = noteWith(essay);
     const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
     expect(fit.fits).toBe(false);
-    expect(fit.fontSize).toBe(FONT_SIZE_LADDER[FONT_SIZE_LADDER.length - 1]);
+    expect(fit.fontSize).toBe(MIN_FONT_SIZE);
   });
 
   it("measures from the unwrapped text, so shrinking does not keep the old breaks", () => {
