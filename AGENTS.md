@@ -160,17 +160,15 @@ Review focus: <what an independent reviewer should attack>
   `INTEGRATED` in Multica.
 - Detailed findings live on GitHub. Multica receives the exact PR/head, result, finding links,
   owner, next action, and final integration SHA.
-- No agent sets a Multica issue to `done`. Only the Overseer does, after the PR is merged, with
-  a closing comment naming the SHA and the issue's own acceptance criteria. NIL-561: there is no
-  automatic pipeline that reads `Delivery-Slices:` and flips listed issues to `done` -- every
-  agent session in this environment authenticates to Multica with the same account a human would
-  use, so a status write an agent makes is indistinguishable from one Davi made himself (measured
-  from the actual timeline of NIL-330's two false closes, both attributed `member:davi`, both
-  posted by agent sessions -- see NIL-561's own findings). A technical guard here would have to
-  sit either inside Multica (outside this repo's reach) or in front of the shared `multica`
-  binary, where it would also intercept Davi's own calls -- a tool that overrides its owner
-  without being asked to. This rule is the enforcement instead, the same way "only the Overseer
-  merges" already is: no technology backs that one either, and it has held for weeks.
+- No `done` without a closing comment that names the SHA and says which of the issue's own
+  acceptance criteria that SHA satisfies. A merged PR is never that evidence by itself, not even
+  for an issue listed under that PR's own `Delivery-Slices:` -- a merge is not an assertion about
+  which acceptance criteria it met, only that a PR reached `main`. This is the same discipline
+  "Ein Verdikt hat ein Verfallsdatum" (further below in this file) already requires for a status
+  *correction*; this bullet is its counterpart for a status *close*, not a separate or
+  conflicting rule -- both come down to "measure against the issue's own criteria, on the
+  current state, before writing status." In practice: the Overseer does this after merge, not
+  the implementing agent mid-package. Background and the incident that prompted this: NIL-561.
 
 ### Impact manifests, visual evidence, and Release QA
 
@@ -657,6 +655,10 @@ die beiden ueber einen Merge hinweg zu verbinden.
 Dasselbe gilt fuer die Gegenrichtung: ein Ticket zu **schliessen**, weil ein Commit seine Nummer
 nennt, ist keine Pruefung. Eine Erwaehnung ist kein Nachweis -- miss den Zustand, den das Ticket
 beschreibt, gegen den aktuellen `main`.
+
+Die Nachweispflicht fuer `done` selbst (Abschlusskommentar mit SHA und erfuelltem
+Akzeptanzkriterium, ein gemergter PR allein reicht nie) steht im Pull-Request-Lieferprotokoll
+weiter oben in dieser Datei -- dieselbe Regel, nur fuer das Schliessen statt die Korrektur.
 
 ## Safe first actions for unknown issues
 
