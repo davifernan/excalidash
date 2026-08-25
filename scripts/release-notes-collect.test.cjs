@@ -3,7 +3,6 @@
 
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const test = require("node:test");
 
 const collectorUnderTest = process.env.RELEASE_NOTES_COLLECTOR_UNDER_TEST ||
@@ -12,6 +11,7 @@ const {
   resolveDeliveries,
   categorize,
   collect,
+  collectMergedPullRequests,
   extractPrNumber,
   extractUserFacingSentence,
   renderNotesMarkdown,
@@ -184,14 +184,60 @@ test("commits without a merged PR record are skipped, not fatal", () => {
   assert.deepEqual(deliveries.map((d) => d.subject), ["#7"]);
 });
 
+test("merged PR pagination stops after crossing the previous release without missing that page", () => {
+  const pagesRead = [];
+  const pages = {
+    1: [
+      { number: 12, mergeCommitSha: "new", mergedAt: "2026-08-25T10:00:00Z", updatedAt: "2026-08-25T10:10:00Z" },
+      { number: 11, mergeCommitSha: null, mergedAt: null, updatedAt: "2026-08-25T09:30:00Z" },
+    ],
+    2: [
+      { number: 10, mergeCommitSha: "edge", mergedAt: "2026-08-25T09:05:00Z", updatedAt: "2026-08-25T09:06:00Z" },
+      { number: 9, mergeCommitSha: "old", mergedAt: "2026-08-25T08:00:00Z", updatedAt: "2026-08-25T08:30:00Z" },
+    ],
+    3: [{ number: 8, mergeCommitSha: "older", mergedAt: "2026-08-24T08:00:00Z", updatedAt: "2026-08-24T08:30:00Z" }],
+  };
+  const pulls = collectMergedPullRequests({
+    updatedAfter: "2026-08-25T09:00:00Z",
+    pageSize: 2,
+    readPage: (page) => {
+      pagesRead.push(page);
+      return pages[page] || [];
+    },
+  });
+
+  assert.deepEqual(pagesRead, [1, 2], "the first wholly older continuation page is never fetched");
+  assert.deepEqual(pulls.map((pull) => pull.number), [12, 10, 9]);
+});
+
 test("the real v0.8.0 collected merge resolves every PR, including #134 (NIL-574)", () => {
   const range = "v0.7.0-nilo.4..v0.8.0";
   const collectedMerge = "99a03699635d6c66eb02e88a989104a7441c64e6";
-  const commits = execFileSync(
-    "git",
-    ["log", "--reverse", "--topo-order", "--format=%H", range],
-    { encoding: "utf8", cwd: path.join(__dirname, "..") },
-  ).trim().split("\n").filter(Boolean);
+  // Immutable capture of the real `git log --reverse --topo-order` range.
+  // The optional live counterprobe revalidates it against GitHub; required
+  // CI stays hermetic so deleting an old tag or editing an old PR cannot
+  // block an unrelated future change.
+  const commits = [
+    "f9ee8017d1a314f80c7454422f7214e517358b3e",
+    "4ea8680ff5c0bc7500cbbfc6f8b810b58d3e8d40",
+    "c612f436e0434933b85de106e4864a94e9932e7e",
+    "769315fdbe566e172c2ae9907dad593ab7a74a55",
+    "5a963170d57223553096dbea3e6661e54cda27ef",
+    "0aa4721b289eae4c365b718af42fa4c163cf742f",
+    "5db814db1afaac34ed575ea6b8b1abe711d430b0",
+    "b0bca98ccb1294473c03c08fed00602a0a9ad65d",
+    "7517438e284d2c2090c2e30ee69a50972c8a0c00",
+    "169e8a7b96e5884abd8c3cea9e8326eac9cf5d5b",
+    "7d3159f4b4728b67cbb3cc07e0e91b4483778698",
+    "6157e360b660a90b54eab4ad776a07d0d93f5910",
+    "848df03725aa1730c7d3705a88b757a9bd7d5c77",
+    "b578fba4e0880816df1a715ad30f9b870f56485e",
+    "82d8a4a50922e3cb2c1efd03c4893a51529204db",
+    "3fd54d673a66a8494122d38c4ea93517a97600bf",
+    "27736060e67cab0ec98251875bdca658713832c7",
+    "eb0158ebd1dee1c520dc72f5eacdcef344789925",
+    collectedMerge,
+  ];
 
   assert.ok(commits.includes(collectedMerge), `${range} must contain the real collected merge 99a0369`);
 

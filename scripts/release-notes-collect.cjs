@@ -208,32 +208,73 @@ function resolveDeliveries({ listCommitShas, listMergedPullRequests }) {
   return deliveries;
 }
 
-function listMergedPullRequests(repo) {
-  // Project only the two required fields on every page before `gh` writes
-  // them to stdout. Parsing entire PR records eventually exceeds Node's
-  // execFileSync buffer even though the useful result is only a few bytes
-  // per PR.
-  return ghLines([
-    "api",
-    "--paginate",
-    `repos/${repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100`,
-    "--jq",
-    '.[] | select(.merged_at != null and .merge_commit_sha != null) | [.number, .merge_commit_sha] | @tsv',
-  ]).map((line) => {
-    const [number, mergeCommitSha] = line.split("\t");
-    return { number: Number(number), mergeCommitSha };
+function collectMergedPullRequests({ readPage, updatedAfter = null, pageSize = 100 }) {
+  const cutoff = updatedAfter === null ? null : Date.parse(updatedAfter);
+  if (updatedAfter !== null && !Number.isFinite(cutoff)) {
+    throw new Error(`Invalid merged-PR updatedAfter value: ${updatedAfter}`);
+  }
+
+  const merged = [];
+  for (let page = 1; ; page += 1) {
+    const pulls = readPage(page);
+    for (const pull of pulls) {
+      if (!pull.mergedAt || !pull.mergeCommitSha) continue;
+      merged.push({ number: pull.number, mergeCommitSha: pull.mergeCommitSha });
+    }
+
+    if (pulls.length < pageSize) break;
+    const oldestUpdated = Date.parse(pulls[pulls.length - 1].updatedAt);
+    if (!Number.isFinite(oldestUpdated)) {
+      throw new Error(`GitHub returned an invalid pull-request updated_at on page ${page}.`);
+    }
+    // The endpoint is ordered by updated_at descending. A PR's updated_at is
+    // never earlier than its merged_at, so after this page falls behind the
+    // previous release commit, no later page can contain a PR merged into the
+    // new range. Old PRs edited recently remain on an earlier page and are
+    // harmlessly filtered by merge_commit_sha afterward.
+    if (cutoff !== null && oldestUpdated < cutoff) break;
+  }
+  return merged;
+}
+
+function listMergedPullRequests(repo, updatedAfter) {
+  return collectMergedPullRequests({
+    updatedAfter,
+    readPage(page) {
+      // Project only the required fields before `gh` writes stdout. A full
+      // page of PR bodies can exceed Node's execFileSync buffer.
+      return ghLines([
+        "api",
+        `repos/${repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=${page}`,
+        "--jq",
+        '.[] | [.number, .merge_commit_sha, .merged_at, .updated_at] | @tsv',
+      ]).map((line) => {
+        const [number, mergeCommitSha, mergedAt, updatedAt] = line.split("\t");
+        return {
+          number: Number(number),
+          mergeCommitSha: mergeCommitSha || null,
+          mergedAt: mergedAt || null,
+          updatedAt,
+        };
+      });
+    },
   });
 }
 
 function createLiveCollector({ repo }) {
   return {
     listDeliveries(range) {
+      const separator = range.indexOf("..");
+      const previousRef = separator === -1 ? null : range.slice(0, separator);
+      const updatedAfter = previousRef
+        ? git(["log", "-1", "--format=%cI", previousRef])
+        : null;
       return resolveDeliveries({
         listCommitShas: () => {
           const log = git(["log", "--reverse", "--topo-order", "--format=%H", range]);
           return log ? log.split("\n").filter(Boolean) : [];
         },
-        listMergedPullRequests: () => listMergedPullRequests(repo),
+        listMergedPullRequests: () => listMergedPullRequests(repo, updatedAfter),
       });
     },
     getPrBody(prNumber) {
@@ -267,6 +308,7 @@ function main() {
 module.exports = {
   categorize,
   collect,
+  collectMergedPullRequests,
   createLiveCollector,
   resolveDeliveries,
   extractPrNumber,
