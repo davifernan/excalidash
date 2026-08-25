@@ -4,7 +4,7 @@
  * The point of these is the authorization, and authorization is exactly the
  * thing a mocked test proves nothing about.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { createHash } from "node:crypto";
@@ -20,6 +20,8 @@ import type { AssetRouteDeps } from "./assetRoutes";
 import { resolveStoragePath } from "./assetStorage";
 import { PdfRejectedError } from "./pdfRenderer";
 import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
+import { DocumentEditLockRegistry } from "../server/documentEditLocks";
+import { syncDrawingDocumentState } from "./documentWidgetState";
 
 describe("document routes", () => {
   let prisma: PrismaClient;
@@ -33,6 +35,8 @@ describe("document routes", () => {
   let actAs: string | null;
   let optimizeUpload: AssetRouteDeps["optimizeUpload"];
   let getPageCalls: Array<{ assetId: string; page: number }>;
+  let documentEditLocks: DocumentEditLockRegistry;
+  let socketEmit: ReturnType<typeof vi.fn>;
 
   const asyncHandler = (fn: any) => (req: any, res: any, next: any) =>
     Promise.resolve(fn(req, res, next)).catch(next);
@@ -49,6 +53,7 @@ describe("document routes", () => {
 
   beforeEach(async () => {
     await prisma.drawingSnapshotAsset.deleteMany({});
+    await prisma.documentPageView.deleteMany({});
     await prisma.drawingAsset.deleteMany({});
     await prisma.asset.deleteMany({});
     await prisma.storedBlob.deleteMany({});
@@ -69,6 +74,8 @@ describe("document routes", () => {
     drawingId = drawing.id;
     optimizeUpload = undefined;
     getPageCalls = [];
+    documentEditLocks = new DocumentEditLockRegistry();
+    socketEmit = vi.fn();
 
     const created = await createAsset(
       { prisma, storageDir, maxUploadBytes: 1_000_000, maxPerUserBytes: 10_000_000 },
@@ -134,6 +141,13 @@ describe("document routes", () => {
         return { pageCount: 7 };
       },
       optimizeUpload: async (stored) => (optimizeUpload ? optimizeUpload(stored) : { note: null }),
+      documentEditLocks,
+      io: {
+        to: () => ({
+          emit: socketEmit,
+          except: () => ({ emit: socketEmit }),
+        }),
+      },
     });
   });
 
@@ -143,6 +157,48 @@ describe("document routes", () => {
       .post(`/drawings/${drawingId}/assets?name=${encodeURIComponent(name)}`)
       .set("Content-Type", type)
       .send(body as any);
+
+  const attachMarkdownWidget = async (content = "# Original\n") => {
+    const created = await createAsset(
+      { prisma, storageDir, maxUploadBytes: 1_000_000, maxPerUserBytes: 10_000_000 },
+      {
+        ownerUserId: owner.id,
+        uploadedByUserId: owner.id,
+        drawingId,
+        kind: "MARKDOWN",
+        originalName: "notes.md",
+        mimeType: "text/markdown; charset=utf-8",
+        source: Readable.from([Buffer.from(content)]),
+      },
+    );
+    assetId = created.asset.id;
+    const elements = [
+      {
+        id: "markdown-widget",
+        type: "embeddable",
+        link: "excalidash://asset-widget",
+        version: 1,
+        versionNonce: 10,
+        updated: 1,
+        customData: {
+          excalidash: { schemaVersion: 2, widget: { kind: "markdown", assetId } },
+        },
+      },
+    ];
+    await prisma.drawing.update({
+      where: { id: drawingId },
+      data: { elements: JSON.stringify(elements) },
+    });
+    await syncDrawingDocumentState(prisma, drawingId, elements);
+    const lock = documentEditLocks.acquire({
+      drawingId,
+      assetId,
+      presenceId: "socket-owner",
+      ownerName: "Owner",
+    });
+    if (!lock.ok) throw new Error("test lock was not acquired");
+    return { revision: created.blob.sha256, token: lock.lock.token, originalAssetId: assetId };
+  };
 
   describe("who may read a document", () => {
     it("lets the owner read it", async () => {
@@ -230,6 +286,90 @@ describe("document routes", () => {
       await request(app).patch(url()).send({ name: "bad\nname.pdf" }).expect(400);
       const metadata = await request(app).get(url()).expect(200);
       expect(metadata.body.name).toBe("Quartalsbericht Q3.pdf");
+    });
+  });
+
+  describe("editing Markdown", () => {
+    it("persists a replacement across reload while the previous bytes stay in history", async () => {
+      const { revision, token, originalAssetId } = await attachMarkdownWidget();
+
+      const saved = await request(app)
+        .put(url("/content"))
+        .query({ elementId: "markdown-widget" })
+        .set("Content-Type", "text/markdown; charset=utf-8")
+        .set("If-Match", `"${revision}"`)
+        .set("X-Document-Edit-Token", token)
+        .send("# Persisted\n\nReloaded content.\n")
+        .expect(200);
+
+      expect(saved.body.id).not.toBe(originalAssetId);
+      expect(saved.body.revision).toMatch(/^[0-9a-f]{64}$/);
+      const drawing = await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } });
+      const [widget] = JSON.parse(drawing.elements);
+      expect(widget.customData.excalidash.widget.assetId).toBe(saved.body.id);
+      expect(widget.version).toBe(2);
+
+      const current = await request(app)
+        .get(`/drawings/${drawingId}/assets/${saved.body.id}/content`)
+        .expect(200);
+      expect(current.text).toBe("# Persisted\n\nReloaded content.\n");
+      await request(app).get(`/drawings/${drawingId}/assets/${saved.body.id}`).expect(200);
+
+      expect(
+        await prisma.drawingAsset.findUnique({
+          where: { drawingId_assetId: { drawingId, assetId: originalAssetId } },
+        }),
+      ).toBeNull();
+      expect(
+        await prisma.drawingSnapshotAsset.findFirst({ where: { assetId: originalAssetId } }),
+      ).not.toBeNull();
+      expect(documentEditLocks.get(drawingId, originalAssetId)).toBeNull();
+      expect(socketEmit).toHaveBeenCalledWith(
+        "document-asset-replaced",
+        expect.objectContaining({ assetId: saved.body.id, previousAssetId: originalAssetId }),
+      );
+    });
+
+    it("refuses a stale revision and a write without the socket-owned lock", async () => {
+      const { revision, token } = await attachMarkdownWidget();
+      await prisma.drawingPermission.create({
+        data: {
+          drawingId,
+          granteeUserId: viewer.id,
+          permission: "view",
+          createdByUserId: owner.id,
+        },
+      });
+      actAs = viewer.id;
+      await request(app)
+        .put(url("/content"))
+        .query({ elementId: "markdown-widget" })
+        .set("Content-Type", "text/markdown")
+        .set("If-Match", `"${revision}"`)
+        .set("X-Document-Edit-Token", token)
+        .send("not allowed")
+        .expect(403);
+
+      actAs = owner.id;
+      await request(app)
+        .put(url("/content"))
+        .query({ elementId: "markdown-widget" })
+        .set("Content-Type", "text/markdown")
+        .set("If-Match", '"stale"')
+        .set("X-Document-Edit-Token", token)
+        .send("lost")
+        .expect(409);
+
+      documentEditLocks.releaseToken(drawingId, assetId, token);
+      const refused = await request(app)
+        .put(url("/content"))
+        .query({ elementId: "markdown-widget" })
+        .set("Content-Type", "text/markdown")
+        .set("If-Match", `"${revision}"`)
+        .set("X-Document-Edit-Token", token)
+        .send("lost")
+        .expect(409);
+      expect(refused.body.code).toBe("DOCUMENT_EDIT_LOCK_LOST");
     });
   });
 

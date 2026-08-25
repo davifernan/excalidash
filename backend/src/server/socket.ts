@@ -71,6 +71,12 @@ import { PresenterRegistry } from "./presenterRegistry";
 import { createSocketPresenterManager, PRESENTER_STATE_EVENT } from "./socketPresenter";
 import { VotingRegistry } from "./votingRegistry";
 import { createSocketVotingManager, VOTING_STATE_EVENT } from "./socketVoting";
+import { DocumentEditLockRegistry } from "./documentEditLocks";
+import {
+  documentEditLockSnapshot,
+  DOCUMENT_EDIT_LOCK_EVENT,
+  registerDocumentEditLockRoomEvent,
+} from "./socketDocumentEditLocks";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -88,6 +94,7 @@ type RegisterSocketHandlersDeps = {
   trustProxy?: TrustProxySetting;
   /** Required by production; optional in socket-only tests with no stored assets. */
   assetStorageDir?: string;
+  documentEditLocks?: DocumentEditLockRegistry;
 };
 
 const roomName = (drawingId: string) => `drawing_${drawingId}`;
@@ -102,6 +109,7 @@ export const registerSocketHandlers = ({
   elementUpdateTrafficLimits = ELEMENT_UPDATE_TRAFFIC_LIMITS,
   trustProxy = false,
   assetStorageDir,
+  documentEditLocks = new DocumentEditLockRegistry(),
 }: RegisterSocketHandlersDeps): CollaborationAccessController => {
   const principals = new Map<string, DrawingPrincipal>();
   const connectedSockets = new Map<string, Socket>();
@@ -188,6 +196,13 @@ export const registerSocketHandlers = ({
     recipients.emit("presence-update", presences.listPublic(drawingId));
   };
 
+  const emitDocumentEditLocks = (drawingId: string) => {
+    io.to(roomName(drawingId)).emit(
+      DOCUMENT_EDIT_LOCK_EVENT,
+      documentEditLockSnapshot(documentEditLocks, drawingId),
+    );
+  };
+
   const getPresence = (socketId: string): PresenceEntry | null => {
     const drawingId = drawingBySocket.get(socketId);
     return drawingId ? presences.get(drawingId, socketId) : null;
@@ -197,6 +212,7 @@ export const registerSocketHandlers = ({
     const drawingId = drawingBySocket.get(socket.id);
     shareTokenBySocket.delete(socket.id);
     if (!drawingId) return;
+    const lockDrawings = documentEditLocks.releasePresence(socket.id);
     followManager.clearSocket(socket.id, reason);
     inviteHereManager.clearSocket(socket.id, drawingId);
     presenterManager.clearSocket(socket.id, drawingId);
@@ -209,6 +225,7 @@ export const registerSocketHandlers = ({
     }
     if (leaveSocketRoom) await socket.leave(roomName(drawingId));
     emitPresence(drawingId);
+    lockDrawings.forEach(emitDocumentEditLocks);
   };
 
   const getAccess = (socketId: string, drawingId: string, shareToken?: string | null) =>
@@ -379,6 +396,14 @@ export const registerSocketHandlers = ({
     });
     registerWorkshopTimerRoomEvent({ socket, timers: workshopTimers, requireAccess });
     registerDocumentPageRoomEvent({ socket, pages: documentPages, requireAccess });
+    registerDocumentEditLockRoomEvent({
+      io,
+      socket,
+      prisma,
+      locks: documentEditLocks,
+      getPresence,
+      requireAccess,
+    });
     inviteHereManager.registerHandlers(socket);
 
     socket.on("join-room", (data: unknown, ack?: (value: unknown) => void) => {
@@ -505,6 +530,10 @@ export const registerSocketHandlers = ({
         socket.emit("workshop-timer-update", workshopTimers.snapshot(drawingId));
         socket.emit(PRESENTER_STATE_EVENT, presenters.snapshot(drawingId));
         socket.emit(VOTING_STATE_EVENT, voting.snapshot(drawingId));
+        socket.emit(
+          DOCUMENT_EDIT_LOCK_EVENT,
+          documentEditLockSnapshot(documentEditLocks, drawingId),
+        );
         const drawingNameSnapshot = await loadDrawingNameSnapshot({ prisma, drawingId });
         if (!isCurrentJoin()) return;
         if (drawingNameSnapshot) socket.emit(DRAWING_NAME_EVENT, drawingNameSnapshot);

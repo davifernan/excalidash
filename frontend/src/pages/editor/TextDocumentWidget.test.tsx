@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getDocumentAsset, getDocumentContent, renameDocumentAsset } from "../../api";
+import {
+  getDocumentAsset,
+  getDocumentContent,
+  renameDocumentAsset,
+  replaceMarkdownContent,
+} from "../../api";
 import { TextDocumentWidget } from "./TextDocumentWidget";
 
 const { paginateDocumentSourceMock } = vi.hoisted(() => ({
@@ -49,6 +54,7 @@ vi.mock("../../api", () => ({
   getDocumentAsset: vi.fn(),
   getDocumentContent: vi.fn(),
   renameDocumentAsset: vi.fn(),
+  replaceMarkdownContent: vi.fn(),
   getDocumentOriginalUrl: (drawingId: string, assetId: string) =>
     `/api/drawings/${drawingId}/assets/${assetId}/original`,
 }));
@@ -61,6 +67,7 @@ describe("TextDocumentWidget", () => {
       name: "notes.md",
       sizeBytes: 100,
       pageCount: null,
+      revision: "a".repeat(64),
     });
     vi.mocked(renameDocumentAsset).mockResolvedValue({
       id: "asset-1",
@@ -69,6 +76,88 @@ describe("TextDocumentWidget", () => {
       sizeBytes: 100,
       pageCount: null,
     });
+  });
+
+  it("edits and saves the complete Markdown source from the floating toolbar", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Original");
+    vi.mocked(replaceMarkdownContent).mockResolvedValue({
+      id: "asset-2",
+      kind: "MARKDOWN",
+      name: "notes.md",
+      sizeBytes: 20,
+      pageCount: null,
+      revision: "b".repeat(64),
+      drawingVersion: 4,
+      element: { id: "widget-1" },
+    });
+    const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
+    const release = vi.fn();
+    const applyReplacement = vi.fn(() => true);
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+        onAcquireEditLock={acquire}
+        onReleaseEditLock={release}
+        onDocumentAssetReplacement={applyReplacement}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Markdown" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown source" });
+    expect(editor).toHaveValue("# Original");
+    fireEvent.change(editor, { target: { value: "# Persisted\n\nNew text." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
+
+    await waitFor(() =>
+      expect(replaceMarkdownContent).toHaveBeenCalledWith(
+        "drawing-1",
+        "asset-1",
+        "widget-1",
+        "# Persisted\n\nNew text.",
+        "a".repeat(64),
+        "lock-token",
+      ),
+    );
+    expect(applyReplacement).toHaveBeenCalledWith({
+      drawingId: "drawing-1",
+      elementId: "widget-1",
+      previousAssetId: "asset-1",
+      assetId: "asset-2",
+      drawingVersion: 4,
+      element: { id: "widget-1" },
+    });
+    expect(screen.queryByRole("textbox", { name: "Markdown source" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Persisted" })).toBeInTheDocument();
+  });
+
+  it("names the other editor and prevents a second browser from entering edit mode", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Locked");
+    const acquire = vi.fn();
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+        editLock={{ assetId: "asset-1", presenceId: "peer", ownerName: "Alice" }}
+        onAcquireEditLock={acquire}
+      />,
+    );
+
+    expect(await screen.findByText("Editing: Alice")).toBeVisible();
+    const button = screen.getByRole("button", { name: "Edit Markdown" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(acquire).not.toHaveBeenCalled();
   });
 
   it("renames the document from the floating toolbar", async () => {

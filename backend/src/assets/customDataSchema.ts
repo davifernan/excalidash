@@ -45,3 +45,21 @@ export function readWidgetRecord(element: unknown): WidgetRecord | null {
   if (typeof assetId !== "string" || assetId.length === 0) return null;
   return { kind: kind as WidgetKind, assetId };
 }
+
+/** Replace only this application's widget reference, preserving foreign data. */
+export function withWidgetRecord(element: unknown, widget: WidgetRecord): Record<string, unknown> {
+  if (!isBag(element)) throw new Error("Document widget element is not an object");
+  const customData = isBag(element.customData) ? element.customData : {};
+  const own = isBag(customData[NAMESPACE]) ? customData[NAMESPACE] : {};
+  return {
+    ...element,
+    customData: {
+      ...customData,
+      [NAMESPACE]: {
+        ...own,
+        schemaVersion: SCHEMA_VERSION,
+        widget,
+      },
+    },
+  };
+}

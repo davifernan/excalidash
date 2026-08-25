@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Loader2, Pencil, Save, X } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -7,6 +7,7 @@ import {
   getDocumentContent,
   getDocumentOriginalUrl,
   renameDocumentAsset,
+  replaceMarkdownContent,
   type TextAsset,
 } from "../../api";
 import type { AssetWidgetKind } from "./pdfWidgetElements";
@@ -15,6 +16,8 @@ import { useSharedDocumentPage, type DocumentPageSharing } from "./useSharedDocu
 import { ElementFloatingToolbar } from "./ElementFloatingToolbar";
 import type { FloatingToolbarTarget } from "./floatingToolbarGeometry";
 import { EditableAssetName } from "./EditableAssetName";
+import type { DocumentEditLock, DocumentEditResult } from "./documentEditLocks";
+import type { DocumentAssetReplacement } from "./documentAssetReplacement";
 import "./TextDocumentWidget.css";
 
 const markdownComponents: Components = {
@@ -43,6 +46,10 @@ type TextDocumentWidgetProps = {
   widgetKind: Extract<AssetWidgetKind, "markdown" | "text">;
   sharing: DocumentPageSharing;
   toolbar: FloatingToolbarTarget | null;
+  editLock?: DocumentEditLock | null;
+  onAcquireEditLock?: () => Promise<DocumentEditResult>;
+  onReleaseEditLock?: (token: string) => void;
+  onDocumentAssetReplacement?: (replacement: DocumentAssetReplacement) => Promise<boolean>;
 };
 
 type LoadedDocument = { asset: TextAsset; content: string };
@@ -55,17 +62,40 @@ export const TextDocumentWidget = ({
   widgetKind,
   sharing,
   toolbar,
+  editLock = null,
+  onAcquireEditLock,
+  onReleaseEditLock,
+  onDocumentAssetReplacement,
 }: TextDocumentWidgetProps) => {
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
   const [pages, setPages] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [editToken, setEditToken] = useState<string | null>(null);
+  const [editMessage, setEditMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const editTokenRef = useRef<string | null>(null);
+  const releaseRef = useRef(onReleaseEditLock);
+  releaseRef.current = onReleaseEditLock;
+  editTokenRef.current = editToken;
+
+  useEffect(
+    () => () => {
+      if (editTokenRef.current) releaseRef.current?.(editTokenRef.current);
+    },
+    [assetId],
+  );
 
   useEffect(() => {
     let active = true;
     setLoaded(null);
     setPages(null);
     setError(null);
+    setEditing(false);
+    setEditToken(null);
+    setEditMessage(null);
     Promise.all([getDocumentAsset(drawingId, assetId), getDocumentContent(drawingId, assetId)])
       .then(([asset, content]) => {
         if (!active) return;
@@ -120,6 +150,74 @@ export const TextDocumentWidget = ({
     }
   };
 
+  const releaseEdit = () => {
+    if (editToken) onReleaseEditLock?.(editToken);
+    setEditToken(null);
+    setEditing(false);
+    setSaving(false);
+    setEditMessage(null);
+  };
+
+  const beginEditing = async () => {
+    if (!loaded || loaded.asset.kind !== "MARKDOWN" || !onAcquireEditLock) return;
+    setEditMessage(null);
+    const result = await onAcquireEditLock();
+    if (!result.ok) {
+      setEditMessage(result.error.message);
+      return;
+    }
+    setEditToken(result.token);
+    setDraft(loaded.content);
+    setEditing(true);
+  };
+
+  const saveDraft = async () => {
+    if (
+      !loaded ||
+      loaded.asset.kind !== "MARKDOWN" ||
+      !loaded.asset.revision ||
+      !editToken ||
+      !onDocumentAssetReplacement
+    ) {
+      setEditMessage("This Markdown revision cannot be saved. Reload the board and try again.");
+      return;
+    }
+    setSaving(true);
+    setEditMessage(null);
+    try {
+      const replacement = await replaceMarkdownContent(
+        drawingId,
+        assetId,
+        sharing.elementId,
+        draft,
+        loaded.asset.revision,
+        editToken,
+      );
+      const applied = await onDocumentAssetReplacement({
+        drawingId,
+        elementId: sharing.elementId,
+        previousAssetId: assetId,
+        assetId: replacement.id,
+        drawingVersion: replacement.drawingVersion,
+        element: replacement.element,
+      });
+      if (!applied) {
+        setEditMessage("Saved. Reload the board to show the new Markdown version.");
+        return;
+      }
+      setLoaded({ asset: replacement, content: draft });
+      setEditToken(null);
+      setEditing(false);
+    } catch (saveError: any) {
+      setEditMessage(
+        saveError?.response?.data?.message ||
+          "The Markdown file could not be saved. Your draft is still open.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div
       className={`text-document-widget${theme === "dark" ? " text-document-widget--dark" : ""}`}
@@ -131,10 +229,20 @@ export const TextDocumentWidget = ({
           <Loader2 aria-label="Loading document" className="animate-spin" />
         ) : null}
         {error ? <p className="text-document-widget__status">{error}</p> : null}
-        {pages && loaded?.asset.kind === "TEXT" ? (
+        {editing ? (
+          <textarea
+            className="text-document-widget__editor"
+            aria-label="Markdown source"
+            value={draft}
+            disabled={saving}
+            spellCheck
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        ) : null}
+        {!editing && pages && loaded?.asset.kind === "TEXT" ? (
           <pre className="text-document-widget__plain">{page}</pre>
         ) : null}
-        {pages && loaded?.asset.kind === "MARKDOWN" ? (
+        {!editing && pages && loaded?.asset.kind === "MARKDOWN" ? (
           <div className="text-document-widget__markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {page}
@@ -157,7 +265,52 @@ export const TextDocumentWidget = ({
                 );
               }}
             />
-            {pageCount > 1 ? (
+            {loaded.asset.kind === "MARKDOWN" && canEdit ? (
+              editing ? (
+                <>
+                  <button
+                    type="button"
+                    className="text-document-widget__button"
+                    aria-label="Save Markdown"
+                    disabled={saving}
+                    onClick={() => void saveDraft()}
+                  >
+                    {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-document-widget__button"
+                    aria-label="Cancel Markdown editing"
+                    disabled={saving}
+                    onClick={releaseEdit}
+                  >
+                    <X size={18} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="text-document-widget__button"
+                  aria-label="Edit Markdown"
+                  title={editLock ? `${editLock.ownerName} is editing this file` : "Edit Markdown"}
+                  disabled={Boolean(editLock) || !onAcquireEditLock}
+                  onClick={() => void beginEditing()}
+                >
+                  <Pencil size={17} />
+                </button>
+              )
+            ) : null}
+            {editLock && !editing ? (
+              <span className="text-document-widget__lock" role="status">
+                Editing: {editLock.ownerName}
+              </span>
+            ) : null}
+            {editMessage ? (
+              <span className="text-document-widget__edit-message" role="status">
+                {editMessage}
+              </span>
+            ) : null}
+            {!editing && pageCount > 1 ? (
               <>
                 <button
                   type="button"
@@ -181,9 +334,9 @@ export const TextDocumentWidget = ({
                   <ChevronRight size={18} />
                 </button>
               </>
-            ) : (
+            ) : !editing ? (
               <span>{loaded.asset.kind === "MARKDOWN" ? "Markdown" : "Plain text"}</span>
-            )}
+            ) : null}
             <a
               className="text-document-widget__button"
               href={downloadUrl}

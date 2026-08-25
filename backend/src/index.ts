@@ -45,6 +45,7 @@ import { createDrawingsCacheStore } from "./server/drawingsCache";
 import { registerCsrfProtection } from "./server/csrf";
 import { registerSocketHandlers } from "./server/socket";
 import { PresenceRegistry } from "./server/presenceRegistry";
+import { DocumentEditLockRegistry } from "./server/documentEditLocks";
 import { createHttpsRedirectPolicy, getHttpsRedirectUrl } from "./server/httpsRedirectPolicy";
 import { issueBootstrapSetupCodeIfRequired } from "./auth/bootstrapSetupCode";
 import { processEmbeddedImages as processEmbeddedImagesImpl } from "./fileProcessing";
@@ -479,6 +480,7 @@ const removeFileIfExists = async (filePath?: string) => {
 // One store, written by the socket server and read by the dashboard routes, so
 // neither side has to import the other.
 const presences = new PresenceRegistry();
+const documentEditLocks = new DocumentEditLockRegistry();
 const collaborationAccess = registerSocketHandlers({
   io,
   prisma,
@@ -489,6 +491,7 @@ const collaborationAccess = registerSocketHandlers({
   // report the proxy's address and share a single anonymous budget.
   trustProxy: trustProxyValue,
   assetStorageDir: config.assets.storageDir,
+  documentEditLocks,
 });
 registerOperationalHealthRoutes(app, {
   database: prisma,
@@ -613,6 +616,9 @@ registerAssetRoutes({
   storageDir: config.assets.storageDir,
   maxUploadBytes: config.assets.maxUploadBytes,
   maxPerUserBytes: config.assets.maxPerUserBytes,
+  documentEditLocks,
+  io,
+  invalidateDrawingsCache,
   getPage: (asset, page, signal) =>
     getAssetPage(
       {

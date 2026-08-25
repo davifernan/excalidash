@@ -46,6 +46,35 @@
   overflow-wrap: anywhere;
 }
 
+.text-document-widget__editor {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  resize: none;
+  border: 1px solid rgb(99 102 241 / 45%);
+  border-radius: 7px;
+  outline: none;
+  background: #fff;
+  color: #111827;
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.text-document-widget__editor:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgb(99 102 241 / 18%);
+}
+
+.text-document-widget--dark .text-document-widget__editor {
+  border-color: rgb(165 180 252 / 55%);
+  background: #171717;
+  color: #f5f5f5;
+}
+
 .text-document-widget__markdown {
   font-size: 14px;
   line-height: 1.6;
@@ -195,6 +224,32 @@
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.text-document-widget__lock,
+.text-document-widget__edit-message {
+  max-width: 190px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-document-widget__lock {
+  color: #b45309;
+}
+
+.text-document-widget__edit-message {
+  color: #b91c1c;
+}
+
+.excalidraw.theme--dark .text-document-widget__lock {
+  color: #fbbf24;
+}
+
+.excalidraw.theme--dark .text-document-widget__edit-message {
+  color: #fca5a5;
 }
 
 @container (max-width: 260px) {

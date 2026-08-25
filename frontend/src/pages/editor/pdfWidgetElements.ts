@@ -29,7 +29,7 @@ export type AssetWidgetData = {
 type EmbeddableLike = {
   type?: string;
   link?: string | null;
-  customData?: Record<string, unknown>;
+  customData?: Readonly<Record<string, unknown>> | null;
 };
 
 const isPdfWidgetLink = (link: string) => link === PDF_WIDGET_LINK;

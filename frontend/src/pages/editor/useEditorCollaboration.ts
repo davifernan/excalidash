@@ -27,6 +27,8 @@ import { bindVotingMode } from "./votingMode";
 import type { VotingSnapshot } from "./votingMode";
 import type { FrameSummary } from "./frameNavigator";
 import { useDocumentPageSharing } from "./useDocumentPageSharing";
+import { useDocumentEditLocks } from "./useDocumentEditLocks";
+import type { DocumentAssetReplacement } from "./documentAssetReplacement";
 import { bindInviteHere, type InviteHereStatus, type ViewportInvitation } from "./inviteHere";
 import { bindSocketDrawingName } from "./drawingName";
 import type { CapabilityFailure } from "../../integrations/excalidraw/errors";
@@ -56,6 +58,7 @@ type UseEditorCollaborationInput = {
   lastSyncedElementOrderSigRef: MutableRefObject<string>;
   latestElementsRef: MutableRefObject<readonly any[]>;
   latestFilesRef: MutableRefObject<any>;
+  currentDrawingVersionRef: MutableRefObject<number | null>;
   computeElementOrderSig: (elements: readonly any[]) => string;
   recordElementVersion: (element: any) => void;
   scene: SceneCapability;
@@ -85,6 +88,7 @@ export const useEditorCollaboration = ({
   lastSyncedElementOrderSigRef,
   latestElementsRef,
   latestFilesRef,
+  currentDrawingVersionRef,
   computeElementOrderSig,
   recordElementVersion,
   scene,
@@ -128,6 +132,10 @@ export const useEditorCollaboration = ({
   const socketRef = useRef<Socket | null>(null);
   const roomJoinedRef = useRef(false);
   const documentPageSharing = useDocumentPageSharing({ drawingId, socketRef });
+  const { controller: documentEdits, bind: bindDocumentEditLocks } = useDocumentEditLocks({
+    drawingId,
+    socketRef,
+  });
   const inviteHereRef = useRef<ReturnType<typeof bindInviteHere> | null>(null);
   const lastCursorEmit = useRef<number>(0);
   const selectionPublisherRef = useRef<((selectedIds: readonly string[]) => void) | null>(null);
@@ -233,6 +241,7 @@ export const useEditorCollaboration = ({
       onChange: onDrawingNameChange,
     });
     const sharedPages = documentPageSharing.bind(socket);
+    const sharedDocumentEdits = bindDocumentEditLocks(socket);
     const inviteHereController = bindInviteHere({
       socket,
       drawingId,
@@ -292,6 +301,7 @@ export const useEditorCollaboration = ({
       votingMode.reset();
       setIsVotingComposing(false);
       sharedPages.reset();
+      sharedDocumentEdits.reset();
       inviteHereController.reset();
       setFollowers([]);
       // Keep the acknowledged file baseline. Unacknowledged attempts never
@@ -501,6 +511,21 @@ export const useEditorCollaboration = ({
       toast.info("Drawing storage changed on the server. Reloading the editor.");
       window.location.reload();
     });
+    socket.on("document-asset-replaced", (payload: DocumentAssetReplacement) => {
+      if (payload?.drawingId !== drawingId) return;
+      if (Number.isInteger(payload.drawingVersion)) {
+        currentDrawingVersionRef.current = Math.max(
+          currentDrawingVersionRef.current ?? 0,
+          payload.drawingVersion,
+        );
+      }
+      if (!payload.element || payload.element.id !== payload.elementId) {
+        toast.error("A Markdown update could not be applied. Reload the board.");
+        return;
+      }
+      pendingRemoteElementsRef.current.set(payload.elementId, payload.element);
+      scheduleRemoteFlush();
+    });
     const handleActivity = (isActive: boolean) => {
       socket.emit("user-activity", { drawingId, isActive });
     };
@@ -524,6 +549,7 @@ export const useEditorCollaboration = ({
       socket.off("room-event-error");
       socket.off("element-update");
       socket.off("drawing-server-update");
+      socket.off("document-asset-replaced");
       unbindSocketRoomLifecycle();
       unbindFollowMode();
       cursorChat.dispose();
@@ -538,6 +564,7 @@ export const useEditorCollaboration = ({
       if (votingModeRef.current === votingMode) votingModeRef.current = null;
       drawingName.dispose();
       sharedPages.dispose();
+      sharedDocumentEdits.dispose();
       inviteHereController.dispose();
       if (inviteHereRef.current === inviteHereController) inviteHereRef.current = null;
       if (selectionPublisherRef.current === remoteSelection.publish) {
@@ -563,6 +590,8 @@ export const useEditorCollaboration = ({
     lastSyncedElementOrderSigRef,
     latestElementsRef,
     latestFilesRef,
+    currentDrawingVersionRef,
+    bindDocumentEditLocks,
     computeElementOrderSig,
     recordElementVersion,
     onAccessDenied,
@@ -655,6 +684,7 @@ export const useEditorCollaboration = ({
     followers,
     workshopTimer: { snapshot: workshopTimerSnapshot, sendCommand: sendWorkshopTimerCommand },
     documentPages: documentPageSharing.controller,
+    documentEdits,
     socketRef,
     roomJoinedRef,
     isSyncing,
