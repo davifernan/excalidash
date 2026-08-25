@@ -1,0 +1,86 @@
+/*
+ * Positioned beside the hamburger menu, not inside the top-right header-
+ * control group: that group has a documented factual width limit
+ * (chromeSlots.tsx, HeaderControlSlotEntry's own comment) where a third icon
+ * pushes Excalidraw's own collaborator-avatar list into a collapsed "+N"
+ * badge. An absolutely-positioned overlay here never enters that flex row at
+ * all, so it cannot trigger the same collapse -- the reason this is an
+ * overlay widget (ui.overlayRoot(), like WorkshopTimerCorner) rather than a
+ * HeaderControlSlotEntry.
+ */
+.connection-status-badge {
+  position: absolute;
+  top: 12px;
+  left: 64px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 2rem;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: transparent;
+  pointer-events: var(--ui-pointerEvents);
+  cursor: default;
+}
+
+.connection-status-badge:hover,
+.connection-status-badge:focus-within {
+  background: var(--color-surface-low, var(--island-bg-color));
+  box-shadow: var(--shadow-island);
+}
+
+.connection-status-badge__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* Colour is the fact, not decoration -- see this widget's own file
+     comment. Fixed hex rather than a semantic CSS var: the three meanings
+     (live / trying / no network) need to stay visually distinct in both
+     themes, and Excalidraw's own colour tokens are not guaranteed to keep
+     three-way separation the way a literal green/amber/red does. */
+  background: #22c55e;
+  transition: background-color 0.2s ease;
+}
+
+/* A steady dot for "connected" reads as calm on purpose; a rhythmic pulse
+   is reserved for the state that is actually still in motion. */
+.connection-status-badge[data-status="reconnecting"] .connection-status-badge__dot {
+  background: #f59e0b;
+  animation: connection-status-badge-pulse 1.4s ease-in-out infinite;
+}
+
+.connection-status-badge[data-status="offline"] .connection-status-badge__dot {
+  background: #ef4444;
+}
+
+@keyframes connection-status-badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.connection-status-badge__label {
+  display: none;
+  color: var(--icon-fill-color, #1f2937);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.connection-status-badge:hover .connection-status-badge__label,
+.connection-status-badge:focus-within .connection-status-badge__label {
+  display: inline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-status-badge[data-status="reconnecting"] .connection-status-badge__dot {
+    animation: none;
+  }
+}

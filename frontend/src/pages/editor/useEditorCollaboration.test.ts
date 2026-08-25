@@ -530,4 +530,107 @@ describe("editor collaboration reconnect state", () => {
     expect(lastSyncedFilesRef.current).toBe(confirmedFiles);
     unmount();
   });
+
+  // NIL-591: connectionStatus is the chrome's one source of truth for
+  // "connected" vs "reconnecting" vs "offline" -- it must track the same
+  // authoritative signals bindSocketRoomLifecycle already uses (onJoined,
+  // resetConnectionState), not merely `socket.connected`.
+  describe("connectionStatus", () => {
+    // Built once, outside the render callback: an inline `capabilities()` /
+    // `() => "order"` recreated on every render feeds fresh references into
+    // the hook's own effect dependency array, and a churned-but-still-live
+    // socket re-run re-derives `roomJoinedRef.current = false` at its top
+    // for what is, from the outside, still the same live connection --
+    // exactly the false "reconnecting" this status exists to not show.
+    // Stable props are what an actual caller (Editor.tsx, memoised via
+    // useCallback) already provides; this mirrors that rather than
+    // papering over it with more production code.
+    const stableProps = {
+      ...capabilities(),
+      drawingId: "drawing-1",
+      me: { id: "user-1", name: "User", initials: "U", color: "#000" },
+      isReady: true,
+      excalidrawAPI: ref<any>({ getAppState: () => ({ selectedElementIds: {} }) }),
+      editorContainerRef: ref<HTMLDivElement | null>(null),
+      lastSyncedFilesRef: ref({}),
+      lastSyncedElementOrderSigRef: ref("order"),
+      latestElementsRef: ref([]),
+      latestFilesRef: ref({}),
+      computeElementOrderSig: () => "order",
+      recordElementVersion: vi.fn(),
+      onAccessDenied: vi.fn(),
+      onDrawingNameChange: vi.fn(),
+    };
+    const renderCollaboration = () => renderHook(() => useEditorCollaboration(stableProps));
+
+    it("starts reconnecting, not connected, before the room join acks", () => {
+      const { result, unmount } = renderCollaboration();
+      expect(result.current.connectionStatus).toBe("reconnecting");
+      unmount();
+    });
+
+    it("becomes connected only once the room join actually completes", () => {
+      const { result, unmount } = renderCollaboration();
+
+      act(() =>
+        mocks.roomLifecycleInput.onJoined({
+          presenceId: "presence-1",
+          name: "User",
+          color: "#000",
+        }),
+      );
+
+      expect(result.current.connectionStatus).toBe("connected");
+      unmount();
+    });
+
+    it("falls back to reconnecting when the connection resets after being connected", () => {
+      const { result, unmount } = renderCollaboration();
+
+      act(() =>
+        mocks.roomLifecycleInput.onJoined({
+          presenceId: "presence-1",
+          name: "User",
+          color: "#000",
+        }),
+      );
+      expect(result.current.connectionStatus).toBe("connected");
+
+      act(() => mocks.resetConnectionState?.());
+      expect(result.current.connectionStatus).toBe("reconnecting");
+      unmount();
+    });
+
+    it("shows offline, not reconnecting, when the browser reports no network", () => {
+      const { result, unmount } = renderCollaboration();
+
+      Object.defineProperty(navigator, "onLine", { value: false, configurable: true });
+      act(() => window.dispatchEvent(new Event("offline")));
+      expect(result.current.connectionStatus).toBe("offline");
+
+      Object.defineProperty(navigator, "onLine", { value: true, configurable: true });
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(result.current.connectionStatus).toBe("reconnecting");
+
+      unmount();
+    });
+
+    it("does not downgrade an already-connected room to reconnecting on a spurious online event", () => {
+      const { result, unmount } = renderCollaboration();
+
+      act(() =>
+        mocks.roomLifecycleInput.onJoined({
+          presenceId: "presence-1",
+          name: "User",
+          color: "#000",
+        }),
+      );
+      expect(result.current.connectionStatus).toBe("connected");
+
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(result.current.connectionStatus).toBe("connected");
+
+      unmount();
+    });
+  });
 });
