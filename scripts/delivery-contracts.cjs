@@ -341,25 +341,15 @@ function validateHansReviewRecord({ review, comments = [] }) {
   };
 }
 
-function checkReviewedHead({ pullRequest, reviews = [], comments = [] }) {
-  const currentHeadSha = pullRequest?.head?.sha;
-  if (!SHA_PATTERN.test(currentHeadSha || "")) {
-    throw new Error("Current PR head SHA is missing or invalid.");
-  }
-  if (!Array.isArray(reviews) || !Array.isArray(comments)) {
-    throw new Error("Reviewed-head check requires review and comment arrays.");
-  }
-
-  if (pullRequest.draft) {
-    return {
-      ok: true,
-      code: "draft",
-      currentHeadSha,
-      reviewedHeadSha: null,
-      message: "Draft PRs do not require a Hans review yet.",
-    };
-  }
-
+/**
+ * The newest review that is intrinsically valid on its own record -- not the
+ * newest review by API order, and not one whose marker is merely present.
+ * Shared by `checkReviewedHead` (hard-fails on a stale head) and
+ * `checkFixVerificationStatus` (NIL-595, reports a stale head instead of
+ * failing on it -- the whole point of that command is to describe the delta,
+ * not to gate on it).
+ */
+function findLatestValidHansReview(reviews, comments) {
   const validReviews = [];
   for (const [index, review] of reviews.entries()) {
     try {
@@ -391,7 +381,29 @@ function checkReviewedHead({ pullRequest, reviews = [], comments = [] }) {
     return right.index - left.index;
   });
 
-  const latest = validReviews[0];
+  return validReviews[0] || null;
+}
+
+function checkReviewedHead({ pullRequest, reviews = [], comments = [] }) {
+  const currentHeadSha = pullRequest?.head?.sha;
+  if (!SHA_PATTERN.test(currentHeadSha || "")) {
+    throw new Error("Current PR head SHA is missing or invalid.");
+  }
+  if (!Array.isArray(reviews) || !Array.isArray(comments)) {
+    throw new Error("Reviewed-head check requires review and comment arrays.");
+  }
+
+  if (pullRequest.draft) {
+    return {
+      ok: true,
+      code: "draft",
+      currentHeadSha,
+      reviewedHeadSha: null,
+      message: "Draft PRs do not require a Hans review yet.",
+    };
+  }
+
+  const latest = findLatestValidHansReview(reviews, comments);
   if (!latest) {
     throw new Error(
       "No valid Hans review with an excalidash-review:v1 marker exists for this PR.",
@@ -412,6 +424,118 @@ function checkReviewedHead({ pullRequest, reviews = [], comments = [] }) {
     reviewId: latest.review.id,
     reviewResult: latest.result.state,
   };
+}
+
+/**
+ * NIL-595: makes the fix-verification path (FIX_VERIFICATION.md,
+ * `checkFixVerificationCoverage` above) findable and triggerable, without
+ * being a gate. `checkReviewedHead` already answers "is the head stale" but
+ * throws on the interesting case -- correct for its own job (a hard PR-admission
+ * check), wrong for this one, whose entire purpose is to describe a stale
+ * head, not fail on it. `FIX_VERIFICATION.md` names its reader "the reader
+ * consumed by NIL-391, not the enforcement gate itself" (NIL-391 is parked)
+ * -- this command is that reader, composed with the reviewed-head lookup, run
+ * by hand (`.github/workflows/fix-verification-status.yml`, workflow_dispatch)
+ * rather than wired into any required check.
+ *
+ * `reviewComments` are PR review (inline) comments -- `pulls.listReviewComments`,
+ * what `validateHansReviewRecord` needs to confirm a review's own inline count.
+ * `issueComments` are ordinary PR conversation comments -- `issues.listComments`,
+ * where a fix-verification record actually lives. They are two different
+ * GitHub endpoints; conflating them silently would make this command "find"
+ * records that were never posted where a human or `checkFixVerificationCoverage`
+ * would ever look.
+ */
+function checkFixVerificationStatus({
+  pullRequest,
+  reviews = [],
+  reviewComments = [],
+  issueComments = [],
+}) {
+  const currentHeadSha = pullRequest?.head?.sha;
+  if (!SHA_PATTERN.test(currentHeadSha || "")) {
+    throw new Error("Current PR head SHA is missing or invalid.");
+  }
+  if (![reviews, reviewComments, issueComments].every(Array.isArray)) {
+    throw new Error(
+      "Fix-verification status requires review, review-comment, and issue-comment arrays.",
+    );
+  }
+
+  if (pullRequest.draft) {
+    return {
+      code: "draft",
+      currentHeadSha,
+      reviewedHeadSha: null,
+      message: "Draft PR -- no reviewed head exists yet to compare against.",
+    };
+  }
+
+  const latest = findLatestValidHansReview(reviews, reviewComments);
+  if (!latest) {
+    return {
+      code: "no-review",
+      currentHeadSha,
+      reviewedHeadSha: null,
+      message: "No valid Hans review exists yet for this PR.",
+    };
+  }
+
+  const reviewedHeadSha = latest.result.reviewedHeadSha;
+  if (currentHeadSha === reviewedHeadSha) {
+    return {
+      code: "current",
+      currentHeadSha,
+      reviewedHeadSha,
+      message: "The current head is the head Hans reviewed -- no delta to verify.",
+    };
+  }
+
+  const coverage = checkFixVerificationCoverage({
+    fromSha: reviewedHeadSha,
+    toSha: currentHeadSha,
+    comments: issueComments,
+  });
+
+  return {
+    code: coverage.covered ? "verified" : "unverified",
+    currentHeadSha,
+    reviewedHeadSha,
+    coverage,
+    message: coverage.covered
+      ? `Delta ${reviewedHeadSha}..${currentHeadSha} is covered by a fix-verification record (comment ${coverage.record.commentId}).`
+      : `Delta ${reviewedHeadSha}..${currentHeadSha} has no fix-verification record yet. Check again with: printf '%s' '{"fromSha":"${reviewedHeadSha}","toSha":"${currentHeadSha}","comments":[...]}' | node scripts/delivery-contracts.cjs fix-verification -- or record one per docs/architecture/FIX_VERIFICATION.md.`,
+  };
+}
+
+/**
+ * Idempotency marker for `Fix-Verification Status` (NIL-595), same pattern as
+ * `hans-review-signal.cjs`'s `signalMarker`/`hasSignalComment`: a versioned
+ * HTML-comment marker naming the exact head, checked against existing PR
+ * comments before posting a new one. A separate function pair rather than
+ * reusing that module's directly, because its marker family
+ * (`excalidash-hans-signal:v1`) and this one's are deliberately different
+ * namespaces for different concerns (review-admission signalling vs.
+ * fix-verification status) -- conflating them would let one kind's marker
+ * satisfy the other's dedup check by string-matching accident.
+ *
+ * Keyed on the head SHA the status was computed for, not on the PR alone: a
+ * later push produces a genuinely new status and must still post, the same
+ * way a new Hans review is still asked for a new head.
+ */
+function fixVerificationStatusMarker(prNumber, headSha) {
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    throw new Error("Fix-verification status marker requires a positive PR number.");
+  }
+  if (!SHA_PATTERN.test(headSha || "")) {
+    throw new Error("Fix-verification status marker requires a valid head SHA.");
+  }
+  return `<!-- excalidash-fix-verification-status:v1 pr=${prNumber} head=${headSha} -->`;
+}
+
+function hasFixVerificationStatusComment(comments, prNumber, headSha) {
+  const marker = fixVerificationStatusMarker(prNumber, headSha);
+  return comments.some((comment) => String(comment?.body || "").includes(marker));
 }
 
 function checkCommitContracts(commits) {
@@ -521,6 +645,12 @@ async function main() {
     return;
   }
 
+  if (command === "fix-verification-status") {
+    const input = JSON.parse(await readStdin());
+    process.stdout.write(`${JSON.stringify(checkFixVerificationStatus(input))}\n`);
+    return;
+  }
+
   if (command === "commits") {
     const commits = readCommitRange(process.env.PR_BASE_SHA, process.env.PR_HEAD_SHA);
     const result = admitCommitContracts({
@@ -531,7 +661,9 @@ async function main() {
     return;
   }
 
-  throw new Error("Usage: delivery-contracts.cjs commits|review|reviewed-head|fix-verification");
+  throw new Error(
+    "Usage: delivery-contracts.cjs commits|review|reviewed-head|fix-verification|fix-verification-status",
+  );
 }
 
 function readStdin() {
@@ -550,6 +682,9 @@ module.exports = {
   admitCommitContracts,
   checkCommitContracts,
   checkFixVerificationCoverage,
+  checkFixVerificationStatus,
+  fixVerificationStatusMarker,
+  hasFixVerificationStatusComment,
   parseReviewMarker,
   parseFixVerificationMarker,
   checkReviewedHead,

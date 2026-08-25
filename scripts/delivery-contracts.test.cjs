@@ -7,6 +7,9 @@ const {
   admitCommitContracts,
   checkCommitContracts,
   checkFixVerificationCoverage,
+  checkFixVerificationStatus,
+  fixVerificationStatusMarker,
+  hasFixVerificationStatusComment,
   checkReviewedHead,
   parseFixVerificationMarker,
   validateHansReview,
@@ -294,6 +297,124 @@ test("reviewed-head check rejects a marker that disagrees with its review record
       }),
     /No valid Hans review with an excalidash-review:v1 marker exists for this PR/,
   );
+});
+
+test("fix-verification status: draft PR has nothing to compare against", () => {
+  assert.deepEqual(
+    checkFixVerificationStatus({
+      pullRequest: { draft: true, head: { sha: FIX_SHA } },
+      reviews: [],
+      reviewComments: [],
+      issueComments: [],
+    }),
+    {
+      code: "draft",
+      currentHeadSha: FIX_SHA,
+      reviewedHeadSha: null,
+      message: "Draft PR -- no reviewed head exists yet to compare against.",
+    },
+  );
+});
+
+test("fix-verification status: no Hans review yet is reported, not thrown", () => {
+  assert.deepEqual(
+    checkFixVerificationStatus({
+      pullRequest: { draft: false, head: { sha: SHA } },
+      reviews: [],
+      reviewComments: [],
+      issueComments: [],
+    }),
+    {
+      code: "no-review",
+      currentHeadSha: SHA,
+      reviewedHeadSha: null,
+      message: "No valid Hans review exists yet for this PR.",
+    },
+  );
+});
+
+test("fix-verification status: current head matches the reviewed head -- nothing to verify", () => {
+  assert.deepEqual(
+    checkFixVerificationStatus({
+      pullRequest: { draft: false, head: { sha: SHA } },
+      reviews: [review()],
+      reviewComments: [],
+      issueComments: [],
+    }),
+    {
+      code: "current",
+      currentHeadSha: SHA,
+      reviewedHeadSha: SHA,
+      message: "The current head is the head Hans reviewed -- no delta to verify.",
+    },
+  );
+});
+
+test("fix-verification status: a corrected head with no record is reported as unverified, not silently green", () => {
+  const result = checkFixVerificationStatus({
+    pullRequest: { draft: false, head: { sha: FIX_SHA } },
+    reviews: [review()],
+    reviewComments: [],
+    issueComments: [],
+  });
+
+  assert.equal(result.code, "unverified");
+  assert.equal(result.currentHeadSha, FIX_SHA);
+  assert.equal(result.reviewedHeadSha, SHA);
+  assert.equal(result.coverage.covered, false);
+  // The message is the actual command to run -- not just "go check the docs".
+  assert.match(result.message, /node scripts\/delivery-contracts\.cjs fix-verification/);
+  assert.match(result.message, new RegExp(SHA));
+  assert.match(result.message, new RegExp(FIX_SHA));
+});
+
+test("fix-verification status: a corrected head with a matching record is reported as verified", () => {
+  const result = checkFixVerificationStatus({
+    pullRequest: { draft: false, head: { sha: FIX_SHA } },
+    reviews: [review()],
+    reviewComments: [],
+    issueComments: [fixVerificationComment()],
+  });
+
+  assert.equal(result.code, "verified");
+  assert.equal(result.coverage.covered, true);
+  assert.equal(result.coverage.record.commentId, 99);
+});
+
+test("fix-verification status: a record for a different delta does not count", () => {
+  const result = checkFixVerificationStatus({
+    pullRequest: { draft: false, head: { sha: NEXT_SHA } },
+    reviews: [review()],
+    reviewComments: [],
+    issueComments: [fixVerificationComment()], // covers SHA..FIX_SHA, not SHA..NEXT_SHA
+  });
+
+  assert.equal(result.code, "unverified");
+});
+
+test("fix-verification status marker names the PR and the exact head, nothing else", () => {
+  assert.equal(
+    fixVerificationStatusMarker(174, SHA),
+    `<!-- excalidash-fix-verification-status:v1 pr=174 head=${SHA} -->`,
+  );
+  assert.throws(() => fixVerificationStatusMarker(0, SHA), /positive PR number/);
+  assert.throws(() => fixVerificationStatusMarker(174, "not-a-sha"), /valid head SHA/);
+});
+
+test("fix-verification status dedup: a prior post for this exact head is detected", () => {
+  const priorPost = { body: `${fixVerificationStatusMarker(174, FIX_SHA)}\nsome status text` };
+  assert.equal(hasFixVerificationStatusComment([priorPost], 174, FIX_SHA), true);
+});
+
+test("fix-verification status dedup: a different head, a different PR, or a Hans-signal marker never counts", () => {
+  const postForOtherHead = { body: fixVerificationStatusMarker(174, SHA) };
+  const postForOtherPr = { body: fixVerificationStatusMarker(999, FIX_SHA) };
+  // Same shape of idempotency marker, different marker family (hans-review-signal.cjs) --
+  // must not satisfy this dedup check just because both are HTML comments naming a head SHA.
+  const hansSignalPost = { body: `<!-- excalidash-hans-signal:v1 head=${FIX_SHA} kind=intentional-skip -->` };
+  assert.equal(hasFixVerificationStatusComment([postForOtherHead], 174, FIX_SHA), false);
+  assert.equal(hasFixVerificationStatusComment([postForOtherPr], 174, FIX_SHA), false);
+  assert.equal(hasFixVerificationStatusComment([hansSignalPost], 174, FIX_SHA), false);
 });
 
 test("an exact recorded fix delta is machine-readably covered", () => {

@@ -4,6 +4,19 @@ import { openEditor } from "./helpers/editor";
 
 const interactiveCanvas = (page: Page) => page.locator("canvas.excalidraw__canvas.interactive");
 
+/**
+ * Safety cap for the cursor-pressure senders (NIL-596), not a target
+ * duration. The server's shared cursor-move budget is 160 events/second
+ * per account (`createKeyedRateLimiter(40 * 4, 1_000)`,
+ * `backend/src/server/socket.ts`); 12 pages each dispatching every 3ms
+ * attempt roughly 4000 events/s combined, ~25x over budget, so a working
+ * throttle rejects within well under a second. This bound only matters if
+ * the throttle is broken -- generous enough that a healthy CI host is never
+ * the reason it fires, tight enough that a genuinely broken throttle still
+ * fails in reasonable time instead of hanging.
+ */
+const CURSOR_PRESSURE_MAX_MS = 8_000;
+
 const dropTinyPng = (page: Page) =>
   page.evaluate(() => {
     const bytes = Uint8Array.from(
@@ -105,12 +118,52 @@ test("image upload stays quiet when the shared cursor budget protects the server
       ),
     );
 
-    await Promise.all(
-      pages.map(async (candidate, pageIndex) => {
+    // NIL-596: sends until the shared budget actually rejects something,
+    // not for a fixed wall-clock duration. A fixed 2s window measures
+    // whether this runner was fast enough to overrun the throttle in that
+    // time -- a throughput fact about the host, not a behavior fact about
+    // the throttle. CURSOR_PRESSURE_MAX_MS is a safety cap, not a target:
+    // 12 pages dispatching every 3ms attempt roughly 4000 events/s against
+    // a 160-events/s shared budget, so a working throttle rejects within a
+    // small fraction of a second -- the cap only matters if the throttle is
+    // genuinely broken, and stopping as soon as it fires keeps the common
+    // case at least as fast as the old fixed wait, not slower.
+    // Resolve every page's canvas bounds up front, awaited immediately --
+    // not lazily inside `sendersSettled`, which is only awaited after the
+    // rejection poll below. A missing canvas otherwise stayed hidden behind
+    // the full poll timeout and surfaced the poll's own misleading message
+    // instead of this real, immediate cause (PR #176 review, Low).
+    const canvasBounds = await Promise.all(
+      pages.map(async (candidate) => {
         const bounds = await interactiveCanvas(candidate).boundingBox();
         if (!bounds) throw new Error("Interactive canvas not found");
-        await candidate.evaluate(
-          ({ pageIndex, bounds }) =>
+        return bounds;
+      }),
+    );
+
+    // Reset every page's stop flag up front too, in one batch fully awaited
+    // before any page starts dispatching. Resetting it per-page instead,
+    // inside the same async chain that starts each page's own interval,
+    // raced the global stop command below: a page whose own setup was still
+    // in flight when another page's rejection triggered the global stop
+    // would have this reset overwrite that page's already-set `true` back
+    // to `false`, leaving it running for the full `CURSOR_PRESSURE_MAX_MS`
+    // cap (PR #176 review, Medium -- a fix for a timing-dependent test that
+    // introduced its own race, which is exactly what NIL-596 set out to
+    // remove). Doing the reset here, before any interval exists to race
+    // against, removes the race instead of narrowing its window.
+    await Promise.all(
+      pages.map((candidate) =>
+        candidate.evaluate(() => {
+          (window as any).__NIL596_STOP_CURSOR_PRESSURE__ = false;
+        }),
+      ),
+    );
+
+    const sendersSettled = Promise.all(
+      pages.map((candidate, pageIndex) =>
+        candidate.evaluate(
+          ({ pageIndex, bounds, maxMs }) =>
             new Promise<void>((resolve) => {
               const canvas = document.querySelector<HTMLCanvasElement>(
                 "canvas.excalidraw__canvas.interactive",
@@ -118,6 +171,11 @@ test("image upload stays quiet when the shared cursor budget protects the server
               if (!canvas) throw new Error("Interactive canvas not found");
               let movement = 0;
               const interval = window.setInterval(() => {
+                if ((window as any).__NIL596_STOP_CURSOR_PRESSURE__) {
+                  window.clearInterval(interval);
+                  resolve();
+                  return;
+                }
                 canvas.dispatchEvent(
                   new PointerEvent("pointermove", {
                     bubbles: true,
@@ -139,15 +197,32 @@ test("image upload stays quiet when the shared cursor budget protects the server
               window.setTimeout(() => {
                 window.clearInterval(interval);
                 resolve();
-              }, 2_000);
+              }, maxMs);
             }),
-          { pageIndex, bounds },
-        );
-      }),
+          { pageIndex, bounds: canvasBounds[pageIndex], maxMs: CURSOR_PRESSURE_MAX_MS },
+        ),
+      ),
     );
 
+    await expect
+      .poll(() => cursorRejections.length, {
+        message: "the shared cursor-move budget never rejected a single event",
+        timeout: CURSOR_PRESSURE_MAX_MS,
+      })
+      .toBeGreaterThan(0);
+
+    // Stop every page's dispatch loop the moment the throttle actually
+    // fired, rather than letting them run out their own safety cap.
+    await Promise.all(
+      pages.map((candidate) =>
+        candidate.evaluate(() => {
+          (window as any).__NIL596_STOP_CURSOR_PRESSURE__ = true;
+        }),
+      ),
+    );
+    await sendersSettled;
+
     expect(cursorEmissions.length).toBeGreaterThan(160);
-    await expect.poll(() => cursorRejections.length).toBeGreaterThan(0);
     const cursorToasts = (
       await Promise.all(
         pages.map((candidate) =>
