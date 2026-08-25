@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { BOOTSTRAP_USER_ID } from "../auth/authMode";
 import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
-import { FakeIo, FakeSocket, room } from "../__tests__/socketTestDoubles";
+import { FakeIo, FakeSocket, room, socketJoinSnapshotPrisma } from "../__tests__/socketTestDoubles";
 import { registerSocketHandlers } from "./socket";
 import { VotingRegistry } from "./votingRegistry";
 import {
@@ -239,6 +239,7 @@ describe("voting wiring inside the real socket server", () => {
     registerSocketHandlers({
       io: io as any,
       prisma: {
+        ...socketJoinSnapshotPrisma(),
         drawingLinkShare: {
           findFirst: async () => ({
             permission: "view",

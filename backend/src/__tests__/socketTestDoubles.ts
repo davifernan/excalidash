@@ -133,4 +133,24 @@ export class FakeIo {
   }
 }
 
+/**
+ * Minimum realistic Prisma surface for a successful socket room join.
+ *
+ * Link-only tests do not otherwise need a Drawing model, but the join path
+ * still sends the current board name and document-page state to the arriving
+ * socket. Keep those reads explicit so a green authorization test cannot hide
+ * a TypeError from either snapshot loader.
+ */
+export const socketJoinSnapshotPrisma = (userId = "socket-test-owner") => ({
+  drawing: {
+    findUnique: async () => ({
+      userId,
+      collectionId: null,
+      name: "Socket test board",
+      nameRevision: 0,
+    }),
+  },
+  documentPageView: { findMany: async () => [] },
+});
+
 export const room = (drawingId: string) => `drawing_${drawingId}`;

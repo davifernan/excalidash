@@ -154,7 +154,15 @@ const createHarness = async () => {
     user: { findUnique: vi.fn(async ({ where }: any) => ({ name: where.id, isActive: true })) },
     drawing: {
       findUnique: vi.fn(async () =>
-        drawingExists ? { id: "drawing-1", userId: "owner", collectionId: "collection-1" } : null,
+        drawingExists
+          ? {
+              id: "drawing-1",
+              userId: "owner",
+              collectionId: "collection-1",
+              name: "Board",
+              nameRevision: 0,
+            }
+          : null,
       ),
       findFirst: vi.fn(async () =>
         drawingExists
@@ -230,7 +238,10 @@ const createHarness = async () => {
         return { count };
       }),
     },
-    $transaction: vi.fn(async (operations: Promise<unknown>[]) => Promise.all(operations)),
+    documentPageView: { findMany: vi.fn().mockResolvedValue([]) },
+    $transaction: vi.fn(async (operation: Promise<unknown>[] | ((tx: any) => unknown)) =>
+      typeof operation === "function" ? operation(prisma) : Promise.all(operation),
+    ),
   };
   const io = new FakeIo();
   const collaborationAccess = registerSocketHandlers({

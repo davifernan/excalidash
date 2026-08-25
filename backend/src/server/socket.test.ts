@@ -5,7 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BOOTSTRAP_USER_ID } from "../auth/authMode";
 import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
 import { registerSocketHandlers } from "./socket";
-import { FakeIo, type FakeSocket, room } from "../__tests__/socketTestDoubles";
+import {
+  FakeIo,
+  type FakeSocket,
+  room,
+  socketJoinSnapshotPrisma,
+} from "../__tests__/socketTestDoubles";
 
 describe("socket collaboration security and follow state", () => {
   let io: FakeIo;
@@ -402,6 +407,7 @@ describe("socket share-link secrets", () => {
     const secondToken = buildShareLinkToken();
     let currentHash = hashShareLinkToken(firstToken);
     const prisma = {
+      ...socketJoinSnapshotPrisma(),
       drawingLinkShare: {
         findFirst: async () => ({ permission: "view", tokenHash: currentHash }),
       },
@@ -418,6 +424,26 @@ describe("socket share-link secrets", () => {
       "access-denied",
     );
     expect((await join(await io.connect("first"), firstToken))?.ok).toBe(true);
+    await vi.waitFor(() => {
+      expect(io.emissions).toContainEqual(
+        expect.objectContaining({
+          scope: "first",
+          event: "drawing-name-update",
+          payload: {
+            drawingId: "drawing-1",
+            name: "Socket test board",
+            revision: 0,
+          },
+        }),
+      );
+      expect(io.emissions).toContainEqual(
+        expect.objectContaining({
+          scope: "first",
+          event: "document-page-update",
+          payload: { drawingId: "drawing-1", pages: [] },
+        }),
+      );
+    });
 
     currentHash = hashShareLinkToken(secondToken);
     expect((await join(await io.connect("rotated"), firstToken))?.error?.code).toBe(
