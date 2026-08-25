@@ -189,10 +189,33 @@
 .text-document-widget__controls {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 10px;
   padding: 6px;
   color: inherit;
   user-select: none;
+}
+
+/*
+ * Identity (filename) and content actions (edit/save, page nav, download)
+ * read as one group when they only have the uniform inter-button gap between
+ * them -- the pencil then reads as "renames this row" instead of "edits the
+ * document" (NIL-582). The divider plus the wider 10px gap above (vs. 5px
+ * within .text-document-widget__actions) states these are two different
+ * kinds of thing.
+ */
+.text-document-widget__divider {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 1px;
+  margin: 4px 0;
+  background: var(--default-border-color, rgb(0 0 0 / 10%));
+}
+
+.text-document-widget__actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
 }
 
 .text-document-widget__button {

@@ -264,87 +264,92 @@ export const TextDocumentWidget = ({
                 );
               }}
             />
-            {loaded.asset.kind === "MARKDOWN" && canEdit ? (
-              editing ? (
+            <span className="text-document-widget__divider" aria-hidden="true" />
+            <div className="text-document-widget__actions">
+              {loaded.asset.kind === "MARKDOWN" && canEdit ? (
+                editing ? (
+                  <>
+                    <button
+                      type="button"
+                      className="text-document-widget__button"
+                      aria-label="Save Markdown"
+                      disabled={saving}
+                      onClick={() => void saveDraft()}
+                    >
+                      {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-document-widget__button"
+                      aria-label="Cancel Markdown editing"
+                      disabled={saving}
+                      onClick={releaseEdit}
+                    >
+                      <X size={18} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-document-widget__button"
+                    aria-label="Edit Markdown"
+                    title={
+                      editLock ? `${editLock.ownerName} is editing this file` : "Edit Markdown"
+                    }
+                    disabled={Boolean(editLock) || !onAcquireEditLock}
+                    onClick={() => void beginEditing()}
+                  >
+                    <Pencil size={17} />
+                  </button>
+                )
+              ) : null}
+              {editLock && !editing ? (
+                <span className="text-document-widget__lock" role="status">
+                  Editing: {editLock.ownerName}
+                </span>
+              ) : null}
+              {editMessage ? (
+                <span className="text-document-widget__edit-message" role="status">
+                  {editMessage}
+                </span>
+              ) : null}
+              {!editing && pageCount > 1 ? (
                 <>
                   <button
                     type="button"
                     className="text-document-widget__button"
-                    aria-label="Save Markdown"
-                    disabled={saving}
-                    onClick={() => void saveDraft()}
+                    aria-label="Previous page"
+                    disabled={pending || pageIndex === 0}
+                    onClick={() => changePage(-1)}
                   >
-                    {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
+                    <ChevronLeft size={18} />
                   </button>
+                  <span className="text-document-widget__page-number">
+                    Page {pageIndex + 1} of {pageCount}
+                  </span>
                   <button
                     type="button"
                     className="text-document-widget__button"
-                    aria-label="Cancel Markdown editing"
-                    disabled={saving}
-                    onClick={releaseEdit}
+                    aria-label="Next page"
+                    disabled={pending || pageIndex === pageCount - 1}
+                    onClick={() => changePage(1)}
                   >
-                    <X size={18} />
+                    <ChevronRight size={18} />
                   </button>
                 </>
-              ) : (
-                <button
-                  type="button"
-                  className="text-document-widget__button"
-                  aria-label="Edit Markdown"
-                  title={editLock ? `${editLock.ownerName} is editing this file` : "Edit Markdown"}
-                  disabled={Boolean(editLock) || !onAcquireEditLock}
-                  onClick={() => void beginEditing()}
-                >
-                  <Pencil size={17} />
-                </button>
-              )
-            ) : null}
-            {editLock && !editing ? (
-              <span className="text-document-widget__lock" role="status">
-                Editing: {editLock.ownerName}
-              </span>
-            ) : null}
-            {editMessage ? (
-              <span className="text-document-widget__edit-message" role="status">
-                {editMessage}
-              </span>
-            ) : null}
-            {!editing && pageCount > 1 ? (
-              <>
-                <button
-                  type="button"
-                  className="text-document-widget__button"
-                  aria-label="Previous page"
-                  disabled={pending || pageIndex === 0}
-                  onClick={() => changePage(-1)}
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <span className="text-document-widget__page-number">
-                  Page {pageIndex + 1} of {pageCount}
-                </span>
-                <button
-                  type="button"
-                  className="text-document-widget__button"
-                  aria-label="Next page"
-                  disabled={pending || pageIndex === pageCount - 1}
-                  onClick={() => changePage(1)}
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </>
-            ) : !editing ? (
-              <span>{loaded.asset.kind === "MARKDOWN" ? "Markdown" : "Plain text"}</span>
-            ) : null}
-            <a
-              className="text-document-widget__button"
-              href={downloadUrl}
-              download={loaded.asset.name}
-              aria-label="Download original document"
-              title="Download original document"
-            >
-              <Download size={17} />
-            </a>
+              ) : !editing ? (
+                <span>{loaded.asset.kind === "MARKDOWN" ? "Markdown" : "Plain text"}</span>
+              ) : null}
+              <a
+                className="text-document-widget__button"
+                href={downloadUrl}
+                download={loaded.asset.name}
+                aria-label="Download original document"
+                title="Download original document"
+              >
+                <Download size={17} />
+              </a>
+            </div>
           </div>
         </ElementFloatingToolbar>
       ) : null}
