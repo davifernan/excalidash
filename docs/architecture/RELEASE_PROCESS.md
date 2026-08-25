@@ -30,14 +30,17 @@ eine eigene Pruefung, am Ort, an dem der jeweilige Fakt ueberhaupt bekannt ist:
    `frontend/package.json` per `node scripts/version-manager.js set X.Y.Z`). Kein
    Sonderprozess -- dieselbe PR-Pipeline, derselbe Sechs-Zeilen-Vertrag wie jede andere
    (siehe [DELIVERY_V2.md](./DELIVERY_V2.md)).
-2. **Nach dem Merge: ein Tag, von Hand**, nach dem Muster `vX.Y.Z-nilo.N`:
+2. **Nach dem Merge: ein Tag, von Hand**, blankes Semver `vX.Y.Z`:
 
    ```bash
-   git tag -a v0.7.0-nilo.1 <merge-sha> -m "..."
-   git push own refs/tags/v0.7.0-nilo.1   # NIE --tags, siehe UPSTREAM_MAINTENANCE.md
+   git tag -a v0.8.0 <merge-sha> -m "..."
+   git push own refs/tags/v0.8.0   # NIE --tags, siehe UPSTREAM_MAINTENANCE.md
    ```
 
-   Nie eine blanke `vX.Y.Z`-Tag -- dieser Namensraum gehoert Upstream, siehe
+   Bis 25.08.2026 trugen diese Tags das Suffix `-nilo.N`, um Upstreams Namensraum
+   auszuweichen. Das ist entfallen: `scripts/release-tag-guard.cjs` **prueft** die Kollision
+   jetzt bei jedem PR, statt dass eine Namenskonvention ihr ausweicht. Faellt dieser Waechter,
+   ist die Nummer belegt -- dann **VERSION anheben**, nicht ein Suffix erfinden. Siehe
    [UPSTREAM_MAINTENANCE.md](./UPSTREAM_MAINTENANCE.md), Abschnitt "Tag-Namensraum".
 3. **Der Tag-Push loest `.github/workflows/release.yml` aus.** Der Workflow:
    - prueft, dass `VERSION` am getaggten Commit exakt der Zahl im Tag entspricht;
@@ -45,7 +48,7 @@ eine eigene Pruefung, am Ort, an dem der jeweilige Fakt ueberhaupt bekannt ist:
      KEINE Tests selbst erneut aus -- siehe "Warum keine eigene Testausfuehrung" unten);
    - sammelt Release-Notes aus jeder PR im Bereich `vorheriger-Tag..dieser-Tag`
      (`scripts/release-notes-collect.cjs`, Details unten);
-   - baut und pusht versionierte Images (`:X.Y.Z` und `:vX.Y.Z-nilo.N`) nach GHCR;
+   - baut und pusht versionierte Images (`:X.Y.Z` und `:vX.Y.Z`) nach GHCR;
    - legt ein **Draft**-GitHub-Release mit den gesammelten Notes an oder aktualisiert ein
      bestehendes.
 4. **Ein Mensch poliert den Draft** auf der GitHub-Releases-Seite und veroeffentlicht ihn.
