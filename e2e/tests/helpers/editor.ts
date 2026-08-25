@@ -295,7 +295,7 @@ export const waitForPeerFile = async (page: Page, fileId: string, timeout = 30_0
       const workerScope = globalThis as any;
       workerScope.onmessage = async (event: MessageEvent) => {
         try {
-          const response = await fetch(event.data.dataURL, { credentials: "include" });
+          const response = await fetch(event.data.dataURL);
           if (!response.ok) throw new Error(`Could not read peer file: HTTP ${response.status}`);
           const bytes = await response.arrayBuffer();
           const digest = await crypto.subtle.digest("SHA-256", bytes);
