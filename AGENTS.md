@@ -160,6 +160,17 @@ Review focus: <what an independent reviewer should attack>
   `INTEGRATED` in Multica.
 - Detailed findings live on GitHub. Multica receives the exact PR/head, result, finding links,
   owner, next action, and final integration SHA.
+- No agent sets a Multica issue to `done`. Only the Overseer does, after the PR is merged, with
+  a closing comment naming the SHA and the issue's own acceptance criteria. NIL-561: there is no
+  automatic pipeline that reads `Delivery-Slices:` and flips listed issues to `done` -- every
+  agent session in this environment authenticates to Multica with the same account a human would
+  use, so a status write an agent makes is indistinguishable from one Davi made himself (measured
+  from the actual timeline of NIL-330's two false closes, both attributed `member:davi`, both
+  posted by agent sessions -- see NIL-561's own findings). A technical guard here would have to
+  sit either inside Multica (outside this repo's reach) or in front of the shared `multica`
+  binary, where it would also intercept Davi's own calls -- a tool that overrides its owner
+  without being asked to. This rule is the enforcement instead, the same way "only the Overseer
+  merges" already is: no technology backs that one either, and it has held for weeks.
 
 ### Impact manifests, visual evidence, and Release QA
 
