@@ -127,6 +127,7 @@ describe("editor broadcast delivery tracking", () => {
   });
 
   it("keeps unrelated changes flowing after rejecting an oversized file without marking it sent", () => {
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     const acknowledgements: Array<(value: any) => void> = [];
     const emit = vi.fn((_event: string, _payload: unknown, ack?: (value: any) => void) => {
       if (ack) acknowledgements.push(ack);
@@ -142,6 +143,8 @@ describe("editor broadcast delivery tracking", () => {
       id: "rejected-image",
       type: "image",
       fileId: "oversized",
+      x: 124.4,
+      y: 387.6,
       version: 2,
     };
     const unrelatedElement = { id: "unrelated-shape", type: "rectangle", version: 2 };
@@ -170,8 +173,14 @@ describe("editor broadcast delivery tracking", () => {
     act(() => expect(result.current.broadcastFiles(files)).toBe(false));
     expect(lastSyncedFilesRef.current).toEqual({});
     expect(emit).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
 
     act(() => result.current.broadcastChanges([rejectedImage, unrelatedElement], files));
+
+    expect(error).toHaveBeenCalledWith(
+      "Image near canvas position (124, 388) is too large for live collaboration (10.0 MB).",
+    );
+    expect(error.mock.calls.flat().join(" ")).not.toContain("oversized");
 
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit.mock.calls[0][1]).toMatchObject({
