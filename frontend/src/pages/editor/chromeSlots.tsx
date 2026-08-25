@@ -105,6 +105,7 @@ import React from "react";
 import {
   ArrowLeft,
   Download,
+  FileInput,
   GitBranch,
   History,
   LayoutTemplate,
@@ -162,8 +163,11 @@ export type ChromeSlotContext = {
   };
   onStartVoteCompose: () => void;
   onInsertTemplate: (templateId: string) => void;
-  /** NIL-570: run the mind map's one explicit layout pass. See `frontend/src/mindMap/index.tsx`. */
+  /** NIL-593: run the ambient tree's one explicit layout pass, rooted at
+   *  the current selection. See `frontend/src/mindMap/index.tsx`. */
   onArrangeMindMap: () => void;
+  /** NIL-572/593: open the paste/preview import dialog. See `frontend/src/mindMap/index.tsx`. */
+  onOpenMindMapImport: () => void;
   onBackClick: () => void;
   onNewNameChange: (value: string) => void;
   onRenameBlur: () => void;
@@ -411,6 +415,23 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
       ) : null,
   },
   {
+    id: "import-mind-map",
+    order: 235,
+    // Grouped with "Arrange" (same section, ordered just before it): both
+    // are one-shot mind-map commands on the current board, not
+    // document-wide settings.
+    render: (ctx) =>
+      ctx.canEdit ? (
+        <MainMenu.Item
+          onSelect={ctx.onOpenMindMapImport}
+          icon={<FileInput size={16} />}
+          data-testid="menu-import-mind-map"
+        >
+          Import mind map...
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
     id: "arrange-mind-map",
     order: 240,
     // Grouped with the workshop actions above (vote, templates) rather than
@@ -423,7 +444,7 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
           icon={<GitBranch size={16} />}
           data-testid="menu-arrange-mind-map"
         >
-          Arrange mind map
+          Arrange
         </MainMenu.Item>
       ) : null,
   },

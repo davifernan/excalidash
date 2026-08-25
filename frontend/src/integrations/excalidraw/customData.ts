@@ -15,12 +15,38 @@
  *     schemaVersion,
  *     sticky?,
  *     widget?,
- *     mindMap?,
- *     mindMapProjection?
+ *     nodeState?
  *   }
  *
  * Authority stays on the server. Comments, permissions and authorship are
  * never stored here; at most a stable reference to them.
+ *
+ * ## The mind-map relationship layer is gone (NIL-593, Schnitt 2)
+ *
+ * `mindMap` (`mapId`/`parentId`/`orderKey`) and `mindMapProjection` used to
+ * be the authoritative tree structure for the mind-map tool's own mode.
+ * That mode is torn down: structure now comes ambiently from Excalidraw's
+ * own arrow bindings (`frontend/src/ambientTree/`), and nothing reads
+ * `mapId`/`parentId` as structure anymore, from this file or anywhere else.
+ * Neither field is parsed, written, or round-tripped here any longer -- an
+ * old element that still carries them in its stored JSON keeps carrying
+ * them (nobody deletes historical data), but this module no longer looks
+ * at them, so they cannot be misread as structure and a patch that touches
+ * an unrelated field on the same element naturally lets them fall away
+ * (`withExcalidashData` no longer preserves a key it doesn't know).
+ *
+ * `pinned`/`collapsed` were never structure -- per-node facts a node can
+ * carry independent of who its parent is -- and the ambient version still
+ * needs them (Schnitt 3). They move to a new, slim sibling field,
+ * `nodeState`, decided and recorded as a NIL-593 comment (measured against
+ * Excalidraw's own customData contract): same storage shape as before,
+ * freed of the structural fields that died with `mindMap`, renamed because
+ * it now applies to any bound node, not one inside a "mind map".
+ * `readNodeState` below falls back to the dying `mindMap.pinned/collapsed`
+ * shape ONCE, by raw field access (never through a removed structural
+ * parser), so an existing board's pin/collapse preference is not silently
+ * lost the moment this ships -- every future write goes to `nodeState`
+ * only; there is no ongoing dual path.
  */
 
 export const NAMESPACE = "excalidash";
@@ -48,61 +74,44 @@ export type WidgetRecord = {
 };
 
 /**
- * The authoritative relationship for one mind-map node.
- *
- * It deliberately lives on the child rather than on the visible arrow. This
- * keeps one semantic edge in one place when two clients add siblings at the
- * same time. The root carries the same record with `parentId: null`.
+ * Per-node facts that outlive the mind-map tool's own dead structure layer
+ * (NIL-593, Schnitt 2): whether this node is pinned against the next
+ * "Arrange" layout run, and whether its own subtree is collapsed. Neither
+ * is structure -- a node's pin/collapse state does not say who its parent
+ * is -- so both survive the teardown of `mapId`/`parentId`/`orderKey`
+ * unchanged in shape, just freed of the fields that died with them. See
+ * this file's own header comment for the decided migration.
  */
-export type MindMapRecord = {
-  readonly mapId: string;
-  readonly parentId: string | null;
-  readonly orderKey: string;
+export type NodeStateRecord = {
   /**
-   * NIL-571 v2: this node's current position is a hand-set one an explicit
-   * "Arrange mind map" run must not discard. Missing/`false` means the
-   * position is free for the deterministic layout core to recompute --
-   * `layoutMindMap` itself stays exactly as pure and unaware of this field
-   * as it was in v1; only `mindMapScene.ts`'s `layoutOps` reads it, to
-   * decide which of the core's own computed positions actually get written
-   * back, never to change what the core computes.
+   * This node's current position is a hand-set one an explicit "Arrange"
+   * run must not discard. Missing/`false` means the position is free for
+   * the deterministic layout core to recompute.
    */
   readonly pinned?: boolean;
   /**
-   * NIL-571 v2: this node's own subtree is collapsed for viewers of this
-   * feature. The descendant elements themselves are never touched by this
-   * flag -- it only ever drives a client-local overlay
-   * (`MindMapCollapseOverlay.tsx`) that visually masks them and shows a
-   * count badge; a client without the feature (or a plain JSON export)
-   * still sees the complete, unmodified subtree, exactly as NIL-570's own
-   * "an element may carry data belonging to somebody else" reading rule
-   * already promises for every other field here.
+   * This node's own subtree is collapsed for viewers of this feature. The
+   * descendant elements themselves are never touched by this flag -- it
+   * only ever drives a client-local overlay that visually masks them; a
+   * client without the feature (or a plain JSON export) still sees the
+   * complete, unmodified subtree, exactly as NIL-570's own "an element may
+   * carry data belonging to somebody else" reading rule already promises
+   * for every other field here.
    */
   readonly collapsed?: boolean;
-};
-
-/**
- * Marker for an ordinary bound arrow that projects a semantic relationship.
- * It is a rendering aid only; `MindMapRecord.parentId` remains authoritative.
- */
-export type MindMapProjectionRecord = {
-  readonly mapId: string;
-  readonly childId: string;
 };
 
 export type ExcalidashData = {
   readonly schemaVersion: typeof SCHEMA_VERSION;
   readonly sticky?: StickyRecord;
   readonly widget?: WidgetRecord;
-  readonly mindMap?: MindMapRecord;
-  readonly mindMapProjection?: MindMapProjectionRecord;
+  readonly nodeState?: NodeStateRecord;
 };
 
 export type ExcalidashDataPatch = {
   readonly sticky?: StickyRecord | null;
   readonly widget?: WidgetRecord | null;
-  readonly mindMap?: MindMapRecord | null;
-  readonly mindMapProjection?: MindMapProjectionRecord | null;
+  readonly nodeState?: NodeStateRecord | null;
 };
 
 type Bag = Record<string, unknown>;
@@ -139,29 +148,12 @@ const parseWidget = (value: unknown): WidgetRecord | undefined => {
   return { kind, assetId };
 };
 
-const parseMindMap = (value: unknown): MindMapRecord | undefined => {
+const parseNodeState = (value: unknown): NodeStateRecord | undefined => {
   if (!isBag(value)) return undefined;
-  const mapId = str(value.mapId);
-  const parentId = value.parentId === null ? null : str(value.parentId);
-  const orderKey = str(value.orderKey);
-  if (mapId === null || (parentId === null && value.parentId !== null) || orderKey === null) {
-    return undefined;
-  }
-  return {
-    mapId,
-    parentId,
-    orderKey,
-    ...(value.pinned === true ? { pinned: true } : {}),
-    ...(value.collapsed === true ? { collapsed: true } : {}),
-  };
-};
-
-const parseMindMapProjection = (value: unknown): MindMapProjectionRecord | undefined => {
-  if (!isBag(value)) return undefined;
-  const mapId = str(value.mapId);
-  const childId = str(value.childId);
-  if (mapId === null || childId === null) return undefined;
-  return { mapId, childId };
+  const pinned = value.pinned === true;
+  const collapsed = value.collapsed === true;
+  if (!pinned && !collapsed) return undefined;
+  return { ...(pinned ? { pinned: true } : {}), ...(collapsed ? { collapsed: true } : {}) };
 };
 
 /**
@@ -180,16 +172,14 @@ export const readExcalidashData = (element: unknown): ExcalidashData | null => {
 
   const sticky = parseSticky(own.sticky);
   const widget = parseWidget(own.widget);
-  const mindMap = parseMindMap(own.mindMap);
-  const mindMapProjection = parseMindMapProjection(own.mindMapProjection);
-  if (!sticky && !widget && !mindMap && !mindMapProjection) return null;
+  const nodeState = parseNodeState(own.nodeState);
+  if (!sticky && !widget && !nodeState) return null;
 
   return {
     schemaVersion: SCHEMA_VERSION,
     ...(sticky ? { sticky } : {}),
     ...(widget ? { widget } : {}),
-    ...(mindMap ? { mindMap } : {}),
-    ...(mindMapProjection ? { mindMapProjection } : {}),
+    ...(nodeState ? { nodeState } : {}),
   };
 };
 
@@ -199,11 +189,27 @@ export const readSticky = (element: unknown): StickyRecord | null =>
 export const readWidget = (element: unknown): WidgetRecord | null =>
   readExcalidashData(element)?.widget ?? null;
 
-export const readMindMap = (element: unknown): MindMapRecord | null =>
-  readExcalidashData(element)?.mindMap ?? null;
+/**
+ * Pin/collapse state for a node (NIL-593, Schnitt 2). Falls back ONCE to
+ * the dying v1 `mindMap.pinned/collapsed` shape when `nodeState` itself is
+ * absent -- by raw field access on the stored bag, never through a
+ * structural parser (there is none left) -- so an existing board's
+ * preference is not silently lost the moment this ships. Every future
+ * write goes through `withExcalidashData`'s `nodeState` only; this is the
+ * one place that still looks at the old shape, and only for these two
+ * booleans, never for `mapId`/`parentId`.
+ */
+export const readNodeState = (element: unknown): NodeStateRecord | null => {
+  const own = readExcalidashData(element)?.nodeState;
+  if (own) return own;
 
-export const readMindMapProjection = (element: unknown): MindMapProjectionRecord | null =>
-  readExcalidashData(element)?.mindMapProjection ?? null;
+  if (!isBag(element)) return null;
+  const bag = element.customData;
+  if (!isBag(bag)) return null;
+  const excalidash = bag[NAMESPACE];
+  if (!isBag(excalidash)) return null;
+  return parseNodeState(excalidash.mindMap) ?? null;
+};
 
 /**
  * Produce the customData bag for an element carrying this data.
@@ -220,18 +226,8 @@ export const withExcalidashData = (
   const previous = isBag(existing[NAMESPACE]) ? (existing[NAMESPACE] as Bag) : {};
   const sticky = data.sticky === null ? undefined : (data.sticky ?? parseSticky(previous.sticky));
   const widget = data.widget === null ? undefined : (data.widget ?? parseWidget(previous.widget));
-  const mindMap =
-    data.mindMap === null
-      ? undefined
-      : (data.mindMap ??
-        (Object.prototype.hasOwnProperty.call(previous, "mindMap") ? previous.mindMap : undefined));
-  const mindMapProjection =
-    data.mindMapProjection === null
-      ? undefined
-      : (data.mindMapProjection ??
-        (Object.prototype.hasOwnProperty.call(previous, "mindMapProjection")
-          ? previous.mindMapProjection
-          : undefined));
+  const nodeState =
+    data.nodeState === null ? undefined : (data.nodeState ?? parseNodeState(previous.nodeState));
 
   return {
     ...existing,
@@ -239,8 +235,7 @@ export const withExcalidashData = (
       schemaVersion: SCHEMA_VERSION,
       ...(sticky ? { sticky } : {}),
       ...(widget ? { widget } : {}),
-      ...(mindMap !== undefined ? { mindMap } : {}),
-      ...(mindMapProjection !== undefined ? { mindMapProjection } : {}),
+      ...(nodeState ? { nodeState } : {}),
     },
   };
 };

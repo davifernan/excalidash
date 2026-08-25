@@ -86,18 +86,17 @@ const directionOf = (from: ShapeBox, to: ShapeBox): Direction => {
   return dy >= 0 ? "down" : "up";
 };
 
-/**
- * Every shape id that should move along with `draggedId`, given the
- * board's current arrow bindings and shape positions. Never includes
- * `draggedId` itself. Empty when nothing qualifies, including the cycle
- * case (see the file comment) -- an empty result is this module's normal
- * way of staying silent, not a failure.
- */
-export function ambientSubtreeIds(
-  draggedId: string,
+/** Shared by every consumer of the qualifying-children rule (drag-follow AND
+ * "Arrange"): which candidate children `shapeId` contributes, given the
+ * board's own arrow bindings and shape positions. Not exported -- callers
+ * get either a flat descendant set (`ambientSubtreeIds`) or a real nested
+ * tree (`ambientTreeRootedAt`) from the SAME walk, so the direction/
+ * multi-parent/decision-point rules (see file comment) can never drift
+ * between the two call sites. */
+const buildQualifyingChildrenLookup = (
   edges: readonly ArrowEdge[],
   boxesById: ReadonlyMap<string, ShapeBox>,
-): ReadonlySet<string> {
+): ((shapeId: string) => readonly string[]) => {
   const outgoingByShape = new Map<string, { readonly childId: string }[]>();
   const incomingCount = new Map<string, number>();
 
@@ -111,8 +110,7 @@ export function ambientSubtreeIds(
     incomingCount.set(edge.endId, (incomingCount.get(edge.endId) ?? 0) + 1);
   }
 
-  /** The children `shapeId` contributes, or none if its own outgoing set disagrees on direction. */
-  const qualifyingChildren = (shapeId: string): readonly string[] => {
+  return (shapeId: string): readonly string[] => {
     const outs = outgoingByShape.get(shapeId) ?? [];
     const singleParentOuts = outs.filter((out) => (incomingCount.get(out.childId) ?? 0) === 1);
     if (singleParentOuts.length === 0) return [];
@@ -124,6 +122,21 @@ export function ambientSubtreeIds(
     if (directions.size > 1) return [];
     return singleParentOuts.map((out) => out.childId);
   };
+};
+
+/**
+ * Every shape id that should move along with `draggedId`, given the
+ * board's current arrow bindings and shape positions. Never includes
+ * `draggedId` itself. Empty when nothing qualifies, including the cycle
+ * case (see the file comment) -- an empty result is this module's normal
+ * way of staying silent, not a failure.
+ */
+export function ambientSubtreeIds(
+  draggedId: string,
+  edges: readonly ArrowEdge[],
+  boxesById: ReadonlyMap<string, ShapeBox>,
+): ReadonlySet<string> {
+  const qualifyingChildren = buildQualifyingChildrenLookup(edges, boxesById);
 
   const visited = new Set<string>();
   const path = new Set<string>([draggedId]);
@@ -147,4 +160,49 @@ export function ambientSubtreeIds(
 
   visit(draggedId);
   return cycleFound ? new Set() : visited;
+}
+
+export type AmbientTreeNode = {
+  readonly id: string;
+  readonly children: readonly AmbientTreeNode[];
+};
+
+/**
+ * As `ambientSubtreeIds`, but returns the actual nested parent-child
+ * structure rooted at `rootId` instead of a flat descendant set -- for
+ * "Arrange" (NIL-593, Schnitt 2), which needs real tree topology to feed
+ * the layout core (`../mindMap/layout.ts`), not just "which shapes move
+ * together". Shares the identical qualifying-children rule
+ * `ambientSubtreeIds` uses, via `buildQualifyingChildrenLookup`, so the two
+ * commands ("drag pulls this along" and "arrange treats this as the tree")
+ * can never disagree about what counts as a child. `null` on a cycle, for
+ * the same reason `ambientSubtreeIds` goes empty rather than partial: a
+ * confusing partial layout is worse than declining.
+ */
+export function ambientTreeRootedAt(
+  rootId: string,
+  edges: readonly ArrowEdge[],
+  boxesById: ReadonlyMap<string, ShapeBox>,
+): AmbientTreeNode | null {
+  const qualifyingChildren = buildQualifyingChildrenLookup(edges, boxesById);
+  const path = new Set<string>([rootId]);
+  let cycleFound = false;
+
+  const build = (shapeId: string): AmbientTreeNode => {
+    const children: AmbientTreeNode[] = [];
+    for (const childId of qualifyingChildren(shapeId)) {
+      if (cycleFound) break;
+      if (childId === rootId || path.has(childId)) {
+        cycleFound = true;
+        break;
+      }
+      path.add(childId);
+      children.push(build(childId));
+      path.delete(childId);
+    }
+    return { id: shapeId, children };
+  };
+
+  const root = build(rootId);
+  return cycleFound ? null : root;
 }

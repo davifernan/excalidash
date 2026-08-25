@@ -563,15 +563,8 @@ export const Editor: React.FC = () => {
     selection: adapter.selection,
     viewport: adapter.viewport,
   });
-  const {
-    mindMapOverlay,
-    onArrangeMindMap,
-    onCanvasChange: handleChangeWithMindMap,
-  } = useMindMapFeature({
-    containerRef: editorContainerRef,
+  const { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport } = useMindMapFeature({
     canEdit,
-    interaction: adapter.interaction,
-    onCanvasChange: handleChangeWithNotes,
     scene: adapter.scene,
     selection: adapter.selection,
     viewport: adapter.viewport,
@@ -603,9 +596,9 @@ export const Editor: React.FC = () => {
       // native arrow bindings (NIL-593) -- independent of the mind-map
       // feature below it, which still owns its own tagged nodes.
       onAmbientTreeSceneChange();
-      handleChangeWithMindMap(elements, appState, files);
+      handleChangeWithNotes(elements, appState, files);
     },
-    [handleChangeWithMindMap, onAmbientTreeSceneChange, onSelectionChange],
+    [handleChangeWithNotes, onAmbientTreeSceneChange, onSelectionChange],
   );
   // A comment/mention/activity deep link arrives as `?thread=<rootId>`
   // (built by the Inbox and Activity pages). Captured once, then stripped
@@ -712,6 +705,7 @@ export const Editor: React.FC = () => {
         stickyOverlay={stickyOverlay}
         mindMapOverlay={mindMapOverlay}
         onArrangeMindMap={onArrangeMindMap}
+        onOpenMindMapImport={onOpenMindMapImport}
         commentsOverlay={commentsOverlay}
         offscreenPresenceOverlay={offscreenPresenceOverlay}
         isCommentsOpen={isCommentsOpen}

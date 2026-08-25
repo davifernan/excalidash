@@ -3,22 +3,25 @@
  *
  * Parses a limited Markdown subset (ATX headings `#`..`######`, nested
  * lists `-`/`*`/`1.`) or a plain indented outline (no markers, indentation
- * alone) into the same tree shape `model.ts`'s `NormalizedMindMap` already
- * uses -- this is a ONE-TIME import into the living relationship layer, not
- * a second mind-map representation and not an ongoing sync to the source
- * text. There is no attempt to preserve the source formatting on a
- * roundtrip; only the tree structure and each line's text matter.
+ * alone) into a plain `ImportedNode` tree -- this is a ONE-TIME import,
+ * not an ongoing sync to the source text. There is no attempt to preserve
+ * the source formatting on a roundtrip; only the tree structure and each
+ * line's text matter.
+ *
+ * NIL-593, Schnitt 2: what receives this tree changed (structure now comes
+ * from ordinary bound arrows, not a `customData.excalidash.mindMap`
+ * relationship layer -- see `mindMapScene.ts`'s `importOps`), but parsing
+ * itself did not. Kept unchanged on purpose: text-to-tree is still the
+ * right first step, and still the one Davi actually uses (Claude Code
+ * generates the outline, he does the last 20 percent by hand).
  *
  * The ticket explicitly rejects `mermaid-to-excalidraw` for this: the
- * pinned dependency does not parse Mermaid's own `mindmap` syntax at all,
- * and even a successful parse would only produce ordinary elements with no
- * durable tree semantics (`customData.excalidash.mindMap`) -- exactly the
- * relationship layer this whole package exists to keep authoritative. This
- * parser is deliberately small and owns its own grammar instead.
+ * pinned dependency does not parse Mermaid's own `mindmap` syntax at all.
+ * This parser is deliberately small and owns its own grammar instead.
  *
  * Pure, DOM-free, no Excalidraw/adapter knowledge whatsoever -- same
- * purity discipline as `layout.ts`/`model.ts`. `mindMapImport.ts` is the
- * only file allowed to turn a successful `ParseResult` into `SceneOp`s.
+ * purity discipline as `layout.ts`. `mindMapScene.ts`'s `importOps` is the
+ * only place that turns a successful `ParseResult` into `SceneOp`s.
  *
  * ## Errors are positional, not generic
  *

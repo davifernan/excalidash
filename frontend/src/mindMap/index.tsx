@@ -1,176 +1,76 @@
 /**
- * The Mind Map feature, as one thing the editor can switch on.
+ * The mind-map feature, as one thing the editor page wires in (NIL-593,
+ * Schnitt 2).
  *
- * Mirrors `../sticky/index.tsx`: the editor page gets one overlay node, one
- * change handler, and one callback for the "Arrange mind map" command it
- * threads into `chromeSlots.tsx` -- and needs to know nothing else about how
- * a map is put together.
+ * Down to two explicit commands after the mode teardown: "Import mind
+ * map..." (paste an outline, preview, write once) and "Arrange" (lay out
+ * the ambient subtree rooted at the current selection). No tool, no
+ * `Tab`/`Enter`, no drag-to-reparent, no collapse overlay -- structure and
+ * drag-follow are `ambientTree/`'s job now (Schnitt 1), and collapse/pin
+ * return ambient in Schnitt 3. This file has never heard of `mapId`.
  */
-import React, { useCallback } from "react";
+import { useCallback } from "react";
 import { toast } from "sonner";
 import type {
-  InteractionCapability,
   SceneCapability,
   SelectionCapability,
   ViewportCapability,
 } from "../integrations/excalidraw/capabilities";
-import { Minus } from "lucide-react";
-import { ElementFloatingToolbar } from "../pages/editor/ElementFloatingToolbar";
-import { useExcalidrawRoot } from "../pages/editor/useExcalidrawRoot";
-import { MindMapCollapseOverlay } from "./MindMapCollapseOverlay";
-import { MindMapDropHighlight } from "./MindMapDropHighlight";
-import { MindMapToolbarButton } from "./MindMapToolbarButton";
-import { useMindMapTool } from "./useMindMapTool";
-import { useMindMapKeys } from "./useMindMapKeys";
-import { useMindMapDrag } from "./useMindMapDrag";
-import { useMindMapCollapse } from "./useMindMapCollapse";
-import { useMindMapIntegrity } from "./useMindMapIntegrity";
-import { arrangeOps, mapIdOf, readMindMapNodes } from "./mindMapScene";
+import { MindMapImportDialog } from "./MindMapImportDialog";
+import { useMindMapImport } from "./useMindMapImport";
+import { arrangeOps } from "./mindMapScene";
+import type { ParseResult } from "./outlineParser";
 
 type Options = {
-  containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
-  interaction: InteractionCapability;
   scene: SceneCapability;
   selection: SelectionCapability;
   viewport: ViewportCapability;
-  /** The editor's own change handler, which still has to run. */
-  onCanvasChange: (elements: readonly any[], appState: any, files?: Record<string, any>) => void;
 };
 
-export function useMindMapFeature({
-  containerRef,
-  canEdit,
-  interaction,
-  onCanvasChange,
-  scene,
-  selection,
-  viewport,
-}: Options) {
-  const excalidrawRoot = useExcalidrawRoot(containerRef);
-  const { armed, arm } = useMindMapTool({ containerRef, canEdit, interaction, scene });
-  useMindMapKeys({ containerRef, canEdit, interaction, scene, selection });
-  const { onSceneChange: onDragSceneChange, preview } = useMindMapDrag({
-    canEdit,
-    scene,
-    selection,
-  });
-  const { onSceneChange: onIntegritySceneChange } = useMindMapIntegrity({ canEdit, scene });
-  const {
-    onSceneChange: onCollapseSceneChange,
-    toolbarTarget: collapseToolbarTarget,
-    toggleCollapse,
-  } = useMindMapCollapse({ canEdit, excalidrawRoot, interaction, scene, selection, viewport });
+export function useMindMapFeature({ canEdit, scene, selection, viewport }: Options) {
+  const { isOpen, open, close, runImport } = useMindMapImport({ canEdit, scene, viewport });
 
-  const handleCanvasChange = useCallback(
-    (elements: readonly any[], appState: any, files?: Record<string, any>) => {
-      // Drag detection first: it only reads the scene, and its own
-      // follow-up `scene.apply` (if any) should land before the integrity
-      // pass looks at the board, not after.
-      onDragSceneChange();
-      onIntegritySceneChange(elements);
-      onCollapseSceneChange();
-      onCanvasChange(elements, appState, files);
+  const onOpenMindMapImport = useCallback(() => open(), [open]);
+
+  const handleImport = useCallback(
+    (result: Extract<ParseResult, { ok: true }>) => {
+      const succeeded = runImport(result.root);
+      if (!succeeded) toast.error("Couldn't import the mind map. Please try again.");
     },
-    [onCanvasChange, onCollapseSceneChange, onDragSceneChange, onIntegritySceneChange],
+    [runImport],
   );
 
   /**
-   * The map to arrange: the one carrying the current selection, or -- with
-   * nothing selected -- the board's only map, so the command still does
-   * something useful on a single-map board without asking anyone to click
-   * a node first. More than one map with nothing selected has no single
-   * right answer, so it asks rather than guessing.
+   * Arrange the ambient subtree rooted at the current single selection.
+   * Unlike v1 (which could fall back to "the board's only map" with
+   * nothing selected), there is no single right answer for "which subtree"
+   * on a board that may have several disconnected trees -- a selection is
+   * required.
    */
   const onArrangeMindMap = useCallback(() => {
     if (!canEdit) return;
+    const selected = selection.read();
+    if (!selected.ok || selected.value.selectedIds.length !== 1) {
+      toast.error("Select a node to arrange its tree from.");
+      return;
+    }
     const summaries = scene.summaries();
     if (!summaries.ok) return;
 
-    const selected = selection.read();
-    const selectedMapId =
-      selected.ok && selected.value.selectedIds.length === 1
-        ? mapIdOf(summaries.value.find((element) => element.id === selected.value.selectedIds[0]))
-        : null;
-
-    let mapId = selectedMapId;
-    if (!mapId) {
-      const mapIds = new Set(readMindMapNodes(summaries.value).map((node) => node.relation.mapId));
-      if (mapIds.size === 0) {
-        toast.error("There's no mind map on this board yet.");
-        return;
-      }
-      if (mapIds.size > 1) {
-        toast.error("Select a node in the mind map you want to arrange.");
-        return;
-      }
-      mapId = [...mapIds][0];
-    }
-
-    const ops = arrangeOps(summaries.value, mapId);
+    const ops = arrangeOps(summaries.value, selected.value.selectedIds[0]);
     if (!ops) {
-      toast.error(
-        "This mind map has an issue (a cycle or a missing node) and can't be arranged yet.",
-      );
+      toast.error("Nothing to arrange from here -- no qualifying children, or a cycle.");
       return;
     }
     if (ops.length === 0) return;
     const applied = scene.apply(ops);
-    if (!applied.ok) toast.error("Couldn't arrange the mind map. Please try again.");
+    if (!applied.ok) toast.error("Couldn't arrange the tree. Please try again.");
   }, [canEdit, scene, selection]);
 
-  const mindMapOverlay = canEdit ? (
-    <>
-      <MindMapToolbarButton containerRef={containerRef} armed={armed} onArm={arm} />
-      <MindMapDropHighlight
-        container={excalidrawRoot}
-        preview={preview}
-        scene={scene}
-        viewport={viewport}
-      />
-      <MindMapCollapseOverlay
-        container={excalidrawRoot}
-        scene={scene}
-        viewport={viewport}
-        onExpand={toggleCollapse}
-      />
-      <ElementFloatingToolbar target={collapseToolbarTarget} label="Mind map node actions">
-        <button
-          type="button"
-          data-testid="mind-map-collapse-button"
-          // Without this, clicking the button moves DOM focus off the
-          // canvas, and the very next Ctrl+Z silently fails to undo the
-          // collapse -- caught by a real browser run (`mind-map-collapse.spec.ts`),
-          // not by any unit test, since jsdom never models focus-dependent
-          // history capture. `preventDefault` on `mousedown` (not
-          // `stopPropagation`, which the parent toolbar already does for a
-          // different reason) keeps focus wherever it already was.
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            const selected = selection.read();
-            if (selected.ok && selected.value.selectedIds.length === 1) {
-              toggleCollapse(selected.value.selectedIds[0]);
-            }
-          }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            height: "100%",
-            padding: "0 12px",
-            border: "none",
-            background: "transparent",
-            color: "inherit",
-            font: "inherit",
-            cursor: "pointer",
-          }}
-        >
-          <Minus size={16} />
-          Collapse
-        </button>
-      </ElementFloatingToolbar>
-    </>
-  ) : null;
+  const mindMapOverlay = (
+    <MindMapImportDialog isOpen={isOpen} onClose={close} onImport={handleImport} />
+  );
 
-  return { mindMapOverlay, onArrangeMindMap, onCanvasChange: handleCanvasChange };
+  return { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport };
 }

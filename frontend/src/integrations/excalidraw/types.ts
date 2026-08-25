@@ -181,8 +181,9 @@ export type ElementPatch = {
    * else. A caller that wants to add or remove one binding reads the
    * shape's current `ElementSummary.boundElements` first and patches the
    * whole array back; there is no merge-one-entry helper because the only
-   * consumer today (`mindMapElements.ts`) always already has the full
-   * current list in hand when it needs this.
+   * consumers today (`mindMap/importElements.ts`, `ambientTree/
+   * useAmbientTreeDrag.ts`) always already have the full current list in
+   * hand when they need this.
    */
   readonly boundElements?: readonly BoundElementRef[];
 };
