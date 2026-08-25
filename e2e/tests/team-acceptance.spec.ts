@@ -538,41 +538,42 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         await activateDocumentWidget(guestB);
         await guestB.getByRole("button", { name: "Next page" }).click({ timeout: CEILING.ui });
 
-        await guestBCtx.setOffline(false);
-        await waitConnected(guestB, "guestB after reconnect");
-
+        // Observe from the click, not from confirmed reconnection. On a busy
+        // page the reconnect poll itself can take longer than sonner's 4 s
+        // lifetime, even though the real refusal arrives immediately after
+        // the socket reconnects. Starting this bounded observation now makes
+        // it impossible for a correct, short-lived answer to disappear in
+        // the gap between those two states.
         const refusalToast = refusedWidgetToast(guestB).first();
-        await expect(refusalToast).toBeVisible({ timeout: CEILING.ui });
+        const refusalObserved = expect(refusalToast)
+          .toBeVisible({ timeout: CEILING.ui })
+          .then(async () => {
+            // Visual evidence for this package's HANDOFF. Sonner mounts the
+            // toast and then animates it in (translateY + opacity). The
+            // assertion above is the test; this bounded wait only makes the
+            // screenshot legible and never changes the pass/fail result.
+            await expect
+              .poll(
+                () =>
+                  refusalToast.evaluate(
+                    (element) =>
+                      element.getAttribute("data-mounted") === "true" &&
+                      Number(getComputedStyle(element).opacity) === 1,
+                  ),
+                { timeout: 2_000, message: "expected the refusal toast to finish animating in" },
+              )
+              .toBe(true)
+              .catch(() => undefined);
+            const screenshotPath = testInfo.outputPath("guestB-refused-page-request-toast.png");
+            await guestB.screenshot({ path: screenshotPath });
+            await testInfo.attach("guestB-refused-page-request-toast", {
+              path: screenshotPath,
+              contentType: "image/png",
+            });
+          });
 
-        // Visual evidence for this package's HANDOFF: the fix in
-        // EditorView.tsx (surfacing a refused document-page request) is a
-        // frontend product change, and this is the one point in the run
-        // where its effect is actually on screen. sonner mounts the toast
-        // and then animates it in (translateY + opacity), and dismisses it
-        // again after its 4 s lifetime. The assertion above is the test;
-        // this wait only makes the screenshot legible. It is bounded well
-        // inside that lifetime and does not fail the run: a toast that was
-        // visible but had already begun to fade (guestB has just reconnected
-        // and is applying everything it missed, which can stall its main
-        // thread past the animation) is still the evidence, just fainter.
-        await expect
-          .poll(
-            () =>
-              refusalToast.evaluate(
-                (element) =>
-                  element.getAttribute("data-mounted") === "true" &&
-                  Number(getComputedStyle(element).opacity) === 1,
-              ),
-            { timeout: 2_000, message: "expected the refusal toast to finish animating in" },
-          )
-          .toBe(true)
-          .catch(() => undefined);
-        const screenshotPath = testInfo.outputPath("guestB-refused-page-request-toast.png");
-        await guestB.screenshot({ path: screenshotPath });
-        await testInfo.attach("guestB-refused-page-request-toast", {
-          path: screenshotPath,
-          contentType: "image/png",
-        });
+        await guestBCtx.setOffline(false);
+        await Promise.all([waitConnected(guestB, "guestB after reconnect"), refusalObserved]);
 
         // Not hung, not crashed: guestB's harness is still responsive.
         const stillResponsive = await guestB.evaluate(() =>
