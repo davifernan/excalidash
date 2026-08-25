@@ -132,9 +132,7 @@ test.describe("sticky notes", () => {
     expect(label.fontSize).toBeLessThan(20);
   });
 
-  test("still shows its opening lines when nothing fits, instead of refusing", async ({
-    page,
-  }) => {
+  test("still shows its opening lines when nothing fits, instead of refusing", async ({ page }) => {
     // stickyFit.ts shrinks continuously down to MIN_FONT_SIZE (8pt, NIL-580)
     // and, if even that overflows, keeps the smallest layout anyway rather than returning
     // nothing (its own comment: "a note somebody pasted an essay into still
@@ -239,6 +237,47 @@ test.describe("sticky notes", () => {
     expect(note.sticky.color).toBe("blue");
   });
 
+  test("shows the colour picker while typing, and picking a colour keeps the text and the caret", async ({
+    page,
+  }) => {
+    // The whole point of NIL-584: the moment somebody thinks about a note's
+    // colour is the moment they are placing it, mid-sentence. A palette that
+    // only appears after leaving the text -- or a colour pick that ends the
+    // edit -- fails the ticket even if the swatch itself works.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    const textarea = page.locator("textarea.excalidraw-wysiwyg");
+    await expect(textarea).toBeVisible();
+    await expect(textarea).toBeFocused();
+
+    await page.keyboard.type("Ship it");
+    await expect(page.getByRole("toolbar", { name: "Note colour" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Blue" }).click();
+    await settle(page);
+
+    // Colour landed...
+    const [note] = await notes(page);
+    expect(note.backgroundColor).toBe("#bfdbfe");
+    expect(note.sticky.color).toBe("blue");
+
+    // ...without ending the edit: the textarea is still there, still holds
+    // "Ship it", and still has the caret -- so typing continues where it left
+    // off instead of restarting a fresh edit.
+    await expect(textarea).toBeVisible();
+    await expect(textarea).toBeFocused();
+    await expect(textarea).toHaveValue("Ship it");
+
+    await page.keyboard.type(", blue one");
+    await expect(textarea).toHaveValue("Ship it, blue one");
+
+    await page.keyboard.press("Escape");
+    await settle(page);
+
+    const [label] = await labels(page);
+    expect(label.text).toBe("Ship it, blue one");
+  });
+
   test("survives a reload with its size and metadata intact", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
@@ -289,12 +328,32 @@ test.describe("where a new note lands in the stack", () => {
   let api: APIRequestContext;
 
   const rect = (id: string, index: string, x: number) => ({
-    id, type: "rectangle", x, y: 200, width: 120, height: 120, angle: 0,
-    strokeColor: "#1e1e1e", backgroundColor: "transparent", fillStyle: "solid",
-    strokeWidth: 1, strokeStyle: "solid", roughness: 1, opacity: 100,
-    seed: 1, version: 1, versionNonce: 1, index, isDeleted: false,
-    groupIds: [], frameId: null, roundness: null, boundElements: null,
-    updated: 1, link: null, locked: false,
+    id,
+    type: "rectangle",
+    x,
+    y: 200,
+    width: 120,
+    height: 120,
+    angle: 0,
+    strokeColor: "#1e1e1e",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 1,
+    opacity: 100,
+    seed: 1,
+    version: 1,
+    versionNonce: 1,
+    index,
+    isDeleted: false,
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    boundElements: null,
+    updated: 1,
+    link: null,
+    locked: false,
   });
 
   test.afterEach(async () => {
@@ -322,7 +381,10 @@ test.describe("where a new note lands in the stack", () => {
 
     await openEditor(page, drawingId);
     await settle(page);
-    await page.locator("canvas").last().click({ position: { x: 950, y: 520 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 950, y: 520 } });
     await placeNote(page, { x: 560, y: 260 });
     await page.keyboard.press("Escape");
     await settle(page);
@@ -331,10 +393,7 @@ test.describe("where a new note lands in the stack", () => {
       (window as any).__EXCALIDASH_TEST__
         .getSceneElements()
         .filter((e: any) => !e.isDeleted)
-        .map((e: any) => [
-          e.customData?.excalidash?.sticky ? "NOTE" : e.id,
-          e.index,
-        ]),
+        .map((e: any) => [e.customData?.excalidash?.sticky ? "NOTE" : e.id, e.index]),
     );
 
     // The three that were there keep the indices they came with...
@@ -364,7 +423,10 @@ test.describe("where a new note lands in the stack", () => {
     drawingId = drawing.id;
 
     await openEditor(page, drawingId);
-    await page.locator("canvas").last().click({ position: { x: 950, y: 520 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 950, y: 520 } });
     for (const at of [
       { x: 500, y: 220 },
       { x: 560, y: 260 },

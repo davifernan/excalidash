@@ -91,21 +91,25 @@ export const StickyPalette: React.FC<Props> = ({
       const active = interaction.read();
       let next: PaletteState | null = null;
 
-      if (
-        host &&
-        elements.ok &&
+      // The moment somebody thinks about a note's colour is the moment they are
+      // typing into it -- so the palette has to survive `editingTextContainerId`
+      // pointing at the note, not just a plain selection. `N`, click, type is the
+      // path this exists for.
+      const editingNoteId = active.ok ? active.value.editingTextContainerId : null;
+      const selectedNoteId =
+        !editingNoteId &&
         selected.ok &&
         !selected.value.allSelected &&
         selected.value.selectedIds.length === 1 &&
-        view.ok &&
         active.ok &&
         active.value.activeTool.type === "selection"
-      ) {
+          ? selected.value.selectedIds[0]
+          : null;
+      const targetNoteId = editingNoteId ?? selectedNoteId;
+
+      if (host && elements.ok && view.ok && targetNoteId) {
         const note = elements.value.find(
-          (element) =>
-            element.id === selected.value.selectedIds[0] &&
-            !element.isDeleted &&
-            isStickyNote(element),
+          (element) => element.id === targetNoteId && !element.isDeleted && isStickyNote(element),
         );
         const data = note ? stickyDataOf(note) : null;
         if (note && data) {
@@ -163,6 +167,13 @@ export const StickyPalette: React.FC<Props> = ({
           <button
             key={option.id}
             type="button"
+            // A plain click first lets the browser move focus to this button,
+            // which ends label editing before the click even fires -- Excalidraw
+            // closes the text editor on blur. Preventing pointerdown's default
+            // suppresses that focus shift (and the mousedown it implies) while
+            // still letting the click event through, so typing can continue
+            // right after the colour is picked. See NIL-584.
+            onPointerDown={(event) => event.preventDefault()}
             onClick={() => pick(option)}
             aria-pressed={option.id === state?.color.id}
             title={option.label}
