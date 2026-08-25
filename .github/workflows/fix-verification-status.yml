@@ -42,14 +42,17 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Compute fix-verification status
-        id: status
+      - name: Compute fix-verification status and post it once per head
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
         with:
           script: |
-            const { checkFixVerificationStatus } = require(`${process.env.GITHUB_WORKSPACE}/scripts/delivery-contracts.cjs`);
+            const {
+              checkFixVerificationStatus,
+              fixVerificationStatusMarker,
+              hasFixVerificationStatusComment,
+            } = require(`${process.env.GITHUB_WORKSPACE}/scripts/delivery-contracts.cjs`);
             const prNumber = Number(process.env.PR_NUMBER);
 
             const { data: pullRequest } = await github.rest.pulls.get({
@@ -72,8 +75,8 @@ jobs:
               pull_number: prNumber,
               per_page: 100,
             });
-            // Conversation comments -- where a fix-verification record
-            // actually gets posted.
+            // Conversation comments -- where a fix-verification record (and
+            // this workflow's own idempotency marker) actually lives.
             const issueComments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -95,21 +98,24 @@ jobs:
               .addCodeBlock(JSON.stringify(status, null, 2), "json")
               .write();
 
-            return status;
-
-      - name: Post status as a PR comment
-        uses: actions/github-script@v7
-        env:
-          PR_NUMBER: ${{ inputs.pr_number }}
-          STATUS: ${{ steps.status.outputs.result }}
-        with:
-          script: |
-            const status = JSON.parse(process.env.STATUS);
-            const prNumber = Number(process.env.PR_NUMBER);
-            const marker = `<!-- excalidash-fix-verification-status:v1 pr=${prNumber} head=${status.currentHeadSha} -->`;
+            // Same pattern as hans-friedrich.yml's "Explain review outcome"
+            // step (hans-review-signal.cjs's signalMarker/hasSignalComment):
+            // a versioned marker naming the exact head, checked against the
+            // comments already fetched above, before posting. Without this a
+            // repeated dispatch with no new push -- exactly the scenario this
+            // tool is for, re-checking after recording evidence -- posts a
+            // second, near-identical comment. That is the same noise this
+            // workflow's own header explains staying off `synchronize` to
+            // avoid; a re-dispatch on an unchanged head is no different.
+            if (hasFixVerificationStatusComment(issueComments, prNumber, status.currentHeadSha)) {
+              core.notice(
+                `A fix-verification status comment already exists for head ${status.currentHeadSha}; not posting again.`,
+              );
+              return status;
+            }
 
             const lines = [
-              marker,
+              fixVerificationStatusMarker(prNumber, status.currentHeadSha),
               `**Fix-verification status** (dispatched by hand -- NIL-595): \`${status.code}\``,
               "",
               status.message,
@@ -130,3 +136,5 @@ jobs:
               issue_number: prNumber,
               body: lines.join("\n"),
             });
+
+            return status;

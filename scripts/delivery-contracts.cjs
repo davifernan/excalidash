@@ -508,6 +508,36 @@ function checkFixVerificationStatus({
   };
 }
 
+/**
+ * Idempotency marker for `Fix-Verification Status` (NIL-595), same pattern as
+ * `hans-review-signal.cjs`'s `signalMarker`/`hasSignalComment`: a versioned
+ * HTML-comment marker naming the exact head, checked against existing PR
+ * comments before posting a new one. A separate function pair rather than
+ * reusing that module's directly, because its marker family
+ * (`excalidash-hans-signal:v1`) and this one's are deliberately different
+ * namespaces for different concerns (review-admission signalling vs.
+ * fix-verification status) -- conflating them would let one kind's marker
+ * satisfy the other's dedup check by string-matching accident.
+ *
+ * Keyed on the head SHA the status was computed for, not on the PR alone: a
+ * later push produces a genuinely new status and must still post, the same
+ * way a new Hans review is still asked for a new head.
+ */
+function fixVerificationStatusMarker(prNumber, headSha) {
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    throw new Error("Fix-verification status marker requires a positive PR number.");
+  }
+  if (!SHA_PATTERN.test(headSha || "")) {
+    throw new Error("Fix-verification status marker requires a valid head SHA.");
+  }
+  return `<!-- excalidash-fix-verification-status:v1 pr=${prNumber} head=${headSha} -->`;
+}
+
+function hasFixVerificationStatusComment(comments, prNumber, headSha) {
+  const marker = fixVerificationStatusMarker(prNumber, headSha);
+  return comments.some((comment) => String(comment?.body || "").includes(marker));
+}
+
 function checkCommitContracts(commits) {
   if (!Array.isArray(commits) || commits.length === 0) {
     throw new Error("The pull request has no commits to admit.");
@@ -653,6 +683,8 @@ module.exports = {
   checkCommitContracts,
   checkFixVerificationCoverage,
   checkFixVerificationStatus,
+  fixVerificationStatusMarker,
+  hasFixVerificationStatusComment,
   parseReviewMarker,
   parseFixVerificationMarker,
   checkReviewedHead,

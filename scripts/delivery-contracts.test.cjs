@@ -8,6 +8,8 @@ const {
   checkCommitContracts,
   checkFixVerificationCoverage,
   checkFixVerificationStatus,
+  fixVerificationStatusMarker,
+  hasFixVerificationStatusComment,
   checkReviewedHead,
   parseFixVerificationMarker,
   validateHansReview,
@@ -388,6 +390,31 @@ test("fix-verification status: a record for a different delta does not count", (
   });
 
   assert.equal(result.code, "unverified");
+});
+
+test("fix-verification status marker names the PR and the exact head, nothing else", () => {
+  assert.equal(
+    fixVerificationStatusMarker(174, SHA),
+    `<!-- excalidash-fix-verification-status:v1 pr=174 head=${SHA} -->`,
+  );
+  assert.throws(() => fixVerificationStatusMarker(0, SHA), /positive PR number/);
+  assert.throws(() => fixVerificationStatusMarker(174, "not-a-sha"), /valid head SHA/);
+});
+
+test("fix-verification status dedup: a prior post for this exact head is detected", () => {
+  const priorPost = { body: `${fixVerificationStatusMarker(174, FIX_SHA)}\nsome status text` };
+  assert.equal(hasFixVerificationStatusComment([priorPost], 174, FIX_SHA), true);
+});
+
+test("fix-verification status dedup: a different head, a different PR, or a Hans-signal marker never counts", () => {
+  const postForOtherHead = { body: fixVerificationStatusMarker(174, SHA) };
+  const postForOtherPr = { body: fixVerificationStatusMarker(999, FIX_SHA) };
+  // Same shape of idempotency marker, different marker family (hans-review-signal.cjs) --
+  // must not satisfy this dedup check just because both are HTML comments naming a head SHA.
+  const hansSignalPost = { body: `<!-- excalidash-hans-signal:v1 head=${FIX_SHA} kind=intentional-skip -->` };
+  assert.equal(hasFixVerificationStatusComment([postForOtherHead], 174, FIX_SHA), false);
+  assert.equal(hasFixVerificationStatusComment([postForOtherPr], 174, FIX_SHA), false);
+  assert.equal(hasFixVerificationStatusComment([hansSignalPost], 174, FIX_SHA), false);
 });
 
 test("an exact recorded fix delta is machine-readably covered", () => {
