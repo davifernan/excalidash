@@ -101,8 +101,16 @@ echo "PASS: excluding a real run removed exactly its $SAMPLE_COUNT check-run(s).
 # The other direction: an id that produced nothing here must change nothing.
 # 1 is a real GitHub run id somewhere, but not on this commit.
 UNRELATED_TOTAL="$(EXCLUDE_RUN_IDS="1" "$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2 | jq '.total')"
-if [ "$UNRELATED_TOTAL" != "$BASELINE_TOTAL" ]; then
-  echo "FAIL: excluding an unrelated run id changed the total from $BASELINE_TOTAL to $UNRELATED_TOTAL -- the filter is matching more than the run it was given."
+# Compared with `-lt`, not `!=`, on purpose. Both numbers come from separate
+# live API reads, and this repo is active: a check-run can appear between the
+# two, which pushes the second read *up*. That happened for real -- 44 then 45
+# -- and failed this test for a reason that had nothing to do with filtering.
+#
+# The property under test is "excluding an id that is not here removes
+# nothing". Growth does not violate it; shrinkage does. Asserting equality
+# tested the repo's quietness, not the filter.
+if [ "$UNRELATED_TOTAL" -lt "$BASELINE_TOTAL" ]; then
+  echo "FAIL: excluding an unrelated run id REMOVED check-runs ($BASELINE_TOTAL -> $UNRELATED_TOTAL) -- the filter is matching more than the run it was given."
   exit 1
 fi
 echo "PASS: excluding an unrelated run id left all $BASELINE_TOTAL check-run(s) in place."
