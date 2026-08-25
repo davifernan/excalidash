@@ -105,6 +105,8 @@ interface MaintenanceConfig {
 interface Config {
   port: number;
   nodeEnv: string;
+  /** Sentry-compatible ingest DSN. Empty keeps error reporting completely disabled. */
+  errorTrackerDsn: string | null;
   databaseUrl?: string;
   frontendUrl?: string;
   authMode: AuthMode;
@@ -542,6 +544,7 @@ const resolveS3Config = (): S3Config => ({
 export const config: Config = {
   port: getRequiredEnvNumber("PORT", 8000),
   nodeEnv: getOptionalEnv("NODE_ENV", "development"),
+  errorTrackerDsn: getOptionalTrimmedEnv("ERROR_TRACKER_DSN"),
   logLevel: resolveLogLevel(getOptionalEnv("NODE_ENV", "development")),
   databaseUrl: process.env.DATABASE_URL,
   frontendUrl: parseFrontendUrl(process.env.FRONTEND_URL),

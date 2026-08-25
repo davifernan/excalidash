@@ -5,8 +5,10 @@ import "./index.css";
 import App from "./App.tsx";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { configureDisplayFont } from "./utils/displayFont";
+import { startErrorTracking } from "./errorTracker";
 
 configureDisplayFont();
+startErrorTracking();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

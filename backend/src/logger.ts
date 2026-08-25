@@ -1,4 +1,5 @@
 import { config } from "./config";
+import { reportBackendError } from "./errorTracker";
 
 /**
  * The one place backend code writes a log line (NIL-411/NIL-502).
@@ -56,6 +57,7 @@ export const logger = {
   /** Always written, regardless of LOG_LEVEL -- see the file comment above. */
   error(message: string, fields?: LogFields): void {
     write(process.stderr, "error", message, fields);
+    reportBackendError(fields);
   },
   warn(message: string, fields?: LogFields): void {
     if (config.logLevel === "silent") return;

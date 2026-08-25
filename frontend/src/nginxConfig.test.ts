@@ -51,4 +51,23 @@ describe("production nginx upload limits", () => {
       code: "ENOENT",
     });
   });
+
+  it("writes the opt-in tracker DSN into runtime config without allowing script injection", async () => {
+    const [entrypoint, index] = await Promise.all([
+      readFile(resolve(process.cwd(), "docker-entrypoint.sh"), "utf8"),
+      readFile(resolve(process.cwd(), "index.html"), "utf8"),
+    ]);
+
+    expect(index).toContain('<script src="/runtime-config.js"></script>');
+    expect(entrypoint).toContain('export ERROR_TRACKER_DSN="${ERROR_TRACKER_DSN:-}"');
+    expect(entrypoint).toContain("ERROR_TRACKER_DSN contains characters");
+    expect(entrypoint).toContain("> /usr/share/nginx/html/runtime-config.js");
+
+    const config = await readFile(resolve(process.cwd(), "nginx.conf.template"), "utf8");
+    const runtimeLocation = config.match(
+      /location = \/runtime-config\.js \{([\s\S]*?)\n {8}\}/,
+    )?.[1];
+    expect(runtimeLocation).toContain('Cache-Control "no-store');
+    expect(runtimeLocation).toContain("expires -1;");
+  });
 });

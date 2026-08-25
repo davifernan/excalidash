@@ -1,6 +1,7 @@
 import React from "react";
 import { AlertTriangle } from "lucide-react";
 import { log } from "../logging";
+import { reportRenderCrash } from "../errorTracker";
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -66,6 +67,11 @@ export class AppErrorBoundary extends React.Component<
       { error, componentStack: errorInfo.componentStack },
       { notify: false },
     );
+    // The tracker beforeSend hook keeps only the incident reference, a generic
+    // error value and sanitized code locations from Error.stack. The React
+    // component stack stays local: it can contain prop values, board text or
+    // filenames in development builds.
+    reportRenderCrash(errorId, error);
   }
 
   private handleRetry = (): void => {

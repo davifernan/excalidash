@@ -181,6 +181,15 @@ http {
             try_files /index.html =404;
         }
 
+        # Generated at container startup from ERROR_TRACKER_DSN. It must not
+        # survive an operator disabling or rotating the DSN on a later restart.
+        location = /runtime-config.js {
+            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+            add_header Referrer-Policy "no-referrer" always;
+            expires -1;
+            try_files /runtime-config.js =404;
+        }
+
         # Cache static assets
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
             expires 1y;
