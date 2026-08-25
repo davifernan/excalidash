@@ -14,12 +14,16 @@ import type {
   SelectionCapability,
   ViewportCapability,
 } from "../integrations/excalidraw/capabilities";
+import { Minus } from "lucide-react";
+import { ElementFloatingToolbar } from "../pages/editor/ElementFloatingToolbar";
 import { useExcalidrawRoot } from "../pages/editor/useExcalidrawRoot";
+import { MindMapCollapseOverlay } from "./MindMapCollapseOverlay";
 import { MindMapDropHighlight } from "./MindMapDropHighlight";
 import { MindMapToolbarButton } from "./MindMapToolbarButton";
 import { useMindMapTool } from "./useMindMapTool";
 import { useMindMapKeys } from "./useMindMapKeys";
 import { useMindMapDrag } from "./useMindMapDrag";
+import { useMindMapCollapse } from "./useMindMapCollapse";
 import { useMindMapIntegrity } from "./useMindMapIntegrity";
 import { arrangeOps, mapIdOf, readMindMapNodes } from "./mindMapScene";
 
@@ -52,6 +56,11 @@ export function useMindMapFeature({
     selection,
   });
   const { onSceneChange: onIntegritySceneChange } = useMindMapIntegrity({ canEdit, scene });
+  const {
+    onSceneChange: onCollapseSceneChange,
+    toolbarTarget: collapseToolbarTarget,
+    toggleCollapse,
+  } = useMindMapCollapse({ canEdit, excalidrawRoot, interaction, scene, selection, viewport });
 
   const handleCanvasChange = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
@@ -60,9 +69,10 @@ export function useMindMapFeature({
       // pass looks at the board, not after.
       onDragSceneChange();
       onIntegritySceneChange(elements);
+      onCollapseSceneChange();
       onCanvasChange(elements, appState, files);
     },
-    [onCanvasChange, onDragSceneChange, onIntegritySceneChange],
+    [onCanvasChange, onCollapseSceneChange, onDragSceneChange, onIntegritySceneChange],
   );
 
   /**
@@ -118,6 +128,47 @@ export function useMindMapFeature({
         scene={scene}
         viewport={viewport}
       />
+      <MindMapCollapseOverlay
+        container={excalidrawRoot}
+        scene={scene}
+        viewport={viewport}
+        onExpand={toggleCollapse}
+      />
+      <ElementFloatingToolbar target={collapseToolbarTarget} label="Mind map node actions">
+        <button
+          type="button"
+          data-testid="mind-map-collapse-button"
+          // Without this, clicking the button moves DOM focus off the
+          // canvas, and the very next Ctrl+Z silently fails to undo the
+          // collapse -- caught by a real browser run (`mind-map-collapse.spec.ts`),
+          // not by any unit test, since jsdom never models focus-dependent
+          // history capture. `preventDefault` on `mousedown` (not
+          // `stopPropagation`, which the parent toolbar already does for a
+          // different reason) keeps focus wherever it already was.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            const selected = selection.read();
+            if (selected.ok && selected.value.selectedIds.length === 1) {
+              toggleCollapse(selected.value.selectedIds[0]);
+            }
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            height: "100%",
+            padding: "0 12px",
+            border: "none",
+            background: "transparent",
+            color: "inherit",
+            font: "inherit",
+            cursor: "pointer",
+          }}
+        >
+          <Minus size={16} />
+          Collapse
+        </button>
+      </ElementFloatingToolbar>
     </>
   ) : null;
 
