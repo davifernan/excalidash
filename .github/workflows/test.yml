@@ -199,6 +199,30 @@ jobs:
       - name: Prove the env boundary check rejects what it claims to
         run: node scripts/env-boundary.test.cjs
 
+  cors-header-boundary:
+    name: CORS Header Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No dependency install, same reasoning as Env Boundary: this reads
+      # frontend/src and backend/src/index.ts with node:fs and nothing else.
+      # Not yet in ops/repository-rules.sh's required_status_checks -- a
+      # follow-up adds that after this has run green on main at least once,
+      # the same ordering Env Boundary and Authz Boundary used.
+      - name: Check the CORS allowedHeaders boundary (NIL-586)
+        run: node scripts/cors-header-boundary.cjs
+
+      - name: Prove the CORS header boundary check rejects what it claims to
+        run: node scripts/cors-header-boundary.test.cjs
+
   type-collision-inventory:
     name: Type Collision Inventory
     runs-on: ubuntu-latest

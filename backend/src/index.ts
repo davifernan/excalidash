@@ -254,6 +254,8 @@ app.use(
       "x-csrf-token",
       "x-imported-file",
       "x-share-token",
+      "if-match",
+      "x-document-edit-token",
     ],
     exposedHeaders: ["x-csrf-token", "x-request-id"],
   }),
