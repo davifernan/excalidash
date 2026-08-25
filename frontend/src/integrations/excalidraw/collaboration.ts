@@ -178,7 +178,7 @@ export const createCollaborationCapability = (
     readCollaborators() {
       const api = getApi();
       if (!api) return notReady("collaboration.readCollaborators");
-      const map = asMap(api.getAppState().collaborators);
+      const map = currentMap(api);
       return ok([...map.entries()].map(([id, raw]) => readCollaborator(id, raw)));
     },
 

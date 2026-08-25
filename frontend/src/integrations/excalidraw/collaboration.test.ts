@@ -167,6 +167,30 @@ describe("the collaboration capability", () => {
     expect(entry.selectedElementIds).toEqual({ e9: true });
   });
 
+  it("reads the pending collaborator state until the editor applies it", () => {
+    const stored = new Map([
+      ["s1", { username: "Grace · large selection", selectionAllSelected: true }],
+    ]);
+    const api = makeApi(stored);
+    const capability = createCollaborationCapability(() => api);
+
+    capability.patchCollaborators([
+      {
+        socketId: id("s1"),
+        name: "Grace",
+        selectedIds: [],
+        selectionAllSelected: false,
+      },
+    ]);
+
+    const read = capability.readCollaborators();
+    expect(read.ok && read.value[0]).toMatchObject({
+      name: "Grace",
+      selectedIds: [],
+      selectionAllSelected: false,
+    });
+  });
+
   it("goes back to the editor's map once the write has landed", () => {
     const api = makeApi(new Map());
     const capability = createCollaborationCapability(() => api);

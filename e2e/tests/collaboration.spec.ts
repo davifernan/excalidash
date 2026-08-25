@@ -354,6 +354,17 @@ test.describe("Real-time Collaboration", () => {
       // too.
       await interactiveCanvas(page1).click({ position: { x: 900, y: 600 } });
       await expect
+        .poll(
+          () =>
+            page1.evaluate(
+              () =>
+                Object.keys((window as any).__EXCALIDASH_TEST__.getAppState().selectedElementIds)
+                  .length,
+            ),
+          { timeout: 10_000, intervals: [100, 250, 500] },
+        )
+        .toBe(0);
+      await expect
         .poll(() => peerNames(page2), { timeout: 15_000, intervals: [250, 500, 1_000] })
         .not.toEqual(expect.arrayContaining([expect.stringContaining("large selection")]));
     } finally {
