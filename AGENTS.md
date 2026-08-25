@@ -162,6 +162,15 @@ Review focus: <what an independent reviewer should attack>
   `INTEGRATED` in Multica.
 - Detailed findings live on GitHub. Multica receives the exact PR/head, result, finding links,
   owner, next action, and final integration SHA.
+- No `done` without a closing comment that names the SHA and says which of the issue's own
+  acceptance criteria that SHA satisfies. A merged PR is never that evidence by itself, not even
+  for an issue listed under that PR's own `Delivery-Slices:` -- a merge is not an assertion about
+  which acceptance criteria it met, only that a PR reached `main`. This is the same discipline
+  "Ein Verdikt hat ein Verfallsdatum" (further below in this file) already requires for a status
+  *correction*; this bullet is its counterpart for a status *close*, not a separate or
+  conflicting rule -- both come down to "measure against the issue's own criteria, on the
+  current state, before writing status." In practice: the Overseer does this after merge, not
+  the implementing agent mid-package. Background and the incident that prompted this: NIL-561.
 
 ### Impact manifests, visual evidence, and Release QA
 
@@ -653,6 +662,10 @@ die beiden ueber einen Merge hinweg zu verbinden.
 Dasselbe gilt fuer die Gegenrichtung: ein Ticket zu **schliessen**, weil ein Commit seine Nummer
 nennt, ist keine Pruefung. Eine Erwaehnung ist kein Nachweis -- miss den Zustand, den das Ticket
 beschreibt, gegen den aktuellen `main`.
+
+Die Nachweispflicht fuer `done` selbst (Abschlusskommentar mit SHA und erfuelltem
+Akzeptanzkriterium, ein gemergter PR allein reicht nie) steht im Pull-Request-Lieferprotokoll
+weiter oben in dieser Datei -- dieselbe Regel, nur fuer das Schliessen statt die Korrektur.
 
 ## Safe first actions for unknown issues
 
