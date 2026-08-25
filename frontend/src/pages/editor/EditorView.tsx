@@ -217,10 +217,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
             excalidrawAPI={onSetExcalidrawAPI}
             UIOptions={UIOptions}
             viewModeEnabled={!canEdit}
-            // Excalidraw's `isCollaborating` prop creates a second standalone
-            // laser island. ExcaliDash supplies the same action through its
-            // toolbar capability instead (laserToolbarButton.tsx), where it is
-            // available alone and sits directly after Sticky Note.
+            // `isCollaborating` has two separate effects inside Excalidraw.
+            // Its collaboration effect enables Excalidraw-owned Presence UI,
+            // including collaborator avatars and Follow mode, so it must stay
+            // on even though ExcaliDash owns the surrounding collaboration
+            // transport. It also renders Excalidraw's standalone Laser island;
+            // ExcaliDash suppresses only that presentation in editorChrome.css
+            // and supplies the action inside the main toolbar instead. Do not
+            // remove this prop as a way to hide the duplicate Laser control.
+            isCollaborating
             validateEmbeddable={validateEmbeddableLink}
             renderEmbeddable={(element, appState) => {
               const data = getAssetWidgetData(element);

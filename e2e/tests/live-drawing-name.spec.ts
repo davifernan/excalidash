@@ -15,9 +15,10 @@ test("an HTTP-confirmed rename updates every open editor live", async ({ browser
     await Promise.all([openEditor(firstPage, drawing.id), openEditor(secondPage, drawing.id)]);
 
     // The board name lives in the hamburger now, not a floating island
-    // (NIL-376) -- open it before the double-click can reach the name.
+    // (NIL-376), and its pencil/button treatment makes the edit action a
+    // normal single click rather than a hidden double-click gesture.
     await firstPage.getByTestId("main-menu-trigger").click();
-    await firstPage.getByTitle(`${originalName} — double-click to rename`).dblclick();
+    await firstPage.getByTestId("menu-board-name").click();
     const nameInput = firstPage.getByRole("textbox", { name: "Drawing name" });
     await nameInput.fill(nextName);
     await nameInput.press("Enter");

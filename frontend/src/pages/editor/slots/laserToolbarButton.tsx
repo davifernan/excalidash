@@ -1,12 +1,13 @@
 /**
  * The laser pointer as a real member of the main tool row.
  *
- * Excalidraw only renders its own standalone laser island while the host says
- * it is collaborating. ExcaliDash needs the tool while working alone too, and
- * the separate island left it floating beyond Sticky Note. This portal uses
- * the already-centralised toolbar seam and the interaction capability, so the
- * control is appended directly after Sticky Note. If Excalidraw changes that
- * seam the button visibly disappears and the compatibility diagnostics fire.
+ * Excalidraw's collaboration mode must stay enabled for its Presence UI, but
+ * that mode also renders a standalone laser island beyond Sticky Note. The
+ * targeted rule in editorChrome.css hides only that native presentation. This
+ * portal uses the already-centralised toolbar seam and the interaction
+ * capability, so the retained control is appended directly after Sticky Note.
+ * If Excalidraw changes that seam the button visibly disappears and the
+ * compatibility diagnostics fire.
  */
 import { useEffect, useState } from "react";
 import type React from "react";

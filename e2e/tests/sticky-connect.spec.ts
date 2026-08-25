@@ -361,7 +361,11 @@ test.describe("a note dropped into a frame", () => {
 
     await canvas.click({ position: { x: 950, y: 560 } });
     await page.keyboard.press("f");
-    await page.mouse.move(box.x + 200, box.y + 100);
+    // The hamburger now sits on Excalidraw's normal top row, so the shape
+    // properties panel begins below it and legitimately covers the old
+    // x=200/y=100 start point. Start on measured clear canvas instead of
+    // asking the panel to forward a synthetic drag it owns.
+    await page.mouse.move(box.x + 300, box.y + 100);
     await page.mouse.down();
     await page.waitForTimeout(120);
     await page.mouse.move(box.x + 900, box.y + 520, { steps: 10 });

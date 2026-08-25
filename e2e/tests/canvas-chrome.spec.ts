@@ -187,17 +187,17 @@ test.describe("the laser pointer -- one toolbar control, present alone (NIL-374)
   }) => {
     await openEditor(page, drawingId);
 
-    const laser = page.getByTestId("toolbar-LaserPointer");
+    const laser = page.locator('.App-toolbar [data-testid="toolbar-LaserPointer"]');
+    const nativeLaserIsland = page.locator(
+      '.App-toolbar-container > .Island:not(.App-toolbar):has([data-testid="toolbar-LaserPointer"])',
+    );
     await expect(laser).toBeVisible();
-    await expect(
-      page.locator(
-        ".App-toolbar-container > .Island:not(.App-toolbar):has(.ToolIcon__LaserPointer)",
-      ),
-    ).toHaveCount(0);
+    await expect(nativeLaserIsland).toHaveCount(1);
+    await expect(nativeLaserIsland).toBeHidden();
 
     const toolbarBox = (await page.locator(".App-toolbar").boundingBox())!;
     const stickyBox = (await page.getByTestId("toolbar-sticky").boundingBox())!;
-    const laserBox = (await page.locator(".ToolIcon__LaserPointer").boundingBox())!;
+    const laserBox = (await laser.locator("..").boundingBox())!;
     expect(laserBox.x).toBeGreaterThanOrEqual(stickyBox.x + stickyBox.width - 1);
     expect(laserBox.x + laserBox.width).toBeLessThanOrEqual(toolbarBox.x + toolbarBox.width + 1);
     expect(laserBox.y).toBeGreaterThanOrEqual(toolbarBox.y - 1);
@@ -212,14 +212,15 @@ test.describe("the laser pointer -- one toolbar control, present alone (NIL-374)
   test("carries the K hint, and arms the laser tool", async ({ page }) => {
     await openEditor(page, drawingId);
 
-    const hint = await page
-      .locator(".ToolIcon__LaserPointer")
+    const laser = page.locator('.App-toolbar [data-testid="toolbar-LaserPointer"]');
+    const hint = await laser
+      .locator("..")
       .evaluate((el) => getComputedStyle(el, "::after").content);
     expect(hint).toBe('"K"');
 
     // The checkbox itself sits under its own icon in paint order (Excalidraw's
     // usual custom-checkbox styling); the label is the real click surface.
-    await page.locator(".ToolIcon__LaserPointer").click();
+    await laser.locator("..").click();
     await page.waitForFunction(
       () =>
         (window as unknown as { __EXCALIDASH_TEST__: any }).__EXCALIDASH_TEST__.getAppState()

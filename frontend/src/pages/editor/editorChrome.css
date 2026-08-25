@@ -41,6 +41,17 @@
   display: none;
 }
 
+/* Excalidraw sizes the visible avatar count from `.UserList__wrapper` with a
+   ResizeObserver. Its upstream `width: 100%` has no intrinsic width inside our
+   max-content bar, so it collapses to one overflow slot and turns even a
+   single collaborator into a `+1` button. Give that foreign child four normal
+   avatar slots while allowing it to shrink to one avatar plus overflow. */
+.excalidraw .layer-ui__wrapper__top-right > .UserList__wrapper {
+  width: min(9.5rem, 40vw);
+  min-width: 4.75rem;
+  flex: 0 1 auto;
+}
+
 .layer-ui__wrapper__top-right .editor-header-controls {
   background: transparent;
   box-shadow: none;
@@ -121,6 +132,19 @@
  */
 [data-testid="toolbar-laser"] {
   /* !important: same cascade-order reason as `.help-icon` above. */
+  display: none !important;
+}
+
+/**
+ * `isCollaborating` deliberately stays true in EditorView because Excalidraw
+ * owns the collaborator avatars, Presence UI and Follow mode behind that prop.
+ * The same prop also adds this separate Laser island next to `.App-toolbar`.
+ * Hide only the island identified by Excalidraw's own Laser test id; disabling
+ * collaboration to remove it would silently remove those Excalidraw features.
+ */
+.App-toolbar-container
+  > .Island:not(.App-toolbar):has([data-testid="toolbar-LaserPointer"]) {
+  /* !important: the Island carries inline layout styles from Excalidraw. */
   display: none !important;
 }
 
