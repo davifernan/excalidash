@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { chromium, firefox, webkit, type Browser, type BrowserContext, type Page } from "playwright";
+import {
+  chromium,
+  firefox,
+  webkit,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDrawing, deleteDrawing, API_URL } from "./helpers/api";
@@ -77,9 +85,14 @@ import {
  *     whole run (same shape as the health-poller.sh pattern this reuses).
  *   - `report.json`           -- the full structured report (also printed as
  *     `NIL330_SOAK_RESULT=...` to stdout, unchanged from before).
+ *   - `page-switch-traces.json` -- every page_switch attempt's button
+ *     position samples, whether it moved, and (for a timed-out attempt) what
+ *     `document.elementFromPoint` found there instead -- see `PageSwitchTrace`
+ *     and "Does page_switch move or get covered?" below.
  *   - `summary.txt`           -- plain-text roll-up: per-actor cycle counts
  *     and last-heartbeat age, watchdog violations, server-health code
- *     distribution. Readable without opening a CSV/JSON viewer.
+ *     distribution, and one line per timed-out page_switch attempt. Readable
+ *     without opening a CSV/JSON viewer.
  *
  * ## What "last step" does NOT tell you (NIL-330, 2026-08-25 quiet-machine run)
  *
@@ -100,6 +113,27 @@ import {
  * non-null in-flight step long after its last heartbeat, naming the exact
  * step, not just the fact of silence. See `SOAK_HANG_STEP` below for how this
  * is proven, not just asserted.
+ *
+ * ## Does page_switch move or get covered? (NIL-330, 2026-08-25)
+ *
+ * `inFlightStep` named the culprit: three independent runs (this file's own
+ * PR #157 control run plus two quiet-machine diagnostic runs) all stuck in
+ * `page_switch`. The cause was `if (await next.isVisible()) await
+ * next.click();` with no `actionTimeout` -- Playwright's default is
+ * unbounded, so a "Next page" button that moved or got covered between the
+ * `isVisible()` snapshot and the click's own actionability wait hung
+ * forever (NIL-524: waiting with no bound is not a test). `clickPageSwitchButton`
+ * bounds it (`PAGE_SWITCH_CLICK_TIMEOUT_MS`) and, per NIL-330's own
+ * instruction not to assume which of two hypotheses before measuring, traces
+ * the button's position while waiting: NIL-565 put page navigation in a
+ * floating toolbar that follows the active element, and NIL-573 made that
+ * toolbar dodge obstacles -- a repositioning button reads as "not stable"
+ * to Playwright's actionability check the same way a genuinely blocked one
+ * does, and only a position trace tells the two apart. `moved: true` in
+ * `page-switch-traces.json` means the toolbar itself is the mechanism;
+ * `moved: false` with a non-null `coveredBy` means something else sits on
+ * top of a button that never left. See `PageSwitchTrace` and
+ * `clickPageSwitchButton` for exactly what is sampled and when.
  *
  * NOT implemented, named rather than silently skipped (this package's
  * HANDOFF names these as the exact remaining gap against the mandated
@@ -154,6 +188,9 @@ import {
  *                        image_over / page_switch / offline_toggle /
  *                        network_chaos. Only meaningful together with
  *                        SOAK_HANG_ACTOR_ID; see above.
+ *   SOAK_PAGE_SWITCH_CLICK_TIMEOUT_MS  default 5000 -- bound on the "Next
+ *                        page" click specifically (see "Does page_switch
+ *                        move or get covered?" above).
  */
 
 type Engine = "chromium" | "firefox" | "webkit";
@@ -176,7 +213,9 @@ const ENGINE_NAMES = (process.env.SOAK_ENGINES || "chromium,firefox")
   .map((name) => name.trim())
   .filter((name): name is Engine => name === "chromium" || name === "firefox" || name === "webkit");
 const SHARED_WRITER_COUNT = Math.min(envInt("SOAK_SHARED_WRITERS", 2), CONTEXT_COUNT);
-const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID ? Number.parseInt(process.env.SOAK_HANG_ACTOR_ID, 10) : null;
+const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID
+  ? Number.parseInt(process.env.SOAK_HANG_ACTOR_ID, 10)
+  : null;
 const HANG_STEP = process.env.SOAK_HANG_STEP || null;
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
@@ -190,7 +229,14 @@ const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-
 const FRONTEND_PORT = Number(process.env.FRONTEND_PORT) || 6767;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${FRONTEND_PORT}`;
 
-type HeartbeatEntry = { ts: number; actorId: number; engine: Engine; boardId: string; cycle: number; step: string };
+type HeartbeatEntry = {
+  ts: number;
+  actorId: number;
+  engine: Engine;
+  boardId: string;
+  cycle: number;
+  step: string;
+};
 
 type Actor = {
   id: number;
@@ -223,6 +269,46 @@ type Actor = {
    * room stalled, or just this one? Written to the artifact even when the
    * watchdog trips -- see this file's header, "Reading the artifact". */
   heartbeats: HeartbeatEntry[];
+  /** NIL-330: where the "Next page" button actually was during every
+   * page_switch attempt, and what happened. See `PageSwitchTrace`. */
+  pageSwitchTraces: PageSwitchTrace[];
+};
+
+/** One position sample of the "Next page" button, taken while a page_switch
+ * click is being attempted. `null` box means the button was not found at
+ * that instant (already gone, or never appeared). */
+type ButtonSample = {
+  t: number;
+  x: number | null;
+  y: number | null;
+  width: number | null;
+  height: number | null;
+};
+
+/**
+ * NIL-330's own diagnostic ask: does the "Next page" button move during the
+ * wait (the NIL-565/NIL-573 floating toolbar that follows the element and
+ * dodges obstacles), or does it stay put while something else sits on top of
+ * it? `moved` and `coveredBy` are measured, not assumed -- see `performStep`'s
+ * page_switch case for how each is derived.
+ */
+type PageSwitchTrace = {
+  actorId: number;
+  ts: number;
+  outcome: "clicked" | "not_visible" | "timeout" | "error";
+  samples: ButtonSample[];
+  /** True when the first and last position samples differ by more than a
+   * few pixels -- the button relocated while we were waiting on it. */
+  moved: boolean;
+  /** Only populated when `outcome === "timeout"`: what
+   * `document.elementFromPoint` found at the button's last known centre --
+   * `null` if the button itself (or one of its own children, e.g. its icon
+   * glyph -- that is the button rendering itself, not an obstruction) was
+   * still the topmost hit target there, meaning the click failed for some
+   * other actionability reason (measured in practice: `disabled` -- see this
+   * file's own header), a short description of whatever else was on top
+   * otherwise. */
+  coveredBy: string | null;
 };
 
 type WatchdogViolation = {
@@ -236,6 +322,23 @@ type WatchdogViolation = {
 type ServerHealthEntry = { ts: number; code: number; latencyMs: number };
 
 const FINAL_CHECK_TIMEOUT_MS = envInt("SOAK_FINAL_CHECK_TIMEOUT_MS", 30_000);
+
+/**
+ * Bound for the page_switch "Next page" click specifically (NIL-330).
+ *
+ * Neither this file's own `timeout` (the whole test's budget, 0 for the soak
+ * project -- deliberately unbounded for an 8h run) nor Playwright's global
+ * `expect.timeout` cover a bare `locator.click()`: `actionTimeout` has no
+ * default, so an unset one is unbounded (NIL-524 -- waiting with no bound is
+ * not a test). `if (await next.isVisible()) await next.click()` checked
+ * visibility once and then clicked with no bound at all: a target that moved
+ * or got covered between that snapshot and the click's own actionability
+ * wait hung forever, which is exactly the stall NIL-330 measured three times
+ * (this file's own control run in PR #157, plus two quiet-machine diagnostic
+ * runs, all three stuck in this step). Bounded here so the same failure
+ * becomes a caught, recorded error instead of invisible silence.
+ */
+const PAGE_SWITCH_CLICK_TIMEOUT_MS = envInt("SOAK_PAGE_SWITCH_CLICK_TIMEOUT_MS", 5_000);
 
 /**
  * Bounds a promise that has no timeout of its own.
@@ -333,6 +436,93 @@ const decideStep = (actor: Actor, roll: number): string => {
   return "none";
 };
 
+/**
+ * Attempts the "Next page" click with a bound (`PAGE_SWITCH_CLICK_TIMEOUT_MS`)
+ * and a position trace, per NIL-330's own diagnostic ask: does the button
+ * move while we wait on it (the NIL-565/NIL-573 floating toolbar, which
+ * follows the active element and dodges obstacles), or does it hold still
+ * while something else sits on top of it? Measured here, not assumed.
+ *
+ * Sampling runs concurrently with the bounded click via `setInterval` --
+ * the click's own actionability wait is opaque from the outside, so this is
+ * the only way to see where the button actually was during it, including on
+ * the timeout path where the click itself never tells us.
+ */
+const clickPageSwitchButton = async (actor: Actor, next: Locator): Promise<void> => {
+  const samples: ButtonSample[] = [];
+  const startedAt = Date.now();
+  const sample = async () => {
+    const box = await next.boundingBox().catch(() => null);
+    samples.push({
+      t: Date.now() - startedAt,
+      x: box?.x ?? null,
+      y: box?.y ?? null,
+      width: box?.width ?? null,
+      height: box?.height ?? null,
+    });
+  };
+
+  await sample();
+  const poll = setInterval(() => {
+    void sample();
+  }, 300);
+
+  let outcome: PageSwitchTrace["outcome"] = "clicked";
+  let coveredBy: string | null = null;
+  try {
+    await next.click({ timeout: PAGE_SWITCH_CLICK_TIMEOUT_MS });
+  } catch (error) {
+    outcome = "timeout";
+    clearInterval(poll);
+    await sample();
+    const last = samples[samples.length - 1];
+    if (last?.x !== null && last?.y !== null && last?.width !== null && last?.height !== null) {
+      const cx = last.x! + last.width! / 2;
+      const cy = last.y! + last.height! / 2;
+      const handle = await next.elementHandle().catch(() => null);
+      if (handle) {
+        coveredBy = await actor.page
+          .evaluate(
+            ([el, x, y]) => {
+              const top = document.elementFromPoint(x, y);
+              if (!top) return "nothing (offscreen or empty at that point)";
+              // The button's own icon glyph (an inner <svg>/<path>) is
+              // legitimately the topmost hit at its own centre -- that is
+              // not an obstruction, it is the button rendering itself.
+              // `contains` is true for the element itself too, so this one
+              // check covers both "it's the button" and "it's the button's
+              // own child".
+              if (el.contains(top)) return null;
+              const cls = (top.getAttribute("class") || "").slice(0, 80);
+              return `<${top.tagName.toLowerCase()} class="${cls}">`;
+            },
+            [handle, cx, cy] as const,
+          )
+          .catch(() => "unknown (elementFromPoint check itself failed)");
+      }
+    }
+    throw error;
+  } finally {
+    clearInterval(poll);
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    const moved =
+      !!first &&
+      !!last &&
+      first.x !== null &&
+      last.x !== null &&
+      (Math.abs(first.x! - last.x!) > 2 || Math.abs(first.y! - last.y!) > 2);
+    actor.pageSwitchTraces.push({
+      actorId: actor.id,
+      ts: startedAt,
+      outcome,
+      samples,
+      moved,
+      coveredBy,
+    });
+  }
+};
+
 /** Executes one already-decided step's real action. Every action either
  * succeeds or throws -- see `runCycle`'s own comment for why none of these
  * swallow their own errors. */
@@ -358,7 +548,11 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
     case "page_switch": {
       await activateDocumentWidget(actor.page);
       const next = actor.page.getByRole("button", { name: "Next page" });
-      if (await next.isVisible()) await next.click();
+      // The isVisible() precheck stays: on the last page the button never
+      // renders at all, and that is an expected no-op, not a failure worth
+      // spending PAGE_SWITCH_CLICK_TIMEOUT_MS finding out. Once it IS
+      // visible, the bounded, traced click below is the only path in.
+      if (await next.isVisible()) await clickPageSwitchButton(actor, next);
       break;
     }
     case "offline_toggle":
@@ -419,7 +613,8 @@ const runCycle = async (actor: Actor) => {
   // the NIL-321 behaviour -- complete one real cycle, then hang on whatever
   // step the second cycle's own roll happens to choose, proving inFlightStep
   // names a step nobody predetermined too.
-  const forcedHangStep = actor.id === HANG_ACTOR_ID && HANG_STEP && actor.cycles === 0 ? HANG_STEP : null;
+  const forcedHangStep =
+    actor.id === HANG_ACTOR_ID && HANG_STEP && actor.cycles === 0 ? HANG_STEP : null;
   const step = forcedHangStep ?? decideStep(actor, Math.random());
   actor.inFlightStep = step;
 
@@ -510,7 +705,8 @@ const setupBoardWidget = async (page: Page): Promise<string> => {
   return (await page.evaluate(() => (window as any).__EXCALIDASH_TEST__.getSceneElements()))[0]?.id;
 };
 
-const csvEscape = (value: string) => (/[,"\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+const csvEscape = (value: string) =>
+  /[,"\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 
 const writeArtifact = (params: {
   actors: Actor[];
@@ -525,16 +721,27 @@ const writeArtifact = (params: {
   for (const actor of actors) {
     for (const hb of actor.heartbeats) {
       heartbeatRows.push(
-        [hb.ts, hb.actorId, hb.engine, csvEscape(hb.boardId), hb.cycle, csvEscape(hb.step)].join(","),
+        [hb.ts, hb.actorId, hb.engine, csvEscape(hb.boardId), hb.cycle, csvEscape(hb.step)].join(
+          ",",
+        ),
       );
     }
   }
   writeFileSync(join(ARTIFACT_DIR, "actor-heartbeats.csv"), heartbeatRows.join("\n") + "\n");
 
-  const healthRows = ["ts,code,latencyMs", ...serverHealth.map((h) => `${h.ts},${h.code},${h.latencyMs}`)];
+  const healthRows = [
+    "ts,code,latencyMs",
+    ...serverHealth.map((h) => `${h.ts},${h.code},${h.latencyMs}`),
+  ];
   writeFileSync(join(ARTIFACT_DIR, "server-health.csv"), healthRows.join("\n") + "\n");
 
   writeFileSync(join(ARTIFACT_DIR, "report.json"), JSON.stringify(report, null, 2));
+
+  const pageSwitchTraces = actors.flatMap((a) => a.pageSwitchTraces);
+  writeFileSync(
+    join(ARTIFACT_DIR, "page-switch-traces.json"),
+    JSON.stringify(pageSwitchTraces, null, 2),
+  );
 
   const now = Date.now();
   const healthCodeCounts = serverHealth.reduce<Record<string, number>>((acc, h) => {
@@ -548,7 +755,10 @@ const writeArtifact = (params: {
       violations.length === 0
         ? "none"
         : violations
-            .map((v) => `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms, stuck in step "${v.inFlightStep ?? "unknown"}"`)
+            .map(
+              (v) =>
+                `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms, stuck in step "${v.inFlightStep ?? "unknown"}"`,
+            )
             .join("; ")
     }`,
     "",
@@ -562,6 +772,19 @@ const writeArtifact = (params: {
     "",
     `server /health: ${serverHealth.length} samples, codes=${JSON.stringify(healthCodeCounts)}`,
   ];
+
+  const timedOutTraces = pageSwitchTraces.filter((t) => t.outcome === "timeout");
+  summaryLines.push(
+    "",
+    `page_switch traces: ${pageSwitchTraces.length} attempts, ${timedOutTraces.length} timed out ` +
+      "(full samples in page-switch-traces.json)",
+    ...timedOutTraces.map(
+      (t) =>
+        `  actor ${t.actorId} @ ${new Date(t.ts).toISOString()}: moved=${t.moved}, ` +
+        `coveredBy=${t.coveredBy === null ? "nothing (button itself was still topmost)" : t.coveredBy}, ` +
+        `${t.samples.length} position samples`,
+    ),
+  );
   writeFileSync(join(ARTIFACT_DIR, "summary.txt"), summaryLines.join("\n") + "\n");
 
   console.log(`NIL330_SOAK_ARTIFACT_DIR=${ARTIFACT_DIR}`);
@@ -629,6 +852,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           errors: [],
           offline: false,
           heartbeats: [],
+          pageSwitchTraces: [],
         });
       }
 
@@ -674,31 +898,34 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         tripWatchdog = reject;
       });
       let tripped = false;
-      const watchdog = setInterval(() => {
-        const now = Date.now();
-        for (const actor of actors) {
-          if (actor.finished) continue;
-          if (now - actor.lastHeartbeatAt > STALE_MS) {
-            violations.push({
-              actorId: actor.id,
-              engine: actor.engine,
-              sinceMs: now - actor.lastHeartbeatAt,
-              inFlightStep: actor.inFlightStep,
-            });
-            if (!tripped) {
-              tripped = true;
-              tripWatchdog(
-                new Error(
-                  `actor ${actor.id} (${actor.engine}) went silent for ` +
-                    `${now - actor.lastHeartbeatAt} ms, over the ${STALE_MS} ms threshold, ` +
-                    `stuck in step "${actor.inFlightStep ?? "unknown"}". ` +
-                    `Ending the run instead of waiting for a cycle that may never finish.`,
-                ),
-              );
+      const watchdog = setInterval(
+        () => {
+          const now = Date.now();
+          for (const actor of actors) {
+            if (actor.finished) continue;
+            if (now - actor.lastHeartbeatAt > STALE_MS) {
+              violations.push({
+                actorId: actor.id,
+                engine: actor.engine,
+                sinceMs: now - actor.lastHeartbeatAt,
+                inFlightStep: actor.inFlightStep,
+              });
+              if (!tripped) {
+                tripped = true;
+                tripWatchdog(
+                  new Error(
+                    `actor ${actor.id} (${actor.engine}) went silent for ` +
+                      `${now - actor.lastHeartbeatAt} ms, over the ${STALE_MS} ms threshold, ` +
+                      `stuck in step "${actor.inFlightStep ?? "unknown"}". ` +
+                      `Ending the run instead of waiting for a cycle that may never finish.`,
+                  ),
+                );
+              }
             }
           }
-        }
-      }, Math.max(1_000, Math.floor(CYCLE_MS / 2)));
+        },
+        Math.max(1_000, Math.floor(CYCLE_MS / 2)),
+      );
 
       const startedAt = Date.now();
       const runLoops = actors.map(async (actor) => {
@@ -801,10 +1028,16 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         "no scripted action may fail during the soak -- these are our own harness calls, not user-facing conditions the harness tolerates; a failure here is a real bug, not chaos",
       ).toEqual([]);
       for (const actor of actors) {
-        expect(actor.cycles, `actor ${actor.id} (${actor.engine}) must have completed at least one cycle`).toBeGreaterThan(0);
+        expect(
+          actor.cycles,
+          `actor ${actor.id} (${actor.engine}) must have completed at least one cycle`,
+        ).toBeGreaterThan(0);
       }
       for (const entry of finalConnectivity) {
-        expect(entry.connected, `actor ${entry.actorId} (${entry.engine}) must end the run connected`).toBe(true);
+        expect(
+          entry.connected,
+          `actor ${entry.actorId} (${entry.engine}) must end the run connected`,
+        ).toBe(true);
       }
     } finally {
       // The artifact is written here -- before teardown, after everything
