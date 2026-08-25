@@ -172,6 +172,23 @@ function planPackageClaim({ issue, claim }) {
   };
 }
 
+/**
+ * Collects **every** violation in one pass instead of returning at the first
+ * one (NIL-585). Measured 25.08.2026: PR #146 carried three independent
+ * violations -- an invented `Package-Session` UUID, a duplicated
+ * `Visual-Evidence:` line, and an unchecked ready-gate box. Each only became
+ * visible after the previous one was fixed, and each round needed a manual
+ * re-trigger, so three formal defects cost ~58 minutes on work that had been
+ * 9/9 green the whole time. One round now reports all three.
+ *
+ * `draft` and `bot` stay early exits: they are not violations of the contract
+ * but statements that the PR is not up for review at all, so listing further
+ * findings underneath would be noise.
+ *
+ * `findings` carries the full list; `code` and `message` keep reporting the
+ * first one so existing consumers (the workflow's signal comment, the tests)
+ * do not change shape.
+ */
 function checkPrAdmission({ body, draft = false, authorType = "User", impactManifest }) {
   if (draft) {
     return { ok: false, code: "draft", message: "Draft PRs are not review-ready." };
@@ -180,11 +197,12 @@ function checkPrAdmission({ body, draft = false, authorType = "User", impactMani
     return { ok: false, code: "bot", message: "Bot PRs are not reviewed automatically." };
   }
 
-  let delivery;
+  const findings = [];
+  let delivery = null;
   try {
     delivery = parsePrDeliveryContract(body);
   } catch (error) {
-    return { ok: false, code: "delivery-contract", message: error.message };
+    findings.push({ code: "delivery-contract", message: error.message });
   }
 
   const lines = (body || "").split(/\r?\n/);
@@ -198,30 +216,39 @@ function checkPrAdmission({ body, draft = false, authorType = "User", impactMani
     );
   });
   if (missingChecks.length > 0) {
-    return {
-      ok: false,
+    findings.push({
       code: "ready-gate",
       message:
         "Review admission requires checked line(s) beginning with the exact label(s): " +
         `${missingChecks.join(", ")}.`,
-    };
+    });
   }
 
+  let manifestValid = true;
   try {
     validateImpactManifest(impactManifest);
   } catch (error) {
-    return { ok: false, code: "impact-manifest", message: error.message };
+    manifestValid = false;
+    findings.push({ code: "impact-manifest", message: error.message });
   }
 
-  const expectedVisualEvidence = expectedVisualEvidenceValue(impactManifest);
-  if (delivery.visualEvidence !== expectedVisualEvidence) {
-    return {
-      ok: false,
-      code: "visual-evidence",
-      message:
-        `Visual-Evidence must be \`${expectedVisualEvidence}\` for the generated git diff; ` +
-        `received \`${delivery.visualEvidence}\`.`,
-    };
+  // Only decidable once both sides exist: the expected value is derived from
+  // the manifest, the received one from the parsed contract. Reporting it
+  // while either is missing would be a guess, not a finding.
+  if (manifestValid && delivery) {
+    const expectedVisualEvidence = expectedVisualEvidenceValue(impactManifest);
+    if (delivery.visualEvidence !== expectedVisualEvidence) {
+      findings.push({
+        code: "visual-evidence",
+        message:
+          `Visual-Evidence must be \`${expectedVisualEvidence}\` for the generated git diff; ` +
+          `received \`${delivery.visualEvidence}\`.`,
+      });
+    }
+  }
+
+  if (findings.length > 0) {
+    return { ok: false, code: findings[0].code, message: findings[0].message, findings };
   }
 
   return {

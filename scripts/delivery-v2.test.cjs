@@ -474,6 +474,69 @@ test("Hans is not retriggered on finding-fix pushes", () => {
     "utf8",
   );
 
-  assert.match(workflow, /types: \[opened, ready_for_review\]/);
+  // The rule is "a code push never re-reviews", not "this list has exactly two
+  // entries" (NIL-585). Pinning the literal list made the guard fail on a
+  // change that does not touch the rule at all -- so it is anchored to the two
+  // things that actually matter instead.
   assert.doesNotMatch(workflow, /types: \[[^\]]*synchronize/);
+
+  // The one-shot contract is enforced per HEAD, not per event (NIL-585, after
+  // Hans's finding on #152). Blocking `edited` outright left a corrected PR
+  // sitting behind a stale failure comment with no way forward but the
+  // undocumented ready-toggle -- so the guard asks "was this head reviewed
+  // already?" instead of "which event was this?".
+  assert.match(
+    workflow,
+    /Ask Multica for a review\n\s*if: steps\.admission\.outcome == 'success' && steps\.reviewed\.outputs\.already != 'true'/,
+  );
+  assert.match(workflow, /review\.commit_id === process\.env\.HEAD_SHA/);
+
+  // A correction that now passes must say so, or the superseded failure
+  // comment stays as the last visible word on the PR.
+  assert.match(workflow, /name: Confirm the corrected body passed/);
+});
+
+test("PR admission reports every violation in one pass, not just the first (NIL-585)", () => {
+  const manifest = impact(["scripts/delivery-v2.cjs"]);
+
+  // The real shape of PR #146 on 25.08.2026: an unchecked ready-gate box AND a
+  // Visual-Evidence value that contradicts the diff. Before NIL-585 the first
+  // one hid the second, so fixing it only revealed the next round.
+  const result = checkPrAdmission({
+    body: prBody({
+      visualEvidence: VISUAL_EVIDENCE.PROVIDED,
+      gates: ["- [x] Multica HANDOFF posted", "- [x] Local verification complete"],
+    }),
+    impactManifest: manifest,
+  });
+
+  assert.equal(result.ok, false);
+  const codes = result.findings.map((finding) => finding.code).sort();
+  assert.deepEqual(codes, ["ready-gate", "visual-evidence"]);
+
+  // `code`/`message` keep reporting the first finding so the workflow's signal
+  // comment and every existing consumer stay unchanged.
+  assert.equal(result.code, result.findings[0].code);
+  assert.equal(result.message, result.findings[0].message);
+});
+
+test("a broken delivery contract still surfaces the ready-gate finding beneath it (NIL-585)", () => {
+  const manifest = impact([]);
+
+  // PR #146 again: an invented Package-Session made `parsePrDeliveryContract`
+  // throw, which used to return immediately -- hiding the unchecked box until
+  // a later round. Visual-Evidence stays unreported here on purpose: with no
+  // parsed contract there is no received value to compare, and inventing one
+  // would be a guess rather than a finding.
+  const result = checkPrAdmission({
+    body: prBody({ gates: ["- [x] Multica HANDOFF posted"] }).replace(
+      /^Package-Session: .*$/m,
+      "Package-Session: not-a-uuid",
+    ),
+    impactManifest: manifest,
+  });
+
+  assert.equal(result.ok, false);
+  const codes = result.findings.map((finding) => finding.code).sort();
+  assert.deepEqual(codes, ["delivery-contract", "ready-gate"]);
 });
