@@ -1,7 +1,13 @@
-import { useEffect, useId, useState } from "react";
-import { BellRing, Clock3, Pause, Play, Plus, Square } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { BellRing, Clock3, Pause, Play, Plus, Square, Volume2, VolumeX } from "lucide-react";
 import type { WorkshopTimerController } from "./workshopTimer";
 import { getWorkshopTimerRemainingMs } from "./workshopTimer";
+import {
+  isWorkshopTimerSoundMuted,
+  playWorkshopTimerChime,
+  primeWorkshopTimerAudio,
+  setWorkshopTimerSoundMuted,
+} from "./workshopTimerChime";
 import "./WorkshopTimerWidget.css";
 
 const formatRemaining = (remainingMs: number): string => {
@@ -45,21 +51,64 @@ export const WorkshopTimerWidget = ({
   const inputId = useId();
   const [expanded, setExpanded] = useState(false);
   const [minutes, setMinutes] = useState("10");
+  const [soundMuted, setSoundMuted] = useState(isWorkshopTimerSoundMuted);
   const remainingMs = useRemainingMs(timer);
   const { status } = timer.snapshot;
   const active = status === "running" || status === "paused";
+  // The one state that gets the "main toolbar" white treatment (NIL-578
+  // follow-up from Davi): idle, paused, and finished all read as "not
+  // currently running" and share the muted grey instead. The color itself
+  // is the state signal -- white means running -- so this stays a plain
+  // boolean, not an animation.
+  const isRunning = status === "running";
   const summary =
     status === "finished" ? "Time's up" : active ? formatRemaining(remainingMs) : "Timer";
-  const start = () => {
+
+  // Initialised from the live status, not "idle": a viewer who opens the
+  // board after the timer already finished must not hear a chime for a
+  // transition that happened before they arrived.
+  const previousStatusRef = useRef(status);
+  useEffect(() => {
+    if (previousStatusRef.current !== "finished" && status === "finished") {
+      playWorkshopTimerChime();
+    }
+    previousStatusRef.current = status;
+  }, [status]);
+
+  // Any real interaction with the widget is the user gesture the Web Audio
+  // API requires -- priming here, not only in `start`, means someone who
+  // merely opens the panel or pauses/resumes still gets to hear the room's
+  // chime later.
+  const withAudioPrime =
+    <Args extends unknown[]>(fn: (...args: Args) => void) =>
+    (...args: Args) => {
+      primeWorkshopTimerAudio();
+      fn(...args);
+    };
+
+  const start = withAudioPrime(() => {
     const durationMinutes = Number(minutes);
     if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1_440)
       return;
     timer.sendCommand("start", durationMinutes * 60_000);
-  };
+    // The settings menu has done its job the moment Start is pressed --
+    // leaving it open just makes the person who started the timer clean up
+    // after their own click (NIL-578). Pause/Resume/Stop/+1 min stay open;
+    // those are usually followed by another glance at the same controls.
+    setExpanded(false);
+  });
+
+  const toggleSound = withAudioPrime(() => {
+    setSoundMuted((current) => {
+      const next = !current;
+      setWorkshopTimerSoundMuted(next);
+      return next;
+    });
+  });
 
   return (
     <div
-      className={`workshop-timer${expanded ? " workshop-timer--expanded" : ""}${status === "finished" ? " workshop-timer--finished" : ""}`}
+      className={`workshop-timer${expanded ? " workshop-timer--expanded" : ""}${status === "finished" ? " workshop-timer--finished" : ""}${isRunning ? " workshop-timer--running" : ""}`}
       aria-live={status === "finished" ? "assertive" : "off"}
     >
       <button
@@ -67,7 +116,7 @@ export const WorkshopTimerWidget = ({
         className="workshop-timer__summary"
         aria-expanded={expanded}
         aria-label={`Workshop timer: ${summary}`}
-        onClick={() => setExpanded((current) => !current)}
+        onClick={withAudioPrime(() => setExpanded((current) => !current))}
       >
         {status === "finished" ? <BellRing size={18} /> : <Clock3 size={18} />}
         <span className="workshop-timer__time">{summary}</span>
@@ -97,15 +146,20 @@ export const WorkshopTimerWidget = ({
                 <div className="workshop-timer__controls">
                   <button
                     type="button"
-                    onClick={() => timer.sendCommand(status === "running" ? "pause" : "resume")}
+                    onClick={withAudioPrime(() =>
+                      timer.sendCommand(status === "running" ? "pause" : "resume"),
+                    )}
                   >
                     {status === "running" ? <Pause size={16} /> : <Play size={16} />}
                     {status === "running" ? "Pause" : "Resume"}
                   </button>
-                  <button type="button" onClick={() => timer.sendCommand("add-minute")}>
+                  <button
+                    type="button"
+                    onClick={withAudioPrime(() => timer.sendCommand("add-minute"))}
+                  >
                     <Plus size={16} />1 min
                   </button>
-                  <button type="button" onClick={() => timer.sendCommand("stop")}>
+                  <button type="button" onClick={withAudioPrime(() => timer.sendCommand("stop"))}>
                     <Square size={14} /> Stop
                   </button>
                 </div>
@@ -114,6 +168,15 @@ export const WorkshopTimerWidget = ({
           ) : (
             <p className="workshop-timer__readonly">Only editors can control the timer.</p>
           )}
+          <button
+            type="button"
+            className="workshop-timer__sound-toggle"
+            aria-pressed={soundMuted}
+            onClick={toggleSound}
+          >
+            {soundMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            {soundMuted ? "Sound off" : "Sound on"}
+          </button>
         </div>
       ) : null}
     </div>
