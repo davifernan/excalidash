@@ -54,7 +54,9 @@ describe("addNodeOps", () => {
 
     const result = addNodeOps(summaries, "child", root.id as unknown as string);
     expect(result).not.toBeNull();
-    const insertOp = result!.ops.find((op) => op.kind === "insert" && (op.elements[0] as any).id === result!.newNodeId);
+    const insertOp = result!.ops.find(
+      (op) => op.kind === "insert" && (op.elements[0] as any).id === result!.newNodeId,
+    );
     expect(insertOp).toBeDefined();
     // Root itself never moves for its own first child (nothing else on its level).
     const rootPatch = result!.ops.find((op) => op.kind === "patch" && op.id === root.id);
@@ -188,7 +190,14 @@ describe("arrangeOps", () => {
     // from its container, the kind of offset Excalidraw's own centering
     // produces and this code must never assume is (0, 0).
     const child = nodeSummary(childId, 9999, 9999, { mapId, parentId: rootId, orderKey: "m" });
-    const label = { ...child, id: labelId as never, type: "text", containerId: childId, x: 10009, y: 10029 };
+    const label = {
+      ...child,
+      id: labelId as never,
+      type: "text",
+      containerId: childId,
+      x: 10009,
+      y: 10029,
+    };
     const summaries = [root, child, label] as ElementSummary[];
 
     const ops = arrangeOps(summaries, mapId)!;
@@ -214,7 +223,14 @@ describe("arrangeOps", () => {
     const labelId = nextId();
     const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
     const child = nodeSummary(childId, 9999, 9999, { mapId, parentId: rootId, orderKey: "m" });
-    const label = { ...child, id: labelId as never, type: "text", containerId: childId, x: 10009, y: 10029 };
+    const label = {
+      ...child,
+      id: labelId as never,
+      type: "text",
+      containerId: childId,
+      x: 10009,
+      y: 10029,
+    };
     const summaries = [root, child, label] as ElementSummary[];
 
     const ops = arrangeOps(summaries, mapId)!;
@@ -228,7 +244,10 @@ describe("readMindMapNodes / readMindMapEdges", () => {
   it("ignores deleted elements and elements without the customData record", () => {
     const mapId = "map-8";
     const live = nodeSummary(nextId(), 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const deleted = { ...nodeSummary(nextId(), 0, 0, { mapId, parentId: null, orderKey: "m" }), isDeleted: true };
+    const deleted = {
+      ...nodeSummary(nextId(), 0, 0, { mapId, parentId: null, orderKey: "m" }),
+      isDeleted: true,
+    };
     const plain = { ...live, id: nextId() as any, customData: null };
 
     const nodes = readMindMapNodes([live, deleted, plain] as ElementSummary[]);

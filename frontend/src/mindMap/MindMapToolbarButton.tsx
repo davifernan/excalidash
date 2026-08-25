@@ -11,9 +11,36 @@ import { MIND_MAP_SHORTCUT } from "./useMindMapTool";
 
 const MindMapIcon = () => (
   <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden focusable="false">
-    <rect x="1" y="7" width="6" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-    <rect x="13" y="1" width="6" height="5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-    <rect x="13" y="13" width="6" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    <rect
+      x="1"
+      y="7"
+      width="6"
+      height="6"
+      rx="1"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <rect
+      x="13"
+      y="1"
+      width="6"
+      height="5"
+      rx="1"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <rect
+      x="13"
+      y="13"
+      width="6"
+      height="6"
+      rx="1"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
     <path d="M7 9h3v-5.5h3" fill="none" stroke="currentColor" strokeWidth="1.1" />
     <path d="M7 11h3v5h3" fill="none" stroke="currentColor" strokeWidth="1.1" />
   </svg>

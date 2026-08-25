@@ -62,7 +62,8 @@ function cascadeOrphans(mapId: string, nodes: readonly MindMapNodeInput[]): Read
 
   const orphanRoots = new Set<string>();
   for (const diagnostic of normalized.diagnostics) {
-    if (ORPHAN_CODES.has(diagnostic.code)) diagnostic.elementIds.forEach((id) => orphanRoots.add(id));
+    if (ORPHAN_CODES.has(diagnostic.code))
+      diagnostic.elementIds.forEach((id) => orphanRoots.add(id));
   }
   if (orphanRoots.size === 0) return new Set();
 

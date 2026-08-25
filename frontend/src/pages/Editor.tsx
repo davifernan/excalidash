@@ -560,15 +560,18 @@ export const Editor: React.FC = () => {
     selection: adapter.selection,
     viewport: adapter.viewport,
   });
-  const { mindMapOverlay, onArrangeMindMap, onCanvasChange: handleChangeWithMindMap } =
-    useMindMapFeature({
-      containerRef: editorContainerRef,
-      canEdit,
-      interaction: adapter.interaction,
-      onCanvasChange: handleChangeWithNotes,
-      scene: adapter.scene,
-      selection: adapter.selection,
-    });
+  const {
+    mindMapOverlay,
+    onArrangeMindMap,
+    onCanvasChange: handleChangeWithMindMap,
+  } = useMindMapFeature({
+    containerRef: editorContainerRef,
+    canEdit,
+    interaction: adapter.interaction,
+    onCanvasChange: handleChangeWithNotes,
+    scene: adapter.scene,
+    selection: adapter.selection,
+  });
   useCursorChatKey({
     containerRef: editorContainerRef,
 

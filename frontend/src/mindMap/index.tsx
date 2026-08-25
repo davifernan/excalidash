@@ -89,7 +89,9 @@ export function useMindMapFeature({
 
     const ops = arrangeOps(summaries.value, mapId);
     if (!ops) {
-      toast.error("This mind map has an issue (a cycle or a missing node) and can't be arranged yet.");
+      toast.error(
+        "This mind map has an issue (a cycle or a missing node) and can't be arranged yet.",
+      );
       return;
     }
     if (ops.length === 0) return;

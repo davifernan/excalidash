@@ -8,7 +8,10 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { InteractionCapability, SceneCapability } from "../integrations/excalidraw/capabilities";
+import type {
+  InteractionCapability,
+  SceneCapability,
+} from "../integrations/excalidraw/capabilities";
 import type { ActiveTool } from "../integrations/excalidraw/types";
 import { pressEnterToEditLabel } from "../integrations/excalidraw/domBridge";
 import { createRootOps, mapIdOf } from "./mindMapScene";
@@ -20,7 +23,10 @@ export const MIND_MAP_SHORTCUT = "m";
 type Options = {
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
-  interaction: Pick<InteractionCapability, "onPointerDown" | "read" | "setActiveTool" | "subscribe">;
+  interaction: Pick<
+    InteractionCapability,
+    "onPointerDown" | "read" | "setActiveTool" | "subscribe"
+  >;
   scene: Pick<SceneCapability, "apply" | "summaryById">;
 };
 
@@ -46,7 +52,10 @@ export function useMindMapTool({ containerRef, canEdit, interaction, scene }: Op
     },
     [interaction],
   );
-  const armTool = useCallback(() => setTool({ type: "custom", customType: MIND_MAP_TOOL }), [setTool]);
+  const armTool = useCallback(
+    () => setTool({ type: "custom", customType: MIND_MAP_TOOL }),
+    [setTool],
+  );
   const dropTool = useCallback(() => setTool({ type: "selection" }), [setTool]);
 
   useEffect(() => {

@@ -41,12 +41,7 @@ export const newMindMapId = (): string => crypto.randomUUID();
  * Excalidraw creates the bound text itself the moment typing starts, and an
  * empty one created ahead of time would be discarded by the next restore.
  */
-export function createMindMapNode(
-  id: string,
-  x: number,
-  y: number,
-  relation: MindMapRecord,
-): any {
+export function createMindMapNode(id: string, x: number, y: number, relation: MindMapRecord): any {
   const [rectangle] = buildElements(
     [
       {
@@ -76,7 +71,12 @@ export function createMindMapNode(
   };
 }
 
-export type NodeBox = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+export type NodeBox = {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+};
 
 /**
  * The visible edge from a parent node box to a child node box: right-middle

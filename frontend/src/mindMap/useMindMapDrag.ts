@@ -94,7 +94,11 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
 
     const [draggedId] = moved;
     const selected = selection.read();
-    if (!selected.ok || selected.value.selectedIds.length !== 1 || selected.value.selectedIds[0] !== draggedId) {
+    if (
+      !selected.ok ||
+      selected.value.selectedIds.length !== 1 ||
+      selected.value.selectedIds[0] !== draggedId
+    ) {
       return;
     }
 
@@ -112,7 +116,9 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
     if (!normalized.ok) return;
 
     const movedIds = new Set(subtreeElementIds(normalized.value, draggedId));
-    const parentById = new Map(normalized.value.nodes.map((node) => [node.elementId, node.parentId]));
+    const parentById = new Map(
+      normalized.value.nodes.map((node) => [node.elementId, node.parentId]),
+    );
     const liveById = new Map(summaries.value.map((element) => [element.id, element] as const));
     const labelByContainerId = new Map<string, ElementSummary>();
     for (const element of summaries.value) {
@@ -124,14 +130,22 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
       if (elementId === draggedId) continue; // Excalidraw already moved this one (label included).
       const live = liveById.get(elementId as never);
       if (!live) continue;
-      ops.push({ kind: "patch", id: elementId as never, changes: { x: live.x + dx, y: live.y + dy } });
+      ops.push({
+        kind: "patch",
+        id: elementId as never,
+        changes: { x: live.x + dx, y: live.y + dy },
+      });
       current.set(elementId, { x: live.x + dx, y: live.y + dy });
       // Same reasoning as `layoutOps` in mindMapScene.ts: a raw `patch` does
       // not carry the container's bound label along, so it is translated
       // here explicitly, by the same delta.
       const label = labelByContainerId.get(elementId);
       if (label) {
-        ops.push({ kind: "patch", id: label.id as never, changes: { x: label.x + dx, y: label.y + dy } });
+        ops.push({
+          kind: "patch",
+          id: label.id as never,
+          changes: { x: label.x + dx, y: label.y + dy },
+        });
       }
     }
 
@@ -146,7 +160,11 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
       if (childMoved && parentMoved) {
         // Wholly inside the moved subtree: translate like any other
         // element, same delta, geometry (relative points) unchanged.
-        ops.push({ kind: "patch", id: edge.id as never, changes: { x: edge.x + dx, y: edge.y + dy } });
+        ops.push({
+          kind: "patch",
+          id: edge.id as never,
+          changes: { x: edge.x + dx, y: edge.y + dy },
+        });
       } else if (projection.childId === draggedId) {
         // The one edge crossing into the subtree: its parent end did not
         // move, so it is rebuilt from both boxes rather than translated.
@@ -166,8 +184,18 @@ export function useMindMapDrag({ canEdit, scene, selection }: Options) {
               newMindMapElementId(),
               relation.mapId,
               draggedId,
-              { x: parentLive.x, y: parentLive.y, width: parentLive.width, height: parentLive.height },
-              { x: after.x, y: after.y, width: liveById.get(draggedId as never)?.width ?? 0, height: liveById.get(draggedId as never)?.height ?? 0 },
+              {
+                x: parentLive.x,
+                y: parentLive.y,
+                width: parentLive.width,
+                height: parentLive.height,
+              },
+              {
+                x: after.x,
+                y: after.y,
+                width: liveById.get(draggedId as never)?.width ?? 0,
+                height: liveById.get(draggedId as never)?.height ?? 0,
+              },
             ),
           ],
         });

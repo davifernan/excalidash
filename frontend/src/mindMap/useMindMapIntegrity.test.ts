@@ -6,7 +6,10 @@ import { integrityCleanupOps } from "./useMindMapIntegrity";
 let counter = 0;
 const nextId = () => `el-${++counter}`;
 
-function nodeSummary(id: string, relation: { mapId: string; parentId: string | null; orderKey: string }): ElementSummary {
+function nodeSummary(
+  id: string,
+  relation: { mapId: string; parentId: string | null; orderKey: string },
+): ElementSummary {
   return {
     id: id as never,
     type: "rectangle",

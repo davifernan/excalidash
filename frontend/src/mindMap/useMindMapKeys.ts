@@ -59,7 +59,8 @@ export function useMindMapKeys({ canEdit, containerRef, interaction, scene, sele
       if (!event.isTrusted) return;
 
       const wantsChild = event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-      const wantsSibling = event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      const wantsSibling =
+        event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.shiftKey;
       if (!wantsChild && !wantsSibling) return;
 
       const anchorId = selectedMindMapNodeId({ interaction, scene, selection });

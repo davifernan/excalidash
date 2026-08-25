@@ -19,10 +19,18 @@ import {
   type NormalizedMindMap,
 } from "./model";
 import { layoutMindMap, MIND_MAP_LAYOUT_V1, type MindMapLayoutPosition } from "./layout";
-import { createMindMapEdge, createMindMapNode, newMindMapElementId, type NodeBox } from "./mindMapElements";
+import {
+  createMindMapEdge,
+  createMindMapNode,
+  newMindMapElementId,
+  type NodeBox,
+} from "./mindMapElements";
 import { orderKeyAfter } from "./mindMapOrder";
 
-export type MindMapNode = { readonly summary: ElementSummary; readonly relation: NonNullable<ReturnType<typeof readMindMap>> };
+export type MindMapNode = {
+  readonly summary: ElementSummary;
+  readonly relation: NonNullable<ReturnType<typeof readMindMap>>;
+};
 
 /** Every mind-map node currently on the canvas, live rectangle attached. */
 export function readMindMapNodes(summaries: readonly ElementSummary[]): readonly MindMapNode[] {
@@ -132,7 +140,11 @@ export function layoutOps(
       // customData for a jsdom test to check position on).
       const label = labelByContainerId.get(node.elementId);
       if (label) {
-        ops.push({ kind: "patch", id: label.id as never, changes: { x: label.x + dx, y: label.y + dy } });
+        ops.push({
+          kind: "patch",
+          id: label.id as never,
+          changes: { x: label.x + dx, y: label.y + dy },
+        });
       }
     }
   }
@@ -147,7 +159,9 @@ export function layoutOps(
     if (!parentBox || !childBox) continue;
     ops.push({
       kind: "insert",
-      elements: [createMindMapEdge(newMindMapElementId(), map.mapId, node.elementId, parentBox, childBox)],
+      elements: [
+        createMindMapEdge(newMindMapElementId(), map.mapId, node.elementId, parentBox, childBox),
+      ],
     });
   }
 
@@ -250,7 +264,9 @@ export function addNodeOps(
 export function arrangeOps(summaries: readonly ElementSummary[], mapId: string): SceneOp[] | null {
   const normalized = normalizeLiveMap(summaries, mapId);
   if (!normalized.ok) return null;
-  const liveById = new Map(readMindMapNodes(summaries).map((node) => [node.summary.id, node.summary]));
+  const liveById = new Map(
+    readMindMapNodes(summaries).map((node) => [node.summary.id, node.summary]),
+  );
   const positions = computeLayoutPositions(normalized.value, liveById);
   const edgesForMap = readMindMapEdges(summaries).get(mapId) ?? [];
   return layoutOps(normalized.value, positions, liveById, edgesForMap, summaries);
