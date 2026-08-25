@@ -27,9 +27,41 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="${RELEASE_CHECK_RUNS_TEST_REPO:-davifernan/excalidash}"
 
+# The target must be a commit whose check-runs are FINISHED, not main's tip.
+# Measured 25.08.2026: against the tip, ground truth read 41 and the paginated
+# walk read 42 moments later -- a check-run had appeared between the two calls.
+# Every assertion below compares numbers from separate live reads, so a target
+# that is still accumulating check-runs makes all of them flaky at once. That
+# produced three separate false failures in one afternoon.
+#
+# The newest release tag is the honest choice: it is real, already merged, has
+# far more check-runs than per_page=2 (so genuine pagination still happens),
+# and -- unlike the tip -- nothing new lands on it. It also moves forward on
+# its own with each release instead of ageing into a pinned SHA.
 echo "Resolving a real, already-merged commit with completed check-runs..."
-TARGET_SHA="${RELEASE_CHECK_RUNS_TEST_SHA:-$(gh api "repos/${REPO}/commits/main" --jq '.sha')}"
-echo "Target: $TARGET_SHA"
+if [ -n "${RELEASE_CHECK_RUNS_TEST_SHA:-}" ]; then
+  TARGET_SHA="$RELEASE_CHECK_RUNS_TEST_SHA"
+  echo "Target: $TARGET_SHA (explicit override)"
+else
+  # `GET /tags` guarantees no ordering (Hans-Friedrich on #153). It happens to
+  # look newest-first here, which is exactly the kind of accident that holds
+  # until it does not -- so the semver parts are sorted explicitly.
+  NEWEST_TAG="$(gh api "repos/${REPO}/tags?per_page=100" --jq '
+    [ .[]
+      | select(.name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+      | { sha: .commit.sha, key: (.name | ltrimstr("v") | split(".") | map(tonumber)) }
+    ]
+    | sort_by(.key)
+    | last
+    | .sha // empty')"
+  if [ -n "$NEWEST_TAG" ]; then
+    TARGET_SHA="$NEWEST_TAG"
+    echo "Target: $TARGET_SHA (newest release tag -- check-runs are settled)"
+  else
+    TARGET_SHA="$(gh api "repos/${REPO}/commits/main" --jq '.sha')"
+    echo "Target: $TARGET_SHA (no release tag found; falling back to main's tip)"
+  fi
+fi
 
 GROUND_TRUTH="$(gh api "repos/${REPO}/commits/${TARGET_SHA}/check-runs?per_page=1" --jq '.total_count')"
 echo "Ground truth total_count (one real API response, correct regardless of page size): $GROUND_TRUTH"
@@ -45,6 +77,16 @@ echo "=== GREEN: scripts/release-check-runs.sh, forced to real multi-page (per_p
 FIXED_RESULT="$("$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2)"
 FIXED_TOTAL="$(echo "$FIXED_RESULT" | jq '.total')"
 echo "Fixed script's total: $FIXED_TOTAL"
+# Equality is correct HERE, and must stay -- unlike the exclusion checks below,
+# which compare against a baseline read minutes earlier. This one asserts the
+# test's actual subject: the paginated walk must total to exactly what the API
+# itself reports for the same commit. A bound would gut it -- a walk that
+# silently drops a page would pass.
+#
+# What made this flaky was never the operator but the target: against main's
+# tip, a check-run could appear between the two reads (measured: 41 then 42).
+# That is fixed at the source above by aiming at a settled release tag. If this
+# line ever goes red, suspect the walk, not the comparison.
 if [ "$FIXED_TOTAL" != "$GROUND_TRUTH" ]; then
   echo "FAIL: fixed script's total ($FIXED_TOTAL) does not match ground truth ($GROUND_TRUTH)"
   exit 1
@@ -92,11 +134,26 @@ fi
 
 EXCLUDED_TOTAL="$(EXCLUDE_RUN_IDS="$SAMPLE_RUN_ID" "$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2 | jq '.total')"
 EXPECTED_TOTAL="$((BASELINE_TOTAL - SAMPLE_COUNT))"
-if [ "$EXCLUDED_TOTAL" != "$EXPECTED_TOTAL" ]; then
-  echo "FAIL: excluding run $SAMPLE_RUN_ID gave total $EXCLUDED_TOTAL, expected $EXPECTED_TOTAL ($BASELINE_TOTAL - $SAMPLE_COUNT)."
+# Two bounds instead of equality, for the same reason the unrelated-id check
+# below uses `-lt`: both numbers come from separate live API reads on an active
+# repo, so a check-run can appear between them and push the second read *up*.
+# Measured 25.08.2026 on PR #150 -- got 21 where 40 - 20 = 20 was expected, and
+# the one extra had nothing to do with filtering.
+#
+# The property under test is "excluding a run removes exactly its check-runs":
+#   - it must remove something          -> EXCLUDED_TOTAL < BASELINE_TOTAL
+#   - it must not remove more than its own -> EXCLUDED_TOTAL >= EXPECTED_TOTAL
+# Drift between the reads can only add, so it lives inside the upper bound and
+# cannot mask over-removal, which is the failure this guards against.
+if [ "$EXCLUDED_TOTAL" -ge "$BASELINE_TOTAL" ]; then
+  echo "FAIL: excluding run $SAMPLE_RUN_ID removed nothing ($BASELINE_TOTAL -> $EXCLUDED_TOTAL)."
   exit 1
 fi
-echo "PASS: excluding a real run removed exactly its $SAMPLE_COUNT check-run(s)."
+if [ "$EXCLUDED_TOTAL" -lt "$EXPECTED_TOTAL" ]; then
+  echo "FAIL: excluding run $SAMPLE_RUN_ID removed MORE than its own $SAMPLE_COUNT check-run(s) -- total $EXCLUDED_TOTAL, floor $EXPECTED_TOTAL ($BASELINE_TOTAL - $SAMPLE_COUNT)."
+  exit 1
+fi
+echo "PASS: excluding a real run removed its $SAMPLE_COUNT check-run(s) and no more."
 
 # The other direction: an id that produced nothing here must change nothing.
 # 1 is a real GitHub run id somewhere, but not on this commit.
@@ -120,11 +177,20 @@ echo "PASS: excluding an unrelated run id left all $BASELINE_TOTAL check-run(s) 
 # precisely here: `grep` exits 1 on no match, and under `set -e` the script
 # produced no output at all.
 EMPTY_TOTAL="$(EXCLUDE_RUN_IDS="" "$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2 | jq '.total')"
-if [ "$EMPTY_TOTAL" != "$BASELINE_TOTAL" ]; then
-  echo "FAIL: an empty EXCLUDE_RUN_IDS gave total '$EMPTY_TOTAL', expected $BASELINE_TOTAL."
+# `-lt`, not `!=` -- and here the reason bites hardest (Hans-Friedrich on #153).
+# `BASELINE_TOTAL` comes from the very first live read; between it and this one
+# lie three further full script runs. That is the widest gap between any two
+# compared numbers in this file, so it carries the highest drift risk of all of
+# them -- and it was the one instance overlooked while the other three were
+# being fixed.
+#
+# The property is "an empty exclusion removes nothing". Growth between the two
+# reads does not violate it; shrinkage does.
+if [ "$EMPTY_TOTAL" -lt "$BASELINE_TOTAL" ]; then
+  echo "FAIL: an empty EXCLUDE_RUN_IDS REMOVED check-runs ($BASELINE_TOTAL -> $EMPTY_TOTAL) -- an empty exclusion must remove nothing."
   exit 1
 fi
-echo "PASS: an empty exclusion behaves exactly like no exclusion."
+echo "PASS: an empty exclusion removed nothing."
 
 echo
 echo "release-check-runs.test.sh: PASS (green fix verified, red bug reproduced, exclusion proven in both directions, all against the real API)"

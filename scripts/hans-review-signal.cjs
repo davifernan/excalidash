@@ -75,17 +75,26 @@ function buildSignalComment({ headSha, decision = null, admission = null }) {
   }
 
   if (admission?.ok === false) {
-    const quotedRule = String(admission.message || "Review admission failed without a message.")
-      .split(/\r?\n/)
-      .map((line) => `> ${line}`)
-      .join("\n");
+    // Every violation, not just the first (NIL-585). `checkPrAdmission` used to
+    // return at the first one, so a PR with three formal defects needed three
+    // rounds -- each one only visible after the previous fix, each needing a
+    // manual re-trigger. `findings` is the full list; older results that carry
+    // only `message` still render as a single-item list.
+    const findings = Array.isArray(admission.findings) && admission.findings.length > 0
+      ? admission.findings
+      : [{ message: admission.message || "Review admission failed without a message." }];
+    const quote = (text) => String(text).split(/\r?\n/).map((line) => `> ${line}`).join("\n");
+    const heading = findings.length === 1 ? "Verletzte Regel:" : `Verletzte Regeln (${findings.length}):`;
+    const body = findings.length === 1
+      ? quote(findings[0].message)
+      : findings.map((finding, index) => `${index + 1}. ${String(finding.message).trim()}`).join("\n");
     return [
       signalMarker(headSha, "delivery-contract"),
       `Die Review-Zulassung für \`${shortSha}\` ist fehlgeschlagen; Hans-Friedrich wurde nicht gestartet.`,
       "",
-      "Verletzte Regel:",
+      heading,
       "",
-      quotedRule,
+      body,
       "",
       "`request-review` bleibt rot, bis der PR-Text den Liefervertrag erfüllt.",
     ].join("\n");
