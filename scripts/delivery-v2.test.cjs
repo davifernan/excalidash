@@ -480,13 +480,20 @@ test("Hans is not retriggered on finding-fix pushes", () => {
   // things that actually matter instead.
   assert.doesNotMatch(workflow, /types: \[[^\]]*synchronize/);
 
-  // `edited` may run the admission check for fast feedback, but must never
-  // summon Hans: nothing guards against a second review of the same head, so a
-  // body edit after a completed review would produce one.
+  // The one-shot contract is enforced per HEAD, not per event (NIL-585, after
+  // Hans's finding on #152). Blocking `edited` outright left a corrected PR
+  // sitting behind a stale failure comment with no way forward but the
+  // undocumented ready-toggle -- so the guard asks "was this head reviewed
+  // already?" instead of "which event was this?".
   assert.match(
     workflow,
-    /Ask Multica for a review\n\s*if: steps\.admission\.outcome == 'success' && github\.event\.action != 'edited'/,
+    /Ask Multica for a review\n\s*if: steps\.admission\.outcome == 'success' && steps\.reviewed\.outputs\.already != 'true'/,
   );
+  assert.match(workflow, /review\.commit_id === process\.env\.HEAD_SHA/);
+
+  // A correction that now passes must say so, or the superseded failure
+  // comment stays as the last visible word on the PR.
+  assert.match(workflow, /name: Confirm the corrected body passed/);
 });
 
 test("PR admission reports every violation in one pass, not just the first (NIL-585)", () => {

@@ -83,6 +83,9 @@ jobs:
 
       - name: Explain review outcome on the PR
         if: steps.intent.outputs.action == 'skip' || steps.admission.outcome == 'failure'
+        # Only failures and deliberate skips are explained here. A success on
+        # `edited` is announced by the step below instead, so the superseded
+        # failure comment does not stay as the last visible word (NIL-585).
         uses: actions/github-script@v7
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -157,13 +160,44 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/delivery-contracts.cjs commits
 
-      # `edited` runs the admission check for fast feedback but must never
-      # summon Hans (NIL-585): there is no guard against a second review of the
-      # same head, so a body edit after a completed review would produce one --
-      # exactly what AGENTS.md's one-shot contract forbids. Only
-      # `opened`/`ready_for_review` actually ask for a review.
+      # Has this exact head already been reviewed? (NIL-585)
+      #
+      # `edited` must be able to summon Hans -- otherwise a body correction
+      # leaves the PR sitting behind a stale "Verletzte Regeln" comment and the
+      # author still needs the undocumented `gh pr ready --undo && gh pr ready`
+      # detour, which is precisely what NIL-585 set out to remove.
+      #
+      # But it must not summon him TWICE for the same head: AGENTS.md's
+      # one-shot contract says Hans reviews a ready head exactly once, and
+      # nothing else in this workflow enforces that. So the question is not
+      # "which event was this" but "has this head been reviewed yet" -- and
+      # that is answerable.
+      - name: Check whether this head was already reviewed
+        id: reviewed
+        if: steps.admission.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+            const already = reviews.some(
+              (review) => review.commit_id === process.env.HEAD_SHA,
+            );
+            core.setOutput("already", already ? "true" : "false");
+            core.notice(
+              already
+                ? `Head ${process.env.HEAD_SHA} already carries a review; not asking again.`
+                : `Head ${process.env.HEAD_SHA} has no review yet.`,
+            );
+
       - name: Ask Multica for a review
-        if: steps.admission.outcome == 'success' && github.event.action != 'edited'
+        if: steps.admission.outcome == 'success' && steps.reviewed.outputs.already != 'true'
         env:
           # Repository secret. The token in the URL is the calling credential —
           # rotate it in Multica (Autopilot -> Trigger -> Rotate URL) and update
@@ -218,3 +252,44 @@ jobs:
             ignored)   echo "::warning::Multica ignored the trigger — autopilot paused, or the event was filtered." ;;
             *)         echo "::warning::Unexpected status '${status}'." ;;
           esac
+
+
+      # After a body correction that now passes, say so (NIL-585). Without
+      # this, the last visible word on the PR stays the superseded
+      # "Verletzte Regeln (N)" comment, which claims a failure that is fixed --
+      # the stale-signal problem NIL-585 names as its own point C.
+      - name: Confirm the corrected body passed
+        if: github.event.action == 'edited' && steps.admission.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ALREADY_REVIEWED: ${{ steps.reviewed.outputs.already }}
+        with:
+          script: |
+            const shortSha = String(process.env.HEAD_SHA).slice(0, 12);
+            const asked = process.env.ALREADY_REVIEWED !== "true";
+            const marker = `<!-- excalidash-hans-signal:v1 head=${process.env.HEAD_SHA} kind=admission-recovered -->`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            if (comments.some((comment) => String(comment.body || "").includes(marker))) {
+              core.notice("The recovery comment already exists for this head SHA.");
+              return;
+            }
+            const body = [
+              marker,
+              `Die Review-Zulassung fuer \`${shortSha}\` ist jetzt erfuellt; der vorherige Befund ist erledigt.`,
+              "",
+              asked
+                ? "Hans-Friedrich wurde angefordert."
+                : "Dieser Kopf traegt bereits eine Review; es wurde keine zweite angefordert.",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
