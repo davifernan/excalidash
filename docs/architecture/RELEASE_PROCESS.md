@@ -138,6 +138,11 @@ dieselbe Sammel-SHA tragen (#132 und #134 tragen beide `99a0369`); innerhalb ein
 die PR-Nummer das Ergebnis reproduzierbar. Weil damit jede gemergte PR im Bereich vor der
 `User-Facing:`-Pruefung bekannt ist, erzeugt jede fehlende, mehrdeutige oder als `none`
 deklarierte Zeile eine sichtbare `SKIP`-Warnung statt schon bei der Zuordnung zu verschwinden.
+Die paginierte PR-Suche endet, sobald die nach `updated_at` absteigend sortierten Seiten hinter
+dem Commit des vorherigen Release liegen. Das ist keine Zeit-Heuristik fuer die Zugehoerigkeit:
+`updated_at` kann nicht vor `merged_at` liegen, und die eigentliche Aufnahme entscheidet
+weiterhin ausschliesslich die `merge_commit_sha` im lokalen Git-Bereich. Ein alter, spaeter
+editierter PR wird hoechstens zusaetzlich gelesen und danach wieder herausgefiltert.
 
 ### Die fuenf Pakete, die vor dieser Zeile gemergt wurden
 
