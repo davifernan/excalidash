@@ -14,9 +14,10 @@
 # comparison). What is NOT free is a corrected head on a ready PR: that is
 # the one case this workflow exists to catch.
 #
-# Both event types are needed. `opened` covers a pull request that starts ready;
-# `ready_for_review` covers one that starts as a draft and is finished later —
-# GitHub does not re-send `opened` for that transition.
+# All four event types are needed. `opened` covers a pull request that starts
+# ready; `ready_for_review` covers one that starts as a draft and is finished
+# later — GitHub does not re-send `opened` for that transition. `edited` and
+# `synchronize` are explained where they are added below.
 name: Hans-Friedrich
 
 on:
