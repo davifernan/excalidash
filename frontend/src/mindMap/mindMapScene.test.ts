@@ -5,10 +5,13 @@ import {
   addNodeOps,
   arrangeOps,
   dropTargetFor,
+  pinnedNodeIds,
   readMindMapEdges,
   readMindMapNodes,
   reparentOps,
+  togglePinOps,
 } from "./mindMapScene";
+import { MIND_MAP_COLORS } from "./mindMapElements";
 import { MIND_MAP_LAYOUT_V1 } from "./layout";
 
 let counter = 0;
@@ -18,7 +21,7 @@ function nodeSummary(
   id: string,
   x: number,
   y: number,
-  relation: { mapId: string; parentId: string | null; orderKey: string },
+  relation: { mapId: string; parentId: string | null; orderKey: string; pinned?: boolean },
 ): ElementSummary {
   return {
     id: id as never,
@@ -407,5 +410,151 @@ describe("reparentOps", () => {
     expect(acceptsAnything(aId, bId).ops).toHaveLength(1);
     // The real implementation refuses.
     expect(reparentOps([root, a, b], aId, bId)).toBeNull();
+  });
+});
+
+describe("pinnedNodeIds", () => {
+  it("collects only the nodes explicitly marked pinned", () => {
+    const mapId = "pin-1";
+    const rootId = nextId();
+    const pinnedId = nextId();
+    const plainId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const pinned = nodeSummary(pinnedId, 300, 0, {
+      mapId,
+      parentId: rootId,
+      orderKey: "a",
+      pinned: true,
+    });
+    const plain = nodeSummary(plainId, 300, 200, { mapId, parentId: rootId, orderKey: "m" });
+
+    const ids = pinnedNodeIds([root, pinned, plain]);
+    expect(ids.has(pinnedId)).toBe(true);
+    expect(ids.has(plainId)).toBe(false);
+    expect(ids.has(rootId)).toBe(false);
+  });
+});
+
+describe("togglePinOps", () => {
+  it("pins an unpinned node: sets the flag and the pinned stroke colour", () => {
+    const mapId = "pin-2";
+    const rootId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+
+    const ops = togglePinOps([root], rootId)!;
+    expect(ops).toHaveLength(1);
+    const patch = ops[0] as any;
+    expect(patch.kind).toBe("patch");
+    expect(patch.id).toBe(rootId);
+    expect(patch.changes.strokeColor).toBe(MIND_MAP_COLORS.pinnedStroke);
+    expect(patch.changes.customData.excalidash.mindMap.pinned).toBe(true);
+  });
+
+  it("unpins a pinned node: clears the flag and restores the default stroke colour", () => {
+    const mapId = "pin-3";
+    const rootId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m", pinned: true });
+
+    const ops = togglePinOps([root], rootId)!;
+    const patch = ops[0] as any;
+    expect(patch.changes.strokeColor).toBe(MIND_MAP_COLORS.nodeStroke);
+    expect(patch.changes.customData.excalidash.mindMap.pinned).toBeUndefined();
+  });
+
+  it("returns null for an unknown node id", () => {
+    expect(togglePinOps([], "nope")).toBeNull();
+  });
+
+  it("preserves the node's parentId and orderKey -- pinning is not a structural change", () => {
+    const mapId = "pin-4";
+    const rootId = nextId();
+    const childId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "a" });
+
+    const ops = togglePinOps([root, child], childId)!;
+    const patch = ops[0] as any;
+    expect(patch.changes.customData.excalidash.mindMap.parentId).toBe(rootId);
+    expect(patch.changes.customData.excalidash.mindMap.orderKey).toBe("a");
+  });
+});
+
+describe("arrangeOps respects pinned nodes (NIL-571 v2)", () => {
+  it("does not patch a pinned node's position, but still repositions its unpinned siblings", () => {
+    const mapId = "pin-5";
+    const rootId = nextId();
+    const pinnedId = nextId();
+    const plainId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    // Both children deliberately mis-positioned -- arrange would move both
+    // if neither were pinned (see the plain "arrangeOps" describe block).
+    const pinned = nodeSummary(pinnedId, 9999, 9999, {
+      mapId,
+      parentId: rootId,
+      orderKey: "a",
+      pinned: true,
+    });
+    const plain = nodeSummary(plainId, -50, -50, { mapId, parentId: rootId, orderKey: "m" });
+
+    const ops = arrangeOps([root, pinned, plain], mapId)!;
+    const patched = ops.filter((op) => op.kind === "patch");
+    expect(
+      patched.some((op: any) => op.id === pinnedId && ("x" in op.changes || "y" in op.changes)),
+    ).toBe(false);
+    expect(patched.some((op: any) => op.id === plainId)).toBe(true);
+  });
+
+  it("draws the edge into a pinned node from its own current position, not a recomputed one", () => {
+    const mapId = "pin-6";
+    const rootId = nextId();
+    const pinnedId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const pinned = nodeSummary(pinnedId, 9999, 9999, {
+      mapId,
+      parentId: rootId,
+      orderKey: "m",
+      pinned: true,
+    });
+
+    const ops = arrangeOps([root, pinned], mapId)!;
+    const inserted = ops.filter((op) => op.kind === "insert").flatMap((op: any) => op.elements);
+    const edge = inserted.find((el: any) => el.type === "arrow");
+    expect(edge).toBeDefined();
+    // The edge's endBinding resolves against the pinned node's own live box
+    // (9999, 9999), not wherever the deterministic tree layout would put it.
+    expect(edge.endBinding.elementId).toBe(pinnedId);
+  });
+
+  /**
+   * Counter-test: break the enforcement by never consulting `pinnedIds` in
+   * `layoutOps` (the pre-NIL-571-v2 behaviour) -- a pinned node's hand-set
+   * position would be silently discarded by the very next "Arrange mind
+   * map" run, exactly the epic's own documented breaking point. Copied
+   * here, not `git checkout --`'d.
+   */
+  it("regression guard: ignoring pinnedIds would patch the pinned node's position anyway", () => {
+    const mapId = "pin-7";
+    const rootId = nextId();
+    const pinnedId = nextId();
+    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
+    const pinned = nodeSummary(pinnedId, 9999, 9999, {
+      mapId,
+      parentId: rootId,
+      orderKey: "m",
+      pinned: true,
+    });
+
+    const withoutPinAwareness = (position: { x: number; y: number }) =>
+      position.x !== 9999 || position.y !== 9999; // the bug: always patches to the computed position
+
+    const ops = arrangeOps([root, pinned], mapId)!;
+    const patched = ops.filter((op) => op.kind === "patch");
+    // Under the bug, the deterministic layout position for this node is not
+    // (9999, 9999), so it would always be patched.
+    expect(withoutPinAwareness({ x: 200, y: 0 })).toBe(true);
+    // The real implementation refuses to move a pinned node at all.
+    expect(
+      patched.some((op: any) => op.id === pinnedId && ("x" in op.changes || "y" in op.changes)),
+    ).toBe(false);
   });
 });

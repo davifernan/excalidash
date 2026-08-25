@@ -26,6 +26,7 @@ import { layoutMindMap, MIND_MAP_LAYOUT_V1, type MindMapLayoutPosition } from ".
 import {
   createMindMapEdge,
   createMindMapNode,
+  MIND_MAP_COLORS,
   mergeEdgeBinding,
   newMindMapElementId,
   type NodeBox,
@@ -111,6 +112,15 @@ export function normalizeLiveMap(
  * restore or reconnect -- only from an explicit structural action or the
  * "Arrange mind map" command, both of which call this directly and nothing
  * else.
+ *
+ * `pinnedIds` (NIL-571 v2) is the one place a layout run can leave a node's
+ * hand-set position untouched: `layoutMindMap` itself still computes a
+ * position for every node in the tree, bit-identical for the same tree
+ * every time -- the core stays exactly as pure as it was in v1. A pinned
+ * node's box for the edge-drawing pass below simply uses its current live
+ * position instead of the computed one, and gets no patch (no move, no
+ * label move). Everything downstream of that (which edges get redrawn)
+ * already reacts correctly to boxes, whichever position produced them.
  */
 export function layoutOps(
   map: NormalizedMindMap,
@@ -118,6 +128,7 @@ export function layoutOps(
   liveById: ReadonlyMap<string, ElementSummary>,
   existingEdges: readonly ElementSummary[],
   allSummaries: readonly ElementSummary[] = [],
+  pinnedIds: ReadonlySet<string> = new Set(),
 ): SceneOp[] {
   const ops: SceneOp[] = [];
   const boxesById = new Map<string, NodeBox>();
@@ -129,18 +140,21 @@ export function layoutOps(
   for (const node of map.nodes) {
     const position = positionsByElementId.get(node.elementId);
     if (!position) continue;
+    const live = liveById.get(node.elementId);
+    const pinned = pinnedIds.has(node.elementId) && live;
     // Every node in the map gets a box, whether or not it already exists on
     // the canvas: a brand-new node (added in the same batch, see
     // `addNodeOps`) is inserted with this position directly, so it needs a
-    // box for the edge-drawing pass below without needing a patch here.
+    // box for the edge-drawing pass below without needing a patch here. A
+    // pinned node keeps its current live box instead of the computed one.
     boxesById.set(node.elementId, {
       id: node.elementId,
-      x: position.x,
-      y: position.y,
+      x: pinned ? live.x : position.x,
+      y: pinned ? live.y : position.y,
       width: MIND_MAP_LAYOUT_V1.nodeWidth,
       height: MIND_MAP_LAYOUT_V1.nodeHeight,
     });
-    const live = liveById.get(node.elementId);
+    if (pinned) continue; // hand-set position: no move, no patch.
     if (live && (live.x !== position.x || live.y !== position.y)) {
       const dx = position.x - live.x;
       const dy = position.y - live.y;
@@ -199,6 +213,15 @@ export function layoutOps(
   }
 
   return ops;
+}
+
+/** Every node id in `summaries` whose hand-set position an "Arrange mind map" run must not discard. */
+export function pinnedNodeIds(summaries: readonly ElementSummary[]): ReadonlySet<string> {
+  return new Set(
+    readMindMapNodes(summaries)
+      .filter((node) => node.relation.pinned === true)
+      .map((node) => node.summary.id),
+  );
 }
 
 /** Positions for every node in a normalized map, root anchored at its own current top-left. */
@@ -286,7 +309,14 @@ export function addNodeOps(
 
   const ops: SceneOp[] = [
     { kind: "insert", elements: [placedNode] },
-    ...layoutOps(withNewNode.value, positions, liveById, edgesForMap, summaries),
+    ...layoutOps(
+      withNewNode.value,
+      positions,
+      liveById,
+      edgesForMap,
+      summaries,
+      pinnedNodeIds(summaries),
+    ),
     { kind: "select", ids: [newId as never] },
   ];
 
@@ -396,13 +426,25 @@ export function reparentOps(
         }),
       },
     },
-    ...layoutOps(normalized.value, positions, liveById, edgesForMap, summaries),
+    ...layoutOps(
+      normalized.value,
+      positions,
+      liveById,
+      edgesForMap,
+      summaries,
+      pinnedNodeIds(summaries),
+    ),
   ];
 
   return { ops };
 }
 
-/** The explicit "Arrange mind map" command: recompute the whole map's layout, nothing else. */
+/**
+ * The explicit "Arrange mind map" command: recompute the whole map's
+ * layout, nothing else -- except a pinned node's own position, which this
+ * command exists specifically not to discard (NIL-571 v2; this is the
+ * epic's own "point where it breaks" in v1).
+ */
 export function arrangeOps(summaries: readonly ElementSummary[], mapId: string): SceneOp[] | null {
   const normalized = normalizeLiveMap(summaries, mapId);
   if (!normalized.ok) return null;
@@ -411,7 +453,44 @@ export function arrangeOps(summaries: readonly ElementSummary[], mapId: string):
   );
   const positions = computeLayoutPositions(normalized.value, liveById);
   const edgesForMap = readMindMapEdges(summaries).get(mapId) ?? [];
-  return layoutOps(normalized.value, positions, liveById, edgesForMap, summaries);
+  return layoutOps(
+    normalized.value,
+    positions,
+    liveById,
+    edgesForMap,
+    summaries,
+    pinnedNodeIds(summaries),
+  );
+}
+
+/**
+ * Toggle `nodeId`'s pinned flag -- no layout run, ever (NIL-570's own
+ * "layout never runs on its own" promise): pinning keeps a node exactly
+ * where it already is, and unpinning just marks its position free for the
+ * *next* explicit arrange to recompute, not an immediate one. The stroke
+ * colour flips with it so pin state is visible on the node itself, not
+ * invisible metadata (`mindMapElements.ts`'s `MIND_MAP_COLORS.pinnedStroke`).
+ */
+export function togglePinOps(
+  summaries: readonly ElementSummary[],
+  nodeId: string,
+): SceneOp[] | null {
+  const node = readMindMapNodes(summaries).find((n) => n.summary.id === nodeId);
+  if (!node) return null;
+
+  const pinned = !(node.relation.pinned === true);
+  return [
+    {
+      kind: "patch",
+      id: nodeId as never,
+      changes: {
+        strokeColor: pinned ? MIND_MAP_COLORS.pinnedStroke : MIND_MAP_COLORS.nodeStroke,
+        customData: withExcalidashData(node.summary, {
+          mindMap: { ...node.relation, ...(pinned ? { pinned: true } : { pinned: undefined }) },
+        }),
+      },
+    },
+  ];
 }
 
 /** The map id of a mind-map node, or null. */

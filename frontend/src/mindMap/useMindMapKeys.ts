@@ -1,9 +1,13 @@
 /**
- * Tab for a child, Enter for a sibling.
+ * Tab for a child, Enter for a sibling, P to pin or unpin (NIL-571 v2).
  *
  * Only fires from a selected mind-map node, not from inside its label: Tab
  * belongs to Excalidraw's own text editor there (it indents), the same
- * reason `useStickyKeys.ts` waits for Escape before Tab.
+ * reason `useStickyKeys.ts` waits for Escape before Tab. `P` is an explicit
+ * toggle, not something a plain drag sets on its own -- dragging a node
+ * still just moves it, exactly as in v1; pinning is a deliberate second
+ * action for the node whose position should survive the next "Arrange mind
+ * map" run.
  */
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -13,7 +17,7 @@ import type {
   SelectionCapability,
 } from "../integrations/excalidraw/capabilities";
 import { pressEnterToEditLabel } from "../integrations/excalidraw/domBridge";
-import { addNodeOps, readMindMapNodes } from "./mindMapScene";
+import { addNodeOps, readMindMapNodes, togglePinOps } from "./mindMapScene";
 
 type Options = {
   containerRef: React.RefObject<HTMLElement>;
@@ -61,13 +65,29 @@ export function useMindMapKeys({ canEdit, containerRef, interaction, scene, sele
       const wantsChild = event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.shiftKey;
       const wantsSibling =
         event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-      if (!wantsChild && !wantsSibling) return;
+      const wantsPinToggle =
+        event.key.toLowerCase() === "p" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        !event.altKey;
+      if (!wantsChild && !wantsSibling && !wantsPinToggle) return;
 
       const anchorId = selectedMindMapNodeId({ interaction, scene, selection });
       if (!anchorId) return;
 
       event.preventDefault();
       event.stopPropagation();
+
+      if (wantsPinToggle) {
+        const summaries = scene.summaries();
+        if (!summaries.ok) return;
+        const ops = togglePinOps(summaries.value, anchorId);
+        if (!ops) return;
+        const applied = scene.apply(ops, { capture: "immediate" });
+        if (!applied.ok) toast.error("Couldn't pin the node. Please try again.");
+        return;
+      }
 
       const summaries = scene.summaries();
       if (!summaries.ok) return;

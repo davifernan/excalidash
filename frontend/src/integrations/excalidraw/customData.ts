@@ -58,6 +58,16 @@ export type MindMapRecord = {
   readonly mapId: string;
   readonly parentId: string | null;
   readonly orderKey: string;
+  /**
+   * NIL-571 v2: this node's current position is a hand-set one an explicit
+   * "Arrange mind map" run must not discard. Missing/`false` means the
+   * position is free for the deterministic layout core to recompute --
+   * `layoutMindMap` itself stays exactly as pure and unaware of this field
+   * as it was in v1; only `mindMapScene.ts`'s `layoutOps` reads it, to
+   * decide which of the core's own computed positions actually get written
+   * back, never to change what the core computes.
+   */
+  readonly pinned?: boolean;
 };
 
 /**
@@ -126,7 +136,7 @@ const parseMindMap = (value: unknown): MindMapRecord | undefined => {
   if (mapId === null || (parentId === null && value.parentId !== null) || orderKey === null) {
     return undefined;
   }
-  return { mapId, parentId, orderKey };
+  return { mapId, parentId, orderKey, ...(value.pinned === true ? { pinned: true } : {}) };
 };
 
 const parseMindMapProjection = (value: unknown): MindMapProjectionRecord | undefined => {

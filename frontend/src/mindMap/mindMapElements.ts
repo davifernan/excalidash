@@ -60,6 +60,13 @@ export const MIND_MAP_COLORS = Object.freeze({
    * `nodeStroke`/`edgeStroke`.
    */
   dropHighlight: "#4263eb",
+  /**
+   * NIL-571 v2: a pinned node's own stroke, so pin state is visible on the
+   * node itself rather than being invisible metadata -- open-color
+   * orange-7, distinct from both the default `nodeStroke` and the
+   * transient `dropHighlight`.
+   */
+  pinnedStroke: "#f76707",
 });
 
 export const newMindMapElementId = (): string => crypto.randomUUID();
