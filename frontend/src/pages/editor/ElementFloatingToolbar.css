@@ -33,6 +33,21 @@
   flex-direction: column;
 }
 
+.element-floating-toolbar[data-layout="compact"] .pdf-widget__actions,
+.element-floating-toolbar[data-layout="compact"] .text-document-widget__actions {
+  box-sizing: border-box;
+  width: 100%;
+  flex-direction: column;
+}
+
+.element-floating-toolbar[data-layout="compact"] .pdf-widget__divider,
+.element-floating-toolbar[data-layout="compact"] .text-document-widget__divider {
+  align-self: stretch;
+  width: auto;
+  height: 1px;
+  margin: 0 4px;
+}
+
 .element-floating-toolbar[data-layout="compact"] .editable-asset-name,
 .element-floating-toolbar[data-layout="compact"] .editable-asset-name__label,
 .element-floating-toolbar[data-layout="compact"] .editable-asset-name__button,

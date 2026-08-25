@@ -136,36 +136,39 @@ export const PdfWidget = ({
                 setAsset((current) => (current ? { ...current, name: renamed.name } : current));
               }}
             />
-            <button
-              type="button"
-              className="pdf-widget__button"
-              aria-label="Previous page"
-              disabled={pending || requestedPage <= 1}
-              onClick={() => turnPage(-1)}
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <span className="pdf-widget__page-number">
-              Page {requestedPage} of {asset.pageCount}
-            </span>
-            <button
-              type="button"
-              className="pdf-widget__button"
-              aria-label="Next page"
-              disabled={pending || requestedPage >= asset.pageCount}
-              onClick={() => turnPage(1)}
-            >
-              <ChevronRight size={18} />
-            </button>
-            <a
-              className="pdf-widget__button"
-              href={getPdfOriginalUrl(drawingId, assetId)}
-              download={asset.name}
-              aria-label="Download original PDF"
-              title="Download original PDF"
-            >
-              <Download size={17} />
-            </a>
+            <span className="pdf-widget__divider" aria-hidden="true" />
+            <div className="pdf-widget__actions">
+              <button
+                type="button"
+                className="pdf-widget__button"
+                aria-label="Previous page"
+                disabled={pending || requestedPage <= 1}
+                onClick={() => turnPage(-1)}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="pdf-widget__page-number">
+                Page {requestedPage} of {asset.pageCount}
+              </span>
+              <button
+                type="button"
+                className="pdf-widget__button"
+                aria-label="Next page"
+                disabled={pending || requestedPage >= asset.pageCount}
+                onClick={() => turnPage(1)}
+              >
+                <ChevronRight size={18} />
+              </button>
+              <a
+                className="pdf-widget__button"
+                href={getPdfOriginalUrl(drawingId, assetId)}
+                download={asset.name}
+                aria-label="Download original PDF"
+                title="Download original PDF"
+              >
+                <Download size={17} />
+              </a>
+            </div>
           </div>
         </ElementFloatingToolbar>
       ) : null}

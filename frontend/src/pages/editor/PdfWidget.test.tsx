@@ -174,4 +174,41 @@ describe("PdfWidget", () => {
     );
     expect(await screen.findByRole("button", { name: "Rename Workshop brief.pdf" })).toBeVisible();
   });
+
+  it("separates the filename from the content actions with a divider (NIL-582)", async () => {
+    render(
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+    await screen.findByRole("toolbar", { name: "PDF controls" });
+
+    // The controls portal onto `toolbar.host` (document.body here), not into
+    // the render container -- see the "portals controls" test above.
+    const controls = document.body.querySelector(".pdf-widget__controls");
+    const children = controls ? Array.from(controls.children) : [];
+    const nameIndex = children.findIndex((child) =>
+      child.matches(".editable-asset-name__button, .editable-asset-name__label"),
+    );
+    const dividerIndex = children.findIndex((child) => child.matches(".pdf-widget__divider"));
+    const actionsIndex = children.findIndex((child) => child.matches(".pdf-widget__actions"));
+
+    // The pencil sits in the identity group in the DOM; only the divider
+    // between it and the content-action group states that they are two
+    // different kinds of thing (NIL-582). A regression that drops the
+    // divider, or interleaves it with the wrong group, must fail here.
+    expect(nameIndex).toBe(0);
+    expect(dividerIndex).toBe(1);
+    expect(actionsIndex).toBe(2);
+    expect(
+      controls?.querySelector(".pdf-widget__actions")?.contains(
+        screen.getByRole("link", { name: "Download original PDF" }),
+      ),
+    ).toBe(true);
+  });
 });
