@@ -7,12 +7,21 @@
   padding: 3px;
   border: 1px solid var(--button-hover-border, transparent);
   border-radius: var(--border-radius-lg, 0.5rem);
-  background: var(--island-bg-color);
-  box-shadow: var(--shadow-island);
+  /* Muted grey by default, matching the pill inside (WorkshopTimerWidget.css)
+     -- only a running timer earns the main toolbar's white island (NIL-578).
+     The handle and reset icons are less relevant than the timer itself when
+     nothing is counting down, so their contrast drops with it. */
+  background: var(--color-surface-low, var(--island-bg-color));
+  box-shadow: none;
   /* Excalidraw turns this off mid-gesture; inheriting it means the widget
      does not steal a draw that merely passes over its corner. */
   pointer-events: var(--ui-pointerEvents);
   touch-action: none;
+}
+
+.workshop-timer-corner:has(.workshop-timer--running) {
+  background: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
 }
 
 .workshop-timer-corner--dragging {
