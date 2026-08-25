@@ -264,13 +264,19 @@ describe("editor broadcast delivery tracking", () => {
 
   it("lets a fresh file use the delivery slot while an older file waits to retry", () => {
     vi.useFakeTimers();
-    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
-    const emit = vi.fn(
-      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
-        acknowledgements.push(ack);
-      },
-    );
-    const socket = { connected: true, timeout: vi.fn(() => ({ emit })) };
+    const acknowledgements: Array<(response?: unknown) => void> = [];
+    let disconnect: (() => void) | undefined;
+    const emit = vi.fn((_event: string, _payload: unknown, ack: (response?: unknown) => void) => {
+      acknowledgements.push(ack);
+    });
+    const socket = {
+      connected: true,
+      emit,
+      once: vi.fn((_event: string, listener: () => void) => {
+        disconnect = listener;
+      }),
+      off: vi.fn(),
+    };
     const roomJoinedRef = ref(true);
     const largeFile = { id: "large", mimeType: "image/png", dataURL: "data:large" };
     const smallFile = { id: "small", mimeType: "image/png", dataURL: "data:small" };
@@ -301,7 +307,7 @@ describe("editor broadcast delivery tracking", () => {
 
     socket.connected = false;
     roomJoinedRef.current = false;
-    act(() => acknowledgements[0]?.(new Error("offline")));
+    act(() => disconnect?.());
     act(() => vi.advanceTimersByTime(1_000));
     act(() =>
       expect(
@@ -325,7 +331,7 @@ describe("editor broadcast delivery tracking", () => {
   it("waits for the room join acknowledgement before delivering queued files", () => {
     vi.useFakeTimers();
     const emit = vi.fn();
-    const socket = { connected: false, timeout: vi.fn(() => ({ emit })) };
+    const socket = { connected: false, emit };
     const roomJoinedRef = ref(false);
     const queuedFile = { id: "queued", mimeType: "image/png", dataURL: "data:queued" };
     const { result } = renderHook(() =>
@@ -379,7 +385,7 @@ describe("editor broadcast delivery tracking", () => {
         latestAppStateRef: ref(null),
         latestFilesRef: ref({}),
         lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
-        socketRef: ref<any>({ timeout: vi.fn(() => ({ emit })) }),
+        socketRef: ref<any>({ emit }),
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "same-order",
@@ -402,12 +408,10 @@ describe("editor broadcast delivery tracking", () => {
   });
 
   it("requeues a newer file version when the in-flight version is hard rejected", () => {
-    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
-    const emit = vi.fn(
-      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
-        acknowledgements.push(ack);
-      },
-    );
+    const acknowledgements: Array<(response?: unknown) => void> = [];
+    const emit = vi.fn((_event: string, _payload: unknown, ack: (response?: unknown) => void) => {
+      acknowledgements.push(ack);
+    });
     const firstVersion = { id: "replaceable", dataURL: "data:first-version" };
     const secondVersion = { id: "replaceable", dataURL: "data:second-version" };
     const { result } = renderHook(() =>
@@ -420,7 +424,7 @@ describe("editor broadcast delivery tracking", () => {
         latestAppStateRef: ref(null),
         latestFilesRef: ref({}),
         lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
-        socketRef: ref<any>({ timeout: vi.fn(() => ({ emit })) }),
+        socketRef: ref<any>({ emit }),
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "same-order",
@@ -436,7 +440,7 @@ describe("editor broadcast delivery tracking", () => {
     expect(emit).toHaveBeenCalledOnce();
 
     act(() =>
-      acknowledgements[0]?.(null, {
+      acknowledgements[0]?.({
         ok: false,
         error: { code: "invalid-request", message: "old version rejected" },
       }),
@@ -824,15 +828,57 @@ describe("getDeliveryState", () => {
     });
   });
 
-  it("reports queue state while a fresh file passes a timed-out retry", () => {
+  it("does not retransmit a file merely because its ack waits behind main-thread work", () => {
     vi.useFakeTimers();
-    const acknowledgements: Array<(error: unknown, response?: unknown) => void> = [];
-    const emit = vi.fn(
-      (_event: string, _payload: unknown, ack: (error: unknown, response?: unknown) => void) => {
-        acknowledgements.push(ack);
-      },
+    const acknowledgements: Array<(response?: unknown) => void> = [];
+    const emit = vi.fn((_event: string, _payload: unknown, ack: (response?: unknown) => void) => {
+      acknowledgements.push(ack);
+    });
+    const socket = {
+      emit,
+      timeout: vi.fn((milliseconds: number) => ({
+        emit: (_event: string, _payload: unknown, ack: (error: unknown) => void) =>
+          window.setTimeout(() => ack(new Error("timeout")), milliseconds),
+      })),
+    };
+    const file = { id: "file-1", dataURL: "data:image/png;base64,abc" };
+    const { result } = renderHook(() =>
+      useEditorBroadcast(params({ socketRef: ref<any>(socket) })),
     );
-    const socket = { timeout: vi.fn(() => ({ emit })) };
+
+    act(() => result.current.broadcastFiles({ "file-1": file }));
+    act(() => vi.advanceTimersByTime(10_000));
+
+    expect(emit).toHaveBeenCalledOnce();
+    expect(socket.timeout).not.toHaveBeenCalled();
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: true,
+      retrying: false,
+      acknowledgedFileIds: [],
+    });
+
+    act(() => acknowledgements[0]?.({ ok: true }));
+    expect(result.current.getDeliveryState()).toMatchObject({
+      inFlight: false,
+      acknowledgedFileIds: ["file-1"],
+    });
+    vi.useRealTimers();
+  });
+
+  it("reports queue state while a fresh file passes a disconnected retry", () => {
+    vi.useFakeTimers();
+    const acknowledgements: Array<(response?: unknown) => void> = [];
+    let disconnect: (() => void) | undefined;
+    const emit = vi.fn((_event: string, _payload: unknown, ack: (response?: unknown) => void) => {
+      acknowledgements.push(ack);
+    });
+    const socket = {
+      emit,
+      once: vi.fn((_event: string, listener: () => void) => {
+        disconnect = listener;
+      }),
+      off: vi.fn(),
+    };
     const first = { id: "file-1", dataURL: "data:image/png;base64,first" };
     const second = { id: "file-2", dataURL: "data:image/png;base64,second" };
     const { result } = renderHook(() =>
@@ -843,7 +889,7 @@ describe("getDeliveryState", () => {
     act(() => result.current.broadcastFiles({ "file-1": first, "file-2": second }));
     expect(result.current.getDeliveryState()).toMatchObject({ inFlight: true, parked: true });
 
-    act(() => acknowledgements[0]?.(new Error("timeout")));
+    act(() => disconnect?.());
     expect(result.current.getDeliveryState()).toMatchObject({
       inFlight: true,
       parked: false,
@@ -856,7 +902,7 @@ describe("getDeliveryState", () => {
     expect(emit).toHaveBeenCalledTimes(2);
     expect(emit.mock.calls[1]?.[1]).toMatchObject({ files: { "file-2": second } });
 
-    act(() => acknowledgements[1]?.(null, { ok: true }));
+    act(() => acknowledgements[1]?.({ ok: true }));
     expect(result.current.getDeliveryState()).toMatchObject({
       inFlight: false,
       parked: false,
@@ -873,7 +919,7 @@ describe("getDeliveryState", () => {
       retrying: true,
     });
 
-    act(() => acknowledgements[2]?.(null, { ok: true }));
+    act(() => acknowledgements[2]?.({ ok: true }));
     expect(result.current.getDeliveryState()).toMatchObject({
       inFlight: false,
       parked: false,

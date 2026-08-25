@@ -26,6 +26,33 @@ class DrawingSaveConflictError extends Error {
   }
 }
 
+/**
+ * Excalidraw keeps binary files after their last image element is deleted so
+ * its in-memory undo stack can still restore them. A persisted board has no
+ * such undo stack after reload. Sending those orphaned bytes on every
+ * autosave only makes a refused large image keep punishing the board after
+ * the user removed it.
+ */
+const referencedFiles = (
+  elements: readonly any[],
+  files: Record<string, any>,
+): Record<string, any> => {
+  const ids = new Set(
+    elements
+      .filter((element) => element?.isDeleted !== true && typeof element?.fileId === "string")
+      .map((element) => element.fileId),
+  );
+  const entries = Object.entries(files || {});
+  if (entries.every(([fileId]) => ids.has(fileId))) return files;
+  return Object.fromEntries(entries.filter(([fileId]) => ids.has(fileId)));
+};
+
+const haveSameFileIds = (left: Record<string, any>, right: Record<string, any>): boolean => {
+  const leftIds = Object.keys(left || {}).sort();
+  const rightIds = Object.keys(right || {}).sort();
+  return leftIds.length === rightIds.length && leftIds.every((id, index) => id === rightIds[index]);
+};
+
 type PersistenceRefs = {
   currentDrawingVersion: MutableRefObject<number | null>;
   debouncedSave: MutableRefObject<
@@ -139,7 +166,10 @@ export const useEditorPersistence = ({
         });
         return;
       }
-      let persistableFiles = files ?? refs.latestFiles.current ?? {};
+      let persistableFiles = referencedFiles(
+        persistableElements,
+        files ?? refs.latestFiles.current ?? {},
+      );
       const editorFilesBeforeCompression = persistableFiles;
       const compressedFilesResult = await compressExcalidrawFiles(persistableFiles);
       if (compressedFilesResult.changed) {
@@ -167,6 +197,7 @@ export const useEditorPersistence = ({
         refs.latestFiles.current = persistableFiles;
       }
       const filesChangedSincePersist =
+        !haveSameFileIds(refs.lastPersistedFiles.current || {}, persistableFiles || {}) ||
         Object.keys(getFilesDelta(refs.lastPersistedFiles.current || {}, persistableFiles || {}))
           .length > 0;
       const normalizedElementsForSave = Array.from(
@@ -193,7 +224,9 @@ export const useEditorPersistence = ({
             protect: heldElementIds(heldNow(), elementsToSave),
           },
         );
-        const mergedFiles = filesToSave ? { ...(latest?.files || {}), ...filesToSave } : undefined;
+        const mergedFiles = filesToSave
+          ? referencedFiles(mergedElements, { ...(latest?.files || {}), ...filesToSave })
+          : undefined;
 
         refs.currentDrawingVersion.current = latestVersion;
         // Through the scene capability, with the history flag it speaks rather

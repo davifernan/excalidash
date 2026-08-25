@@ -417,13 +417,19 @@ export const useEditorBroadcast = ({
       drainFileDeliveriesRef.current();
     };
 
-    if (typeof socket.timeout === "function") {
-      socket.timeout(ELEMENT_UPDATE_ACK_TIMEOUT_MS).emit("element-update", payload, acknowledge);
-    } else {
-      socket.emit("element-update", payload, (response: ElementUpdateAck) =>
-        acknowledge(null, response),
-      );
-    }
+    // A large frame can keep the sender's main thread busy long enough for a
+    // fixed acknowledgement timer to fire even though the server already
+    // accepted and answered the packet. Retrying the same bytes then creates
+    // the load that keeps hiding the ack. The server answers every admitted
+    // element-update; only a real transport disconnect makes that answer
+    // unreachable and justifies requeueing the file.
+    const onDisconnect = () => acknowledge(new Error("socket disconnected"));
+    socket.once?.("disconnect", onDisconnect);
+    socket.emit("element-update", payload, (response: ElementUpdateAck) => {
+      socket.off?.("disconnect", onDisconnect);
+      acknowledge(null, response);
+    });
+    if (socket.connected === false) onDisconnect();
   }, [canDeliverToRoom, drawingId, lastSyncedFilesRef, socketRef]);
 
   const queueFileDelivery = useCallback((fileId: string, file: any) => {

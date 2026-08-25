@@ -80,6 +80,20 @@ const waitConnected = (page: Page, label: string) =>
     })
     .toBe(true);
 
+const waitRoomJoined = (page: Page, label: string) =>
+  expect
+    .poll(
+      () =>
+        page.evaluate(
+          () => (window as any).__EXCALIDASH_SOCKET_STATUS__?.roomJoined === true,
+        ),
+      {
+        timeout: CEILING.ui,
+        message: `${label} socket never rejoined its room`,
+      },
+    )
+    .toBe(true);
+
 const errorToasts = (page: Page) => page.locator("[data-sonner-toast][data-type=error]");
 
 // Match the rejected image by the canvas location the product shows, not by
@@ -421,32 +435,23 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         // order is exactly what is under test, not a page number picked in
         // advance. What every client must agree on is the *same* page,
         // whichever one the server decided.
-        // Arm all three browser contexts before releasing any click. Three
-        // Playwright `locator.click()` calls are not an atomic barrier: one
-        // can still be doing actionability checks when another client's
-        // accepted revision temporarily disables its button. Resolving and
-        // storing every real role-matched DOM button first makes readiness a
-        // two-phase condition rather than a guessed timing window.
-        await Promise.all(
-          nextPageButtons.map((button) =>
-            button.evaluate(
-              (element) => {
-                if (!(element instanceof HTMLButtonElement) || element.disabled) {
-                  throw new Error("Could not arm an enabled Next page button");
-                }
-                (window as any).__NIL546_ARMED_NEXT_PAGE__ = element;
-              },
-              { timeout: CEILING.ui },
-            ),
-          ),
-        );
+        // Playwright actionability checks can serialize locator.click() calls
+        // long enough for the first accepted revision to disable the other
+        // buttons. Keeping resolved elements as a two-phase barrier is not
+        // safe either: under the image pressure above, React can replace a
+        // stored node before the slowest browser is armed, and click() on that
+        // detached node never reaches React's delegated handler. Start one
+        // synchronous DOM lookup-and-click in every context instead. Each
+        // callback has no await point between resolving the current connected
+        // node and dispatching its click.
         await Promise.all(
           [host, guestA, guestB].map((page) =>
             page.evaluate(() => {
-              const button = (window as any).__NIL546_ARMED_NEXT_PAGE__;
-              delete (window as any).__NIL546_ARMED_NEXT_PAGE__;
-              if (!(button instanceof HTMLButtonElement) || button.disabled) {
-                throw new Error("Next page became disabled before the concurrent release");
+              const button = document.querySelector<HTMLButtonElement>(
+                '.text-document-widget__button[aria-label="Next page"]',
+              );
+              if (!button?.isConnected || button.disabled) {
+                throw new Error("Could not release a connected, enabled Next page button");
               }
               button.click();
             }),
@@ -497,17 +502,30 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           targetBytes: 6 * 1024 * 1024,
           elementId: "nil330_reconnect_probe",
         });
-        // Racing the drop against packet delivery on purpose: the guarantee
-        // under test is that *whichever* unconfirmed bytes were in flight
-        // when the socket dies get forgotten, not resent from a stale marker
-        // and not left half-applied. `setOffline` resolves once the browser
-        // has applied the condition -- there is nothing further to observe
-        // before lifting it again.
-        await hostCtx.setOffline(true);
+        // Close the actual Engine.IO transport instead of briefly toggling
+        // the browser offline and assuming Socket.IO noticed. A sub-ping-
+        // interval offline window can leave `socket.connected` true while
+        // silently black-holing the packet, which tests neither disconnect
+        // cleanup nor reconnect. The transport control is the same one used
+        // by reconnect-image-delivery.spec.ts and gives us an observable
+        // disconnected state before the queued bytes are released.
+        await host.evaluate(() => {
+          const status = (window as any).__EXCALIDASH_SOCKET_STATUS__;
+          if (typeof status?.dropTransport !== "function") {
+            throw new Error("Missing Socket.IO transport-drop test control");
+          }
+          status.dropTransport();
+        });
+        await expect
+          .poll(() => socketConnected(host), {
+            timeout: CEILING.ui,
+            message: "host transport never entered the disconnected state",
+          })
+          .toBe(false);
         const probe = await inFlight;
-        await hostCtx.setOffline(false);
 
         await waitConnected(host, "host after reconnect");
+        await waitRoomJoined(host, "host after reconnect");
 
         // Hop by hop. The probe was queued while the socket died; after the
         // reconnect the server has to ack it (a resend from a clean marker,

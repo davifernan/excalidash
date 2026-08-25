@@ -15,17 +15,6 @@ export { elementUpdateLimitError, type ElementUpdateLimitError };
 
 export const SOCKET_QUEUE_LIMITS = { joins: 8 } as const;
 
-/**
- * Socket.IO buffers non-volatile room events for a briefly disconnected
- * client and replays the missed offset when its transport resumes. File and
- * scene updates need that guarantee; cursor traffic is deliberately volatile
- * and is not retained. Authentication still runs on a recovered connection.
- */
-export const SOCKET_CONNECTION_RECOVERY = {
-  maxDisconnectionDuration: 2 * 60 * 1_000,
-  skipMiddlewares: false,
-} as const;
-
 export type RoomEventError = { code: string; message: string };
 
 /**

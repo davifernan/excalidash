@@ -188,6 +188,40 @@ describe("useEditorPersistence", () => {
     });
   });
 
+  it("does not compress or persist files whose image was deleted", async () => {
+    const live = { id: "live", dataURL: "data:image/png;base64,live" };
+    const orphaned = { id: "orphaned", dataURL: "data:image/png;base64,large" };
+    const editorFiles = { live, orphaned };
+    vi.mocked(compressExcalidrawFiles).mockImplementation(async (files) => ({
+      files,
+      changed: false,
+      changedIds: [],
+    }));
+    vi.mocked(api.updateDrawing).mockResolvedValue({ version: 2 } as any);
+    const refs = createRefs(editorFiles);
+    refs.lastPersistedFiles.current = editorFiles;
+    const { result } = renderPersistence(refs);
+
+    await act(async () => {
+      await result.current.saveDataRef.current?.(
+        "drawing",
+        [
+          { id: "live-element", type: "image", fileId: "live", isDeleted: false },
+          { id: "deleted-element", type: "image", fileId: "orphaned", isDeleted: true },
+        ],
+        {},
+        editorFiles,
+      );
+    });
+
+    expect(compressExcalidrawFiles).toHaveBeenCalledWith({ live });
+    expect(api.updateDrawing).toHaveBeenCalledWith(
+      "drawing",
+      expect.objectContaining({ files: { live } }),
+    );
+    expect(refs.lastPersistedFiles.current).toEqual({ live });
+  });
+
   it("does not book the baseline after the bounded conflict retry fails", async () => {
     const previouslySyncedFiles = {
       image: { id: "image", dataURL: "data:image/png;base64,previous" },
