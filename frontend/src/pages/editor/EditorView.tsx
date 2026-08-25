@@ -7,7 +7,8 @@ import { getAssetWidgetData, validateEmbeddableLink } from "./pdfWidgetElements"
 import { EditorTopRight } from "./EditorTopRight";
 import { useExcalidrawRoot } from "./useExcalidrawRoot";
 import { useExcalidrawUiState } from "./useExcalidrawUiState";
-import type { Peer } from "./useEditorCollaboration";
+import type { ConnectionStatus, Peer } from "./useEditorCollaboration";
+import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
 import type { Follower } from "./followMode";
 import type { WorkshopTimerController } from "./workshopTimer";
 import type { DocumentPageController } from "./documentPages";
@@ -47,6 +48,7 @@ type EditorViewProps = {
   loadError: string | null;
   newName: string;
   peers: Peer[];
+  connectionStatus: ConnectionStatus;
   theme: string;
   workshopTimer: WorkshopTimerController;
   documentPages: DocumentPageController;
@@ -109,6 +111,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   loadError,
   newName,
   peers,
+  connectionStatus,
   theme,
   workshopTimer,
   documentPages,
@@ -312,6 +315,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             canEdit={canEdit}
             timer={workshopTimer}
           />
+          <ConnectionStatusBadge container={excalidrawRoot} status={connectionStatus} />
           <PresentationOverlay container={excalidrawRoot} frames={frames} presenting={presenting} />
           <VotingOverlay container={excalidrawRoot} voting={voting} />
           {inviteHere.invitation ? (

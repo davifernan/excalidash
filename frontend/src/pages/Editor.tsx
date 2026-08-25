@@ -322,6 +322,7 @@ export const Editor: React.FC = () => {
   }, [id, location.hash, location.pathname, location.search, navigate]);
   const {
     peers,
+    connectionStatus,
     cursorChatRef,
     cursorChatDraft,
     followers,
@@ -683,6 +684,7 @@ export const Editor: React.FC = () => {
         loadError={loadError}
         newName={newName}
         peers={peers}
+        connectionStatus={connectionStatus}
         theme={theme}
         workshopTimer={workshopTimer}
         documentPages={documentPages}
