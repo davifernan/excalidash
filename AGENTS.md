@@ -9,7 +9,7 @@ Core user-facing features include organizing drawings into collections, search, 
 
 This fork builds ExcaliDash further into a canvas-first project space for a small team (around
 ten people): Team Home with presence and activity, comments/mentions/notifications, a shared
-Team Library, workshop/presentation mode for frames, and board-scoped agent access — see
+Team Library, workshop/presentation mode for frames, mind maps, and board-scoped agent access — see
 `docs/product/PRODUCT_VISION.md` for the product thesis and `FORK.md` for what's actually
 shipped versus tracked from upstream.
 
@@ -139,8 +139,10 @@ Review focus: <what an independent reviewer should attack>
 - Open work-in-progress pull requests as drafts. Before marking a PR ready, post the Multica
   package `HANDOFF`, finish local verification, and complete the PR template's ready gate.
 - A PR body names exactly one `Multica-Package`, the completed `Delivery-Slices`, the canonical
-  `Package-Session`, and its diff-derived impact/visual-evidence decision. The three primary
-  ready-gate lines in the template are literal protocol text and may not be rewritten.
+  `Package-Session`, its diff-derived impact/visual-evidence decision, and a `Change-Kind` of
+  `added`/`fixed`/`changed`/`none` — read directly from the PR body at release-tag time, never
+  guessed from commit-subject history (see `docs/architecture/RELEASE_PROCESS.md`). The three
+  primary ready-gate lines in the template are literal protocol text and may not be rewritten.
 - A ready PR freezes its intended scope. Hans-Friedrich performs exactly one general review of
   that ready head. Do not push while that review is running.
 - Hans-Friedrich is the only default code reviewer. The PR Overseer coordinates state and
@@ -216,7 +218,7 @@ These are **this fork's** own operational helpers — `davifernan/excalidash`, p
 GHCR, not upstream's Docker Hub images or `docker-compose.prod.yml`. Pointing any of this at
 `ZimengXiong/ExcaliDash` instead pulls upstream's images, which carry none of this fork's
 features (snapshot compression, transactional password-reset mail, board-scoped agent tokens,
-Team/Comments/Workshop/Discovery, the Excalidraw adapter and authz boundary, ...) — see
+Team/Comments/Workshop/Discovery, mind maps, the Excalidraw adapter and authz boundary, ...) — see
 `FORK.md` and `docs/product/PRODUCT_VISION.md` for what's actually in here.
 
 This fork does not build on the server and does not push to Docker Hub -- see the note at the
@@ -309,8 +311,8 @@ For setup and troubleshooting, start here.
 
 - Goal check: confirm whether the user needs local dev, Docker Compose from the published GHCR images, locally built Docker, or E2E.
 - Check whether the problem is already known. This fork's own issue history is the first place
-  to look — most of what's built here (Team/Comments/Workshop/Discovery, the Excalidraw
-  adapter, the authz boundary, board-scoped agent tokens, ...) doesn't exist upstream at all, so
+  to look — most of what's built here (Team/Comments/Workshop/Discovery, mind maps, the
+  Excalidraw adapter, the authz boundary, board-scoped agent tokens, ...) doesn't exist upstream at all, so
   an upstream search will miss it. Upstream is still worth a second look for a bug that lives in
   the parts we still share with `ZimengXiong/ExcaliDash` (see `docs/architecture/
   UPSTREAM_MAINTENANCE.md` for what that boundary is right now).
@@ -445,6 +447,8 @@ Backend base variables:
 - `ENABLE_PASSWORD_RESET` (`true` to enable)
 - `ENABLE_REFRESH_TOKEN_ROTATION` (`true`/`false`, default `true`)
 - `ENABLE_AUDIT_LOGGING` (`true`/`false`, default `false`)
+- `ERROR_TRACKER_DSN` (optional; a Sentry-compatible DSN such as Bugsink — empty means no SDK
+  initialization and no network delivery; see `docs/architecture/ERROR_TRACKER_DECISION.md`)
 - `ENFORCE_HTTPS_REDIRECT` (`true`/`false`, default `true`) — when `FRONTEND_URL` uses `https://`, the backend auto-redirects plain-HTTP requests; set to `false` when the outer gateway already enforces HTTPS to avoid redirect loops
 - `BOOTSTRAP_SETUP_CODE_TTL_MS` (default `900000`)
 - `BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS` (default `10`)
@@ -535,6 +539,9 @@ Frontend architecture notes:
 - `frontend/src/pages/` contains route-level features.
 - `frontend/src/context/` contains auth/theme state.
 - `frontend/src/pages/Editor.tsx` wires Socket.IO and live collaboration.
+- `frontend/src/pages/editor/ElementFloatingToolbar.tsx` and `floatingToolbarGeometry.ts` place a
+  per-element control bar that hangs off the current viewport rather than the element itself, so
+  it neither scales with zoom nor collides with the main toolbar or other chrome obstacles.
 - `frontend/vite.config.ts` sets Vite proxy to backend in local dev and compile-time app metadata.
 - Production serving and backend proxy are handled by `frontend/Dockerfile`, `frontend/nginx.conf.template`, `frontend/docker-entrypoint.sh`.
 
