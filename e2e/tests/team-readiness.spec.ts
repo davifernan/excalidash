@@ -120,6 +120,36 @@ type Actor = {
 
 type WatchdogViolation = { actorId: number; engine: Engine; sinceMs: number };
 
+const FINAL_CHECK_TIMEOUT_MS = envInt("SOAK_FINAL_CHECK_TIMEOUT_MS", 30_000);
+
+/**
+ * Bounds a promise that has no timeout of its own.
+ *
+ * `page.evaluate(...).catch(() => false)` handles a *rejection* -- a closed
+ * page, a thrown error. It does not handle the page simply never answering,
+ * because a hang is an absence, not an error. After the action phase the
+ * watchdog is already off, so an unanswered evaluate there waits forever with
+ * nobody watching: measured on 2026-08-25 as 83 minutes of a live process at
+ * 0% CPU, no backend traffic, no output, no exit (NIL-563).
+ *
+ * Rejecting rather than resolving to a default is deliberate. "The page did
+ * not answer" and "the socket is not connected" are different verdicts, and
+ * folding the first into the second would turn a broken run into a clean
+ * failed assertion -- which reads as a product problem that isn't there.
+ */
+const withDeadline = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `${what} did not answer within ${ms} ms. The page is unresponsive; ` +
+            `this is not the same as "not connected".`,
+        ),
+      );
+    }, ms);
+    work.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+
 const socketConnected = (page: Page): Promise<boolean> =>
   page
     .evaluate(() => (window as any).__EXCALIDASH_SOCKET_STATUS__?.connected === true)
@@ -296,11 +326,39 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
       )[0]?.id;
 
       const violations: WatchdogViolation[] = [];
+      // The watchdog has to be able to END the run, not just describe it.
+      //
+      // It used to only push into `violations`, which is read after
+      // `await Promise.all(runLoops)`. If one actor's cycle hangs -- an
+      // evaluate against a page whose main thread is blocked, say -- that
+      // actor's loop never resolves, `Promise.all` never returns, and the
+      // interval keeps appending to an array nobody will ever read. Measured
+      // on 2026-08-25: activity stopped 97s into a 45s run, then 5m23s of
+      // total silence, and only an external `timeout` ended it (NIL-563).
+      //
+      // A guard that observes but cannot act is not fail-closed. For an
+      // unattended eight-hour run it is worse than none, because its presence
+      // is the reason nobody watches.
+      let tripWatchdog: (error: Error) => void = () => {};
+      const watchdogTripped = new Promise<never>((_, reject) => {
+        tripWatchdog = reject;
+      });
+      let tripped = false;
       const watchdog = setInterval(() => {
         const now = Date.now();
         for (const actor of actors) {
           if (now - actor.lastHeartbeatAt > STALE_MS) {
             violations.push({ actorId: actor.id, engine: actor.engine, sinceMs: now - actor.lastHeartbeatAt });
+            if (!tripped) {
+              tripped = true;
+              tripWatchdog(
+                new Error(
+                  `actor ${actor.id} (${actor.engine}) went silent for ` +
+                    `${now - actor.lastHeartbeatAt} ms, over the ${STALE_MS} ms threshold. ` +
+                    `Ending the run instead of waiting for a cycle that may never finish.`,
+                ),
+              );
+            }
           }
         }
       }, Math.max(1_000, Math.floor(CYCLE_MS / 2)));
@@ -319,14 +377,27 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         }
       });
 
-      await Promise.all(runLoops);
-      clearInterval(watchdog);
+      // Raced, not awaited: a stuck loop must lose to the watchdog rather than
+      // outlast it. `runLoops` keep running after a trip, but the `finally`
+      // below closes their contexts, which ends them.
+      try {
+        await Promise.race([Promise.all(runLoops), watchdogTripped]);
+      } finally {
+        clearInterval(watchdog);
+      }
 
+      // Bounded on purpose: the watchdog was just cleared, so nothing else is
+      // watching from here on. An unresponsive page must end the run with a
+      // readable reason instead of parking it forever (NIL-563).
       const finalConnectivity = await Promise.all(
         actors.map(async (actor) => ({
           actorId: actor.id,
           engine: actor.engine,
-          connected: await socketConnected(actor.page),
+          connected: await withDeadline(
+            socketConnected(actor.page),
+            FINAL_CHECK_TIMEOUT_MS,
+            `final connectivity check for actor ${actor.id} (${actor.engine})`,
+          ),
         })),
       );
 
@@ -366,9 +437,21 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         expect(entry.connected, `actor ${entry.actorId} (${entry.engine}) must end the run connected`).toBe(true);
       }
     } finally {
+      // Teardown is bounded for the same reason: a browser that will not close
+      // must not hold an unattended eight-hour run open indefinitely. Failures
+      // here are swallowed -- the run's verdict was already decided above, and
+      // a stuck close should not overwrite it.
       for (const actor of actors) {
-        await actor.context.close().catch(() => {});
-        await actor.browser.close().catch(() => {});
+        await withDeadline(
+          actor.context.close(),
+          FINAL_CHECK_TIMEOUT_MS,
+          `context close for actor ${actor.id}`,
+        ).catch(() => {});
+        await withDeadline(
+          actor.browser.close(),
+          FINAL_CHECK_TIMEOUT_MS,
+          `browser close for actor ${actor.id}`,
+        ).catch(() => {});
       }
       await deleteDrawing(request, drawing.id).catch(() => {});
     }
