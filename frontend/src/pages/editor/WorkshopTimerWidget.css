@@ -9,8 +9,29 @@
 .workshop-timer__panel {
   border: 1px solid var(--button-hover-border, transparent);
   border-radius: var(--border-radius-lg);
+  /* Idle/paused/finished default: the same recessed grey as the rest of the
+     canvas chrome (NIL-578) -- weaker shadow, lower-contrast icons. Running
+     overrides both below to the main toolbar's white island, because white
+     is the "this is running" signal, not decoration (see
+     .workshop-timer--running). */
+  background: var(--color-surface-low, var(--island-bg-color));
+  box-shadow: none;
+}
+
+.workshop-timer__summary svg,
+.workshop-timer-corner__handle svg,
+.workshop-timer-corner__reset svg {
+  opacity: 0.7;
+}
+
+.workshop-timer--running .workshop-timer__summary,
+.workshop-timer--running .workshop-timer__panel {
   background: var(--island-bg-color);
   box-shadow: var(--shadow-island);
+}
+
+.workshop-timer--running .workshop-timer__summary svg {
+  opacity: 1;
 }
 
 .workshop-timer__summary {
@@ -112,25 +133,37 @@
   opacity: 0.7;
 }
 
-.workshop-timer--finished .workshop-timer__summary {
-  color: var(--color-danger-text, var(--color-danger));
-  animation: workshop-timer-signal 0.9s ease-in-out 3;
+/*
+ * Finished stays on the same muted grey as idle/paused (see the base rule
+ * above) rather than a distinct color or a pulsing highlight -- Davi was
+ * explicit that a timer should not blink for attention it doesn't own
+ * ("ein pulsierender Timer zieht dauerhaft Aufmerksamkeit, die dem Board
+ * gehoert", NIL-578). The running -> finished transition is itself already
+ * a visible signal (white -> grey), and is joined by the chime
+ * (workshopTimerChime.ts) rather than by more motion on the pill.
+ */
+
+.workshop-timer__sound-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 9px;
+  padding: 4px 9px;
+  border: 1px solid var(--button-hover-border, currentColor);
+  border-radius: var(--border-radius-md);
+  background: var(--input-bg-color, var(--island-bg-color));
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.workshop-timer__sound-toggle:hover {
+  background: var(--button-hover-bg);
+  opacity: 1;
 }
 
 .workshop-timer--mobile .workshop-timer__badge {
   display: none;
-}
-
-@keyframes workshop-timer-signal {
-  50% {
-    box-shadow:
-      var(--shadow-island),
-      0 0 0 3px var(--color-danger-background);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .workshop-timer--finished .workshop-timer__summary {
-    animation: none;
-  }
 }
