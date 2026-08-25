@@ -40,6 +40,11 @@ const soloSharing = {
   canControl: false,
 } as const;
 
+const toolbar = {
+  host: document.body,
+  anchor: { left: 200, top: 200, right: 720, bottom: 760 },
+};
+
 vi.mock("../../api", () => ({
   getDocumentAsset: vi.fn(),
   getDocumentContent: vi.fn(),
@@ -79,6 +84,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -112,6 +118,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="text"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -134,6 +141,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -157,6 +165,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -175,6 +184,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 
@@ -202,6 +212,7 @@ describe("TextDocumentWidget", () => {
         theme="light"
         widgetKind="markdown"
         sharing={soloSharing}
+        toolbar={toolbar}
       />,
     );
 

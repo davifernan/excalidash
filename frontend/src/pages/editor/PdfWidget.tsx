@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { getPdfAsset, getPdfOriginalUrl, getPdfPageUrl, type PdfAsset } from "../../api";
 import { useSharedDocumentPage, type DocumentPageSharing } from "./useSharedDocumentPage";
+import { ElementFloatingToolbar } from "./ElementFloatingToolbar";
+import type { FloatingToolbarTarget } from "./floatingToolbarGeometry";
 import "./PdfWidget.css";
 
 type PdfWidgetProps = {
@@ -9,9 +11,10 @@ type PdfWidgetProps = {
   drawingId: string;
   theme: "light" | "dark";
   sharing: DocumentPageSharing;
+  toolbar: FloatingToolbarTarget | null;
 };
 
-export const PdfWidget = ({ assetId, drawingId, theme, sharing }: PdfWidgetProps) => {
+export const PdfWidget = ({ assetId, drawingId, theme, sharing, toolbar }: PdfWidgetProps) => {
   const [asset, setAsset] = useState<PdfAsset | null>(null);
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -72,9 +75,6 @@ export const PdfWidget = ({ assetId, drawingId, theme, sharing }: PdfWidgetProps
       className={`pdf-widget${theme === "dark" ? " pdf-widget--dark" : ""}`}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="pdf-widget__title" title={asset?.name}>
-        {asset?.name ?? "PDF document"}
-      </div>
       <div className="pdf-widget__page">
         {displayedPageUrl && asset ? (
           <img
@@ -111,38 +111,43 @@ export const PdfWidget = ({ assetId, drawingId, theme, sharing }: PdfWidgetProps
         {pageError ? <p className="pdf-widget__status">{pageError}</p> : null}
       </div>
       {asset ? (
-        <div className="pdf-widget__controls">
-          <button
-            type="button"
-            className="pdf-widget__button"
-            aria-label="Previous page"
-            disabled={pending || requestedPage <= 1}
-            onClick={() => turnPage(-1)}
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <span className="pdf-widget__page-number">
-            Page {requestedPage} of {asset.pageCount}
-          </span>
-          <button
-            type="button"
-            className="pdf-widget__button"
-            aria-label="Next page"
-            disabled={pending || requestedPage >= asset.pageCount}
-            onClick={() => turnPage(1)}
-          >
-            <ChevronRight size={18} />
-          </button>
-          <a
-            className="pdf-widget__button"
-            href={getPdfOriginalUrl(drawingId, assetId)}
-            download={asset.name}
-            aria-label="Download original PDF"
-            title="Download original PDF"
-          >
-            <Download size={17} />
-          </a>
-        </div>
+        <ElementFloatingToolbar target={toolbar} label="PDF controls">
+          <div className="pdf-widget__controls">
+            <span className="pdf-widget__name" title={asset.name}>
+              {asset.name}
+            </span>
+            <button
+              type="button"
+              className="pdf-widget__button"
+              aria-label="Previous page"
+              disabled={pending || requestedPage <= 1}
+              onClick={() => turnPage(-1)}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <span className="pdf-widget__page-number">
+              Page {requestedPage} of {asset.pageCount}
+            </span>
+            <button
+              type="button"
+              className="pdf-widget__button"
+              aria-label="Next page"
+              disabled={pending || requestedPage >= asset.pageCount}
+              onClick={() => turnPage(1)}
+            >
+              <ChevronRight size={18} />
+            </button>
+            <a
+              className="pdf-widget__button"
+              href={getPdfOriginalUrl(drawingId, assetId)}
+              download={asset.name}
+              aria-label="Download original PDF"
+              title="Download original PDF"
+            >
+              <Download size={17} />
+            </a>
+          </div>
+        </ElementFloatingToolbar>
       ) : null}
     </div>
   );

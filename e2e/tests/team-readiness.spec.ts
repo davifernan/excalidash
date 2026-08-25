@@ -324,6 +324,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         (_, i) => `## Section ${i + 1}\n\n${`Soak body ${i + 1}. `.repeat(30)}\n`,
       ).join("\n");
       await dropMarkdown(host, markdown);
+      await activateDocumentWidget(host);
       await expect(documentPageLabel(host)).toContainText("Page 1 of", { timeout: 30_000 });
       widgetId = (
         await host.evaluate(() => (window as any).__EXCALIDASH_TEST__.getSceneElements())

@@ -11,6 +11,11 @@ const soloSharing = {
   canControl: false,
 } as const;
 
+const toolbar = {
+  host: document.body,
+  anchor: { left: 200, top: 200, right: 680, bottom: 880 },
+};
+
 vi.mock("../../api", () => ({
   getPdfAsset: vi.fn(),
   getPdfOriginalUrl: (drawingId: string, assetId: string) =>
@@ -42,7 +47,13 @@ describe("PdfWidget", () => {
 
   it("keeps the previous page visible while switching pages", async () => {
     const { container } = render(
-      <PdfWidget assetId="asset-1" drawingId="drawing-1" theme="light" sharing={soloSharing} />,
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
     );
 
     expect(await screen.findByText("Page 1 of 3")).toBeInTheDocument();
@@ -66,7 +77,13 @@ describe("PdfWidget", () => {
 
   it("disables navigation at the first and last page", async () => {
     const { container } = render(
-      <PdfWidget assetId="asset-1" drawingId="drawing-1" theme="light" sharing={soloSharing} />,
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
     );
 
     await screen.findByText("Page 1 of 3");
@@ -84,7 +101,13 @@ describe("PdfWidget", () => {
 
   it("renders document pages as images rather than inline documents", async () => {
     const { container } = render(
-      <PdfWidget assetId="asset-1" drawingId="drawing-1" theme="light" sharing={soloSharing} />,
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
     );
 
     await screen.findByText("Page 1 of 3");
@@ -94,5 +117,31 @@ describe("PdfWidget", () => {
     expect(page?.querySelector("img")).toBeInTheDocument();
     expect(page?.querySelector("iframe, embed, object, svg")).toBeNull();
     expect(getPdfPageUrl).toHaveBeenCalledWith("drawing-1", "asset-1", 1);
+  });
+
+  it("portals controls out of the scaled widget and hides them without a sole selection", async () => {
+    const { container, rerender } = render(
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    expect(await screen.findByRole("toolbar", { name: "PDF controls" })).toBeInTheDocument();
+    expect(container.querySelector(".pdf-widget__controls")).toBeNull();
+
+    rerender(
+      <PdfWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        sharing={soloSharing}
+        toolbar={null}
+      />,
+    );
+    expect(screen.queryByRole("toolbar", { name: "PDF controls" })).toBeNull();
   });
 });

@@ -25,6 +25,8 @@ import {
 } from "./chromeSlots";
 import { EditorMenu as MainMenu } from "../../integrations/excalidraw/slots";
 import "./editorChrome.css";
+import { elementViewportBounds, isOnlySelectedElement } from "./floatingToolbarGeometry";
+import { readViewport } from "../../integrations/excalidraw/viewport";
 
 type EditorViewProps = {
   id?: string;
@@ -231,11 +233,26 @@ export const EditorView: React.FC<EditorViewProps> = ({
             validateEmbeddable={validateEmbeddableLink}
             renderEmbeddable={(element, appState) => {
               const data = getAssetWidgetData(element);
+              const toolbar =
+                excalidrawRoot &&
+                isOnlySelectedElement(
+                  appState.selectedElementIds as unknown as Record<string, unknown>,
+                  element.id,
+                )
+                  ? {
+                      host: excalidrawRoot,
+                      anchor: elementViewportBounds(
+                        element,
+                        readViewport(appState as unknown as Record<string, unknown>),
+                      ),
+                    }
+                  : null;
               return data && id ? (
                 <AssetWidget
                   data={data}
                   drawingId={id}
                   theme={appState.theme}
+                  toolbar={toolbar}
                   sharing={{
                     elementId: element.id,
                     sharedPage: documentPages.pages[element.id]?.page,

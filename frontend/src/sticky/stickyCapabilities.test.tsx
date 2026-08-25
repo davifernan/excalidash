@@ -16,6 +16,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { StickyHandles } from "./StickyHandles";
+import { StickyPalette } from "./StickyPalette";
 import { StickyPreview } from "./StickyPreview";
 import { beginArrowDrag } from "./stickyConnect";
 import { DEFAULT_STICKY_COLOR, createStickyNote } from "./stickyNote";
@@ -69,6 +70,7 @@ const makeAdapter = (note = createStickyNote(200, 200)) => {
         },
       }),
       toScene: vi.fn().mockReturnValue({ ok: true, value: { x: 200, y: 200 } }),
+      subscribeScroll: vi.fn().mockReturnValue(vi.fn()),
     },
   };
   return adapter;
@@ -94,6 +96,63 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     expect(adapter.viewport.read).toHaveBeenCalled();
     expect(screen.getByTestId("sticky-preview")).toHaveStyle({ width: "400px", height: "400px" });
+  });
+
+  it("shows the colour toolbar for one selected note and recolours through scene.apply", () => {
+    const adapter = makeAdapter();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onPick = vi.fn();
+
+    render(
+      <StickyPalette
+        containerRef={{ current: container }}
+        interaction={adapter.interaction as any}
+        scene={adapter.scene as any}
+        selection={adapter.selection as any}
+        viewport={adapter.viewport as any}
+        ready
+        onPick={onPick}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Blue" }));
+    expect(adapter.scene.apply).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          kind: "patch",
+          changes: expect.objectContaining({
+            backgroundColor: "#bfdbfe",
+            strokeColor: "#93c5fd",
+          }),
+        }),
+      ],
+      { capture: "immediate" },
+    );
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: "blue" }));
+  });
+
+  it("shows no colour toolbar for a multi-selection", () => {
+    const adapter = makeAdapter();
+    adapter.selection.read.mockReturnValue({
+      ok: true,
+      value: { selectedIds: ["note", "other"], allSelected: false },
+    });
+    const container = document.createElement("div");
+
+    render(
+      <StickyPalette
+        containerRef={{ current: container }}
+        interaction={adapter.interaction as any}
+        scene={adapter.scene as any}
+        selection={adapter.selection as any}
+        viewport={adapter.viewport as any}
+        ready
+        onPick={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("toolbar", { name: "Note colour" })).toBeNull();
   });
 
   it("keeps the unzoomed preview fallback while the editor is not ready", () => {
