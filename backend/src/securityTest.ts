@@ -9,8 +9,9 @@ import {
 } from "./security";
 
 const pass = (message: string, condition: boolean): void => {
+  const label = condition ? "PASS" : "FAIL";
+  console.log(`${label}: ${message}: ${condition}`);
   assert.ok(condition, message);
-  console.log(`PASS: ${message}`);
 };
 
 console.log("Starting Security Test Suite...\n");
@@ -54,8 +55,7 @@ const blockedUrls = [
   "vbscript:msgbox('XSS')",
 ];
 for (const url of blockedUrls) {
-  assert.equal(sanitizeUrl(url), "", `Dangerous URL must be blocked: ${url}`);
-  console.log(`PASS: Dangerous URL blocked: ${url}`);
+  pass(`Dangerous URL blocked: ${url}`, sanitizeUrl(url) === "");
 }
 
 const allowedUrls = [
@@ -66,15 +66,13 @@ const allowedUrls = [
   "mailto:test@example.com",
 ];
 for (const url of allowedUrls) {
-  assert.equal(sanitizeUrl(url), url, `Safe URL must be preserved: ${url}`);
-  console.log(`PASS: Safe URL preserved: ${url}`);
+  pass(`Safe URL preserved: ${url}`, sanitizeUrl(url) === url);
 }
 console.log("");
 
 console.log("Test 4: Text Sanitization with Length Limits");
 const longText = "A".repeat(2000);
-assert.equal(sanitizeText(longText, 500).length, 500, "Text must be truncated to its limit");
-console.log("PASS: Long text truncated to 500 characters");
+pass("Long text truncated to 500 characters", sanitizeText(longText, 500).length === 500);
 
 const maliciousText = "<script>alert('XSS')</script>Normal text";
 const sanitizedText = sanitizeText(maliciousText);
@@ -122,10 +120,9 @@ pass(
   validateImportedDrawing(maliciousDrawing),
 );
 const sanitizedDrawing = sanitizeDrawingData(maliciousDrawing);
-assert.equal(sanitizedDrawing.elements[0].text, "Malicious text");
-assert.equal(sanitizedDrawing.elements[1].link, "");
+pass("Drawing text sanitized", sanitizedDrawing.elements[0].text === "Malicious text");
+pass("Drawing link sanitized", sanitizedDrawing.elements[1].link === "");
 pass("Drawing preview scripts removed", !sanitizedDrawing.preview?.includes("<script>"));
-console.log("PASS: Drawing text and link sanitized");
 console.log("");
 
 console.log("Test 6: Legitimate Drawing Validation");
@@ -165,8 +162,8 @@ const legitimateDrawing = {
 
 pass("Legitimate drawing accepted", validateImportedDrawing(legitimateDrawing));
 const sanitizedLegitimate = sanitizeDrawingData(legitimateDrawing);
-assert.equal(sanitizedLegitimate.elements[0].text, "Normal text content");
-assert.equal(sanitizedLegitimate.elements[1].link, "https://example.com");
+pass("Legitimate text preserved", sanitizedLegitimate.elements[0].text === "Normal text content");
+pass("Legitimate URL preserved", sanitizedLegitimate.elements[1].link === "https://example.com");
 pass("Legitimate SVG preserved", sanitizedLegitimate.preview?.includes("<rect") === true);
 
 console.log("\nSecurity Sanitization Tests: all assertions passed");
