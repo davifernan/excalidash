@@ -256,8 +256,16 @@ export const useEditorCollaboration = ({
       const message = typeof payload?.error?.message === "string" ? payload.error.message : null;
       if (!message) return;
       log.warn("[Editor] Room event rejected", { payload });
-      if (payload?.error?.code === "rate-limited") toast.info(message);
-      else toast.error(message);
+      if (payload?.error?.code === "rate-limited") {
+        // A cursor update is volatile by design: once the server drops one,
+        // the next accepted position supersedes it. Keep the protection in
+        // the log, but do not turn an internal traffic budget into a user
+        // action. Other rate-limited commands really were refused and remain
+        // visible below.
+        if (payload?.event !== "cursor-move") toast.info(message);
+        return;
+      }
+      toast.error(message);
     });
     const unbindFollowMode = bindFollowMode({
       socket,
