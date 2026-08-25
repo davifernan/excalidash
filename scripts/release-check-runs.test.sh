@@ -27,9 +27,31 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="${RELEASE_CHECK_RUNS_TEST_REPO:-davifernan/excalidash}"
 
+# The target must be a commit whose check-runs are FINISHED, not main's tip.
+# Measured 25.08.2026: against the tip, ground truth read 41 and the paginated
+# walk read 42 moments later -- a check-run had appeared between the two calls.
+# Every assertion below compares numbers from separate live reads, so a target
+# that is still accumulating check-runs makes all of them flaky at once. That
+# produced three separate false failures in one afternoon.
+#
+# The newest release tag is the honest choice: it is real, already merged, has
+# far more check-runs than per_page=2 (so genuine pagination still happens),
+# and -- unlike the tip -- nothing new lands on it. It also moves forward on
+# its own with each release instead of ageing into a pinned SHA.
 echo "Resolving a real, already-merged commit with completed check-runs..."
-TARGET_SHA="${RELEASE_CHECK_RUNS_TEST_SHA:-$(gh api "repos/${REPO}/commits/main" --jq '.sha')}"
-echo "Target: $TARGET_SHA"
+if [ -n "${RELEASE_CHECK_RUNS_TEST_SHA:-}" ]; then
+  TARGET_SHA="$RELEASE_CHECK_RUNS_TEST_SHA"
+  echo "Target: $TARGET_SHA (explicit override)"
+else
+  NEWEST_TAG="$(gh api "repos/${REPO}/tags?per_page=100" --jq '[.[] | select(.name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | first | .commit.sha // empty')"
+  if [ -n "$NEWEST_TAG" ]; then
+    TARGET_SHA="$NEWEST_TAG"
+    echo "Target: $TARGET_SHA (newest release tag -- check-runs are settled)"
+  else
+    TARGET_SHA="$(gh api "repos/${REPO}/commits/main" --jq '.sha')"
+    echo "Target: $TARGET_SHA (no release tag found; falling back to main's tip)"
+  fi
+fi
 
 GROUND_TRUTH="$(gh api "repos/${REPO}/commits/${TARGET_SHA}/check-runs?per_page=1" --jq '.total_count')"
 echo "Ground truth total_count (one real API response, correct regardless of page size): $GROUND_TRUTH"
@@ -92,11 +114,26 @@ fi
 
 EXCLUDED_TOTAL="$(EXCLUDE_RUN_IDS="$SAMPLE_RUN_ID" "$ROOT/scripts/release-check-runs.sh" "$REPO" "$TARGET_SHA" 2 | jq '.total')"
 EXPECTED_TOTAL="$((BASELINE_TOTAL - SAMPLE_COUNT))"
-if [ "$EXCLUDED_TOTAL" != "$EXPECTED_TOTAL" ]; then
-  echo "FAIL: excluding run $SAMPLE_RUN_ID gave total $EXCLUDED_TOTAL, expected $EXPECTED_TOTAL ($BASELINE_TOTAL - $SAMPLE_COUNT)."
+# Two bounds instead of equality, for the same reason the unrelated-id check
+# below uses `-lt`: both numbers come from separate live API reads on an active
+# repo, so a check-run can appear between them and push the second read *up*.
+# Measured 25.08.2026 on PR #150 -- got 21 where 40 - 20 = 20 was expected, and
+# the one extra had nothing to do with filtering.
+#
+# The property under test is "excluding a run removes exactly its check-runs":
+#   - it must remove something          -> EXCLUDED_TOTAL < BASELINE_TOTAL
+#   - it must not remove more than its own -> EXCLUDED_TOTAL >= EXPECTED_TOTAL
+# Drift between the reads can only add, so it lives inside the upper bound and
+# cannot mask over-removal, which is the failure this guards against.
+if [ "$EXCLUDED_TOTAL" -ge "$BASELINE_TOTAL" ]; then
+  echo "FAIL: excluding run $SAMPLE_RUN_ID removed nothing ($BASELINE_TOTAL -> $EXCLUDED_TOTAL)."
   exit 1
 fi
-echo "PASS: excluding a real run removed exactly its $SAMPLE_COUNT check-run(s)."
+if [ "$EXCLUDED_TOTAL" -lt "$EXPECTED_TOTAL" ]; then
+  echo "FAIL: excluding run $SAMPLE_RUN_ID removed MORE than its own $SAMPLE_COUNT check-run(s) -- total $EXCLUDED_TOTAL, floor $EXPECTED_TOTAL ($BASELINE_TOTAL - $SAMPLE_COUNT)."
+  exit 1
+fi
+echo "PASS: excluding a real run removed its $SAMPLE_COUNT check-run(s) and no more."
 
 # The other direction: an id that produced nothing here must change nothing.
 # 1 is a real GitHub run id somewhere, but not on this commit.
