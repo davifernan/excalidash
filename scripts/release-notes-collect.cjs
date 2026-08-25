@@ -96,6 +96,7 @@ function collect({ listMerges, getPrBody, getPrCommitSubjects }) {
   const fixed = [];
   const changed = [];
   const warnings = [];
+  const seen = new Set();
 
   for (const merge of merges) {
     const prNumber = extractPrNumber(merge.subject);
@@ -120,6 +121,19 @@ function collect({ listMerges, getPrBody, getPrCommitSubjects }) {
 
     const subjects = getPrCommitSubjects(prNumber, merge);
     const bucket = categorize(subjects);
+    // The same User-Facing sentence legitimately reaches this loop more than
+    // once: a delivery is merged into a collect branch, and that branch is
+    // merged again, so `git log --merges` sees several merges that resolve to
+    // the same promise. Collect branches are the normal path here -- pushing
+    // straight to `main` is rejected, and merging one PR at a time costs a
+    // full CI cycle each -- so this is not an edge case (NIL-560; observed
+    // three times over in v0.7.0-nilo.3).
+    //
+    // Dedupe on the sentence, not the PR number: two merges of the same PR and
+    // two different PRs making the identical promise are both noise to a
+    // reader. First occurrence wins, so the order stays chronological.
+    if (seen.has(sentence)) continue;
+    seen.add(sentence);
     if (bucket === "Added") added.push(sentence);
     else if (bucket === "Fixed") fixed.push(sentence);
     else changed.push(sentence);

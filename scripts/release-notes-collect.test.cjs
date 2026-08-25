@@ -112,3 +112,44 @@ test("RED: a PR whose User-Facing line contains a ticket reference never reaches
   // future change cannot silently start "fixing up" text here instead.
   assert.deepEqual(result.added.length + result.fixed.length + result.changed.length, 1);
 });
+
+test("the same User-Facing sentence merged several times appears once (NIL-560)", () => {
+  // Our merge path produces this on purpose: a delivery goes into a collect
+  // branch, that branch is merged again, so `git log --merges` legitimately
+  // sees the same promise more than once. v0.7.0-nilo.3 shipped with one
+  // sentence printed three times before this was fixed.
+  const sentence = "Oversized images are named instead of hashed.";
+  const result = collect({
+    listMerges: () => [
+      { sha: "a".repeat(40), subject: "merge: #116 (fix/oversized)" },
+      { sha: "b".repeat(40), subject: "merge: #120 (collect/wave-6)" },
+      { sha: "c".repeat(40), subject: "merge: #121 (fix/oversized-followup)" },
+    ],
+    getPrBody: () => `User-Facing: ${sentence}`,
+    getPrCommitSubjects: () => ["fix(editor): whatever"],
+  });
+  assert.deepEqual(result.fixed, [sentence]);
+  assert.equal(result.mergesScanned, 3, "all three merges are still scanned, only the output is folded");
+});
+
+test("deduping folds repeats, it does not drop distinct promises", () => {
+  // The counter-direction: a dedupe that is too eager would swallow real
+  // entries. Three merges, two distinct sentences -> two lines, in order.
+  const first = "Selections survive a background refresh.";
+  const second = "Page turns survive going offline.";
+  const bodies = {
+    1: `User-Facing: ${first}`,
+    2: `User-Facing: ${second}`,
+    3: `User-Facing: ${first}`,
+  };
+  const result = collect({
+    listMerges: () => [
+      { sha: "d".repeat(40), subject: "merge: x (#1)" },
+      { sha: "e".repeat(40), subject: "merge: y (#2)" },
+      { sha: "f".repeat(40), subject: "merge: z (#3)" },
+    ],
+    getPrBody: (pr) => bodies[pr],
+    getPrCommitSubjects: () => ["fix(app): whatever"],
+  });
+  assert.deepEqual(result.fixed, [first, second]);
+});
