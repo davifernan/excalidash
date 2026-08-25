@@ -519,23 +519,29 @@ test("a normal integration below the checkpoint does not create release QA", () 
   assert.deepEqual(result.reasons, []);
 });
 
-test("Hans is not retriggered on finding-fix pushes", () => {
+test("Hans is retriggered once per new head, never twice for the same head", () => {
   const workflow = fs.readFileSync(
     path.join(__dirname, "..", ".github", "workflows", "hans-friedrich.yml"),
     "utf8",
   );
 
-  // The rule is "a code push never re-reviews", not "this list has exactly two
-  // entries" (NIL-585). Pinning the literal list made the guard fail on a
-  // change that does not touch the rule at all -- so it is anchored to the two
-  // things that actually matter instead.
-  assert.doesNotMatch(workflow, /types: \[[^\]]*synchronize/);
+  // NIL-595: `synchronize` (a push to the PR branch) belongs in the trigger
+  // list. Its absence was the bug -- a finding fix pushed after Hans's
+  // review never asked for a second one, so the head carrying the
+  // correction was the least-reviewed commit in the whole PR (measured on
+  // #172, 25.08.2026: reviewed at `e6c37eb`, corrected at `2c1e606`, no
+  // second review, PR read 9/9 green). This test used to assert the
+  // opposite -- `doesNotMatch(..., /synchronize/)` -- which locked the bug
+  // in as intended behaviour instead of catching it.
+  assert.match(workflow, /types: \[[^\]]*synchronize/);
 
-  // The one-shot contract is enforced per HEAD, not per event (NIL-585, after
-  // Hans's finding on #152). Blocking `edited` outright left a corrected PR
-  // sitting behind a stale failure comment with no way forward but the
-  // undocumented ready-toggle -- so the guard asks "was this head reviewed
-  // already?" instead of "which event was this?".
+  // The rule is "a code push never re-reviews an UNCHANGED head", not "a
+  // code push never re-reviews" (NIL-585, sharpened by NIL-595). Pinning the
+  // literal event list made an earlier version of this guard fail on a
+  // change that did not touch the rule at all -- so it stays anchored to the
+  // two things that actually matter: the one-shot-per-head enforcement
+  // below, and that a draft never reaches it (`hans-review-signal.cjs`'s
+  // `draft` skip runs in the preflight step, before this one).
   assert.match(
     workflow,
     /Ask Multica for a review\n\s*if: steps\.admission\.outcome == 'success' && steps\.reviewed\.outputs\.already != 'true'/,

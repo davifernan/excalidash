@@ -6,10 +6,13 @@
 # agent has the repository, the CLI, and the Multica issue tracker at hand —
 # none of which a runner has.
 #
-# A runner now also explains an intentional no-review outcome, but Hans itself
-# is asked only when a pull request becomes ready, not on every push: a review
-# per force-push costs tokens and repeats itself. Finding fixes are checked by
-# the narrow delta verifier, not by running Hans over the whole PR again.
+# A runner now also explains an intentional no-review outcome. Hans himself
+# is asked once per *head that actually needs one* -- a draft push costs
+# nothing (the preflight step below skips on `draft`, before anything else
+# runs), and a repeat run against a head already carrying a review costs
+# nothing either (the "already reviewed" step below, NIL-585's head
+# comparison). What is NOT free is a corrected head on a ready PR: that is
+# the one case this workflow exists to catch.
 #
 # Both event types are needed. `opened` covers a pull request that starts ready;
 # `ready_for_review` covers one that starts as a draft and is finished later —
@@ -22,7 +25,19 @@ on:
     # Vorher war der einzige Weg `gh pr ready --undo && gh pr ready` -- ein
     # undokumentierter Umweg, den ein Agent nicht kennt und der am 25.08.2026
     # drei fertige PRs je ~55 Minuten aufgehalten hat.
-    types: [opened, ready_for_review, edited]
+    #
+    # `synchronize` (NIL-595): ein Push auf den PR-Zweig war bis hierher NICHT
+    # in dieser Liste -- wer also einen Hans-Befund behob und pushte, bekam
+    # nie eine zweite Bewertung. Der Kopf, der die Korrektur trug, war damit
+    # der am wenigsten gepruefte im ganzen PR (an #172 am 25.08.2026 gemessen:
+    # Befund auf `e6c37eb`, Korrektur `2c1e606` gepusht, keine zweite
+    # Bewertung, PR meldete 9/9 gruen). Ein Entwurf mit vielen Pushes loest
+    # trotzdem keine Bewertung aus -- die Zulassungspruefung unten skippt auf
+    # `draft`, bevor irgendetwas anderes laeuft -- und ein zweiter Lauf gegen
+    # denselben Kopf (z.B. nach einer reinen Body-Aenderung) loest ueber den
+    # "already reviewed"-Kopf-Vergleich (NIL-585) ebenfalls keine zweite
+    # Bewertung aus.
+    types: [opened, ready_for_review, edited, synchronize]
 
 permissions:
   contents: read
