@@ -26,6 +26,7 @@ import { useEditorBroadcast, type DeliveryState } from "./editor/useEditorBroadc
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useEditorFileUploads } from "./editor/useEditorFileUploads";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
+import { useOffscreenPresence } from "./editor/useOffscreenPresence";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
@@ -610,6 +611,7 @@ export const Editor: React.FC = () => {
     // reaction to `location` changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const { offscreenPresenceOverlay } = useOffscreenPresence({ adapter });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
       drawingId: id,
@@ -698,6 +700,7 @@ export const Editor: React.FC = () => {
         mindMapOverlay={mindMapOverlay}
         onArrangeMindMap={onArrangeMindMap}
         commentsOverlay={commentsOverlay}
+        offscreenPresenceOverlay={offscreenPresenceOverlay}
         isCommentsOpen={isCommentsOpen}
         onToggleComments={toggleComments}
         unresolvedCommentCount={unresolvedCommentCount}

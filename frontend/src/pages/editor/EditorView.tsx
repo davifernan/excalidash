@@ -90,6 +90,13 @@ type EditorViewProps = {
   isCommentsOpen: boolean;
   unresolvedCommentCount: number;
   onToggleComments: () => void;
+  /**
+   * Direction-hint arrows for collaborators whose cursor is currently
+   * outside the viewport (NIL-590) -- same free-floating overlayRoot()
+   * portal as commentsOverlay above it, computed in Editor.tsx by
+   * useOffscreenPresence.tsx.
+   */
+  offscreenPresenceOverlay?: React.ReactNode;
 };
 
 export const EditorView: React.FC<EditorViewProps> = ({
@@ -141,6 +148,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onShareOpen,
   onHistoryOpen,
   commentsOverlay,
+  offscreenPresenceOverlay,
   isCommentsOpen,
   unresolvedCommentCount,
   onToggleComments,
@@ -332,6 +340,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
           {stickyOverlay}
           {mindMapOverlay}
           {commentsOverlay}
+          {offscreenPresenceOverlay}
         </>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-500 dark:text-gray-400">

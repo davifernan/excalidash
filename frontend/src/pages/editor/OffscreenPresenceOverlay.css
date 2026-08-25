@@ -1,0 +1,48 @@
+/*
+ * Retracted by default -- NIL-588's chrome-ranking principle carried over:
+ * only the main toolbar stands out, everything else steps back (NIL-578,
+ * NIL-579). These markers use the muted grey token unless a marker
+ * represents exactly one collaborator, in which case that person's own
+ * colour tints the arrow so it still reads as "someone", not just "a hint".
+ */
+.offscreen-presence {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.offscreen-presence__marker {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  border-radius: var(--border-radius-md, 0.375rem);
+  background: var(--color-surface-low, var(--island-bg-color));
+  box-shadow: var(--shadow-island);
+  opacity: 0.82;
+}
+
+.offscreen-presence__arrow {
+  fill: var(--offscreen-presence-color, var(--color-gray-60));
+}
+
+.offscreen-presence__count {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--color-surface-low, var(--island-bg-color));
+  color: var(--text-primary-color);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: var(--shadow-island);
+}
