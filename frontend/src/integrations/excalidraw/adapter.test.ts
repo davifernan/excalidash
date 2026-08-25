@@ -68,6 +68,7 @@ describe("the read projection", () => {
       "isDeleted",
       "link",
       "name",
+      "opacity",
       "startBinding",
       "type",
       "width",

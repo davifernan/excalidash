@@ -110,6 +110,7 @@ export const summarise = (element: Record<string, unknown>): ElementSummary => (
   width: num(element.width, 0),
   height: num(element.height, 0),
   angle: num(element.angle, 0),
+  opacity: num(element.opacity, 100),
   isDeleted: element.isDeleted === true,
   frameId: optionalId(element.frameId),
   containerId: optionalId(element.containerId),

@@ -564,12 +564,15 @@ export const Editor: React.FC = () => {
     selection: adapter.selection,
     viewport: adapter.viewport,
   });
-  const { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport } = useMindMapFeature({
-    canEdit,
-    scene: adapter.scene,
-    selection: adapter.selection,
-    viewport: adapter.viewport,
-  });
+  const { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport, onAmbientNodeToolbarSceneChange } =
+    useMindMapFeature({
+      containerRef: editorContainerRef,
+      canEdit,
+      interaction: adapter.interaction,
+      scene: adapter.scene,
+      selection: adapter.selection,
+      viewport: adapter.viewport,
+    });
   useCursorChatKey({
     containerRef: editorContainerRef,
 
@@ -600,9 +603,20 @@ export const Editor: React.FC = () => {
       // torn down this schnitt; "Import mind map..." and "Arrange" both
       // read structure the same ambient way this drag hook does).
       onAmbientTreeSceneChange();
+      // Ambient pin/collapse toolbar target (NIL-593, Schnitt 3): recomputes
+      // whether the floating "Collapse" toolbar should show for whatever is
+      // now selected -- same tick-driven recompute shape as the drag hook
+      // above it, not a subscription of its own (see that hook's file
+      // comment for why an eager one crashed the editor).
+      onAmbientNodeToolbarSceneChange();
       handleChangeWithNotes(elements, appState, files);
     },
-    [handleChangeWithNotes, onAmbientTreeSceneChange, onSelectionChange],
+    [
+      handleChangeWithNotes,
+      onAmbientNodeToolbarSceneChange,
+      onAmbientTreeSceneChange,
+      onSelectionChange,
+    ],
   );
   // A comment/mention/activity deep link arrives as `?thread=<rootId>`
   // (built by the Inbox and Activity pages). Captured once, then stripped

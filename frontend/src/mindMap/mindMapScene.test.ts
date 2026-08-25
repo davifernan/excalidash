@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { arrangeOps, importOps, mindMapLayoutRunCount } from "./mindMapScene";
+import { withExcalidashData } from "../integrations/excalidraw/customData";
 import type { ElementId, ElementSummary } from "../integrations/excalidraw/types";
 import type { ImportedNode } from "./outlineParser";
 
@@ -11,6 +12,7 @@ const summary = (over: Partial<ElementSummary> = {}): ElementSummary => ({
   width: 200,
   height: 80,
   angle: 0,
+  opacity: 100,
   isDeleted: false,
   frameId: null,
   containerId: null,
@@ -92,6 +94,24 @@ describe("arrangeOps: the explicit 'Arrange' command, ambient graph in", () => {
     expect(edgeOp.changes.points[1]).not.toEqual([0.5, 0.5]);
     const [dx, dy] = edgeOp.changes.points[1];
     expect(Math.hypot(dx, dy)).toBeGreaterThan(1);
+  });
+
+  it("leaves a pinned descendant's own position untouched, but still lays out the rest (NIL-593, Schnitt 3)", () => {
+    const pinnedAt = { x: 9999, y: 100 };
+    const summaries = [
+      node("root", 500, 500),
+      node("a", pinnedAt.x, pinnedAt.y, {
+        customData: withExcalidashData(null, { nodeState: { pinned: true } }),
+      }),
+      node("b", 9999, 900),
+      arrow("e1", "root", "a"),
+      arrow("e2", "root", "b"),
+    ];
+
+    const ops = arrangeOps(summaries, "root")!;
+    expect(ops).not.toBeNull();
+    expect(ops.some((op) => op.kind === "patch" && op.id === "a")).toBe(false);
+    expect(ops.some((op) => op.kind === "patch" && op.id === "b")).toBe(true);
   });
 
   it("returns null for an unknown root id", () => {
