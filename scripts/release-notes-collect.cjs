@@ -150,14 +150,55 @@ function ghJson(args) {
   return JSON.parse(execFileSync("gh", args, { encoding: "utf8" }));
 }
 
+/**
+ * Resolves the PRs that cover a commit range, in commit order, deduplicated.
+ *
+ * Deliberately NOT driven by merge commits. A merge commit is not a reliable
+ * index of a delivery here, in either direction (NIL-560, NIL-562):
+ *
+ *   collect branch  -> several merges carry the same delivery -> duplicates
+ *   fast-forward    -> no merge commit at all                 -> nothing
+ *
+ * Fast-forward is the normal path, not an exception: it is the only way a SHA
+ * that already carries nine green required checks reaches `main` without
+ * creating a fresh, unverified commit. `v0.7.0-nilo.4` shipped with empty
+ * notes because of exactly this.
+ *
+ * Split out from the live adapter so it can be tested without git or `gh`:
+ * the bug this exists to prevent lives in the walking logic, not in the I/O.
+ */
+function resolveDeliveries({ listCommitShas, resolvePrNumbers }) {
+  const seen = new Set();
+  const deliveries = [];
+  for (const sha of listCommitShas()) {
+    let numbers;
+    try {
+      numbers = resolvePrNumbers(sha);
+    } catch {
+      // A commit with no resolvable PR is normal (a direct hotfix, a commit
+      // older than the PR history). Skipping it is the same outcome the
+      // merge-based scan had, minus the crash.
+      continue;
+    }
+    for (const number of numbers || []) {
+      if (seen.has(number)) continue;
+      seen.add(number);
+      deliveries.push({ sha, subject: `#${number}` });
+    }
+  }
+  return deliveries;
+}
+
 function createLiveCollector({ repo }) {
   return {
     listMerges(range) {
-      const log = git(["log", "--merges", "--format=%H%x00%s", range]);
-      if (!log) return [];
-      return log.split("\n").map((line) => {
-        const [sha, subject] = line.split("\x00");
-        return { sha, subject };
+      return resolveDeliveries({
+        listCommitShas: () => {
+          const log = git(["log", "--format=%H", range]);
+          return log ? log.split("\n").filter(Boolean) : [];
+        },
+        resolvePrNumbers: (sha) =>
+          ghJson(["api", `repos/${repo}/commits/${sha}/pulls`, "--jq", "[.[].number]"]),
       });
     },
     getPrBody(prNumber) {
@@ -192,6 +233,7 @@ module.exports = {
   categorize,
   collect,
   createLiveCollector,
+  resolveDeliveries,
   extractPrNumber,
   extractUserFacingSentence,
   renderNotesMarkdown,

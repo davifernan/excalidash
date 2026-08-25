@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  resolveDeliveries,
   categorize,
   collect,
   extractPrNumber,
@@ -152,4 +153,31 @@ test("deduping folds repeats, it does not drop distinct promises", () => {
     getPrCommitSubjects: () => ["fix(app): whatever"],
   });
   assert.deepEqual(result.fixed, [first, second]);
+});
+
+test("a range with no merge commits at all still yields its deliveries (NIL-562)", () => {
+  // v0.7.0-nilo.4 shipped with empty notes: six commits, zero merge commits,
+  // because `main` was fast-forwarded. Fast-forward is the normal path here --
+  // it is the only way a SHA carrying nine green required checks reaches
+  // `main` without creating a fresh unverified commit.
+  const prByCommit = { aaa: [124], bbb: [124], ccc: [122] };
+  const deliveries = resolveDeliveries({
+    listCommitShas: () => ["aaa", "bbb", "ccc"],
+    resolvePrNumbers: (sha) => prByCommit[sha],
+  });
+  assert.deepEqual(deliveries.map((d) => d.subject), ["#124", "#122"]);
+});
+
+test("a commit whose PR cannot be resolved is skipped, not fatal", () => {
+  // Direct hotfixes and commits older than the PR history both hit this.
+  // The merge-based scan simply never saw them; the replacement must not
+  // turn "no PR" into a crashed release.
+  const deliveries = resolveDeliveries({
+    listCommitShas: () => ["good", "orphan"],
+    resolvePrNumbers: (sha) => {
+      if (sha === "orphan") throw new Error("no pull requests found");
+      return [7];
+    },
+  });
+  assert.deepEqual(deliveries.map((d) => d.subject), ["#7"]);
 });
