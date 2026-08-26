@@ -1,0 +1,8 @@
+/*
+ * Excalidraw still owns the transient appState.toast signal, but its visual
+ * outlet is replaced by notifications/toastBridge.ts. Keeping the native
+ * outlet visible would give one event two locations during its lifetime.
+ */
+.excalidraw .Toast {
+  display: none;
+}

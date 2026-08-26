@@ -9,7 +9,7 @@ import { UpdateBanner } from "./UpdateBanner";
 import type { Collection } from "../types";
 import clsx from "clsx";
 import { displayFontFamily } from "../utils/displayFont";
-import { Toaster } from "sonner";
+import { NotificationHost } from "../notifications";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -223,7 +223,7 @@ export const Layout: React.FC<LayoutProps> = ({
         </div>
       )}
       <UploadStatus />
-      <Toaster position="bottom-center" richColors closeButton />
+      <NotificationHost />
     </div>
   );
 };

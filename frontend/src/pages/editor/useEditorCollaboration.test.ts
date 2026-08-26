@@ -1,7 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
 import type { MutableRefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+
+const notification = vi.hoisted(() => vi.fn());
+vi.mock("../../notifications", () => ({ notify: notification }));
 
 const mocks = vi.hoisted(() => ({
   resetConnectionState: null as (() => void) | null,
@@ -238,7 +240,6 @@ describe("editor collaboration reconnect state", () => {
     });
     vi.stubGlobal("requestAnimationFrame", requestFrame);
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const file = {
       id: "file-1",
@@ -287,7 +288,10 @@ describe("editor collaboration reconnect state", () => {
     act(() => elementUpdate({ elements: [], files: { "file-1": file } }));
     act(() => flush?.(0));
 
-    expect(error).toHaveBeenCalledWith("Live collaboration could not update the editor.");
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Live collaboration could not update the editor.",
+    );
     expect(lastSyncedFilesRef.current).toEqual({});
     expect(latestFilesRef.current).toEqual({});
     expect(requestFrame).toHaveBeenCalledTimes(2);
@@ -302,7 +306,6 @@ describe("editor collaboration reconnect state", () => {
     });
     vi.stubGlobal("requestAnimationFrame", requestFrame);
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const latestElementsRef = ref<readonly any[]>([]);
     const latestFilesRef = ref<Record<string, any>>({});
@@ -349,7 +352,10 @@ describe("editor collaboration reconnect state", () => {
     act(() => flush?.(0));
 
     expect(sceneApply).toHaveBeenCalled();
-    expect(error).toHaveBeenCalledWith("Live collaboration could not update the editor.");
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Live collaboration could not update the editor.",
+    );
     expect(latestElementsRef.current).toEqual([]);
     expect(latestFilesRef.current).toEqual({});
     expect(lastSyncedFilesRef.current).toEqual({});
@@ -357,8 +363,7 @@ describe("editor collaboration reconnect state", () => {
     unmount();
   });
 
-  it("reports a follow-state capability failure through the collaboration toast channel", () => {
-    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+  it("reports a follow-state capability failure through the notification facade", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { unmount } = renderHook(() =>
       useEditorCollaboration({
@@ -388,7 +393,10 @@ describe("editor collaboration reconnect state", () => {
     );
 
     expect(mocks.roomLifecycleInput.getFollowTargetPresenceId()).toBeNull();
-    expect(error).toHaveBeenCalledWith("Live collaboration could not update the editor.");
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Live collaboration could not update the editor.",
+    );
     const logged = JSON.parse(warn.mock.calls[0][0] as string);
     expect(logged).toMatchObject({
       message: "[Editor] Excalidraw capability failed",
@@ -402,8 +410,6 @@ describe("editor collaboration reconnect state", () => {
   });
 
   it("keeps cursor rate-limit protection internal without hiding actionable rate limits", () => {
-    const info = vi.spyOn(toast, "info").mockImplementation(() => "toast-id");
-    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { unmount } = renderHook(() =>
       useEditorCollaboration({
@@ -434,8 +440,7 @@ describe("editor collaboration reconnect state", () => {
       }),
     );
 
-    expect(info).not.toHaveBeenCalled();
-    expect(error).not.toHaveBeenCalled();
+    expect(notification).not.toHaveBeenCalled();
 
     act(() =>
       roomEventError({
@@ -447,9 +452,8 @@ describe("editor collaboration reconnect state", () => {
       }),
     );
 
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(info).toHaveBeenCalledWith("document-page-command rate limit exceeded");
-    expect(error).not.toHaveBeenCalled();
+    expect(notification).toHaveBeenCalledTimes(1);
+    expect(notification).toHaveBeenCalledWith("info", "document-page-command rate limit exceeded");
     unmount();
   });
 

@@ -10,7 +10,7 @@
  * shortcut for the next note needs exactly the same steps.
  */
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 import type {
   InteractionCapability,
   SceneCapability,
@@ -62,7 +62,7 @@ export function useStickyNotes({ containerRef, canEdit, elements, interaction, s
       const { setActiveTool } = interaction;
       const changed = setActiveTool(tool);
       if (changed.ok) return true;
-      toast.error("Couldn't change the sticky-note tool. Please try again.");
+      notify("error", "Couldn't change the sticky-note tool. Please try again.");
       return false;
     },
     [interaction],

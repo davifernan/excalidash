@@ -8,7 +8,7 @@ import type {
   ViewportCapability,
 } from "../../integrations/excalidraw/capabilities";
 import type { FileId } from "../../integrations/excalidraw";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import { getDroppedImageFiles, loadDroppedImageData, MULTI_IMAGE_DROP_GAP } from "./droppedImages";
 import { addDroppedDocumentWidgets, getDocumentDropFiles } from "./documentDrop";
 import {
@@ -186,7 +186,7 @@ export const useEditorCanvasHandlers = ({
         event.preventDefault();
         event.stopPropagation();
         if (!canEdit) {
-          toast.error("You can view this board, but you cannot add anything to it.");
+          notify("error", "You can view this board, but you cannot add anything to it.");
           return;
         }
         if (!drawingId || !excalidrawAPIRef.current) return;
@@ -256,7 +256,7 @@ export const useEditorCanvasHandlers = ({
         if (!applied.ok) throw capabilityError(applied);
       } catch (err) {
         log.error("[Editor] Failed to import dropped images", { error: err }, { notify: false });
-        toast.error("Failed to import dropped images");
+        notify("error", "Failed to import dropped images");
       }
     },
     [canEdit, drawingId, excalidrawAPIRef, fileCapability, latestElementsRef, scene, toScenePoint],

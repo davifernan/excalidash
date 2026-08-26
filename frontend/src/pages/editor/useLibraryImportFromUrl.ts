@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import * as api from "../../api";
 import type { UiCapability } from "../../integrations/excalidraw/capabilities";
 import { log } from "../../logging";
@@ -40,7 +40,7 @@ export const useLibraryImportFromUrl = ({ ui, isReady, user }: UseLibraryImportF
             `Import library from external site?\n\n${parsedUrl.origin}\n\nOnly continue if you trust this source.`,
           );
           if (!ok) {
-            toast.info("Library import canceled", { id: "library-import" });
+            notify("info", "Library import canceled", { key: "library-import" });
             window.history.replaceState(
               null,
               "",
@@ -52,7 +52,7 @@ export const useLibraryImportFromUrl = ({ ui, isReady, user }: UseLibraryImportF
         if (!import.meta.env.DEV && parsedUrl.protocol === "http:" && !isLocalhost) {
           throw new Error("Insecure http:// library URL is not allowed");
         }
-        toast.loading("Importing library...", { id: "library-import" });
+        notify("loading", "Importing library...", { key: "library-import" });
         const response = await fetch(parsedUrl.toString(), {
           credentials: "omit",
         });
@@ -74,13 +74,13 @@ export const useLibraryImportFromUrl = ({ ui, isReady, user }: UseLibraryImportF
         if (user) {
           await api.updateLibrary([...imported.value] as never);
         }
-        toast.success("Library imported successfully", {
-          id: "library-import",
+        notify("success", "Library imported successfully", {
+          key: "library-import",
         });
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       } catch (err) {
         log.error("[Editor] Failed to import library", { error: err }, { notify: false });
-        toast.error("Failed to import library", { id: "library-import" });
+        notify("error", "Failed to import library", { key: "library-import" });
       }
     };
     importLibraryFromUrl();

@@ -1,6 +1,6 @@
 import { useBeforeUnload } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import * as api from "../../api";
 
 type LoginRateLimitFormState = {
@@ -111,7 +111,7 @@ export const useLoginRateLimitSettings = ({
       setMaxAttempts(nextConfig.max);
       setSavedConfig(nextConfig);
       setAutoSaveQueued(false);
-      toast.success("Login rate limit changes saved");
+      notify("success", "Login rate limit changes saved");
       return true;
     } catch (err: unknown) {
       let message = "Failed to save rate limit config";

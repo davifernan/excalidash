@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { X, RotateCcw, Eye, Clock } from "lucide-react";
 import * as api from "../api";
 import clsx from "clsx";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 
 type Props = {
   drawingId: string;
@@ -111,7 +111,7 @@ export const HistoryPanel: React.FC<Props> = ({
       }
       await api.restoreDrawingSnapshot(drawingId, snapshotId);
       onRestore(data);
-      toast.success(`Version ${data.version} restored successfully.`);
+      notify("success", `Version ${data.version} restored successfully.`);
       onClose();
     } catch {
       const version = snapshots.find((snapshot) => snapshot.id === snapshotId)?.version;

@@ -1,15 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockToast, mockUploadDocumentAsset } = vi.hoisted(() => ({
-  mockToast: {
-    loading: vi.fn(),
-    success: vi.fn(),
-    error: vi.fn(),
-  },
+const { notification, mockUploadDocumentAsset } = vi.hoisted(() => ({
+  notification: vi.fn(() => "notification-id"),
   mockUploadDocumentAsset: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({ toast: mockToast }));
+vi.mock("../../notifications", () => ({ notify: notification }));
 vi.mock("@excalidraw/excalidraw", () => ({
   CaptureUpdateAction: { IMMEDIATELY: "IMMEDIATELY" },
   convertToExcalidrawElements: (elements: unknown[]) => elements,
@@ -54,8 +50,8 @@ describe("PDF drop errors", () => {
       scene: { apply } as any,
     });
 
-    expect(mockToast.error).toHaveBeenCalledWith(expected, {
-      id: expect.stringMatching(/^document-upload-/),
+    expect(notification).toHaveBeenCalledWith("error", expected, {
+      key: expect.stringMatching(/^document-upload-/),
     });
     expect(apply).not.toHaveBeenCalled();
   });

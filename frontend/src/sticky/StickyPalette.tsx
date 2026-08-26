@@ -1,6 +1,6 @@
 /** The colour toolbar for exactly one selected sticky note. */
 import React, { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 import type {
   SceneCapability,
   SelectionCapability,
@@ -153,7 +153,7 @@ export const StickyPalette: React.FC<Props> = ({
       { capture: "immediate" },
     );
     if (!result.ok) {
-      toast.error("Couldn't change the note colour. Please try again.");
+      notify("error", "Couldn't change the note colour. Please try again.");
       return;
     }
     onPick(color);

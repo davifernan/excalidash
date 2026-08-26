@@ -1,6 +1,8 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+
+const notification = vi.hoisted(() => vi.fn());
+vi.mock("../../notifications", () => ({ notify: notification }));
 
 vi.mock("./droppedImages", () => ({
   getDroppedImageFiles: (dataTransfer: any) => Array.from(dataTransfer?.files || []),
@@ -82,7 +84,7 @@ describe("editor canvas capability failures", () => {
       })),
     } as any;
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const toastError = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+    notification.mockClear();
     const { result } = renderHook(() =>
       useEditorCanvasHandlers({
         canEdit: true,
@@ -144,8 +146,7 @@ describe("editor canvas capability failures", () => {
       message: "[Editor] Failed to import dropped images",
       error: { message: "scene.apply failed (editor-changed)" },
     });
-    expect(toastError).toHaveBeenCalledWith("Failed to import dropped images");
+    expect(notification).toHaveBeenCalledWith("error", "Failed to import dropped images");
     error.mockRestore();
-    toastError.mockRestore();
   });
 });
