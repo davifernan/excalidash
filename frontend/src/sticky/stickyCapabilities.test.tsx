@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
 
 vi.mock("../integrations/excalidraw/domBridge", () => ({
-  beginCanvasDrag: vi.fn(),
+  beginCanvasDrag: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+  dispatchCanvasDragPointer: vi.fn(),
   findFloatingToolbarObstacleElements: vi.fn(() => []),
   findToastStackElement: vi.fn(() => null),
   observeStructure: vi.fn(() => () => {}),

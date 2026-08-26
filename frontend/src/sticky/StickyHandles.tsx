@@ -29,6 +29,7 @@ import type {
 } from "../integrations/excalidraw/types";
 import { projectPoint } from "../integrations/excalidraw/viewport";
 import { stacking } from "../integrations/excalidraw/stacking";
+import { dispatchCanvasDragPointer } from "../integrations/excalidraw/domBridge";
 import {
   HANDLE_SIDES,
   HANDLE_DRAG_THRESHOLD_PX,
@@ -309,30 +310,19 @@ export const StickyHandles: React.FC<Props> = ({
                 // Moves can outrun the one frame needed to arm the tool. Replay
                 // the latest point after Excalidraw has received pointerdown;
                 // if release also won that race, replay it in the same order.
-                window.dispatchEvent(
-                  new PointerEvent("pointermove", {
-                    bubbles: true,
+                dispatchCanvasDragPointer("pointermove", {
+                  clientX: latest.x,
+                  clientY: latest.y,
+                  pointerId,
+                  pointerType: event.pointerType,
+                });
+                if (releasedWhileArming) {
+                  dispatchCanvasDragPointer("pointerup", {
                     clientX: latest.x,
                     clientY: latest.y,
                     pointerId,
                     pointerType: event.pointerType,
-                    buttons: 1,
-                    isPrimary: true,
-                  }),
-                );
-                if (releasedWhileArming) {
-                  window.dispatchEvent(
-                    new PointerEvent("pointerup", {
-                      bubbles: true,
-                      clientX: latest.x,
-                      clientY: latest.y,
-                      pointerId,
-                      pointerType: event.pointerType,
-                      button: 0,
-                      buttons: 0,
-                      isPrimary: true,
-                    }),
-                  );
+                  });
                 }
                 cleanup();
               });
