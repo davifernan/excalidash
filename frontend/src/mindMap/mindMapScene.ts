@@ -2,20 +2,25 @@
  * The two explicit mind-map commands that survive the mode teardown
  * (NIL-593, Schnitt 2): "Import mind map..." (an outline becomes a fresh
  * batch of ordinary, bound elements) and "Arrange" (an existing ambient
- * subtree gets one deterministic layout pass). Neither reads or writes
+ * subtree gets one deterministic layout pass, respecting pinned nodes --
+ * Schnitt 3, `../ambientTree/nodeState.ts`). Neither reads or writes
  * `customData.excalidash.mindMap`/`mindMapProjection` -- that relationship
  * layer, and the ~500-line scene-mutation engine this file used to be
  * (reparenting, drag-translate, integrity, collapse), is gone along with
  * the mode. What is left is small on purpose: two commands, one shared
- * layout-run counter.
+ * layout-run counter. Pin/collapse themselves live in
+ * `../ambientTree/nodeState.ts`, not here -- they are ambient facts about
+ * any node, not a mind-map command.
  */
 import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
 import {
   ambientTreeRootedAt,
+  boxesById,
+  edgesOf,
+  shapesOf,
   type AmbientTreeNode,
-  type ArrowEdge,
-  type ShapeBox,
 } from "../ambientTree/ambientTree";
+import { pinnedNodeIds } from "../ambientTree/nodeState";
 import {
   layoutMindMap,
   MIND_MAP_LAYOUT_V1,
@@ -180,48 +185,49 @@ export function arrangeOps(
   summaries: readonly ElementSummary[],
   rootId: string,
 ): readonly SceneOp[] | null {
-  const shapes = summaries.filter((element) => !element.isDeleted && element.type !== "arrow");
+  const shapes = shapesOf(summaries);
   const rootSummary = shapes.find((shape) => shape.id === rootId);
   if (!rootSummary) return null;
 
-  const boxesById = new Map<string, ShapeBox>(
-    shapes.map((shape) => [
-      shape.id,
-      { id: shape.id, x: shape.x, y: shape.y, width: shape.width, height: shape.height },
-    ]),
-  );
-  const edges: ArrowEdge[] = summaries
-    .filter((element) => !element.isDeleted && element.type === "arrow")
-    .map((arrow) => ({
-      arrowId: arrow.id,
-      startId: arrow.startBinding?.elementId ?? null,
-      endId: arrow.endBinding?.elementId ?? null,
-    }));
+  const boxes = boxesById(shapes);
+  const edges = edgesOf(summaries);
 
-  const ambientRoot = ambientTreeRootedAt(rootId, edges, boxesById);
+  const ambientRoot = ambientTreeRootedAt(rootId, edges, boxes);
   if (!ambientRoot || ambientRoot.children.length === 0) return null;
 
   const map = ambientToLayoutTree(ambientRoot);
   const positions = layoutMindMap(map, MIND_MAP_LAYOUT_V1, { x: rootSummary.x, y: rootSummary.y });
   layoutRunCount += 1;
 
+  // Pinned (NIL-593, Schnitt 3): `layoutMindMap` still computes an ideal
+  // position for every node -- the pure core stays exactly as pure as
+  // before -- but a pinned node's own hand-set position is exempt from
+  // being overwritten here, the same "arrange respects this one exception"
+  // contract v1 already had. Its children still lay out at their normal
+  // computed positions (unadjusted for the pinned node's actual position),
+  // matching v1's own documented behavior -- not a Schnitt 3 redesign.
+  const pinned = pinnedNodeIds(summaries);
+
   const summaryById = new Map(summaries.map((summary) => [summary.id, summary]));
   const ops: SceneOp[] = [];
   // Every box's position after this Arrange run -- the root keeps its own
-  // (never patched), everything else gets its freshly laid out position.
-  // Feeds the edge-geometry recompute below: unlike a live drag
-  // (`useAmbientTreeDrag.ts`), NONE of these moves is a native Excalidraw
-  // drag, so NO bound arrow reflows on its own here, not even the ones
-  // touching the root -- every edge inside the arranged subtree needs its
-  // geometry recomputed explicitly via `arrowGeometryBetween`.
-  const finalBoxById = new Map(boxesById);
+  // (never patched), a pinned node keeps its own, everything else gets its
+  // freshly laid out position. Feeds the edge-geometry recompute below:
+  // unlike a live drag (`useAmbientTreeDrag.ts`), NONE of these moves is a
+  // native Excalidraw drag, so NO bound arrow reflows on its own here, not
+  // even the ones touching the root -- every edge inside the arranged
+  // subtree needs its geometry recomputed explicitly via
+  // `arrowGeometryBetween`.
+  const finalBoxById = new Map(boxes);
   for (const position of positions) {
+    if (pinned.has(position.elementId)) continue; // keeps its own live box
     const box = finalBoxById.get(position.elementId);
     if (box) finalBoxById.set(position.elementId, { ...box, x: position.x, y: position.y });
   }
 
   for (const position of positions) {
     if (position.elementId === rootId) continue; // the root anchor stays put
+    if (pinned.has(position.elementId)) continue; // hand-set position: no move, no patch
     const summary = summaryById.get(position.elementId as never);
     if (!summary) continue;
     if (summary.x === position.x && summary.y === position.y) continue;

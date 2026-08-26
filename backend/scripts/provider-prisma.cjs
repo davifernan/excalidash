@@ -61,6 +61,23 @@ const rewriteSchemaProvider = (schema, provider) => {
   return schema.replace(datasourceProviderPattern, `$1"${provider}"`);
 };
 
+/**
+ * `generator client { output = "..." }` is resolved relative to wherever the
+ * schema *file* that names it lives -- not `cwd`. A copy of the schema
+ * anywhere other than `prisma/` therefore has to carry an absolute
+ * replacement for that path, or a successful `generate` writes the client
+ * to a location nothing in this app ever imports from.
+ */
+const rewriteGeneratorOutput = (schema, absoluteOutputPath) => {
+  const generatorOutputPattern = /(generator\s+client\s*{[\s\S]*?output\s*=\s*)"[^"]*"/;
+  if (!generatorOutputPattern.test(schema)) {
+    throw new Error("Could not find generator client output in prisma/schema.prisma");
+  }
+  // JSON.stringify, not a template literal: it escapes backslashes correctly
+  // for a Windows absolute path too, where `path.resolve` would embed them raw.
+  return schema.replace(generatorOutputPattern, `$1${JSON.stringify(absoluteOutputPath)}`);
+};
+
 const copyDirectoryContents = (fromDir, toDir) => {
   fs.mkdirSync(toDir, { recursive: true });
   if (!fs.existsSync(fromDir)) return;
@@ -144,7 +161,86 @@ const withSchemaArg = (args, schema) => {
   return [...args, "--schema", schema];
 };
 
+/**
+ * `generate` never touches migrations, so the temp-workspace copy the other
+ * subcommands need (a real, provider-specific `migrations/` directory next
+ * to the schema) buys it nothing -- and copying it under `os.tmpdir()`
+ * actively breaks two things at once:
+ *
+ * 1. Prisma's own "auto-install on generate" step infers the *project root*
+ *    to install into from the `--schema` path, not from `cwd`. A schema
+ *    under `/tmp` has no ancestor `package.json`, so it falls back to `/`
+ *    and `npm i prisma@... -D` there fails outright (NIL-597) -- the
+ *    reproducible crash this fix exists for.
+ * 2. Even past that: the generator block's `output = "../src/generated/
+ *    client"` is resolved relative to the schema file's own location. From
+ *    a `/tmp` copy that resolves to a `/tmp/src/generated/client` that
+ *    nothing in this app ever imports from -- a client would "generate"
+ *    successfully and land somewhere useless.
+ *
+ * An earlier version of this fix rewrote the real `prisma/schema.prisma` in
+ * place and restored it in a `finally` (the same pattern
+ * `docker-entrypoint.sh` uses in its own throwaway container filesystem).
+ * Hans's review named the damage class that opens here that the pre-fix
+ * code could not: `npm i prisma@... -D` is the slow step, a SIGINT during
+ * it hits the whole foreground process group including this one, Node exits
+ * on an unhandled `SIGINT` without running a pending `finally`, and the
+ * *tracked* schema file is left permanently mutated -- a `git diff` nobody
+ * asked for, silently feeding the wrong provider into the next `migrate` or
+ * commit.
+ *
+ * The actual fix for (1) only ever needed an ancestor `package.json`
+ * findable from the `--schema` path, not the real file's exact location --
+ * so the schema copy moves to `localTmpRoot`
+ * (`backendRoot/.prisma-workspaces.tmp/`, already used as `migrate`'s own
+ * local fallback root) instead of `os.tmpdir()`, and `output` is rewritten
+ * to an absolute path so it still lands at the real
+ * `backendRoot/src/generated/client` regardless of where the copy lives.
+ * `schemaFile` itself is only ever read here, never written -- a SIGINT at
+ * any point now loses at most a stray directory under
+ * `.prisma-workspaces.tmp/`, the same disposable-workspace risk `migrate`
+ * already carries, never a mutated tracked file.
+ */
+const runPrismaGenerate = (args, options = {}) => {
+  const env = {
+    ...process.env,
+    ...(options.env || {}),
+  };
+  const provider = inferProvider(env);
+  env.DATABASE_PROVIDER = provider;
+  env.DATABASE_URL = normalizeDatabaseUrl(env.DATABASE_URL);
+
+  const outputDir = path.resolve(backendRoot, "src", "generated", "client");
+  fs.mkdirSync(localTmpRoot, { recursive: true });
+  const workspaceDir = fs.mkdtempSync(path.join(localTmpRoot, "generate-"));
+  const workspaceSchema = path.join(workspaceDir, "schema.prisma");
+
+  try {
+    const schemaWithProvider = rewriteSchemaProvider(
+      fs.readFileSync(schemaFile, "utf8"),
+      provider
+    );
+    fs.writeFileSync(workspaceSchema, rewriteGeneratorOutput(schemaWithProvider, outputDir));
+
+    return execFileSync(npxBin, ["prisma", ...withSchemaArg(args, workspaceSchema)], {
+      cwd: backendRoot,
+      env,
+      stdio: options.stdio || "inherit",
+      encoding: options.encoding,
+    });
+  } finally {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    try {
+      fs.rmdirSync(localTmpRoot);
+    } catch {
+      // Another provider-prisma process may still be using the shared local temp root.
+    }
+  }
+};
+
 const runPrisma = (args, options = {}) => {
+  if (args[0] === "generate") return runPrismaGenerate(args, options);
+
   const env = {
     ...process.env,
     ...(options.env || {}),

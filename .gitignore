@@ -36,6 +36,10 @@ backend/uploads/
 # Generated files
 backend/src/generated/
 
+# provider-prisma.cjs's disposable schema/migrations workspace (NIL-597) --
+# only ever left behind if a run is interrupted mid-generate/migrate.
+backend/.prisma-workspaces.tmp/
+
 # Environment variables
 .env
 .env.local
