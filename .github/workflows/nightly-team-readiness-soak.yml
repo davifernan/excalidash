@@ -78,7 +78,7 @@ env:
   ASSET_DIR: backend/prisma/nightly-soak-assets
 
 jobs:
-  part-1:
+  part_1:
     name: Soak part 1/4
     uses: ./.github/workflows/_soak-part.yml
     timeout-minutes: 150
@@ -91,9 +91,9 @@ jobs:
       restore_from_part: 0
       skip_teardown: true
 
-  part-2:
+  part_2:
     name: Soak part 2/4
-    needs: part-1
+    needs: part_1
     uses: ./.github/workflows/_soak-part.yml
     timeout-minutes: 150
     with:
@@ -103,12 +103,12 @@ jobs:
       cycle_ms: ${{ env.CYCLE_MS }}
       engines: ${{ env.ENGINES }}
       restore_from_part: 1
-      board_id: ${{ needs.part-1.outputs.board_id }}
+      board_id: ${{ needs.part_1.outputs.board_id }}
       skip_teardown: true
 
-  part-3:
+  part_3:
     name: Soak part 3/4
-    needs: part-2
+    needs: part_2
     uses: ./.github/workflows/_soak-part.yml
     timeout-minutes: 150
     with:
@@ -118,12 +118,12 @@ jobs:
       cycle_ms: ${{ env.CYCLE_MS }}
       engines: ${{ env.ENGINES }}
       restore_from_part: 2
-      board_id: ${{ needs.part-1.outputs.board_id }}
+      board_id: ${{ needs.part_1.outputs.board_id }}
       skip_teardown: true
 
-  part-4:
+  part_4:
     name: Soak part 4/4
-    needs: part-3
+    needs: part_3
     uses: ./.github/workflows/_soak-part.yml
     timeout-minutes: 150
     with:
@@ -133,12 +133,12 @@ jobs:
       cycle_ms: ${{ env.CYCLE_MS }}
       engines: ${{ env.ENGINES }}
       restore_from_part: 3
-      board_id: ${{ needs.part-1.outputs.board_id }}
+      board_id: ${{ needs.part_1.outputs.board_id }}
       skip_teardown: false
 
   summary:
     name: Aggregate + report
-    needs: [part-1, part-2, part-3, part-4]
+    needs: [part_1, part_2, part_3, part_4]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -156,10 +156,10 @@ jobs:
         id: aggregate
         env:
           GH_TOKEN: ${{ github.token }}
-          PART1_RESULT: ${{ needs.part-1.result }}
-          PART2_RESULT: ${{ needs.part-2.result }}
-          PART3_RESULT: ${{ needs.part-3.result }}
-          PART4_RESULT: ${{ needs.part-4.result }}
+          PART1_RESULT: ${{ needs.part_1.result }}
+          PART2_RESULT: ${{ needs.part_2.result }}
+          PART3_RESULT: ${{ needs.part_3.result }}
+          PART4_RESULT: ${{ needs.part_4.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/soak-nightly-aggregate.cjs
 
