@@ -562,6 +562,7 @@ export const Editor: React.FC = () => {
     onCanvasChange: handleCanvasChange,
     scene: adapter.scene,
     selection: adapter.selection,
+    ui: adapter.ui,
     viewport: adapter.viewport,
   });
   const { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport } = useMindMapFeature({
