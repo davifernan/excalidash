@@ -9,6 +9,7 @@ describe("workshop timer clock synchronization", () => {
         status: "running",
         endsAt: 660_000,
         remainingMs: 999_999,
+        durationMs: 60_000,
         serverNow: 600_000,
       },
       "drawing-1",
@@ -26,6 +27,7 @@ describe("workshop timer clock synchronization", () => {
         status: "paused",
         endsAt: null,
         remainingMs: 42_000,
+        durationMs: 60_000,
         serverNow: 600_000,
       },
       "drawing-1",
@@ -43,7 +45,24 @@ describe("workshop timer clock synchronization", () => {
           status: "idle",
           endsAt: null,
           remainingMs: 0,
+          durationMs: null,
           serverNow: 1,
+        },
+        "drawing-1",
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects an active timer without the duration required for restart", () => {
+    expect(
+      parseWorkshopTimerSnapshot(
+        {
+          drawingId: "drawing-1",
+          status: "running",
+          endsAt: 60_000,
+          remainingMs: 60_000,
+          durationMs: null,
+          serverNow: 0,
         },
         "drawing-1",
       ),

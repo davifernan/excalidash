@@ -28,6 +28,7 @@ const snapshot = (
   status,
   endsAt: status === "running" ? Date.now() + 60_000 : null,
   remainingMs: 60_000,
+  durationMs: status === "idle" ? null : 60_000,
   serverNow: Date.now(),
   serverClockOffsetMs: 0,
   ...overrides,

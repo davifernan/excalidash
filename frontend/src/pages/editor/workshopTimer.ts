@@ -4,13 +4,14 @@ const WORKSHOP_TIMER_EVENT = "workshop-timer-update";
 export const WORKSHOP_TIMER_COMMAND_EVENT = "workshop-timer-command";
 
 export type WorkshopTimerStatus = "idle" | "running" | "paused" | "finished";
-export type WorkshopTimerAction = "start" | "pause" | "resume" | "stop" | "add-minute";
+export type WorkshopTimerAction = "start" | "restart" | "pause" | "resume" | "stop" | "add-minute";
 
 export type SyncedWorkshopTimerSnapshot = {
   drawingId: string;
   status: WorkshopTimerStatus;
   endsAt: number | null;
   remainingMs: number;
+  durationMs: number | null;
   serverNow: number;
   serverClockOffsetMs: number;
 };
@@ -31,6 +32,7 @@ export const createIdleWorkshopTimerSnapshot = (
   status: "idle",
   endsAt: null,
   remainingMs: 0,
+  durationMs: null,
   serverNow: clientNow,
   serverClockOffsetMs: 0,
 });
@@ -54,11 +56,20 @@ export const parseWorkshopTimerSnapshot = (
   const running = data.status === "running";
   if (running ? !isFiniteTimestamp(data.endsAt) : data.endsAt !== null) return null;
   if (!isFiniteTimestamp(data.remainingMs)) return null;
+  const durationMs = data.durationMs;
+  if (
+    durationMs !== null &&
+    (typeof durationMs !== "number" || !Number.isInteger(durationMs) || durationMs <= 0)
+  ) {
+    return null;
+  }
+  if (data.status !== "idle" && durationMs === null) return null;
   return {
     drawingId,
     status: data.status,
     endsAt: running ? (data.endsAt as number) : null,
     remainingMs: data.remainingMs,
+    durationMs,
     serverNow: data.serverNow,
     serverClockOffsetMs: data.serverNow - clientReceivedAt,
   };

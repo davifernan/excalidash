@@ -28,6 +28,7 @@ import { useRef } from "react";
 import { createPortal } from "react-dom";
 import { GripVertical, RotateCcw } from "lucide-react";
 import { WorkshopTimerWidget } from "./WorkshopTimerWidget";
+import { primeWorkshopTimerAudio } from "./workshopTimerChime";
 import { useDraggableTimerPosition } from "./useDraggableTimerPosition";
 import type { WorkshopTimerController } from "./workshopTimer";
 import "./WorkshopTimerCorner.css";
@@ -40,7 +41,7 @@ export const WorkshopTimerCorner: React.FC<{
 }> = ({ container, drawingId, canEdit, timer }) => {
   const widgetRef = useRef<HTMLDivElement | null>(null);
 
-  const { position, isDragging, openDownward, openRightward, reset, handleProps } =
+  const { position, isDragging, openDownward, openRightward, handleProps } =
     useDraggableTimerPosition({ drawingId, container, widgetRef });
 
   if (!container) return null;
@@ -70,16 +71,21 @@ export const WorkshopTimerCorner: React.FC<{
         <GripVertical size={14} />
       </button>
       <WorkshopTimerWidget timer={timer} canEdit={canEdit} />
-      <button
-        type="button"
-        className="workshop-timer-corner__reset"
-        aria-label="Reset timer position"
-        title="Reset position"
-        data-testid="workshop-timer-corner-reset"
-        onClick={reset}
-      >
-        <RotateCcw size={12} />
-      </button>
+      {canEdit && timer.snapshot.durationMs !== null ? (
+        <button
+          type="button"
+          className="workshop-timer-corner__restart"
+          aria-label="Restart timer"
+          title="Restart timer"
+          data-testid="workshop-timer-restart"
+          onClick={() => {
+            primeWorkshopTimerAudio();
+            timer.sendCommand("restart");
+          }}
+        >
+          <RotateCcw size={12} />
+        </button>
+      ) : null}
     </div>,
     container,
   );

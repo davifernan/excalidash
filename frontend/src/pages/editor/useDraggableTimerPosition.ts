@@ -128,7 +128,7 @@ export const useDraggableTimerPosition = ({
     [drawingId],
   );
 
-  const reset = useCallback(() => commitPosition(DEFAULT_TIMER_POSITION), [commitPosition]);
+  const resetPosition = useCallback(() => commitPosition(DEFAULT_TIMER_POSITION), [commitPosition]);
 
   const onHandlePointerDown = useCallback(
     (event: React.PointerEvent) => {
@@ -181,7 +181,7 @@ export const useDraggableTimerPosition = ({
     (event: React.KeyboardEvent) => {
       if (event.key === "Home") {
         event.preventDefault();
-        reset();
+        resetPosition();
         return;
       }
       if (
@@ -198,7 +198,7 @@ export const useDraggableTimerPosition = ({
       });
       commitPosition(next);
     },
-    [bounds, commitPosition, position, reset],
+    [bounds, commitPosition, position, resetPosition],
   );
 
   return {
@@ -206,7 +206,6 @@ export const useDraggableTimerPosition = ({
     isDragging,
     openDownward: shouldOpenPanelDownward(position, bounds, ESTIMATED_PANEL_HEIGHT),
     openRightward: shouldOpenPanelRightward(position, bounds, ESTIMATED_PANEL_WIDTH),
-    reset,
     handleProps: {
       onPointerDown: onHandlePointerDown,
       onPointerMove: onHandlePointerMove,

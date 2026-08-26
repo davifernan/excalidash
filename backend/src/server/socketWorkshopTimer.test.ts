@@ -120,6 +120,7 @@ describe("workshop timer room event", () => {
       status: "running",
       endsAt: 2_090_000,
       remainingMs: 60_000,
+      durationMs: 90_000,
       serverNow: 2_030_000,
     });
     await owner.trigger("disconnect");
@@ -141,7 +142,13 @@ describe("workshop timer room event", () => {
 
     expect(timerUpdates(io).at(-1)).toMatchObject({
       scope: "next-session",
-      payload: { status: "idle", endsAt: null, remainingMs: 0, serverNow: 3_000_000 },
+      payload: {
+        status: "idle",
+        endsAt: null,
+        remainingMs: 0,
+        durationMs: null,
+        serverNow: 3_000_000,
+      },
     });
     await nextSession.trigger("disconnect");
   });
@@ -157,7 +164,27 @@ describe("workshop timer room event", () => {
 
     expect(timerUpdates(io).at(-1)).toMatchObject({
       scope: room("drawing-1"),
-      payload: { status: "finished", serverNow: 4_001_000 },
+      payload: { status: "finished", durationMs: 1_000, serverNow: 4_001_000 },
+    });
+  });
+
+  it("restarts from the authoritative configured duration, not the remaining time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    const io = new FakeIo();
+    const timers = createWorkshopTimerManager({ io: io as any });
+
+    timers.command(startCommand(120_000));
+    vi.advanceTimersByTime(35_000);
+    timers.command({ drawingId: "drawing-1", action: "restart" });
+
+    expect(timers.snapshot("drawing-1")).toEqual({
+      drawingId: "drawing-1",
+      status: "running",
+      endsAt: 5_155_000,
+      remainingMs: 120_000,
+      durationMs: 120_000,
+      serverNow: 5_035_000,
     });
   });
 });

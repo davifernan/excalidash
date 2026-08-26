@@ -38,6 +38,28 @@ export interface Peer {
 const AWAY_SUFFIX = " · away";
 const AWAY_GRACE_MS = 4_000;
 
+/**
+ * Move an away cursor 20% towards its own greyscale value.
+ *
+ * This keeps four fifths of the participant colour, so the person remains
+ * easy to identify. Mixing towards the colour's own luminance instead of a
+ * light- or dark-theme token also keeps roughly the same contrast in both
+ * themes: away reads quieter, never faded out.
+ */
+export const AWAY_CURSOR_GRAY_MIX = 0.2;
+
+export const awayCursorColor = (color: string | null): string | null => {
+  if (!color) return null;
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
+  if (!match) return color;
+  const channels = match.slice(1).map((channel) => Number.parseInt(channel, 16));
+  const grey = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  const muted = channels.map((channel) =>
+    Math.round(channel * (1 - AWAY_CURSOR_GRAY_MIX) + grey * AWAY_CURSOR_GRAY_MIX),
+  );
+  return `#${muted.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+};
+
 export const withAwayStatus = (name: unknown, away: boolean): string => {
   const current = typeof name === "string" && name ? name : "Participant";
   const base = current.endsWith(AWAY_SUFFIX) ? current.slice(0, -AWAY_SUFFIX.length) : current;
@@ -132,7 +154,13 @@ export const bindSocketCollaborators = ({
         // Gone, or active again, in the time the grace window bought them.
         if (!peer) return;
         awayPresenceIds.add(presenceId);
-        write([{ socketId: presenceId as SocketId, name: withAwayStatus(peer.name, true) }]);
+        write([
+          {
+            socketId: presenceId as SocketId,
+            name: withAwayStatus(peer.name, true),
+            color: awayCursorColor(peer.color),
+          },
+        ]);
       }, AWAY_GRACE_MS),
     );
   };
@@ -174,14 +202,18 @@ export const bindSocketCollaborators = ({
     let stillAnimating = false;
     cursorAnims.forEach((anim, presenceId) => {
       const existing = peers.get(presenceId);
+      const away = awayPresenceIds.has(presenceId);
       patches.push({
         socketId: presenceId as SocketId,
         pointer: pointAt(anim, now),
         pointerButton: anim.button === "down" ? "down" : "up",
-        color: anim.color,
-        name: withLargeSelectionStatus(
-          decorateName(anim.username, presenceId),
-          existing?.selectionAllSelected === true,
+        color: away ? awayCursorColor(anim.color) : anim.color,
+        name: withAwayStatus(
+          withLargeSelectionStatus(
+            decorateName(anim.username, presenceId),
+            existing?.selectionAllSelected === true,
+          ),
+          away,
         ),
       });
       if (anim.from && now - anim.startedAt < CURSOR_INTERP_MS) stillAnimating = true;
@@ -238,7 +270,7 @@ export const bindSocketCollaborators = ({
           patches.push({
             socketId: user.presenceId as SocketId,
             name: withAwayStatus(decorateName(user.name, user.presenceId), true),
-            color: user.color,
+            color: awayCursorColor(user.color),
             isSelf: false,
             selectedIds: [],
           });

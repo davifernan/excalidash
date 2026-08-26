@@ -37,19 +37,25 @@ test.describe("workshop timer position", () => {
     expect(container.y + container.height - (box.y + box.height)).toBeCloseTo(16, 0);
   });
 
-  test("the handle, timer and reset action form one visual bar", async ({ page }) => {
+  test("the handle, timer and restart action form one visual bar", async ({ page }) => {
     await openEditor(page, drawingId);
+    await page.locator(".workshop-timer__summary").click();
+    await page.getByRole("button", { name: "Start" }).click();
+    await expect(page.getByTestId("workshop-timer-restart")).toBeVisible();
     const styles = await corner(page).evaluate((element) => {
       const parent = getComputedStyle(element);
       const children = [
         element.querySelector("[data-testid=workshop-timer-corner-handle]"),
         element.querySelector(".workshop-timer__summary"),
-        element.querySelector("[data-testid=workshop-timer-corner-reset]"),
+        element.querySelector("[data-testid=workshop-timer-restart]"),
       ].map((child) => getComputedStyle(child!));
       return {
         parentBackground: parent.backgroundColor,
         childBackgrounds: children.map((style) => style.backgroundColor),
         childShadows: children.map((style) => style.boxShadow),
+        restartIconOpacity: getComputedStyle(
+          element.querySelector("[data-testid=workshop-timer-restart] svg")!,
+        ).opacity,
       };
     });
     expect(styles.parentBackground).not.toBe("rgba(0, 0, 0, 0)");
@@ -59,6 +65,7 @@ test.describe("workshop timer position", () => {
       "rgba(0, 0, 0, 0)",
     ]);
     expect(styles.childShadows).toEqual(["none", "none", "none"]);
+    expect(styles.restartIconOpacity).toBe("0.7");
   });
 
   test("drags to wherever the handle is pulled, and a plain click still opens the panel", async ({
@@ -121,19 +128,30 @@ test.describe("workshop timer position", () => {
     expect(container.y + container.height - (reset.y + reset.height)).toBeCloseTo(16, 0);
   });
 
-  test("the reset button returns a dragged widget to the default corner", async ({ page }) => {
+  test("the restart button restarts the timer without changing measured position", async ({
+    page,
+  }) => {
     await openEditor(page, drawingId);
-    const container = (await containerBox(page))!;
+    await page.locator(".workshop-timer__summary").click();
+    await page.getByLabel("Minutes").fill("1");
+    await page.getByRole("button", { name: "Start" }).click();
+    await expect(page.locator(".workshop-timer__time")).toHaveText("00:58", { timeout: 5_000 });
+
     const handleBox = (await handle(page).boundingBox())!;
     await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
     await page.mouse.down();
     await page.mouse.move(handleBox.x - 250, handleBox.y - 200, { steps: 10 });
     await page.mouse.up();
 
-    await page.getByTestId("workshop-timer-corner-reset").click();
-    const box = (await corner(page).boundingBox())!;
-    expect(container.x + container.width - (box.x + box.width)).toBeCloseTo(16, 0);
-    expect(container.y + container.height - (box.y + box.height)).toBeCloseTo(16, 0);
+    const beforeRestart = (await corner(page).boundingBox())!;
+    const restart = page.getByTestId("workshop-timer-restart");
+    await expect(restart).toBeVisible();
+    await restart.click();
+    await expect(page.locator(".workshop-timer__time")).toHaveText("01:00");
+    const afterRestart = (await corner(page).boundingBox())!;
+
+    expect(afterRestart.x).toBeCloseTo(beforeRestart.x, 0);
+    expect(afterRestart.y).toBeCloseTo(beforeRestart.y, 0);
   });
 
   test("survives a reload -- position is remembered per board, locally", async ({ page }) => {

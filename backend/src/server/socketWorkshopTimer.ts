@@ -17,15 +17,21 @@ export type WorkshopTimerSnapshot = {
   status: WorkshopTimerStatus;
   endsAt: number | null;
   remainingMs: number;
+  durationMs: number | null;
   serverNow: number;
 };
 
 type TimerState =
-  | { status: "running"; endsAt: number; timeout: ReturnType<typeof setTimeout> }
-  | { status: "paused"; remainingMs: number }
-  | { status: "finished" };
+  | {
+      status: "running";
+      endsAt: number;
+      durationMs: number;
+      timeout: ReturnType<typeof setTimeout>;
+    }
+  | { status: "paused"; remainingMs: number; durationMs: number }
+  | { status: "finished"; durationMs: number };
 
-export type WorkshopTimerAction = "start" | "pause" | "resume" | "stop" | "add-minute";
+export type WorkshopTimerAction = "start" | "restart" | "pause" | "resume" | "stop" | "add-minute";
 export type WorkshopTimerCommand = RoomEventPayload & {
   action: WorkshopTimerAction;
   durationMs?: number;
@@ -51,6 +57,7 @@ const parseWorkshopTimerCommand = (value: unknown): WorkshopTimerCommand | null 
     return { drawingId, action: "start", durationMs };
   }
   if (
+    data.action === "restart" ||
     data.action === "pause" ||
     data.action === "resume" ||
     data.action === "stop" ||
@@ -73,13 +80,23 @@ export const createWorkshopTimerManager = ({
   const snapshot = (drawingId: string): WorkshopTimerSnapshot => {
     const serverNow = now();
     const state = states.get(drawingId);
-    if (!state) return { drawingId, status: "idle", endsAt: null, remainingMs: 0, serverNow };
+    if (!state) {
+      return {
+        drawingId,
+        status: "idle",
+        endsAt: null,
+        remainingMs: 0,
+        durationMs: null,
+        serverNow,
+      };
+    }
     if (state.status === "running") {
       return {
         drawingId,
         status: "running",
         endsAt: state.endsAt,
         remainingMs: Math.max(0, state.endsAt - serverNow),
+        durationMs: state.durationMs,
         serverNow,
       };
     }
@@ -89,10 +106,18 @@ export const createWorkshopTimerManager = ({
         status: "paused",
         endsAt: null,
         remainingMs: state.remainingMs,
+        durationMs: state.durationMs,
         serverNow,
       };
     }
-    return { drawingId, status: "finished", endsAt: null, remainingMs: 0, serverNow };
+    return {
+      drawingId,
+      status: "finished",
+      endsAt: null,
+      remainingMs: 0,
+      durationMs: state.durationMs,
+      serverNow,
+    };
   };
 
   const emit = (drawingId: string) => {
@@ -106,30 +131,34 @@ export const createWorkshopTimerManager = ({
   const finish = (drawingId: string, expectedEndsAt: number) => {
     const current = states.get(drawingId);
     if (current?.status !== "running" || current.endsAt !== expectedEndsAt) return;
-    states.set(drawingId, { status: "finished" });
+    states.set(drawingId, { status: "finished", durationMs: current.durationMs });
     emit(drawingId);
   };
 
-  const scheduleRunning = (drawingId: string, endsAt: number) => {
+  const scheduleRunning = (drawingId: string, endsAt: number, durationMs: number) => {
     clearScheduledFinish(states.get(drawingId));
     const timeout = setTimeout(() => finish(drawingId, endsAt), Math.max(0, endsAt - now()));
-    states.set(drawingId, { status: "running", endsAt, timeout });
+    states.set(drawingId, { status: "running", endsAt, durationMs, timeout });
   };
 
   const command = (payload: WorkshopTimerCommand) => {
     const current = states.get(payload.drawingId);
     const serverNow = now();
     if (payload.action === "start" && payload.durationMs !== undefined) {
-      scheduleRunning(payload.drawingId, serverNow + payload.durationMs);
+      scheduleRunning(payload.drawingId, serverNow + payload.durationMs, payload.durationMs);
+    } else if (payload.action === "restart" && current) {
+      scheduleRunning(payload.drawingId, serverNow + current.durationMs, current.durationMs);
     } else if (payload.action === "pause" && current?.status === "running") {
       clearScheduledFinish(current);
       const remainingMs = Math.max(0, current.endsAt - serverNow);
       states.set(
         payload.drawingId,
-        remainingMs > 0 ? { status: "paused", remainingMs } : { status: "finished" },
+        remainingMs > 0
+          ? { status: "paused", remainingMs, durationMs: current.durationMs }
+          : { status: "finished", durationMs: current.durationMs },
       );
     } else if (payload.action === "resume" && current?.status === "paused") {
-      scheduleRunning(payload.drawingId, serverNow + current.remainingMs);
+      scheduleRunning(payload.drawingId, serverNow + current.remainingMs, current.durationMs);
     } else if (payload.action === "stop") {
       clearScheduledFinish(current);
       states.delete(payload.drawingId);
@@ -138,13 +167,21 @@ export const createWorkshopTimerManager = ({
         WORKSHOP_TIMER_LIMITS.maxDurationMs,
         Math.max(0, current.endsAt - serverNow) + WORKSHOP_TIMER_LIMITS.extensionMs,
       );
-      scheduleRunning(payload.drawingId, serverNow + remainingMs);
+      const durationMs = Math.min(
+        WORKSHOP_TIMER_LIMITS.maxDurationMs,
+        current.durationMs + WORKSHOP_TIMER_LIMITS.extensionMs,
+      );
+      scheduleRunning(payload.drawingId, serverNow + remainingMs, durationMs);
     } else if (payload.action === "add-minute" && current?.status === "paused") {
       states.set(payload.drawingId, {
         status: "paused",
         remainingMs: Math.min(
           WORKSHOP_TIMER_LIMITS.maxDurationMs,
           current.remainingMs + WORKSHOP_TIMER_LIMITS.extensionMs,
+        ),
+        durationMs: Math.min(
+          WORKSHOP_TIMER_LIMITS.maxDurationMs,
+          current.durationMs + WORKSHOP_TIMER_LIMITS.extensionMs,
         ),
       });
     } else {
