@@ -1,9 +1,10 @@
 import React from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { verifyApiMethods, verifySelectors } from "./seams";
+import { verifyApiMethods, verifyCssSelectors, verifySelectors } from "./seams";
+import { buildElements } from "../elements";
 
 vi.hoisted(() => {
   class TestPath2D {}
@@ -66,12 +67,17 @@ const rect = (width: number, height: number): DOMRect =>
     toJSON: () => ({}),
   }) as DOMRect;
 
-const renderEditor = async (width: number, height: number): Promise<RenderedEditor> => {
+const renderEditor = async (
+  width: number,
+  height: number,
+  props: Record<string, unknown> = {},
+): Promise<RenderedEditor> => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect(width, height));
   let api: Record<string, unknown> | undefined;
   const view = render(
     <div style={{ width, height }}>
       <Excalidraw
+        {...props}
         excalidrawAPI={(value) => {
           api = value as unknown as Record<string, unknown>;
         }}
@@ -120,6 +126,64 @@ describe("the installed package rendered as an editor", () => {
       incompatible = await verifyApiMethods(editor.api);
     });
     expect(incompatible).toEqual([]);
+    editor.unmount();
+  });
+
+  it("matches every foreign CSS selector where ExcaliDash uses it", async () => {
+    const editor = await renderEditor(900, 600, {
+      isCollaborating: true,
+      renderTopRightUI: () => <div className="editor-header-controls" />,
+    });
+
+    await act(async () => {
+      (editor.api.updateScene as (change: unknown) => void)({
+        collaborators: new Map([["css-seam-peer", { username: "CSS seam peer" }]]),
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        verifyCssSelectors(editor.container, [
+          "topRight",
+          "collaboratorWrapper",
+          "collaboratorList",
+          "libraryTrigger",
+          "mainMenuTrigger",
+          "helpIcon",
+          "collaborationLaserIsland",
+        ]),
+      ).toEqual([]),
+    );
+
+    const extraTools = editor.container.querySelector<HTMLElement>(
+      ".App-toolbar__extra-tools-trigger",
+    );
+    expect(extraTools).not.toBeNull();
+    fireEvent.click(extraTools!);
+    await waitFor(() =>
+      expect(verifyCssSelectors(editor.container, ["extraToolsLaser"])).toEqual([]),
+    );
+
+    const [baseWidget] = buildElements([
+      { type: "rectangle", x: 100, y: 100, width: 200, height: 100 },
+    ]);
+    const widget = {
+      ...baseWidget,
+      type: "embeddable" as const,
+      link: "excalidash://css-seam-widget",
+    };
+    await act(async () => {
+      (editor.api.updateScene as (change: unknown) => void)({
+        elements: [widget],
+        appState: {
+          selectedElementIds: { [widget.id]: true },
+          showHyperlinkPopup: "info",
+        },
+      });
+    });
+    await waitFor(() =>
+      expect(verifyCssSelectors(editor.container, ["widgetHyperlink"])).toEqual([]),
+    );
     editor.unmount();
   });
 

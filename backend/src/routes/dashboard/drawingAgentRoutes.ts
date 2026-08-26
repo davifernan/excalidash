@@ -9,6 +9,7 @@ import {
   syncDrawingDocumentState,
 } from "../../assets/documentWidgetState";
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
+import { requestIdOf } from "../../middleware/requestId";
 import { computeSearchText } from "../../search/searchIndex";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
@@ -187,7 +188,9 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           }
 
           await captureSnapshotAssets(tx, snapshot.id, id);
-          await syncDrawingDocumentState(tx, id, newElements);
+          await syncDrawingDocumentState(tx, id, newElements, {
+            correlationId: requestIdOf(req),
+          });
           await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
 
           return tx.drawing.findFirst({ where: { id } });

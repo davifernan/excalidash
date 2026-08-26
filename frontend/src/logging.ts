@@ -1,5 +1,5 @@
-import { toast } from "sonner";
 import { structuredLogReplacer as errorReplacer, type LogFields } from "@excalidash/domain/shared";
+import { notify } from "./notifications";
 
 /**
  * The one place frontend code writes a log line (NIL-510/NIL-513) -- the
@@ -14,8 +14,8 @@ import { structuredLogReplacer as errorReplacer, type LogFields } from "@excalid
  * surface, carrying the same reference id, "visible instead of silent."
  * `log.error()` generalizes that pairing to every handled failure, not only
  * an uncaught one: it always writes a structured console line, and unless
- * told otherwise, also raises a toast (`sonner`, already this app's one
- * toast mechanism) carrying the same reference id -- so by default, a human
+ * told otherwise, also raises an application notification carrying the same
+ * reference id -- so by default, a human
  * sees it in the moment a failure happens, not only in devtools nobody has
  * open.
  *
@@ -33,7 +33,7 @@ import { structuredLogReplacer as errorReplacer, type LogFields } from "@excalid
 export type { LogFields } from "@excalidash/domain/shared";
 
 export interface ErrorLogOptions {
-  /** Show a toast carrying the reference id. Default true -- see file comment. */
+  /** Show a notification carrying the reference id. Default true -- see file comment. */
   notify?: boolean;
 }
 
@@ -71,7 +71,7 @@ export const log = {
     const ref = newRef();
     write("error", message, { ...fields, ref });
     if (options?.notify !== false) {
-      toast.error(message, { description: `Reference ${ref}` });
+      notify("error", message, { detail: `Reference ${ref}` });
     }
     return ref;
   },

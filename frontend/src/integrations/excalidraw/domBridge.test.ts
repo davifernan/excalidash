@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetDiagnostics, onDiagnostic } from "./compatibility/diagnostics";
 import {
   checkSelectors,
+  dispatchCanvasDragPointer,
   findFloatingToolbarObstacleElements,
   findRoot,
   findToastStackElement,
@@ -213,6 +214,28 @@ describe("watching the editor rebuild itself", () => {
 
   it("hands back a no-op when there is no container", () => {
     expect(() => observeStructure(null, () => {})()).not.toThrow();
+  });
+});
+
+describe("continuing a delayed canvas drag", () => {
+  it("replays move and release with the original pointer identity", () => {
+    const heard: Array<{ type: string; buttons: number; pointerId: number }> = [];
+    const listener = (event: PointerEvent) => {
+      heard.push({ type: event.type, buttons: event.buttons, pointerId: event.pointerId });
+    };
+    window.addEventListener("pointermove", listener);
+    window.addEventListener("pointerup", listener);
+
+    const pointer = { clientX: 20, clientY: 30, pointerId: 7, pointerType: "pen" };
+    dispatchCanvasDragPointer("pointermove", pointer);
+    dispatchCanvasDragPointer("pointerup", pointer);
+
+    expect(heard).toEqual([
+      { type: "pointermove", buttons: 1, pointerId: 7 },
+      { type: "pointerup", buttons: 0, pointerId: 7 },
+    ]);
+    window.removeEventListener("pointermove", listener);
+    window.removeEventListener("pointerup", listener);
   });
 });
 

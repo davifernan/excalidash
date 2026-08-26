@@ -7,7 +7,7 @@
  * useful element-aware actions would leave dead chrome on every selection.
  */
 import { useCallback } from "react";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 import type {
   SceneCapability,
   SelectionCapability,
@@ -33,7 +33,7 @@ export function useMindMapFeature({ canEdit, scene, selection, viewport }: Optio
   const handleImport = useCallback(
     (result: Extract<ParseResult, { ok: true }>) => {
       const succeeded = runImport(result.root);
-      if (!succeeded) toast.error("Couldn't import the mind map. Please try again.");
+      if (!succeeded) notify("error", "Couldn't import the mind map. Please try again.");
     },
     [runImport],
   );
@@ -49,7 +49,7 @@ export function useMindMapFeature({ canEdit, scene, selection, viewport }: Optio
     if (!canEdit) return;
     const selected = selection.read();
     if (!selected.ok || selected.value.selectedIds.length !== 1) {
-      toast.error("Select a node to arrange its tree from.");
+      notify("error", "Select a node to arrange its tree from.");
       return;
     }
     const summaries = scene.summaries();
@@ -57,12 +57,12 @@ export function useMindMapFeature({ canEdit, scene, selection, viewport }: Optio
 
     const ops = arrangeOps(summaries.value, selected.value.selectedIds[0]);
     if (!ops) {
-      toast.error("Nothing to arrange from here -- no qualifying children, or a cycle.");
+      notify("error", "Nothing to arrange from here -- no qualifying children, or a cycle.");
       return;
     }
     if (ops.length === 0) return;
     const applied = scene.apply(ops);
-    if (!applied.ok) toast.error("Couldn't arrange the tree. Please try again.");
+    if (!applied.ok) notify("error", "Couldn't arrange the tree. Please try again.");
   }, [canEdit, scene, selection]);
 
   const mindMapOverlay = (

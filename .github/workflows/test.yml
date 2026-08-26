@@ -95,6 +95,9 @@ jobs:
       - name: Check the Excalidraw adapter boundary
         run: node scripts/adapter-boundary.cjs
 
+      - name: Check the notification facade boundary
+        run: node scripts/notification-boundary.cjs
+
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/adapter-boundary.test.cjs
 

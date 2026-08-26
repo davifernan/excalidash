@@ -41,6 +41,7 @@ import {
 import { encodeSnapshotField } from "../snapshots/snapshotCodec";
 import { pruneDrawingSnapshots } from "../snapshots/snapshotRetention";
 import { config } from "../config";
+import { requestIdOf } from "../middleware/requestId";
 
 const ID = /^[\w-]{1,64}$/;
 const MAX_ASSET_NAME_LENGTH = 255;
@@ -573,7 +574,9 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
               data: { elements: JSON.stringify(nextElements), version: { increment: 1 } },
             });
             if (result.count !== 1) throw new Error("DOCUMENT_VERSION_CONFLICT");
-            await syncDrawingDocumentState(tx, found.drawingId, nextElements);
+            await syncDrawingDocumentState(tx, found.drawingId, nextElements, {
+              correlationId: requestIdOf(req),
+            });
             await pruneDrawingSnapshots(tx, found.drawingId, config.snapshotMaxCountPerDrawing);
             return {
               drawing: await tx.drawing.findUniqueOrThrow({ where: { id: found.drawingId } }),

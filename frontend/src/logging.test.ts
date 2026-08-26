@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
 import { log } from "./logging";
 
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn() },
-}));
+const notification = vi.hoisted(() => vi.fn());
+vi.mock("./notifications", () => ({ notify: notification }));
 
 describe("log", () => {
   let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -21,7 +19,7 @@ describe("log", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.mocked(toast.error).mockClear();
+    notification.mockClear();
   });
 
   const lastLine = (spy: ReturnType<typeof vi.spyOn>) => {
@@ -52,20 +50,21 @@ describe("log", () => {
     expect(ref).toMatch(/^[0-9a-f]{8}$/i);
   });
 
-  it("error() notifies with a toast carrying the reference id by default", () => {
+  it("error() notifies with the reference id by default", () => {
     const ref = log.error("Could not load drawings");
 
-    expect(toast.error).toHaveBeenCalledTimes(1);
-    expect(toast.error).toHaveBeenCalledWith(
+    expect(notification).toHaveBeenCalledTimes(1);
+    expect(notification).toHaveBeenCalledWith(
+      "error",
       "Could not load drawings",
-      expect.objectContaining({ description: `Reference ${ref}` }),
+      expect.objectContaining({ detail: `Reference ${ref}` }),
     );
   });
 
   it("error() does not toast when notify is false", () => {
     log.error("boom", undefined, { notify: false });
 
-    expect(toast.error).not.toHaveBeenCalled();
+    expect(notification).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -73,7 +72,7 @@ describe("log", () => {
     log.warn("careful", { drawingId: "d1" });
 
     expect(lastLine(warnSpy)).toMatchObject({ level: "warn", message: "careful" });
-    expect(toast.error).not.toHaveBeenCalled();
+    expect(notification).not.toHaveBeenCalled();
   });
 
   it("does not silently drop an Error field to {} via JSON.stringify", () => {

@@ -11,9 +11,7 @@ vi.mock("../../api", () => ({
   API_URL: "",
 }));
 
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
-}));
+vi.mock("../../notifications", () => ({ notify: vi.fn() }));
 
 const ref = <T>(value: T) => ({ current: value }) as MutableRefObject<T>;
 
