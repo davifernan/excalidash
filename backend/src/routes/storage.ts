@@ -18,6 +18,7 @@ import {
 import { deleteS3KeysInBatches } from "./storage/s3Delete";
 import { syncDrawingDocumentState } from "../assets/documentWidgetState";
 import { getOwnedBoard } from "../authz/boards";
+import { requestIdOf } from "../middleware/requestId";
 
 export type StorageRouteDeps = {
   prisma: PrismaClient;
@@ -123,7 +124,7 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
           },
         });
         await syncDrawingDocumentState(tx, id, trimPlan.activeElements, {
-          correlationId: req.headers["x-request-id"] as string | undefined,
+          correlationId: requestIdOf(req),
         });
         // DrawingFile rows (NIL-381) are this drawing's own storage-backed
         // image references, the same relationship S3File has above --
@@ -280,7 +281,7 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
           },
         });
         await syncDrawingDocumentState(tx, id, deletePlan.cleanedElements, {
-          correlationId: req.headers["x-request-id"] as string | undefined,
+          correlationId: requestIdOf(req),
         });
         // Same relationship as S3File above, for DrawingFile rows (NIL-381):
         // deleting the reference does not delete the underlying blob

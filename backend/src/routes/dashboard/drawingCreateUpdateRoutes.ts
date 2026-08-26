@@ -22,6 +22,7 @@ import { publishDrawingName } from "../../server/socketDrawingName";
 import { getCollectionShareLevel, getOwnedCollection } from "../../authz/collections";
 import { isCollectionCreator } from "../../authz/boards";
 import { computeSearchText } from "../../search/searchIndex";
+import { requestIdOf } from "../../middleware/requestId";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -348,7 +349,7 @@ export const registerDrawingCreateUpdateRoutes = (
               // a mistake to paper over.
               if (payload.elements !== undefined) {
                 await syncDrawingDocumentState(tx, id, payload.elements, {
-                  correlationId: req.headers["x-request-id"] as string | undefined,
+                  correlationId: requestIdOf(req),
                 });
               }
 

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../logger";
+import { requestIdOrUnknown } from "./requestId";
 
 /**
  * Request logging, minus the noise that made it unreadable.
@@ -26,7 +27,7 @@ const LARGE_REQUEST_MB = 10;
 export const requestLogger = (req: Request, _res: Response, next: NextFunction): void => {
   if (isHealthProbe(req.path)) return next();
 
-  const requestId = req.headers["x-request-id"] || "unknown";
+  const requestId = requestIdOrUnknown(req);
   const contentLength = req.headers["content-length"];
   const userEmail = req.user?.email || "anonymous";
 
