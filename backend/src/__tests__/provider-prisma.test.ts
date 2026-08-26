@@ -131,79 +131,86 @@ describe("current Prisma migration discovery", () => {
 });
 
 describe("runPrisma generate (NIL-597)", () => {
-  // Real `npx prisma generate` against the real schema -- not a fixture --
-  // is the point: NIL-597 was `node scripts/provider-prisma.cjs generate`
-  // failing against the real file layout via its temp-workspace copy under
-  // `os.tmpdir()`, which has no ancestor `package.json` for Prisma's own
-  // "auto-install on generate" project-root inference to find. A test that
-  // fakes `execFileSync` would pass on either version of the code and prove
-  // nothing about the actual failure.
-  // Deliberately does NOT call `providerPrisma.runPrisma(["generate"])`
-  // against the real schema/client: an earlier version of this test did,
-  // and a `postgresql` generate call left the shared `src/generated/client`
-  // holding a Postgres-specific query engine binary on disk after the test
-  // finished. `vitest.config.ts` runs this whole suite in one shared fork
-  // (`singleFork: true`) against a real sqlite `DATABASE_URL`, so every test
-  // file that imports the Prisma client after this one then crashed with
-  // "engine not found" -- 91 failing tests across 33 files, none of them
-  // about Prisma at all. Restoring to sqlite in a `finally` did not fully
-  // fix it either: some suites' own `beforeAll` setup still raced the
-  // in-place regenerate. The client this whole backend imports from is
-  // shared, mutable disk state; a test asserting one specific provider's
-  // generate output must never regenerate it in place, only ever prove the
-  // same *mechanism* in a location nothing else reads from -- see below.
-  it("succeeds when the schema lives anywhere under backendRoot, not just prisma/", () => {
-    const backendRoot = path.resolve(__dirname, "../..");
-    const realSchema = fs.readFileSync(path.resolve(backendRoot, "prisma/schema.prisma"), "utf8");
+  // Every test below calls the real, exported `providerPrisma.runPrisma`,
+  // not a fake of `execFileSync` and not a hand-rolled replica of Prisma's
+  // own behaviour -- Hans's Medium finding on this file's first version was
+  // exactly that none of its three tests would go red if the
+  // `if (args[0] === "generate")` routing branch in `runPrisma` were
+  // reverted: two never called `runPrisma` at all, and the one that did
+  // only asserted something equally true of the pre-fix code. Reverting
+  // that branch locally and rerunning this file (never committed, per the
+  // Dateikopie convention) is exactly what the "generates the client at the
+  // real location" test below now catches: it goes red with the reverted
+  // routing (the old os.tmpdir() copy path throws NIL-597's original
+  // auto-install error) and green with it restored.
+  //
+  // This is now safe to run against the REAL schema and the REAL shared
+  // `src/generated/client` -- unlike the version of this test that caused
+  // collateral failures in 33 unrelated files (see the review-fix commit):
+  // `runPrismaGenerate` no longer writes anything to `schemaFile`, so there
+  // is nothing here to corrupt concurrently, and every call below finishes
+  // by regenerating the client for the same sqlite provider
+  // `vitest.config.ts`'s `DATABASE_URL` already expects -- the end state on
+  // disk is identical to what every other test file in this suite already
+  // relies on, not a different provider left behind.
+  it("generates the client at the real location and never mutates the tracked schema", () => {
+    const schemaPath = path.resolve(__dirname, "../../prisma/schema.prisma");
+    const clientDir = path.resolve(__dirname, "../generated/client");
+    const before = fs.readFileSync(schemaPath, "utf8");
 
-    // Isolated on purpose: under `backendRoot` (so `npx`'s own project-root
-    // inference finds the real `package.json`, same as production's
-    // `docker-entrypoint.sh` sed-rewriting the real file in place) but
-    // nowhere near `prisma/schema.prisma` or `src/generated/client`, so
-    // this can never race or collide with the shared client every other
-    // test file in this suite imports.
-    const tmpParent = path.join(backendRoot, ".prisma-workspaces.tmp");
-    fs.mkdirSync(tmpParent, { recursive: true });
-    const isolatedRoot = fs.mkdtempSync(path.join(tmpParent, "nil597-positive-probe-"));
-    const isolatedSchema = path.join(isolatedRoot, "schema.prisma");
-    const isolatedClientDir = path.join(isolatedRoot, "generated", "client");
-    // `output` is relative to the schema file's own location -- point it at
-    // this isolated tree instead of the real `../src/generated/client`.
-    fs.writeFileSync(
-      isolatedSchema,
-      realSchema.replace(
-        /output\s*=\s*"[^"]*"/,
-        `output = "${isolatedClientDir.replace(/\\/g, "\\\\")}"`,
-      ),
-    );
+    expect(() => providerPrisma.runPrisma(["generate"], { stdio: "pipe" })).not.toThrow();
+
+    expect(fs.existsSync(path.join(clientDir, "default.js"))).toBe(true);
+    expect(fs.readFileSync(schemaPath, "utf8")).toBe(before);
+  }, 30_000);
+
+  it("rewrites the provider for the requested DATABASE_PROVIDER without touching the tracked schema", () => {
+    const schemaPath = path.resolve(__dirname, "../../prisma/schema.prisma");
+    const before = fs.readFileSync(schemaPath, "utf8");
 
     try {
-      execFileSync("npx", ["prisma", "generate", "--schema", isolatedSchema], {
-        cwd: backendRoot,
-        stdio: "pipe",
-        encoding: "utf8",
-      });
-      expect(fs.existsSync(isolatedClientDir)).toBe(true);
+      expect(() =>
+        providerPrisma.runPrisma(["generate"], {
+          env: { DATABASE_PROVIDER: "postgresql", DATABASE_URL: "postgresql://x/y" },
+          stdio: "pipe",
+        }),
+      ).not.toThrow();
+      expect(fs.readFileSync(schemaPath, "utf8")).toBe(before);
     } finally {
-      fs.rmSync(isolatedRoot, { recursive: true, force: true });
+      // Regenerate for the suite's real provider so the shared client on
+      // disk stays sqlite for every test file that runs after this one --
+      // runs even if the postgres assertions above failed.
+      providerPrisma.runPrisma(["generate"], { stdio: "pipe" });
     }
   }, 30_000);
 
-  it("restores the schema even when the underlying prisma call fails", () => {
+  it("still surfaces a real prisma failure (e.g. a bad flag) instead of swallowing it", () => {
     const schemaPath = path.resolve(__dirname, "../../prisma/schema.prisma");
     const before = fs.readFileSync(schemaPath, "utf8");
 
     expect(() =>
       providerPrisma.runPrisma(["generate", "--this-flag-does-not-exist"], { stdio: "pipe" }),
     ).toThrow();
+    // Never touched in the first place (not "restored") -- schemaFile is
+    // read-only to runPrismaGenerate now, so there is nothing to roll back.
     expect(fs.readFileSync(schemaPath, "utf8")).toBe(before);
   }, 30_000);
 
-  // The Gegenprobe NIL-597 itself asks for: prove the fixed code actually
-  // fails the same way the unfixed code did, by running the unfixed
-  // function body against a throwaway copy of the schema tree -- never by
-  // reverting the real fix commit, which would test the wrong tree.
-  it("RED PROBE: the pre-fix temp-workspace path reproduces NIL-597's exact failure", () => {
+  it("leaves no workspace directory behind after a successful call", () => {
+    const backendRoot = path.resolve(__dirname, "../..");
+    const localTmpRoot = path.join(backendRoot, ".prisma-workspaces.tmp");
+
+    providerPrisma.runPrisma(["generate"], { stdio: "pipe" });
+
+    expect(fs.existsSync(localTmpRoot)).toBe(false);
+  }, 30_000);
+
+  // The Gegenprobe NIL-597 itself asks for: prove the *mechanism* the fix
+  // relies on, by running the exact pre-fix failure mode (a schema copied
+  // under a directory with no ancestor package.json) against real `npx
+  // prisma`, isolated from every real file this suite depends on -- never
+  // by reverting the actual fix commit, which would test the wrong tree.
+  it("RED PROBE: a schema with no ancestor package.json reproduces NIL-597's exact failure", () => {
     const backendRoot = path.resolve(__dirname, "../..");
     const schemaFile = path.resolve(backendRoot, "prisma/schema.prisma");
     const schema = fs.readFileSync(schemaFile, "utf8");
