@@ -4,20 +4,36 @@ import type { ConnectionStatus } from "./useEditorCollaboration";
 import "./ConnectionStatusBadge.css";
 
 const RECONNECTING_DOT_INTERVAL_MS = 450;
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+const usePrefersReducedMotion = () => {
+  const [reduced, setReduced] = useState(() => window.matchMedia(REDUCED_MOTION_QUERY).matches);
+
+  useEffect(() => {
+    const media = window.matchMedia(REDUCED_MOTION_QUERY);
+    const sync = () => setReduced(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  return reduced;
+};
 
 const useReconnectingDots = (status: ConnectionStatus) => {
+  const reducedMotion = usePrefersReducedMotion();
   const [count, setCount] = useState(1);
 
   useEffect(() => {
-    setCount(1);
-    if (status !== "reconnecting") return;
+    setCount(reducedMotion ? 3 : 1);
+    if (status !== "reconnecting" || reducedMotion) return;
 
     const interval = window.setInterval(() => {
       setCount((current) => (current === 3 ? 1 : current + 1));
     }, RECONNECTING_DOT_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
-  }, [status]);
+  }, [reducedMotion, status]);
 
   return ".".repeat(count);
 };
@@ -50,11 +66,12 @@ export const ConnectionStatusBadge: FC<{
       className="connection-status-frame"
       data-status={status}
       data-testid="connection-status-frame"
-      role="status"
-      aria-live="polite"
-      aria-label={label}
     >
-      <div className="connection-status-frame__badge" data-testid="connection-status-badge">
+      <div
+        className="connection-status-frame__badge"
+        data-testid="connection-status-badge"
+        aria-hidden="true"
+      >
         <span>{label}</span>
         {reconnecting ? (
           <span
@@ -66,6 +83,15 @@ export const ConnectionStatusBadge: FC<{
           </span>
         ) : null}
       </div>
+      <span
+        className="sr-only"
+        data-testid="connection-status-announcement"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {label}
+      </span>
     </div>,
     container,
   );

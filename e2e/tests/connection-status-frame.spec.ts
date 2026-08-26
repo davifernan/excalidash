@@ -80,6 +80,7 @@ test("connection failures frame the viewport without intercepting any edge", asy
 
     const frame = (page: Page) => page.getByTestId("connection-status-frame");
     const badge = (page: Page) => page.getByTestId("connection-status-badge");
+    const announcement = (page: Page) => page.getByTestId("connection-status-announcement");
 
     // Healthy means absent, not hidden: there is no full-screen connection
     // element in the DOM that could unexpectedly win hit-testing.
@@ -135,6 +136,7 @@ test("connection failures frame the viewport without intercepting any edge", asy
     );
     await expect(frame(first)).toHaveAttribute("data-status", "offline");
     await expect(badge(first)).toHaveText("Disconnected");
+    await expect(announcement(first)).toHaveText("Disconnected");
 
     const presenceCollision = await first.evaluate(() => {
       const frameElement = document.querySelector<HTMLElement>(
@@ -280,12 +282,17 @@ test("connection failures frame the viewport without intercepting any edge", asy
     ]);
     await expect(frame(first)).toHaveAttribute("data-status", "reconnecting");
     await expect(frame(second)).toHaveAttribute("data-status", "reconnecting");
+    await expect(announcement(first)).toHaveText("Reconnecting");
     const dotSamples: string[] = [];
     for (let index = 0; index < 4; index += 1) {
       dotSamples.push(await first.getByTestId("connection-status-dots").innerText());
       await first.waitForTimeout(475);
     }
     expect(new Set(dotSamples)).toEqual(new Set([".", "..", "..."]));
+    await first.emulateMedia({ reducedMotion: "reduce" });
+    await expect(first.getByTestId("connection-status-dots")).toHaveText("...");
+    await first.waitForTimeout(950);
+    await expect(first.getByTestId("connection-status-dots")).toHaveText("...");
     await testInfo.attach("reconnecting-frame", {
       body: await first.screenshot(),
       contentType: "image/png",
