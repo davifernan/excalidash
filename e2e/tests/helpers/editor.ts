@@ -417,7 +417,7 @@ export type DeliveryState = {
 export const deliveryState = (page: Page): Promise<DeliveryState | null> =>
   page.evaluate(() => (window as any).__EXCALIDASH_TEST__?.getDeliveryState?.() ?? null);
 
-export const documentPageLabel = (page: Page) => page.locator(".text-document-widget__page-number");
+export const documentPageLabel = (page: Page) => page.locator(".element-floating-toolbar__page-number");
 
 /**
  * Excalidraw keeps an embedded element behind its own canvas until you click
