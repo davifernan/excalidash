@@ -60,6 +60,9 @@ describe("editorFeatureRegistry", () => {
     expect(editorFeatureRegistry.applicable(elementContext).map(({ id }) => id)).toEqual([
       "comments",
     ]);
+    expect(await editorFeatureRegistry.invoke("comments", elementContext)).toEqual({ ok: true });
+    expect(elementContext.actions.openComments).toHaveBeenCalledOnce();
+    expect(elementContext.actions.openComments).toHaveBeenCalledWith(elementTarget);
     expect(await editorFeatureRegistry.invoke("voting", elementContext)).toEqual({
       ok: false,
       reason: "not-applicable",
