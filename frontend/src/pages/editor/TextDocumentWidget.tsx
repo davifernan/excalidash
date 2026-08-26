@@ -387,7 +387,7 @@ export const TextDocumentWidget = ({
       </div>
       {loaded && pages ? (
         <ElementFloatingToolbar target={toolbar} label="Document controls" compactWhenCrowded>
-          <div className="text-document-widget__controls">
+          <div className="element-floating-toolbar__row">
             <EditableAssetName
               name={loaded.asset.name}
               canEdit={canEdit}
@@ -400,14 +400,14 @@ export const TextDocumentWidget = ({
                 );
               }}
             />
-            <span className="text-document-widget__divider" aria-hidden="true" />
-            <div className="text-document-widget__actions">
+            <span className="element-floating-toolbar__divider" aria-hidden="true" />
+            <div className="element-floating-toolbar__actions">
               {loaded.asset.kind === "MARKDOWN" && canEdit ? (
                 editing ? (
                   <>
                     <button
                       type="button"
-                      className="text-document-widget__button"
+                      className="element-floating-toolbar__button"
                       aria-label="Save Markdown"
                       disabled={saving}
                       onClick={() => void saveDraft()}
@@ -416,7 +416,7 @@ export const TextDocumentWidget = ({
                     </button>
                     <button
                       type="button"
-                      className="text-document-widget__button"
+                      className="element-floating-toolbar__button"
                       aria-label="Cancel Markdown editing"
                       disabled={saving}
                       onClick={releaseEdit}
@@ -427,7 +427,7 @@ export const TextDocumentWidget = ({
                 ) : (
                   <button
                     type="button"
-                    className="text-document-widget__button"
+                    className="element-floating-toolbar__button"
                     aria-label="Edit Markdown"
                     title={
                       editLock ? `${editLock.ownerName} is editing this file` : "Edit Markdown"
@@ -453,19 +453,19 @@ export const TextDocumentWidget = ({
                 <>
                   <button
                     type="button"
-                    className="text-document-widget__button"
+                    className="element-floating-toolbar__button"
                     aria-label="Previous page"
                     disabled={pending || pageIndex === 0}
                     onClick={() => changePage(-1)}
                   >
                     <ChevronLeft size={18} />
                   </button>
-                  <span className="text-document-widget__page-number">
+                  <span className="element-floating-toolbar__page-number">
                     Page {pageIndex + 1} of {pageCount}
                   </span>
                   <button
                     type="button"
-                    className="text-document-widget__button"
+                    className="element-floating-toolbar__button"
                     aria-label="Next page"
                     disabled={pending || pageIndex === pageCount - 1}
                     onClick={() => changePage(1)}
@@ -477,7 +477,7 @@ export const TextDocumentWidget = ({
                 <span>{loaded.asset.kind === "MARKDOWN" ? "Markdown" : "Plain text"}</span>
               ) : null}
               <a
-                className="text-document-widget__button"
+                className="element-floating-toolbar__button"
                 href={downloadUrl}
                 download={loaded.asset.name}
                 aria-label="Download original document"

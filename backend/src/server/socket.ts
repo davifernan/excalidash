@@ -560,7 +560,7 @@ export const registerSocketHandlers = ({
         // Somebody arriving mid-meeting should see the page the room is on,
         // not page one. Sent only to this socket; nobody else has to repaint.
         documentPages
-          .snapshot(drawingId)
+          .snapshot(drawingId, socket.id)
           .then((pages) => socket.emit(DOCUMENT_PAGE_EVENT, pages))
           .catch((error) => {
             logger.error("Document page snapshot failed while joining a board", {

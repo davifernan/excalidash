@@ -1,7 +1,7 @@
 import React from "react";
 import * as api from "../../api";
 import type { Collection } from "../../types";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import { log } from "../../logging";
 
 type UseDashboardCollectionActionsParams = {
@@ -17,17 +17,18 @@ export const useDashboardCollectionActions = ({
   setCollections,
 }: UseDashboardCollectionActionsParams) => {
   const handleCreateCollection = async (name: string) => {
-    const toastId = `collection-create-${name}`;
-    toast.loading("Creating collection...", { id: toastId });
+    const notificationKey = `collection-create-${name}`;
+    notify("loading", "Creating collection...", { key: notificationKey });
     try {
       const created = await api.createCollection(name);
       setCollections((current) => [...current, created]);
-      toast.success(`Collection “${name}” created.`, { id: toastId });
+      notify("success", `Collection “${name}” created.`, { key: notificationKey });
     } catch (err) {
       log.error("Failed to create collection", { error: err }, { notify: false });
-      toast.error(
+      notify(
+        "error",
         `Couldn't create “${name}”. The server did not complete the request. Check your connection and try again.`,
-        { id: toastId },
+        { key: notificationKey },
       );
       throw err;
     }
@@ -42,11 +43,11 @@ export const useDashboardCollectionActions = ({
         return { ...collection, name };
       }),
     );
-    const toastId = `collection-rename-${id}`;
-    toast.loading("Renaming collection...", { id: toastId });
+    const notificationKey = `collection-rename-${id}`;
+    notify("loading", "Renaming collection...", { key: notificationKey });
     try {
       await api.updateCollection(id, name);
-      toast.success(`Collection renamed to “${name}”.`, { id: toastId });
+      notify("success", `Collection renamed to “${name}”.`, { key: notificationKey });
     } catch (err) {
       log.error("Failed to rename collection", { error: err }, { notify: false });
       if (previousName !== undefined) {
@@ -56,9 +57,10 @@ export const useDashboardCollectionActions = ({
           ),
         );
       }
-      toast.error(
+      notify(
+        "error",
         "Couldn't rename the collection. The original name was restored. Check your connection and try again.",
-        { id: toastId },
+        { key: notificationKey },
       );
       throw err;
     }
@@ -74,12 +76,12 @@ export const useDashboardCollectionActions = ({
     });
     const wasSelected = selectedCollectionId === id;
     if (wasSelected) setSelectedCollectionId(undefined);
-    const toastId = `collection-delete-${id}`;
-    toast.loading("Deleting collection...", { id: toastId });
+    const notificationKey = `collection-delete-${id}`;
+    notify("loading", "Deleting collection...", { key: notificationKey });
     try {
       await api.deleteCollection(id);
-      toast.success(`Collection “${removed?.name ?? ""}” deleted.`, {
-        id: toastId,
+      notify("success", `Collection “${removed?.name ?? ""}” deleted.`, {
+        key: notificationKey,
       });
     } catch (err) {
       log.error("Failed to delete collection", { error: err }, { notify: false });
@@ -92,9 +94,10 @@ export const useDashboardCollectionActions = ({
         });
       }
       if (wasSelected) setSelectedCollectionId(id);
-      toast.error(
+      notify(
+        "error",
         "Couldn't delete the collection. It was restored in the sidebar. Check your connection and try again.",
-        { id: toastId },
+        { key: notificationKey },
       );
       throw err;
     }

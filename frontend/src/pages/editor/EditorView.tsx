@@ -1,5 +1,5 @@
 import React from "react";
-import { Toaster, toast } from "sonner";
+import { NotificationHost, notify } from "../../notifications";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { ElementStackingBoundary } from "../../integrations/excalidraw/ElementStackingBoundary";
 import { UIOptions } from "./shared";
@@ -311,7 +311,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                       // this editor for a result that would otherwise go unread.
                       onRequestPage: (elementId, page) =>
                         documentPages.requestPage(elementId, page).then((result) => {
-                          if (!result.ok) toast.error(result.error.message);
+                          if (!result.ok) notify("error", result.error.message);
                           return result;
                         }),
                     }}
@@ -375,7 +375,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </div>
       )}
       <div className="excalidash-notification-context">
-        <Toaster position="bottom-center" />
+        <NotificationHost />
       </div>
     </div>
   );

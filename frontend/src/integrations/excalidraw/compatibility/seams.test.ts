@@ -4,6 +4,7 @@ import {
   EXPECTED_API_METHODS,
   EXPECTED_EXPORTS,
   verifyApiMethods,
+  verifyCssSelectors,
   verifyExports,
   verifySeams,
   verifySelectors,
@@ -77,6 +78,15 @@ describe("checking the markup", () => {
     const missing = verifySelectors(container);
     expect(missing).toContain("toolbar");
     expect(missing).not.toContain("root");
+  });
+
+  it("names CSS selectors that stopped matching", () => {
+    const container = document.createElement("div");
+    container.innerHTML = '<div class="help-icon"></div>';
+
+    const missing = verifyCssSelectors(container, ["helpIcon", "mainMenuTrigger"]);
+
+    expect(missing).toEqual(["mainMenuTrigger"]);
   });
 });
 

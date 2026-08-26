@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { createExcalidrawAdapter } from "../integrations/excalidraw";
 import { openSceneDocument } from "../integrations/excalidraw/adapter";
+import { useExcalidrawToastBridge } from "../integrations/excalidraw/toastBridge";
 import { useCursorChatKey } from "./editor/useCursorChatKey";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { getInitialLangCode } from "../components/LanguageSelector";
@@ -31,7 +32,7 @@ import { useOffscreenPresence } from "./editor/useOffscreenPresence";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 import type { DocumentPageRequestResult } from "./editor/documentPages";
 import { LaserToolbarButton } from "./editor/slots/laserToolbarButton";
 import {
@@ -372,7 +373,7 @@ export const Editor: React.FC = () => {
       const template = WORKSHOP_TEMPLATES.find((candidate) => candidate.id === templateId);
       if (!template) return;
       const result = insertWorkshopTemplate(adapter.scene, template);
-      if (!result.ok) toast.error(`Could not insert the ${template.label} template.`);
+      if (!result.ok) notify("error", `Could not insert the ${template.label} template.`);
     },
     [adapter.scene],
   );
@@ -391,7 +392,8 @@ export const Editor: React.FC = () => {
         }
       })();
       if (!applied.ok) {
-        toast.error(
+        notify(
+          "error",
           "The Markdown file was saved, but the canvas could not update. Reload the board.",
         );
         return false;
@@ -562,6 +564,7 @@ export const Editor: React.FC = () => {
     onCanvasChange: handleCanvasChange,
     scene: adapter.scene,
     selection: adapter.selection,
+    ui: adapter.ui,
     viewport: adapter.viewport,
   });
   const { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport } = useMindMapFeature({
@@ -587,8 +590,10 @@ export const Editor: React.FC = () => {
   });
 
   const [hasSelection, setHasSelection] = useState(false);
+  const forwardExcalidrawToast = useExcalidrawToastBridge();
   const handleChangeWithSelection = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
+      forwardExcalidrawToast(appState?.toast);
       onSelectionChange(appState);
       setHasSelection(
         Object.values(appState?.selectedElementIds || {}).some((selected) => selected === true),
@@ -602,7 +607,7 @@ export const Editor: React.FC = () => {
       onAmbientTreeSceneChange();
       handleChangeWithNotes(elements, appState, files);
     },
-    [handleChangeWithNotes, onAmbientTreeSceneChange, onSelectionChange],
+    [forwardExcalidrawToast, handleChangeWithNotes, onAmbientTreeSceneChange, onSelectionChange],
   );
   // A comment/mention/activity deep link arrives as `?thread=<rootId>`
   // (built by the Inbox and Activity pages). Captured once, then stripped

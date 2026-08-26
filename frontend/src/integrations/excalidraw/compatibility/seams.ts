@@ -9,7 +9,7 @@
 import * as pkg from "@excalidraw/excalidraw";
 
 import type { SeamReport } from "../capabilities";
-import { INTERNAL_SELECTORS } from "../domBridge";
+import { INTERNAL_CSS_SELECTORS, INTERNAL_SELECTORS } from "../domBridge";
 
 /** Named exports this application calls. Losing one is a hard incompatibility. */
 export const EXPECTED_EXPORTS = [
@@ -154,6 +154,26 @@ export const verifySelectors = (
   if (!container) return [...expected];
   return expected
     .map((name) => [name, INTERNAL_SELECTORS[name]] as const)
+    .filter(([, selector]) => !container.querySelector(selector))
+    .map(([name]) => name);
+};
+
+export type InternalCssSelectorName = keyof typeof INTERNAL_CSS_SELECTORS;
+
+/**
+ * Check the foreign markup our styles deliberately target. This runs against
+ * the mounted editor rather than its package files: class names can be
+ * generated, conditional, or moved without disappearing from a text search.
+ */
+export const verifyCssSelectors = (
+  container: HTMLElement | null,
+  expected: readonly InternalCssSelectorName[] = Object.keys(
+    INTERNAL_CSS_SELECTORS,
+  ) as InternalCssSelectorName[],
+): string[] => {
+  if (!container) return [...expected];
+  return expected
+    .map((name) => [name, INTERNAL_CSS_SELECTORS[name]] as const)
     .filter(([, selector]) => !container.querySelector(selector))
     .map(([name]) => name);
 };

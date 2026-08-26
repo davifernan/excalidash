@@ -7,7 +7,7 @@ import type {
 } from "../../integrations/excalidraw/capabilities";
 import { renderStoredSceneToSvg } from "../../integrations/excalidraw/export";
 import debounce from "lodash/debounce";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import * as api from "../../api";
 import { compressExcalidrawFiles } from "../../utils/imageCompression";
 import { reconcileElements } from "../../utils/sync";
@@ -313,11 +313,11 @@ export const useEditorPersistence = ({
       }
     } catch (err) {
       if (err instanceof DrawingSaveConflictError) {
-        toast.error("Drawing changed in another tab. Refresh to load latest.");
+        notify("error", "Drawing changed in another tab. Refresh to load latest.");
         throw err;
       }
       log.error("Failed to save drawing", { error: err }, { notify: false });
-      toast.error("Failed to save changes");
+      notify("error", "Failed to save changes");
       throw err;
     }
   };
@@ -412,7 +412,7 @@ export const useEditorPersistence = ({
     } catch (err) {
       log.error("Failed to save library", { error: err }, { notify: false });
       if (api.isAxiosError(err) && err.response?.status === 401) return;
-      toast.error("Failed to save library");
+      notify("error", "Failed to save library");
     }
   };
 

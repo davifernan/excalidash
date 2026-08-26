@@ -5,17 +5,7 @@
 import { Request, Response, NextFunction } from "express";
 import { config } from "../config";
 import { logger } from "../logger";
-
-/**
- * The correlation key is minted per request in index.ts and returned as the
- * X-Request-ID header. Every ordinary request is logged with it; the failing
- * one was the exception, which is precisely where a report and a log line need
- * to meet.
- */
-const requestIdOf = (req: Request): string => {
-  const raw = req.headers["x-request-id"];
-  return typeof raw === "string" && raw.length > 0 ? raw : "unknown";
-};
+import { requestIdOrUnknown } from "./requestId";
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -33,7 +23,7 @@ export const errorHandler = (
   res: Response,
   next: NextFunction,
 ): void => {
-  const requestId = requestIdOf(req);
+  const requestId = requestIdOrUnknown(req);
 
   if (err.code === "LIMIT_FILE_SIZE") {
     res.status(413).json({

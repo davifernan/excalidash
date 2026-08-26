@@ -22,6 +22,7 @@ import { publishDrawingName } from "../../server/socketDrawingName";
 import { getCollectionShareLevel, getOwnedCollection } from "../../authz/collections";
 import { isCollectionCreator } from "../../authz/boards";
 import { computeSearchText } from "../../search/searchIndex";
+import { requestIdOf } from "../../middleware/requestId";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -347,7 +348,9 @@ export const registerDrawingCreateUpdateRoutes = (
               // ignored, because a client naming someone else's document is not
               // a mistake to paper over.
               if (payload.elements !== undefined) {
-                await syncDrawingDocumentState(tx, id, payload.elements);
+                await syncDrawingDocumentState(tx, id, payload.elements, {
+                  correlationId: requestIdOf(req),
+                });
               }
 
               await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);

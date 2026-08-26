@@ -273,70 +273,11 @@
   border-color: rgb(255 255 255 / 20%);
 }
 
-.text-document-widget__controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px;
-  color: inherit;
-  user-select: none;
-}
-
 /*
- * Identity (filename) and content actions (edit/save, page nav, download)
- * read as one group when they only have the uniform inter-button gap between
- * them -- the pencil then reads as "renames this row" instead of "edits the
- * document" (NIL-582). The divider plus the wider 10px gap above (vs. 5px
- * within .text-document-widget__actions) states these are two different
- * kinds of thing.
+ * NIL-629: the toolbar row/divider/actions/button/page-number classes moved
+ * to `ElementFloatingToolbar.css` as `.element-floating-toolbar__*` --
+ * shared with PdfWidget.tsx now instead of duplicated per widget.
  */
-.text-document-widget__divider {
-  flex: 0 0 auto;
-  align-self: stretch;
-  width: 1px;
-  margin: 4px 0;
-  background: var(--default-border-color, rgb(0 0 0 / 10%));
-}
-
-.text-document-widget__actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.text-document-widget__button {
-  display: inline-flex;
-  flex: 0 0 30px;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.text-document-widget__button:hover:not(:disabled) {
-  background: rgb(99 102 241 / 14%);
-}
-
-.text-document-widget__button:disabled {
-  cursor: default;
-  opacity: 0.35;
-}
-
-.text-document-widget__page-number {
-  flex: 0 0 76px;
-  min-width: 76px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .text-document-widget__lock,
 .text-document-widget__edit-message {

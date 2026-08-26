@@ -2,16 +2,16 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { CommandPalette } from "./CommandPalette";
 
-const { navigate, search, createDrawing, createCollection, toastError } = vi.hoisted(() => ({
+const { navigate, search, createDrawing, createCollection, notification } = vi.hoisted(() => ({
   navigate: vi.fn(),
   search: vi.fn(),
   createDrawing: vi.fn(),
   createCollection: vi.fn(),
-  toastError: vi.fn(),
+  notification: vi.fn(),
 }));
 
 vi.mock("react-router-dom", () => ({ useNavigate: () => navigate }));
-vi.mock("sonner", () => ({ toast: { error: toastError, success: vi.fn() } }));
+vi.mock("../notifications", () => ({ notify: notification }));
 vi.mock("../api", () => ({
   search,
   createDrawing,
@@ -42,7 +42,7 @@ describe("CommandPalette", () => {
     search.mockReset().mockResolvedValue({ results: [], totalCount: 0, limit: 8, offset: 0 });
     createDrawing.mockReset();
     createCollection.mockReset();
-    toastError.mockReset();
+    notification.mockReset();
   });
 
   it("renders nothing when closed", () => {
@@ -230,7 +230,7 @@ describe("CommandPalette", () => {
     const onClose = vi.fn();
     render(<CommandPalette isOpen onClose={onClose} />);
     fireEvent.click(screen.getByText("New board"));
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    await waitFor(() => expect(notification).toHaveBeenCalledWith("error", expect.any(String)));
     expect(onClose).not.toHaveBeenCalled();
   });
 

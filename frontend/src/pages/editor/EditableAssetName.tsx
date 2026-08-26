@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import "./EditableAssetName.css";
 
 type Props = {
@@ -32,7 +32,7 @@ export const EditableAssetName = ({ name, canEdit, onRename }: Props) => {
       await onRename(next);
       setEditing(false);
     } catch {
-      toast.error("Couldn't rename the document. Please try again.");
+      notify("error", "Couldn't rename the document. Please try again.");
     } finally {
       committingRef.current = false;
       setSaving(false);

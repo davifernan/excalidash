@@ -383,16 +383,16 @@ describe("TextDocumentWidget", () => {
 
     // The controls portal onto `toolbar.host` (document.body here), not into
     // the render container.
-    const controls = document.body.querySelector(".text-document-widget__controls");
+    const controls = document.body.querySelector(".element-floating-toolbar__row");
     const children = controls ? Array.from(controls.children) : [];
     const nameIndex = children.findIndex((child) =>
       child.matches(".editable-asset-name__button, .editable-asset-name__label"),
     );
     const dividerIndex = children.findIndex((child) =>
-      child.matches(".text-document-widget__divider"),
+      child.matches(".element-floating-toolbar__divider"),
     );
     const actionsIndex = children.findIndex((child) =>
-      child.matches(".text-document-widget__actions"),
+      child.matches(".element-floating-toolbar__actions"),
     );
 
     // The pencil sits in the identity group in the DOM; only the divider
@@ -404,7 +404,7 @@ describe("TextDocumentWidget", () => {
     expect(actionsIndex).toBe(2);
     expect(
       controls
-        ?.querySelector(".text-document-widget__actions")
+        ?.querySelector(".element-floating-toolbar__actions")
         ?.contains(screen.getByRole("button", { name: "Edit Markdown" })),
     ).toBe(true);
   });

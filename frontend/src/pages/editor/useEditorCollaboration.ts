@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject, RefObject } from "react";
 import { io, type Socket } from "socket.io-client";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import type { UserIdentity } from "../../utils/identity";
 import { buildRemoteSceneUpdate, heldElementIds } from "./shared";
 import { bindFollowMode, getFollowInterruptionMessage, type Follower } from "./followMode";
@@ -166,7 +166,7 @@ export const useEditorCollaboration = ({
   const shareToken = getShareLinkToken();
   const reportCapabilityFailure = useCallback((failure: CapabilityFailure) => {
     log.warn("[Editor] Excalidraw capability failed", { failure });
-    toast.error("Live collaboration could not update the editor.");
+    notify("error", "Live collaboration could not update the editor.");
   }, []);
   useEffect(() => {
     if (!drawingId || !isReady) return;
@@ -279,7 +279,7 @@ export const useEditorCollaboration = ({
         onAccessDenied();
         return;
       }
-      if (message) toast.error(message);
+      if (message) notify("error", message);
     });
     socket.on("room-event-error", (payload: any) => {
       const message = typeof payload?.error?.message === "string" ? payload.error.message : null;
@@ -291,10 +291,10 @@ export const useEditorCollaboration = ({
         // the log, but do not turn an internal traffic budget into a user
         // action. Other rate-limited commands really were refused and remain
         // visible below.
-        if (payload?.event !== "cursor-move") toast.info(message);
+        if (payload?.event !== "cursor-move") notify("info", message);
         return;
       }
-      toast.error(message);
+      notify("error", message);
     });
     const unbindFollowMode = bindFollowMode({
       socket,
@@ -302,7 +302,7 @@ export const useEditorCollaboration = ({
       api: excalidrawAPI.current,
       container: editorContainerRef.current,
       onFollowersChange: setFollowers,
-      onFollowInterrupted: (reason) => toast.info(getFollowInterruptionMessage(reason)),
+      onFollowInterrupted: (reason) => notify("info", getFollowInterruptionMessage(reason)),
     });
     const inviteHereController = bindInviteHere({
       socket,
@@ -310,7 +310,7 @@ export const useEditorCollaboration = ({
       viewport,
       onInvitationChange: setViewportInvitation,
       onStatusChange: setInviteHereStatus,
-      onAlreadyThere: () => toast.info("You're already looking at this area."),
+      onAlreadyThere: () => notify("info", "You're already looking at this area."),
       onFollow: unbindFollowMode.follow,
     });
     inviteHereRef.current = inviteHereController;
@@ -542,7 +542,7 @@ export const useEditorCollaboration = ({
     );
     socket.on("drawing-server-update", (payload: { drawingId?: string }) => {
       if (!payload?.drawingId || payload.drawingId !== drawingId) return;
-      toast.info("Drawing storage changed on the server. Reloading the editor.");
+      notify("info", "Drawing storage changed on the server. Reloading the editor.");
       window.location.reload();
     });
     socket.on("document-asset-replaced", (payload: DocumentAssetReplacement) => {
@@ -554,7 +554,7 @@ export const useEditorCollaboration = ({
         );
       }
       if (!Array.isArray(payload.elements) || payload.elements.length === 0) {
-        toast.error("A Markdown update could not be applied. Reload the board.");
+        notify("error", "A Markdown update could not be applied. Reload the board.");
         return;
       }
       for (const element of payload.elements) {

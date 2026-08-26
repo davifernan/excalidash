@@ -103,6 +103,7 @@ export const registerDocumentEditLockRoomEvent = ({
         });
         logger.warn("NIL-601 diagnostic: markdown edit lock refused, asset not on board", {
           drawingId: command.drawingId,
+          correlationId: socket.id,
           soughtAssetId: command.assetId,
           existingRows: existing,
         });

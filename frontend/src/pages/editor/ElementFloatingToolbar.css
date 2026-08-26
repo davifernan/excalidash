@@ -26,22 +26,96 @@
   width: 104px;
 }
 
-.element-floating-toolbar[data-layout="compact"] .pdf-widget__controls,
-.element-floating-toolbar[data-layout="compact"] .text-document-widget__controls {
+/*
+ * NIL-629: the row/divider/actions/button pattern below used to be defined
+ * twice, once as `.pdf-widget__*` and once as `.text-document-widget__*`,
+ * byte-for-byte identical apart from the prefix. Both widgets now render
+ * this shared markup instead of their own copy, so the compact-layout
+ * overrides that follow only need to say it once too.
+ *
+ * Sticky's colour palette is not migrated onto this row/divider pattern: it
+ * is a flat row of swatches with no natural divider point, and forcing one
+ * in would be structure for its own sake, not shared appearance. It already
+ * gets the same outer shell (border, spacing, layer) from
+ * `.element-floating-toolbar` above.
+ */
+.element-floating-toolbar__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  color: inherit;
+}
+
+/*
+ * Identity (filename) and content actions (edit/save, page nav, download)
+ * read as one group when they only have the uniform inter-button gap between
+ * them -- the pencil then reads as "renames this row" instead of "edits the
+ * document" (NIL-582). The divider plus the wider 10px gap above (vs. 5px
+ * within .element-floating-toolbar__actions) states these are two different
+ * kinds of thing.
+ */
+.element-floating-toolbar__divider {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 1px;
+  margin: 4px 0;
+  background: var(--default-border-color, rgb(0 0 0 / 10%));
+}
+
+.element-floating-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.element-floating-toolbar__button {
+  display: inline-flex;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.element-floating-toolbar__button:hover:not(:disabled) {
+  background: rgb(99 102 241 / 14%);
+}
+
+.element-floating-toolbar__button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.element-floating-toolbar__page-number {
+  flex: 0 0 76px;
+  min-width: 76px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.element-floating-toolbar[data-layout="compact"] .element-floating-toolbar__row {
   box-sizing: border-box;
   width: 100%;
   flex-direction: column;
 }
 
-.element-floating-toolbar[data-layout="compact"] .pdf-widget__actions,
-.element-floating-toolbar[data-layout="compact"] .text-document-widget__actions {
+.element-floating-toolbar[data-layout="compact"] .element-floating-toolbar__actions {
   box-sizing: border-box;
   width: 100%;
   flex-direction: column;
 }
 
-.element-floating-toolbar[data-layout="compact"] .pdf-widget__divider,
-.element-floating-toolbar[data-layout="compact"] .text-document-widget__divider {
+.element-floating-toolbar[data-layout="compact"] .element-floating-toolbar__divider {
   align-self: stretch;
   width: auto;
   height: 1px;
@@ -56,8 +130,7 @@
   flex-basis: 30px;
 }
 
-.element-floating-toolbar[data-layout="compact"] .pdf-widget__page-number,
-.element-floating-toolbar[data-layout="compact"] .text-document-widget__page-number {
+.element-floating-toolbar[data-layout="compact"] .element-floating-toolbar__page-number {
   width: 100%;
   min-width: 0;
   flex-basis: 30px;
