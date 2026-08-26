@@ -1,7 +1,24 @@
 .element-floating-toolbar {
   position: absolute;
   box-sizing: border-box;
-  z-index: 6;
+  /*
+   * NIL-600: placeFloatingToolbar's obstacle avoidance (NIL-589, refined for
+   * NIL-600 in floatingToolbarGeometry.ts) only ever repositions within its
+   * own host -- a widget's own on-canvas box. When that box is scrolled near
+   * the toast stack's fixed bottom-center position, the toast can cover the
+   * entire host and no in-bounds candidate escapes it (measured live in the
+   * NIL-330 soak: "element is visible, enabled and stable", and sonner's own
+   * `[data-sonner-toast]` still intercepts the click for the full 5s retry
+   * window). z-index 6 lost that stacking fight against sonner's own
+   * `[data-sonner-toaster]` (z-index: 999999999, see
+   * node_modules/sonner/dist/styles.css) every time. Avoidance still runs
+   * first and keeps the overlap as small as possible; this is only what
+   * decides who wins the pixels neither could avoid -- and it must be the
+   * widget's own always-present controls, not a transient toast, or the
+   * control is unreachable for as long as the toast survives no matter how
+   * little of it actually overlaps.
+   */
+  z-index: 1000000000;
   display: flex;
   max-width: calc(100% - 16px);
   min-height: 42px;

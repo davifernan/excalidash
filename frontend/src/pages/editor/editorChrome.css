@@ -233,3 +233,37 @@
  * as Sticky Note's `StickyToolbarButton.tsx`), so it inherits that shared
  * styling instead of a redrawn approximation of it.
  */
+
+/**
+ * NIL-600: sonner's own `[data-sonner-toaster]` container is a fixed,
+ * bottom-center-anchored box sized to fit the toast list -- and, per its own
+ * stylesheet (sonner/dist/styles.css), it never sets `pointer-events: none`
+ * on itself. Only an individual `[data-sonner-toast][data-visible='false']`
+ * (an already-dismissed toast) gets that. So the container's full rectangle
+ * intercepts clicks everywhere inside it, including the padding/gap area
+ * around a single toast card -- not just the card's own visible pixels.
+ *
+ * ElementFloatingToolbar's obstacle-avoidance (NIL-589, refined for NIL-600
+ * in floatingToolbarGeometry.ts) only ever repositions a toolbar *within its
+ * own host* -- a document/PDF widget's own on-canvas bounding box. When that
+ * widget is scrolled near the bottom-center of the viewport, the toast
+ * container's fixed rectangle can cover the widget's ENTIRE host area, and
+ * no position search bounded by the host can find a candidate outside it
+ * (NIL-330 soak: page-turn button, five seconds of retries, "element is
+ * visible, enabled and stable" on every one, `<section aria-label="Notifications ...">`
+ * still catching the click every time). No geometry search fixes that --
+ * the container's own hit-testing is the actual obstacle.
+ *
+ * The fix is the same one this file already uses for third-party chrome:
+ * disable pointer events on the container and re-enable them only on an
+ * actual toast card, so the container's empty area lets clicks fall through
+ * to whatever is underneath while a real toast stays fully interactive
+ * (dismissible, clickable) -- the notification itself is not made to
+ * disappear any faster.
+ */
+[data-sonner-toaster] {
+  pointer-events: none;
+}
+[data-sonner-toaster] [data-sonner-toast] {
+  pointer-events: auto;
+}

@@ -56,6 +56,60 @@ describe("floating element toolbar geometry", () => {
     ).toEqual({ left: 360, top: 508, side: "below" });
   });
 
+  /**
+   * NIL-600: the "clears known chrome" test above always had a valid gap to
+   * escape into. This one does not -- two obstacles leave only a 10px
+   * vertical sliver in a 300px-tall boundary, nowhere near the 42px-tall
+   * toolbar. Every gap-respecting candidate in the function genuinely
+   * fails here, which is exactly the geometry that used to reach the old
+   * unconditional `{ left, top: EDGE_GAP }` fallback -- the one candidate
+   * in this whole function that never checked an obstacle. `EDGE_GAP` (8)
+   * sits inside the first obstacle's own 0-140 span, so that old fallback
+   * placed the toolbar ON TOP of an obstacle it already knew about: a
+   * document widget's page-turn button rendered "visible, enabled,
+   * stable" by every browser/CSS measure, directly under a toast that
+   * still ate its pointer events (measured live in the NIL-330 baseline
+   * soak, not assumed). The fix keeps the same grid this function already
+   * builds and picks whichever candidate overlaps the LEAST, rather than
+   * giving up on avoidance entirely once nothing is perfect.
+   */
+  it("picks the least-overlapping position instead of an unconditional corner when nothing fully clears (NIL-600)", () => {
+    const toolbar = { width: 280, height: 42 };
+    const boundary = { width: 400, height: 300 };
+    const obstacles = [
+      { left: 0, top: 0, right: 400, bottom: 140 },
+      { left: 0, top: 150, right: 400, bottom: 300 },
+    ];
+    const placement = placeFloatingToolbar(
+      { left: 0, top: 145, right: 400, bottom: 146 },
+      toolbar,
+      boundary,
+      obstacles,
+    );
+    const bounds = {
+      left: placement.left,
+      top: placement.top,
+      right: placement.left + toolbar.width,
+      bottom: placement.top + toolbar.height,
+    };
+    const overlapWith = (o: (typeof obstacles)[number]) =>
+      Math.max(0, Math.min(bounds.right, o.right) - Math.max(bounds.left, o.left)) *
+      Math.max(0, Math.min(bounds.bottom, o.bottom) - Math.max(bounds.top, o.top));
+    const totalOverlap = obstacles.reduce((sum, o) => sum + overlapWith(o), 0);
+    const oldFallbackOverlap = (() => {
+      const oldBounds = { left: 60, top: 8, right: 60 + toolbar.width, bottom: 8 + toolbar.height };
+      return obstacles.reduce(
+        (sum, o) =>
+          sum +
+          Math.max(0, Math.min(oldBounds.right, o.right) - Math.max(oldBounds.left, o.left)) *
+            Math.max(0, Math.min(oldBounds.bottom, o.bottom) - Math.max(oldBounds.top, o.top)),
+        0,
+      );
+    })();
+    expect(oldFallbackOverlap).toBeGreaterThan(0); // sanity: the old fallback really did sit in an obstacle here
+    expect(totalOverlap).toBeLessThan(oldFallbackOverlap);
+  });
+
   it("clears known chrome even in the inside last resort", () => {
     expect(
       placeFloatingToolbar(

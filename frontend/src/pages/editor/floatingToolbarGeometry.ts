@@ -60,6 +60,33 @@ const unique = (values: number[]): number[] => [
 ];
 
 /**
+ * How much of `candidate` a single obstacle actually covers, in pixels of
+ * overlap area -- 0 when they do not touch at all. Ignores `ELEMENT_GAP`
+ * on purpose: this only runs once every gap-respecting candidate (`fits`,
+ * everywhere above) has already failed, to rank what is left by how badly
+ * clickable it would be, not to repeat the same gap check.
+ */
+const overlapArea = (
+  candidate: FloatingToolbarAnchor,
+  obstacle: FloatingToolbarObstacle,
+): number => {
+  const width = Math.max(
+    0,
+    Math.min(candidate.right, obstacle.right) - Math.max(candidate.left, obstacle.left),
+  );
+  const height = Math.max(
+    0,
+    Math.min(candidate.bottom, obstacle.bottom) - Math.max(candidate.top, obstacle.top),
+  );
+  return width * height;
+};
+
+const totalOverlapArea = (
+  candidate: FloatingToolbarAnchor,
+  obstacles: readonly FloatingToolbarObstacle[],
+): number => obstacles.reduce((sum, obstacle) => sum + overlapArea(candidate, obstacle), 0);
+
+/**
  * Place an unscaled toolbar around a viewport-space element.
  *
  * Above is the normal position. At the top edge it deliberately flips below
@@ -123,7 +150,35 @@ export function placeFloatingToolbar(
     }
   }
 
-  return { left, top: EDGE_GAP, side: "inside" };
+  // Truly nothing clears every obstacle at once (NIL-600) -- a real gap the
+  // grid above cannot close in a small enough boundary crowded enough with
+  // its own chrome, a toast, or both. The OLD fallback here was
+  // `{ left, top: EDGE_GAP, side: "inside" }` unconditionally: the one
+  // candidate in this whole function that never checked an obstacle at
+  // all, which is exactly how a toast ends up sitting on top of a document
+  // widget's page-turn button -- reachable, visible, "stable" by every
+  // Playwright/CSS measure, and still not clickable, because pointer
+  // events go to whatever the browser paints on top, not to whichever
+  // side lost this search. Score every candidate already computed above
+  // (edge-clamped anchor-left plus every obstacle-derived left/top,
+  // exactly the same grid) by how many pixels of obstacle it still
+  // overlaps, and keep the least-bad one -- so a toolbar that cannot fully
+  // escape a crowded corner at least ends up under the SMALLEST usable
+  // sliver of an obstacle instead of arbitrarily under the toast itself.
+  let best = { left, top: EDGE_GAP, side: "inside" as const };
+  let bestOverlap = totalOverlapArea(placementBounds(best, toolbar), obstacles);
+  for (const insideLeft of insideLefts) {
+    for (const insideTop of insideTops) {
+      const candidate = { left: insideLeft, top: insideTop, side: "inside" as const };
+      const overlap = totalOverlapArea(placementBounds(candidate, toolbar), obstacles);
+      if (overlap < bestOverlap) {
+        best = candidate;
+        bestOverlap = overlap;
+        if (bestOverlap === 0) return best;
+      }
+    }
+  }
+  return best;
 }
 
 /** True only for this element and a local selection of exactly one element. */
