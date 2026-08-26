@@ -1,0 +1,45 @@
+name: CodeQL Daily Observer
+
+# NIL-623: this workflow detects newly introduced alerts on pull requests and
+# observes code already on main every day. It is deliberately non-blocking:
+# the job name is absent from ops/repository-rules.sh's required status checks.
+# New alerts require human triage; a green run only means the analysis ran.
+
+on:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Avoid the busy start of the hour. Scheduled workflows run from the latest
+    # commit on the default branch, which is main in this repository.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-observer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL Daily Observer
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Analyze JavaScript and TypeScript
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
