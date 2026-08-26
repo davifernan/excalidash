@@ -103,6 +103,12 @@ const assertAccepted = (label, name, contents) => {
   });
 };
 
+const acceptedRawApiLineComment = [
+  "raw API call in a real line comment",
+  "rawApiLineComment.ts",
+  'const url = "https://x"; // api.getAppState();\n',
+];
+
 const probes = [
   [
     "static package import",
@@ -183,6 +189,11 @@ const probes = [
     "raw imperative API method reference",
     "rawApiMethodReference.ts",
     "export const probe = (api: { getAppState: () => unknown }) => api.getAppState;\n",
+  ],
+  [
+    "raw API call after an HTTPS string literal",
+    "rawApiAfterUrlString.ts",
+    'const url = "https://x"; api.getAppState();\n',
   ],
   [
     "adapter capability factory import",
@@ -425,6 +436,7 @@ const main = () => {
   console.log("  green on the unmodified tree");
 
   for (const [label, name, contents] of probes) assertRejects(label, name, contents);
+  assertAccepted(...acceptedRawApiLineComment);
   assertStaleExceptionCaught();
   assertLegacyKeyCaught();
   assertNoExceptionsRemain();

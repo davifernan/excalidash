@@ -370,8 +370,8 @@ const withoutCssComments = (contents) =>
 const withoutCommentsAndStrings = (contents) =>
   contents
     .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\n]*/g, "")
-    .replace(/(["'`])(?:\\.|(?!\1)[\s\S])*?\1/g, '""');
+    .replace(/(["'`])(?:\\.|(?!\1)[\s\S])*?\1/g, '""')
+    .replace(/\/\/[^\n]*/g, "");
 
 const RULES = [
   {
