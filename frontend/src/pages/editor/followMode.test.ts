@@ -21,6 +21,16 @@ vi.mock("@excalidraw/excalidraw", () => ({
 
 import { bindFollowMode, getFollowInterruptionMessage, parseFollowSceneBounds } from "./followMode";
 import { stacking } from "../../integrations/excalidraw/stacking";
+import { createCollaborationCapability } from "../../integrations/excalidraw/collaboration";
+import { createViewportCapability } from "../../integrations/excalidraw/viewport";
+
+const capabilitiesFor = (api: any) => {
+  const handle = () => ({ ...api, getSceneElements: () => [] });
+  return {
+    collaboration: createCollaborationCapability(handle),
+    viewport: createViewportCapability(handle),
+  };
+};
 
 describe("getFollowInterruptionMessage", () => {
   it("names the mutual-follow and self-follow cases instead of a generic fallback", () => {
@@ -87,7 +97,7 @@ describe("follow viewport bounds", () => {
     const cleanup = bindFollowMode({
       socket: socket as any,
       drawingId: "drawing-1",
-      api,
+      ...capabilitiesFor(api),
       container: null,
       onFollowersChange,
       onFollowInterrupted,
@@ -198,7 +208,7 @@ describe("follow viewport bounds", () => {
     const cleanup = bindFollowMode({
       socket: socket as any,
       drawingId: "drawing-1",
-      api,
+      ...capabilitiesFor(api),
       container,
       onFollowersChange: vi.fn(),
     });

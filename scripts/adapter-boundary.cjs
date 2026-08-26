@@ -143,6 +143,9 @@ const CUSTOM_DATA_WRITE_EXCEPTIONS = new Set([]);
  */
 const RAW_API_EXCEPTIONS = new Set([]);
 
+/** Only index.ts may construct the canonical adapter's capabilities. */
+const ADAPTER_FACTORY_IMPORT_EXCEPTIONS = new Set([]);
+
 /**
  * Receiver names the raw-API-call pattern must not fire on.
  *
@@ -194,6 +197,28 @@ const RAW_API_PATTERNS = [
     re: new RegExp(
       `(?<!\\b(?:${CAPABILITY_RECEIVER_NAMES.join("|")})\\??)\\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)(\\?\\.)?\\s*\\(`,
     ),
+  },
+  {
+    name: "raw editor API method reference",
+    // Calling the method is not the only way to leak the imperative handle:
+    // passing `api.getAppState` around lets a consumer recreate a private
+    // adapter later. Immediate calls stay covered by the rule above; this
+    // companion pattern covers every other property reference.
+    re: new RegExp(
+      `(?<!\\b(?:${CAPABILITY_RECEIVER_NAMES.join("|")})\\??)\\.(getAppState|updateScene|getSceneElementsIncludingDeleted|getSceneElements|getFiles|addFiles|onChange|onPointerDown|onUserFollow|onScrollChange|setActiveTool)\\b(?!\\s*(?:\\?\\.)?\\s*\\()`,
+    ),
+  },
+];
+
+/**
+ * A capability factory produces a live adapter over a raw editor handle. The
+ * canonical adapter is the sole construction site; importing a factory into a
+ * product feature creates a second, competing source of truth.
+ */
+const ADAPTER_FACTORY_IMPORT_PATTERNS = [
+  {
+    name: "adapter capability factory import",
+    re: /(?:^|\n)\s*import\s*\{[^}]*\bcreate[A-Za-z0-9]*Capability\b[^}]*\}\s*from\s*["'][^"']+["']/s,
   },
 ];
 
@@ -337,6 +362,17 @@ const rel = (file) => path.relative(root, file).split(path.sep).join("/");
 const withoutCssComments = (contents) =>
   contents.replace(/\/\*[\s\S]*?\*\//g, (comment) => " ".repeat(comment.length));
 
+/**
+ * The raw-handle rule is a code rule, not a documentation or test-label rule.
+ * The other boundary rules deliberately inspect selectors and import strings,
+ * but a prose mention such as `api.addFiles` does not create a second adapter.
+ */
+const withoutCommentsAndStrings = (contents) =>
+  contents
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/(["'`])(?:\\.|(?!\1)[\s\S])*?\1/g, '""');
+
 const RULES = [
   {
     id: "package-import",
@@ -373,6 +409,15 @@ const RULES = [
       "frontend/src/integrations/excalidraw.",
   },
   {
+    id: "adapter-factory-import",
+    patterns: ADAPTER_FACTORY_IMPORT_PATTERNS,
+    exceptions: ADAPTER_FACTORY_IMPORT_EXCEPTIONS,
+    allow: (relative) => relative === `${LAYER.split(path.sep).join("/")}/index.ts`,
+    message:
+      "imports an Excalidraw capability factory. Construct capabilities only in " +
+      "frontend/src/integrations/excalidraw/index.ts.",
+  },
+  {
     id: "custom-data-write",
     patterns: CUSTOM_DATA_WRITE_PATTERNS.map((re) => ({ name: "customData write", re })),
     exceptions: CUSTOM_DATA_WRITE_EXCEPTIONS,
@@ -404,7 +449,9 @@ const main = () => {
         const scanned =
           rule.id === "dom-internal" && relative.endsWith(".css")
             ? withoutCssComments(contents)
-            : contents;
+            : rule.id === "raw-api-call"
+              ? withoutCommentsAndStrings(contents)
+              : contents;
         const flags = hit.re.flags.includes("g") ? hit.re.flags : `${hit.re.flags}g`;
         for (const match of scanned.matchAll(new RegExp(hit.re.source, flags))) {
           if (rule.allow(relative, match[0], scanned, match.index)) continue;

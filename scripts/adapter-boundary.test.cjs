@@ -180,6 +180,16 @@ const probes = [
     ".help-icon:hover { opacity: .5; }\n",
   ],
   [
+    "raw imperative API method reference",
+    "rawApiMethodReference.ts",
+    "export const probe = (api: { getAppState: () => unknown }) => api.getAppState;\n",
+  ],
+  [
+    "adapter capability factory import",
+    "adapterFactoryImport.ts",
+    'import { createViewportCapability } from "../integrations/excalidraw/viewport";\nexport const probe = createViewportCapability;\n',
+  ],
+  [
     "direct customData write",
     "customDataWrite.ts",
     "export const probe = (element: { customData?: unknown }) => ({\n  ...element,\n  customData: { excalidash: { schemaVersion: 2 } },\n});\n",

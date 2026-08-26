@@ -5,6 +5,7 @@ vi.hoisted(() => {
 });
 
 import { getVisibleSceneBounds, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
+import { createViewportCapability } from "../../integrations/excalidraw/viewport";
 import { fitFollowedBounds } from "./followMode";
 
 const appState = (width: number, height: number) => ({
@@ -35,10 +36,18 @@ describe("follow viewport geometry with Excalidraw", () => {
         }),
       };
 
-      const fitted = fitFollowedBounds(api, targetBounds as any);
-      const visible = getVisibleSceneBounds(fitted.appState);
+      const viewport = createViewportCapability(() => ({ ...api, getSceneElements: () => [] }));
+      const fitted = fitFollowedBounds(viewport, targetBounds as any);
+      expect(fitted).not.toBeNull();
+      if (!fitted) return;
+      const fittedAppState = {
+        ...state,
+        ...fitted.viewport,
+        zoom: { value: fitted.viewport.zoom },
+      };
+      const visible = getVisibleSceneBounds(fittedAppState);
 
-      expect(fitted.appState.zoom.value).toBe(expectedZoom);
+      expect(fittedAppState.zoom.value).toBe(expectedZoom);
       expect((visible[0] + visible[2]) / 2).toBeCloseTo((targetBounds[0] + targetBounds[2]) / 2, 8);
       expect((visible[1] + visible[3]) / 2).toBeCloseTo((targetBounds[1] + targetBounds[3]) / 2, 8);
       expect(visible[2] - visible[0]).toBeCloseTo(width / expectedZoom, 8);
@@ -46,11 +55,11 @@ describe("follow viewport geometry with Excalidraw", () => {
 
       const topLeft = sceneCoordsToViewportCoords(
         { sceneX: targetBounds[0], sceneY: targetBounds[1] },
-        fitted.appState,
+        fittedAppState,
       );
       const bottomRight = sceneCoordsToViewportCoords(
         { sceneX: targetBounds[2], sceneY: targetBounds[3] },
-        fitted.appState,
+        fittedAppState,
       );
       const projectedWidth = targetWidth * expectedZoom;
       const projectedHeight = targetHeight * expectedZoom;

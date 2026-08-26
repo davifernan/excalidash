@@ -1,9 +1,13 @@
-import { createCollaborationCapability } from "../../integrations/excalidraw/collaboration";
-import {
-  createViewportCapability,
-  projectPoint,
-  readViewport,
-} from "../../integrations/excalidraw/viewport";
+import type {
+  CollaborationCapability,
+  ViewportCapability,
+} from "../../integrations/excalidraw/capabilities";
+import { projectPoint } from "../../integrations/excalidraw/viewport";
+import type {
+  AppliedViewport,
+  SceneBounds,
+  ViewportState,
+} from "../../integrations/excalidraw/types";
 import type { Socket } from "socket.io-client";
 import { stacking } from "../../integrations/excalidraw/stacking";
 
@@ -36,18 +40,6 @@ export const getFollowInterruptionMessage = (reason: string): string => {
   }
 };
 
-type ExcalidrawApi = {
-  getAppState: () => any;
-  updateScene: (scene: { appState: any }) => void;
-  onScrollChange: (callback: () => void) => () => void;
-  onUserFollow: (
-    callback: (payload: {
-      action: "FOLLOW" | "UNFOLLOW";
-      userToFollow: { socketId: string };
-    }) => void,
-  ) => () => void;
-};
-
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
@@ -67,65 +59,18 @@ export const parseFollowSceneBounds = (value: unknown): FollowSceneBounds | null
  * before the fit, because afterwards the applied zoom is always inside the
  * limits and the clamp is invisible.
  */
-/** What a given viewport can see, in scene coordinates. */
-const visibleBoundsOfState = (appState: any) => {
-  const viewport = createViewportCapability(() => ({
-    getAppState: () => appState,
-    updateScene: () => {},
-    getSceneElements: () => [],
-  }));
-  const bounds = viewport.visibleBounds();
-  return bounds.ok ? bounds.value : null;
-};
-
 /** What this person can currently see, in scene coordinates. */
-const visibleBoundsOf = (api: Pick<ExcalidrawApi, "getAppState" | "updateScene">) => {
-  const viewport = createViewportCapability(() => ({
-    getAppState: api.getAppState,
-    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
-    getSceneElements: () => [],
-  }));
+const visibleBoundsOf = (viewport: ViewportCapability) => {
   const bounds = viewport.visibleBounds();
   return bounds.ok ? bounds.value : null;
 };
 
 export const fitFollowedBounds = (
-  api: Pick<ExcalidrawApi, "getAppState" | "updateScene">,
+  viewport: ViewportCapability,
   bounds: FollowSceneBounds,
-) => {
-  const viewport = createViewportCapability(() => ({
-    getAppState: api.getAppState,
-    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
-    getSceneElements: () => [],
-  }));
-  // Read through the capability, not the handle: this is the state before the
-  // write, and it has to come from the same reading the capability uses.
-  const read = viewport.read();
-  const before = read.ok ? read.value : null;
-  const applied = viewport.showBounds(bounds as never);
-  if (!applied.ok || !before) {
-    return { appState: {}, zoomClamped: false };
-  }
-  // The viewport the capability computed, merged over the state we read before
-  // the write -- NOT a fresh getAppState(). Excalidraw's updateScene goes
-  // through setState on a React 18 class component, so the state read straight
-  // afterwards is still the pre-fit one. Reading it back would show the
-  // follower's indicator at the old rectangle and, worse, store the old bounds
-  // as "last applied", which defeats the echo guard: the next real scroll event
-  // would not match, and the bounds just received would be sent back out.
-  const { viewport: fitted } = applied.value;
-  return {
-    appState: {
-      scrollX: fitted.scrollX,
-      scrollY: fitted.scrollY,
-      zoom: { value: fitted.zoom },
-      width: fitted.width,
-      height: fitted.height,
-      offsetLeft: fitted.offsetLeft,
-      offsetTop: fitted.offsetTop,
-    },
-    zoomClamped: applied.value.zoomClamped,
-  };
+): AppliedViewport | null => {
+  const applied = viewport.showBounds(bounds as SceneBounds);
+  return applied.ok ? applied.value : null;
 };
 
 const createViewportIndicator = (container: HTMLDivElement | null) => {
@@ -161,10 +106,9 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
   container.append(frame, warning);
 
   return {
-    show(bounds: FollowSceneBounds, appState: any, zoomClamped: boolean) {
+    show(bounds: FollowSceneBounds, viewport: ViewportState, zoomClamped: boolean) {
       // The viewport that was just computed, not necessarily the one on
       // screen: the indicator draws where the followed person is looking.
-      const viewport = readViewport(appState);
       const topLeft = projectPoint({ x: bounds[0], y: bounds[1] }, viewport);
       const bottomRight = projectPoint({ x: bounds[2], y: bounds[3] }, viewport);
       const containerRect = container.getBoundingClientRect();
@@ -188,37 +132,23 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
   };
 };
 
-/** The capabilities this feature needs, built once per binding. */
-const capabilitiesFor = (api: ExcalidrawApi) => {
-  const handle = () => ({
-    getAppState: api.getAppState,
-    updateScene: api.updateScene as (change: Record<string, unknown>) => void,
-    getSceneElements: () => [],
-    onScrollChange: api.onScrollChange,
-    onUserFollow: api.onUserFollow,
-  });
-  return {
-    viewport: createViewportCapability(handle),
-    collaboration: createCollaborationCapability(handle),
-  };
-};
-
 export const bindFollowMode = ({
   socket,
   drawingId,
-  api,
+  collaboration,
+  viewport,
   container,
   onFollowersChange,
   onFollowInterrupted,
 }: {
   socket: Socket;
   drawingId: string;
-  api: ExcalidrawApi;
+  collaboration: CollaborationCapability;
+  viewport: ViewportCapability;
   container: HTMLDivElement | null;
   onFollowersChange: (followers: Follower[]) => void;
   onFollowInterrupted?: (reason: string) => void;
 }) => {
-  const { collaboration, viewport } = capabilitiesFor(api);
   let followers = new Map<string, Follower>();
   const lastViewportSequence = new Map<string, number>();
   let sendTimer: ReturnType<typeof setTimeout> | null = null;
@@ -260,14 +190,14 @@ export const bindFollowMode = ({
     if (followers.size === 0) return;
     socket.emit("viewport-bounds", {
       drawingId,
-      sceneBounds: visibleBoundsOf(api),
+      sceneBounds: visibleBoundsOf(viewport),
     });
   };
   const scheduleBounds = () => {
     if (applyingIncomingBounds || sendTimer !== null || followers.size === 0) {
       return;
     }
-    const visibleBounds = parseFollowSceneBounds(visibleBoundsOf(api));
+    const visibleBounds = parseFollowSceneBounds(visibleBoundsOf(viewport));
     if (
       visibleBounds &&
       lastAppliedVisibleBounds &&
@@ -287,9 +217,10 @@ export const bindFollowMode = ({
     if (!following.ok || following.value.followingSocketId !== lastReceivedPresenceId) return;
     applyingIncomingBounds = true;
     try {
-      const fitted = fitFollowedBounds(api, lastReceivedBounds);
-      lastAppliedVisibleBounds = parseFollowSceneBounds(visibleBoundsOfState(fitted.appState));
-      viewportIndicator?.show(lastReceivedBounds, fitted.appState, fitted.zoomClamped);
+      const fitted = fitFollowedBounds(viewport, lastReceivedBounds);
+      if (!fitted) return;
+      lastAppliedVisibleBounds = parseFollowSceneBounds(fitted.bounds);
+      viewportIndicator?.show(lastReceivedBounds, fitted.viewport, fitted.zoomClamped);
     } finally {
       applyingIncomingBounds = false;
     }

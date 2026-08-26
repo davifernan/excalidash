@@ -2,6 +2,7 @@ import React from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { describe, expect, it, vi } from "vitest";
+import { createExcalidrawAdapter } from "../../integrations/excalidraw";
 import { bindFollowMode } from "./followMode";
 
 vi.hoisted(() => {
@@ -62,6 +63,11 @@ describe("follow correction with the real Excalidraw API", () => {
       </div>,
     );
     await waitFor(() => expect(api).toBeDefined());
+    const adapter = createExcalidrawAdapter({
+      api: () => api,
+      container: () => null,
+      canEdit: () => true,
+    });
     await act(async () => {
       api.updateScene({
         appState: {
@@ -81,7 +87,8 @@ describe("follow correction with the real Excalidraw API", () => {
     const cleanup = bindFollowMode({
       socket: socket as any,
       drawingId: "drawing-1",
-      api,
+      collaboration: adapter.collaboration,
+      viewport: adapter.viewport,
       container: null,
       onFollowersChange: vi.fn(),
     });
@@ -131,6 +138,11 @@ describe("follow correction with the real Excalidraw API", () => {
       </div>,
     );
     await waitFor(() => expect(api).toBeDefined());
+    const adapter = createExcalidrawAdapter({
+      api: () => api,
+      container: () => null,
+      canEdit: () => true,
+    });
 
     await act(async () => {
       api.updateScene({
@@ -171,7 +183,8 @@ describe("follow correction with the real Excalidraw API", () => {
     const cleanup = bindFollowMode({
       socket: socket as any,
       drawingId: "drawing-1",
-      api,
+      collaboration: adapter.collaboration,
+      viewport: adapter.viewport,
       container: null,
       onFollowersChange: vi.fn(),
     });
