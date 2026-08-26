@@ -25,6 +25,29 @@ const DOM_BRIDGE = path.join(LAYER, "domBridge.ts");
 const CUSTOM_DATA_HELPER = path.join(LAYER, "customData.ts");
 
 /**
+ * Read the CSS seam inventory from its TypeScript source of truth instead of
+ * keeping a second list in this guard. The entries are deliberately simple
+ * string literals, making this narrow extraction both stable and auditable.
+ */
+const readCssSeamInventory = () => {
+  const source = fs.readFileSync(path.join(root, DOM_BRIDGE), "utf8");
+  const match = source.match(/export const INTERNAL_CSS_SELECTORS = \{([\s\S]*?)\n\} as const;/);
+  if (!match) {
+    throw new Error("Could not read INTERNAL_CSS_SELECTORS from domBridge.ts.");
+  }
+  return [...match[1].matchAll(/^\s*\w+:\s*(['"])(.*?)\1,?$/gm)].map((entry) => entry[2]);
+};
+
+const CSS_SEAM_INVENTORY = readCssSeamInventory();
+const normalizeSelector = (selector) => selector.replace(/["']/g, '"');
+
+const isInventoriedCssSelector = (relative, matchedSelector) =>
+  relative.endsWith(".css") &&
+  CSS_SEAM_INVENTORY.some((selector) =>
+    normalizeSelector(selector).includes(normalizeSelector(matchedSelector)),
+  );
+
+/**
  * Files that still import the package directly.
  *
  * Empty. Every consumer goes through a capability, and the layer itself is the
@@ -175,6 +198,12 @@ const DOM_INTERNAL_PATTERNS = [
   /\.excalidraw--mobile\b/,
   /\.excalidraw-hyperlinkContainer\b/,
   /\.disable-zen-mode--visible\b/,
+  /\.UserList(?:__wrapper)?\b/,
+  /\.sidebar-trigger\b/,
+  /\.main-menu-trigger\b/,
+  /\.help-icon\b/,
+  /\.Island\b/,
+  /\[data-testid\s*=\s*["']toolbar-(?:laser|LaserPointer)["']\]/,
   /querySelector[^\n]*["'`][^"'`]*\.excalidraw\b/,
   // The interactive canvas, which domBridge.ts itself lists as an internal
   // selector -- and which the word-boundary in the pattern above does not
@@ -271,7 +300,7 @@ const walk = (dir, out = []) => {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
-    else if (/\.(ts|tsx)$/.test(entry.name)) out.push(full);
+    else if (/\.(ts|tsx|css)$/.test(entry.name)) out.push(full);
   }
   return out;
 };
@@ -292,7 +321,9 @@ const RULES = [
     id: "dom-internal",
     patterns: DOM_INTERNAL_PATTERNS.map((re) => ({ name: "internal selector", re })),
     exceptions: DOM_INTERNAL_EXCEPTIONS,
-    allow: (relative) => relative === DOM_BRIDGE.split(path.sep).join("/"),
+    allow: (relative, matchedSelector) =>
+      relative === DOM_BRIDGE.split(path.sep).join("/") ||
+      isInventoriedCssSelector(relative, matchedSelector),
     message: "names an Excalidraw-internal class. Those belong in domBridge.ts.",
   },
   {
@@ -339,14 +370,16 @@ const main = () => {
     const contents = fs.readFileSync(file, "utf8");
 
     for (const rule of RULES) {
-      const hit = rule.patterns.find(({ re }) => re.test(contents));
-      if (!hit) continue;
-      if (rule.allow(relative)) continue;
-      if (rule.exceptions.has(relative)) {
-        usedExceptions.get(rule.id).add(relative);
-        continue;
+      for (const hit of rule.patterns) {
+        const match = contents.match(hit.re);
+        if (!match) continue;
+        if (rule.allow(relative, match[0])) continue;
+        if (rule.exceptions.has(relative)) {
+          usedExceptions.get(rule.id).add(relative);
+          continue;
+        }
+        violations.push(`${relative}: ${rule.message} (${hit.name})`);
       }
-      violations.push(`${relative}: ${rule.message} (${hit.name})`);
     }
   }
 
