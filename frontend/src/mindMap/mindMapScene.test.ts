@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { arrangeOps, importOps, mindMapLayoutRunCount } from "./mindMapScene";
-import { withExcalidashData } from "../integrations/excalidraw/customData";
 import type { ElementId, ElementSummary } from "../integrations/excalidraw/types";
 import type { ImportedNode } from "./outlineParser";
 
@@ -12,7 +11,6 @@ const summary = (over: Partial<ElementSummary> = {}): ElementSummary => ({
   width: 200,
   height: 80,
   angle: 0,
-  opacity: 100,
   isDeleted: false,
   frameId: null,
   containerId: null,
@@ -96,12 +94,13 @@ describe("arrangeOps: the explicit 'Arrange' command, ambient graph in", () => {
     expect(Math.hypot(dx, dy)).toBeGreaterThan(1);
   });
 
-  it("leaves a pinned descendant's own position untouched, but still lays out the rest (NIL-593, Schnitt 3)", () => {
-    const pinnedAt = { x: 9999, y: 100 };
+  it("ignores retired nodeState on an existing board and arranges every descendant", () => {
     const summaries = [
       node("root", 500, 500),
-      node("a", pinnedAt.x, pinnedAt.y, {
-        customData: withExcalidashData(null, { nodeState: { pinned: true } }),
+      node("a", 9999, 100, {
+        customData: {
+          excalidash: { schemaVersion: 2, nodeState: { pinned: true, collapsed: true } },
+        },
       }),
       node("b", 9999, 900),
       arrow("e1", "root", "a"),
@@ -110,7 +109,7 @@ describe("arrangeOps: the explicit 'Arrange' command, ambient graph in", () => {
 
     const ops = arrangeOps(summaries, "root")!;
     expect(ops).not.toBeNull();
-    expect(ops.some((op) => op.kind === "patch" && op.id === "a")).toBe(false);
+    expect(ops.some((op) => op.kind === "patch" && op.id === "a")).toBe(true);
     expect(ops.some((op) => op.kind === "patch" && op.id === "b")).toBe(true);
   });
 

@@ -275,6 +275,109 @@ test.describe("the top-right control group reads as one bar", () => {
     const afterLeaveBox = (await wrapper.boundingBox())!;
     expect(afterLeaveBox.width).toBeCloseTo(aloneBox.width, 0);
   });
+
+  // NIL-603: NIL-564's max-content bar was correct alone, but NIL-579's
+  // four-slot UserList reservation made it jump by 191px when the first peer
+  // arrived. Exercise every attendance state from the report against the
+  // rendered Excalidraw avatar list: one directly clickable avatar stays
+  // visible, overflow becomes +N, and neither the bar's width nor its 44px
+  // toolbar-aligned height grows further.
+  test("the bar stays hard-bounded with 0, 1, 2, 5, and 12 remote participants", async ({
+    page,
+    browser,
+  }) => {
+    // Twelve real editor contexts are intentional evidence, and a loaded CI
+    // runner can take longer than the suite's ordinary one-page timeout to
+    // bring them all through Vite and the collaboration handshake.
+    test.setTimeout(120_000);
+    await openEditor(page, drawingId);
+
+    const peerContexts: Awaited<ReturnType<typeof browser.newContext>>[] = [];
+    const measurements: Array<{
+      remoteCount: number;
+      width: number;
+      height: number;
+      toolbarHeight: number;
+      visibleAvatars: number;
+      overflowText: string | null;
+      circleOverlap: number | null;
+    }> = [];
+    const targetCounts = [0, 1, 2, 5, 12] as const;
+
+    try {
+      for (const remoteCount of targetCounts) {
+        while (peerContexts.length < remoteCount) {
+          const context = await browser.newContext();
+          peerContexts.push(context);
+          const peer = await context.newPage();
+          await openEditor(peer, drawingId);
+        }
+
+        await expect
+          .poll(async () => {
+            const visible = await page.locator(".UserList__collaborator--avatar-only").count();
+            const overflow = await page
+              .locator(".UserList__more")
+              .evaluateAll((elements) => elements[0]?.textContent ?? null);
+            return visible + Number(overflow?.replace("+", "") || 0);
+          })
+          .toBe(remoteCount);
+
+        const wrapper = (await page.locator(".layer-ui__wrapper__top-right").boundingBox())!;
+        const toolbar = (await page
+          .locator(".App-toolbar-container .Island.App-toolbar")
+          .boundingBox())!;
+        measurements.push({
+          remoteCount,
+          width: wrapper.width,
+          height: wrapper.height,
+          toolbarHeight: toolbar.height,
+          visibleAvatars: await page.locator(".UserList__collaborator--avatar-only").count(),
+          overflowText: await page
+            .locator(".UserList__more")
+            .evaluateAll((elements) => elements[0]?.textContent ?? null),
+          circleOverlap: await page.locator(".UserList > *").evaluateAll((elements) => {
+            if (elements.length !== 2) return null;
+            const first = elements[0].getBoundingClientRect();
+            const second = elements[1].getBoundingClientRect();
+            return first.right - second.left;
+          }),
+        });
+      }
+    } finally {
+      await Promise.all(peerContexts.map((context) => context.close()));
+    }
+
+    expect(measurements.map(({ remoteCount }) => remoteCount)).toEqual(targetCounts);
+    for (const measurement of measurements) {
+      expect(measurement.height).toBeCloseTo(measurement.toolbarHeight, 0);
+    }
+
+    const [alone, one, two, five, twelve] = measurements;
+    expect(alone.visibleAvatars).toBe(0);
+    expect(alone.overflowText).toBeNull();
+    expect(one.visibleAvatars).toBe(1);
+    expect(one.overflowText).toBeNull();
+    expect(two.visibleAvatars).toBe(1);
+    expect(two.overflowText).toBe("+1");
+    expect(two.circleOverlap).toBeCloseTo(6, 0);
+    expect(five.visibleAvatars).toBe(1);
+    expect(five.overflowText).toBe("+4");
+    expect(five.circleOverlap).toBeCloseTo(6, 0);
+    expect(twelve.visibleAvatars).toBe(1);
+    expect(twelve.overflowText).toBe("+11");
+    expect(twelve.circleOverlap).toBeCloseTo(6, 0);
+
+    // The no-peer actions-only state from NIL-564 is unchanged; after the
+    // first peer adds the presence zone, attendance may not add another pixel.
+    expect(one.width).toBeGreaterThan(alone.width);
+    expect(one.width).toBeLessThanOrEqual(240);
+    for (const crowded of [two, five, twelve]) {
+      expect(crowded.width).toBeCloseTo(one.width, 0);
+    }
+
+    console.info("NIL-603 top-right measurements", measurements);
+  });
 });
 
 test.describe("the laser pointer -- one toolbar control, present alone (NIL-374)", () => {
