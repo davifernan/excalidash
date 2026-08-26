@@ -1,4 +1,8 @@
 import type { Server, Socket } from "socket.io";
+import {
+  collaborationEvents,
+  type DocumentPageEntry as DocumentPage,
+} from "@excalidash/domain/collaboration";
 import { DOCUMENT_WIDGET_LIMIT, syncDrawingDocumentState } from "../assets/documentWidgetState";
 import { parseDrawingId } from "./socketProtocol";
 import {
@@ -9,8 +13,8 @@ import {
 } from "./socketRoomEvent";
 import { logger } from "../logger";
 
-export const DOCUMENT_PAGE_EVENT = "document-page-update";
-const DOCUMENT_PAGE_COMMAND_EVENT = "document-page-command";
+export const DOCUMENT_PAGE_EVENT = collaborationEvents.documentPageUpdate;
+const DOCUMENT_PAGE_COMMAND_EVENT = collaborationEvents.documentPageCommand;
 
 export const DOCUMENT_PAGE_LIMITS = {
   commandsPerMinute: 120,
@@ -20,12 +24,7 @@ export const DOCUMENT_PAGE_LIMITS = {
 
 const ELEMENT_ID = /^[\w-]{1,64}$/;
 
-export type DocumentPage = {
-  elementId: string;
-  assetId: string;
-  page: number;
-  revision: number;
-};
+export type { DocumentPageEntry as DocumentPage } from "@excalidash/domain/collaboration";
 export type DocumentPageSnapshot = { drawingId: string; pages: DocumentPage[] };
 
 export type DocumentPageCommand = RoomEventPayload & {

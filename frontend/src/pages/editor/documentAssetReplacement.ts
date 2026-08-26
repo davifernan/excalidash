@@ -1,16 +1,11 @@
 import { withExcalidashData } from "../../integrations/excalidraw/customData";
+import type { DocumentAssetReplacement } from "@excalidash/domain/collaboration";
 import type { SceneCapability } from "../../integrations/excalidraw/capabilities";
 import type { CapabilityResult } from "../../integrations/excalidraw/errors";
 import type { ElementId } from "../../integrations/excalidraw/types";
 import { getAssetWidgetData } from "./pdfWidgetElements";
 
-export type DocumentAssetReplacement = Readonly<{
-  drawingId: string;
-  previousAssetId: string;
-  assetId: string;
-  drawingVersion: number;
-  elements: Record<string, unknown>[];
-}>;
+export type { DocumentAssetReplacement } from "@excalidash/domain/collaboration";
 
 export const applyDocumentAssetReplacement = (
   scene: SceneCapability,

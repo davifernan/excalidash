@@ -27,17 +27,15 @@
  * only preserves stored JSON and does not restore any Pin/Collapse behavior.
  */
 
-export const NAMESPACE = "excalidash";
-export const SCHEMA_VERSION = 2;
+import {
+  EXCALIDASH_NAMESPACE as NAMESPACE,
+  EXCALIDASH_SCHEMA_VERSION as SCHEMA_VERSION,
+  widgetRecordSchema,
+  type WidgetRecord,
+} from "@excalidash/domain/excalidraw";
 
-export type WidgetKind = "pdf" | "markdown" | "text";
-
-export type WidgetRecord = {
-  kind: WidgetKind;
-  assetId: string;
-};
-
-const WIDGET_KINDS = new Set<string>(["pdf", "markdown", "text"]);
+export { NAMESPACE, SCHEMA_VERSION };
+export type { WidgetKind, WidgetRecord } from "@excalidash/domain/excalidraw";
 
 const isBag = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -60,12 +58,8 @@ const readNamespace = (element: unknown): Record<string, unknown> | null => {
 export function readWidgetRecord(element: unknown): WidgetRecord | null {
   const own = readNamespace(element);
   if (!own) return null;
-  const widget = own.widget;
-  if (!isBag(widget)) return null;
-  const { kind, assetId } = widget;
-  if (typeof kind !== "string" || !WIDGET_KINDS.has(kind)) return null;
-  if (typeof assetId !== "string" || assetId.length === 0) return null;
-  return { kind: kind as WidgetKind, assetId };
+  const parsed = widgetRecordSchema.safeParse(own.widget);
+  return parsed.success ? parsed.data : null;
 }
 
 /** Replace only this application's widget reference, preserving foreign data. */

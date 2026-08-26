@@ -30,10 +30,7 @@ export type PresenceEntry = {
  * place that needs to match presence against a member list does it with a
  * scoped subject key instead (see authz/subjectKey).
  */
-export type PublicPresenceEntry = Omit<
-  PresenceEntry,
-  "accountId" | "selectedElementIds" | "allSelected"
->;
+export type PublicPresenceEntry = PresenceIdentity;
 
 export const toPublicPresence = ({
   accountId: _accountId,
@@ -42,9 +39,7 @@ export const toPublicPresence = ({
   ...rest
 }: PresenceEntry): PublicPresenceEntry => rest;
 
-export type SelectionSnapshotEntry = { presenceId: string } & (
-  { selectedElementIds: string[] } | { allSelected: true }
-);
+export type SelectionSnapshotEntry = { presenceId: string } & SelectionPayload;
 
 export type SelectionSnapshot = {
   drawingId: string;
@@ -173,3 +168,4 @@ export class PresenceRegistry {
     };
   }
 }
+import type { PresenceIdentity, SelectionPayload } from "@excalidash/domain/collaboration";

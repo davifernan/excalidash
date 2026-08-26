@@ -3,6 +3,13 @@ import type { Socket } from "socket.io-client";
 import type { ViewportCapability } from "../../integrations/excalidraw/capabilities";
 import type { SceneBounds } from "../../integrations/excalidraw/types";
 import { parseFollowSceneBounds, type FollowSceneBounds } from "./followMode";
+import {
+  collaborationEvents,
+  inviteHereStatusSchema,
+  viewportInvitationSchema,
+  type InviteHereStatus,
+  type ViewportInvitation,
+} from "@excalidash/domain/collaboration";
 
 /**
  * How much two scene rectangles overlap, as intersection over union: 1 for
@@ -37,19 +44,7 @@ const ALREADY_THERE_OVERLAP = 0.85;
 export const isAlreadyThere = (own: FollowSceneBounds, target: FollowSceneBounds): boolean =>
   boundsOverlap(own, target) >= ALREADY_THERE_OVERLAP;
 
-export type ViewportInvitation = {
-  invitationId: string;
-  inviterPresenceId: string;
-  inviterName: string;
-  sceneBounds: FollowSceneBounds;
-  expiresAt: number;
-};
-
-export type InviteHereStatus = {
-  invitationId: string;
-  arrivedCount: number;
-  expiresAt: number;
-};
+export type { InviteHereStatus, ViewportInvitation } from "@excalidash/domain/collaboration";
 
 /**
  * Invite Here needs two things from the editor: where this person is looking,
@@ -59,26 +54,11 @@ export type InviteHereStatus = {
 type ViewportAccess = Pick<ViewportCapability, "visibleBounds" | "showBounds">;
 
 const parseInvitation = (payload: any, drawingId: string): ViewportInvitation | null => {
-  if (payload?.drawingId !== drawingId) return null;
-  const sceneBounds = parseFollowSceneBounds(payload.sceneBounds);
-  if (
-    !sceneBounds ||
-    typeof payload.invitationId !== "string" ||
-    typeof payload.inviterPresenceId !== "string" ||
-    payload.inviterPresenceId.length === 0 ||
-    typeof payload.inviterName !== "string" ||
-    !Number.isFinite(payload.expiresAt) ||
-    payload.expiresAt <= Date.now()
-  ) {
+  const parsed = viewportInvitationSchema.safeParse(payload);
+  if (!parsed.success || parsed.data.drawingId !== drawingId || parsed.data.expiresAt <= Date.now())
     return null;
-  }
-  return {
-    invitationId: payload.invitationId,
-    inviterPresenceId: payload.inviterPresenceId,
-    inviterName: payload.inviterName,
-    sceneBounds,
-    expiresAt: payload.expiresAt,
-  };
+  const { drawingId: _drawingId, ...invitation } = parsed.data;
+  return invitation;
 };
 
 export const bindInviteHere = ({
@@ -140,21 +120,18 @@ export const bindInviteHere = ({
   };
 
   const onStatus = (payload: any) => {
+    const parsed = inviteHereStatusSchema.safeParse(payload);
     if (
-      payload?.drawingId !== drawingId ||
-      typeof payload.invitationId !== "string" ||
-      !Number.isSafeInteger(payload.arrivedCount) ||
-      payload.arrivedCount < 0 ||
-      !Number.isFinite(payload.expiresAt) ||
-      payload.expiresAt <= Date.now()
-    ) {
+      !parsed.success ||
+      parsed.data.drawingId !== drawingId ||
+      parsed.data.expiresAt <= Date.now()
+    )
       return;
-    }
     clearStatusTimer();
     const status = {
-      invitationId: payload.invitationId,
-      arrivedCount: payload.arrivedCount,
-      expiresAt: payload.expiresAt,
+      invitationId: parsed.data.invitationId,
+      arrivedCount: parsed.data.arrivedCount,
+      expiresAt: parsed.data.expiresAt,
     };
     onStatusChange(status);
     statusTimer = setTimeout(
@@ -179,7 +156,7 @@ export const bindInviteHere = ({
       // uses the same target-changing path as a collaborator-avatar click.
       onFollow(invitation.inviterPresenceId);
     }
-    socket.emit("invite-here-response", {
+    socket.emit(collaborationEvents.inviteHereResponse, {
       drawingId,
       invitationId: invitation.invitationId,
       decision,
@@ -194,22 +171,23 @@ export const bindInviteHere = ({
     onStatusChange(null);
   };
 
-  socket.on("invite-here", onInvite);
-  socket.on("invite-here-status", onStatus);
+  socket.on(collaborationEvents.inviteHere, onInvite);
+  socket.on(collaborationEvents.inviteHereStatus, onStatus);
   return {
     invite() {
       const bounds = viewport.visibleBounds();
       // A failure here is already reported by the capability. Emitting an
       // invitation to nowhere would send everyone to the origin.
-      if (bounds.ok) socket.emit("invite-here", { drawingId, sceneBounds: bounds.value });
+      if (bounds.ok)
+        socket.emit(collaborationEvents.inviteHere, { drawingId, sceneBounds: bounds.value });
     },
     accept: () => respond("accepted"),
     decline: () => respond("declined"),
     reset,
     dispose() {
       reset();
-      socket.off("invite-here", onInvite);
-      socket.off("invite-here-status", onStatus);
+      socket.off(collaborationEvents.inviteHere, onInvite);
+      socket.off(collaborationEvents.inviteHereStatus, onStatus);
     },
   };
 };

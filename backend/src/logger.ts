@@ -1,4 +1,5 @@
 import { config } from "./config";
+import { structuredLogReplacer as errorReplacer, type LogFields } from "@excalidash/domain/shared";
 import { reportBackendError } from "./errorTracker";
 
 /**
@@ -24,7 +25,7 @@ import { reportBackendError } from "./errorTracker";
  * always writes, at every level -- an error is exactly the thing a level
  * knob must never be able to hide.
  */
-export type LogFields = Record<string, unknown>;
+export type { LogFields } from "@excalidash/domain/shared";
 
 /**
  * `JSON.stringify(new Error("x"))` is `"{}"` -- `message` and `stack` are
@@ -35,9 +36,6 @@ export type LogFields = Record<string, unknown>;
  * so an Error buried inside a fields object is caught too, not only a
  * top-level one.
  */
-const errorReplacer = (_key: string, value: unknown) =>
-  value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value;
-
 /**
  * NIL-619: this log now survives a week or more instead of a rotating
  * few-hour window, so a field that was momentarily risky becomes a

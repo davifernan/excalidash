@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import { DEFAULT_API_KEY_SCOPES } from "@excalidash/domain/shared";
+export { DEFAULT_API_KEY_SCOPES } from "@excalidash/domain/shared";
 import { logger } from "../logger";
 import { config } from "../config";
 
@@ -21,13 +23,6 @@ export const DRAWINGS_HISTORY_SCOPE = "drawings:history";
 export const DRAWINGS_SHARE_SCOPE = "drawings:share";
 export const DRAWINGS_READ_SCOPE = "drawings:read";
 export const DRAWINGS_WRITE_SCOPE = "drawings:write";
-
-export const DEFAULT_API_KEY_SCOPES = [
-  DRAWINGS_READ_SCOPE,
-  DRAWINGS_WRITE_SCOPE,
-  "collections:read",
-  "collections:write",
-] as const;
 
 /**
  * Scopes exclusive to a drawing-bound agent token (`ApiKey.drawingId` set,

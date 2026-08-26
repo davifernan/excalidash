@@ -1,5 +1,6 @@
 import type { Socket } from "socket.io-client";
 import type { UserIdentity } from "../../utils/identity";
+import { collaborationEvents, joinRoomAckSchema } from "@excalidash/domain/collaboration";
 
 type JoinedPresence = {
   presenceId: string;
@@ -79,29 +80,38 @@ export const bindSocketRoomLifecycle = ({
       joiningSocketId = null;
       scheduleRetry(socketId);
     }, JOIN_ACK_TIMEOUT_MS);
-    socket.emit("join-room", { drawingId, shareToken, user }, (payload: any) => {
-      if (settled || socket.id !== socketId) return;
-      settled = true;
-      clearTimer(ackTimer);
-      ackTimer = null;
-      joiningSocketId = null;
-      const presence = payload?.presence;
-      if (!presence || typeof presence.presenceId !== "string") {
-        if (payload?.error?.code !== "access-denied") scheduleRetry(socketId);
-        return;
-      }
-      joinedSocketId = socketId;
-      onJoined(presence);
-      const targetPresenceId = getFollowTargetPresenceId() || rememberedTarget;
-      rememberedTarget = null;
-      if (targetPresenceId) {
-        socket.emit("follow-user", {
-          drawingId,
-          targetPresenceId,
-          action: "FOLLOW",
-        });
-      }
-    });
+    socket.emit(
+      collaborationEvents.joinRoom,
+      { drawingId, shareToken, user },
+      (payload: unknown) => {
+        if (settled || socket.id !== socketId) return;
+        settled = true;
+        clearTimer(ackTimer);
+        ackTimer = null;
+        joiningSocketId = null;
+        const parsed = joinRoomAckSchema.safeParse(payload);
+        if (!parsed.success) {
+          scheduleRetry(socketId);
+          return;
+        }
+        if ("error" in parsed.data) {
+          if (parsed.data.error.code !== "access-denied") scheduleRetry(socketId);
+          return;
+        }
+        const presence = parsed.data.presence;
+        joinedSocketId = socketId;
+        onJoined(presence);
+        const targetPresenceId = getFollowTargetPresenceId() || rememberedTarget;
+        rememberedTarget = null;
+        if (targetPresenceId) {
+          socket.emit(collaborationEvents.followCommand, {
+            drawingId,
+            targetPresenceId,
+            action: "FOLLOW",
+          });
+        }
+      },
+    );
   };
 
   const onDisconnect = () => {

@@ -49,11 +49,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
@@ -186,7 +185,6 @@ jobs:
           path: e2e/test-results/
           retention-days: 7
           if-no-files-found: error
-
 
   # A scheduled red run has nobody watching it. This turns it into a piece of
   # work: one open issue per streak, appended per run, so the trace links

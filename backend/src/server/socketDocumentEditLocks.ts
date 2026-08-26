@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import { collaborationEvents } from "@excalidash/domain/collaboration";
 import { DocumentEditLockRegistry } from "./documentEditLocks";
 import { parseDrawingId } from "./socketProtocol";
 import {
@@ -8,9 +9,9 @@ import {
 } from "./socketRoomEvent";
 import { logger } from "../logger";
 
-export const DOCUMENT_EDIT_LOCK_COMMAND_EVENT = "document-edit-lock-command";
-export const DOCUMENT_EDIT_LOCK_EVENT = "document-edit-lock-update";
-export const DOCUMENT_EDIT_LOCK_GRANTED_EVENT = "document-edit-lock-granted";
+export const DOCUMENT_EDIT_LOCK_COMMAND_EVENT = collaborationEvents.documentEditLockCommand;
+export const DOCUMENT_EDIT_LOCK_EVENT = collaborationEvents.documentEditLockUpdate;
+export const DOCUMENT_EDIT_LOCK_GRANTED_EVENT = collaborationEvents.documentEditLockGranted;
 
 const ASSET_ID = /^[\w-]{1,64}$/;
 const TOKEN = /^[0-9a-f-]{36}$/i;

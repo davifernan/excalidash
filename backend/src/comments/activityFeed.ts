@@ -1,28 +1,8 @@
 import type { Prisma, PrismaClient } from "../generated/client";
+import type { ActivityEventDTO, NotificationDTO } from "@excalidash/domain/shared";
 import { getDrawingMemberships } from "../authz/membership";
 
-export type ActivityEventDTO = {
-  id: string;
-  drawingId: string;
-  drawingName: string;
-  actorUserId: string;
-  actorName: string;
-  verb: string;
-  commentId: string | null;
-  /**
-   * The thread this event belongs to, for deep-linking -- NOT the same as
-   * `commentId` for a reply event. `useComments`/`CommentMarkers` key a
-   * thread by its root id; a "comment.replied" event's `commentId` is the
-   * reply's own row. Without this a mention-in-a-reply notification would
-   * deep-link to an id `activeThreadId` can never match.
-   */
-  threadRootId: string | null;
-  elementId: string | null;
-  anchorX: number | null;
-  anchorY: number | null;
-  summary: string;
-  createdAt: string;
-};
+export type { ActivityEventDTO, NotificationDTO } from "@excalidash/domain/shared";
 
 const EVENT_SELECT = {
   id: true,
@@ -126,14 +106,6 @@ export const listTeamActivity = async (params: {
     }
   }
   return results;
-};
-
-export type NotificationDTO = {
-  id: string;
-  kind: string;
-  readAt: string | null;
-  createdAt: string;
-  event: ActivityEventDTO;
 };
 
 const NOTIFICATION_ROW_SELECT = {

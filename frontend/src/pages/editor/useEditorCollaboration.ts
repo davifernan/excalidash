@@ -43,6 +43,11 @@ import type {
   ViewportCapability,
 } from "../../integrations/excalidraw/capabilities";
 import { log } from "../../logging";
+import {
+  collaborationEvents,
+  documentAssetReplacementSchema,
+  remoteElementUpdateSchema,
+} from "@excalidash/domain/collaboration";
 export type { Peer } from "./socketCollaborators";
 
 /**
@@ -509,43 +514,38 @@ export const useEditorCollaboration = ({
       remoteFlushScheduledRef.current = true;
       remoteFlushRafIdRef.current = requestAnimationFrame(flushRemoteUpdates);
     };
-    socket.on(
-      "element-update",
-      ({
-        elements,
-        files,
-        elementOrder,
-      }: {
-        elements: any[];
-        files?: Record<string, any>;
-        elementOrder?: string[];
-      }) => {
-        if (Array.isArray(elements)) {
-          for (const el of elements) {
-            const id = el?.id;
-            if (typeof id === "string" && id.length > 0) {
-              pendingRemoteElementsRef.current.set(id, el);
-            }
+    socket.on(collaborationEvents.elementUpdate, (value: unknown) => {
+      const parsed = remoteElementUpdateSchema.safeParse(value);
+      if (!parsed.success) return;
+      const { elements, files, elementOrder } = parsed.data;
+      if (Array.isArray(elements)) {
+        for (const el of elements) {
+          const id = el?.id;
+          if (typeof id === "string" && id.length > 0) {
+            pendingRemoteElementsRef.current.set(id, el);
           }
         }
-        if (files && typeof files === "object") {
-          pendingRemoteFilesRef.current = {
-            ...pendingRemoteFilesRef.current,
-            ...files,
-          };
-        }
-        if (Array.isArray(elementOrder) && elementOrder.length > 0) {
-          pendingRemoteElementOrderRef.current = elementOrder;
-        }
-        scheduleRemoteFlush();
-      },
-    );
+      }
+      if (files && typeof files === "object") {
+        pendingRemoteFilesRef.current = {
+          ...pendingRemoteFilesRef.current,
+          ...files,
+        };
+      }
+      if (Array.isArray(elementOrder) && elementOrder.length > 0) {
+        pendingRemoteElementOrderRef.current = elementOrder;
+      }
+      scheduleRemoteFlush();
+    });
     socket.on("drawing-server-update", (payload: { drawingId?: string }) => {
       if (!payload?.drawingId || payload.drawingId !== drawingId) return;
       toast.info("Drawing storage changed on the server. Reloading the editor.");
       window.location.reload();
     });
-    socket.on("document-asset-replaced", (payload: DocumentAssetReplacement) => {
+    socket.on(collaborationEvents.documentAssetReplaced, (value: unknown) => {
+      const parsed = documentAssetReplacementSchema.safeParse(value);
+      if (!parsed.success) return;
+      const payload: DocumentAssetReplacement = parsed.data;
       if (payload?.drawingId !== drawingId) return;
       if (Number.isInteger(payload.drawingVersion)) {
         currentDrawingVersionRef.current = Math.max(
@@ -565,7 +565,7 @@ export const useEditorCollaboration = ({
       scheduleRemoteFlush();
     });
     const handleActivity = (isActive: boolean) => {
-      socket.emit("user-activity", { drawingId, isActive });
+      socket.emit(collaborationEvents.userActivity, { drawingId, isActive });
     };
     const onFocus = () => handleActivity(true);
     const onBlur = () => handleActivity(false);
@@ -669,7 +669,7 @@ export const useEditorCollaboration = ({
     (payload: any) => {
       const now = Date.now();
       if (now - lastCursorEmit.current > 50 && socketRef.current) {
-        socketRef.current.emit("cursor-move", {
+        socketRef.current.emit(collaborationEvents.cursorMove, {
           pointer: payload.pointer,
           button: payload.button,
           drawingId,

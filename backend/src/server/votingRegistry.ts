@@ -17,21 +17,9 @@
  * loses the presenter.
  */
 import crypto from "crypto";
+import type { VoteOption, VotingSnapshot, VotingStatus } from "@excalidash/domain/collaboration";
 
-export type VoteOption = { readonly id: string; readonly label: string };
-export type VotingStatus = "idle" | "open" | "revealed";
-
-export type VotingSnapshot = {
-  readonly drawingId: string;
-  readonly status: VotingStatus;
-  readonly roundId: string | null;
-  readonly prompt: string | null;
-  readonly options: readonly VoteOption[] | null;
-  readonly maxSelections: number | null;
-  /** Only ever populated once `status === "revealed"`. */
-  readonly tally: Readonly<Record<string, number>> | null;
-  readonly participantCount: number | null;
-};
+export type { VoteOption, VotingSnapshot, VotingStatus } from "@excalidash/domain/collaboration";
 
 type VoteRound = {
   roundId: string;

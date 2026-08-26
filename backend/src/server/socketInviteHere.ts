@@ -1,8 +1,14 @@
 import { randomUUID } from "crypto";
 import type { Socket } from "socket.io";
 import type { PresenceEntry } from "./presenceRegistry";
-import { parseDrawingId, parseSceneBounds, type SceneBounds } from "./socketProtocol";
+import { parseDrawingId, parseSceneBounds } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
+import {
+  collaborationEvents,
+  inviteHereRequestSchema,
+  inviteHereResponseSchema,
+  type FollowSceneBounds,
+} from "@excalidash/domain/collaboration";
 
 const INVITE_HERE_LIMITS = {
   durationMs: 15_000,
@@ -10,7 +16,7 @@ const INVITE_HERE_LIMITS = {
   responseEventsPerWindow: 4,
 } as const;
 
-type InviteRequest = RoomEventPayload & { sceneBounds: SceneBounds };
+type InviteRequest = RoomEventPayload & { sceneBounds: FollowSceneBounds };
 type InviteResponse = RoomEventPayload & {
   invitationId: string;
   decision: "accepted" | "declined";
@@ -27,24 +33,18 @@ type ActiveInvitation = {
 const roomName = (drawingId: string) => `drawing_${drawingId}`;
 
 const parseInviteHereRequest = (value: unknown): InviteRequest | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as Record<string, unknown>;
-  const drawingId = parseDrawingId(data.drawingId);
-  const sceneBounds = parseSceneBounds(data.sceneBounds);
+  const parsed = inviteHereRequestSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const drawingId = parseDrawingId(parsed.data.drawingId);
+  const sceneBounds = parseSceneBounds(parsed.data.sceneBounds);
   return drawingId && sceneBounds ? { drawingId, sceneBounds } : null;
 };
 
 const parseInviteHereResponse = (value: unknown): InviteResponse | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as Record<string, unknown>;
-  const drawingId = parseDrawingId(data.drawingId);
-  const invitationId =
-    typeof data.invitationId === "string" && data.invitationId.length <= 100
-      ? data.invitationId
-      : null;
-  const decision =
-    data.decision === "accepted" || data.decision === "declined" ? data.decision : null;
-  return drawingId && invitationId && decision ? { drawingId, invitationId, decision } : null;
+  const parsed = inviteHereResponseSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const drawingId = parseDrawingId(parsed.data.drawingId);
+  return drawingId ? { ...parsed.data, drawingId } : null;
 };
 
 export const createSocketInviteHereManager = ({
@@ -59,7 +59,7 @@ export const createSocketInviteHereManager = ({
   const activeByDrawing = new Map<string, ActiveInvitation>();
 
   const emitStatus = (invitation: ActiveInvitation) => {
-    connectedSockets.get(invitation.inviterPresenceId)?.emit("invite-here-status", {
+    connectedSockets.get(invitation.inviterPresenceId)?.emit(collaborationEvents.inviteHereStatus, {
       drawingId: invitation.drawingId,
       invitationId: invitation.invitationId,
       expiresAt: invitation.expiresAt,
@@ -70,7 +70,7 @@ export const createSocketInviteHereManager = ({
   const registerHandlers = (socket: Socket) => {
     registerAuthorizedRoomEvent({
       socket,
-      event: "invite-here",
+      event: collaborationEvents.inviteHere,
       limit: 1,
       windowMs: INVITE_HERE_LIMITS.cooldownMs,
       parse: parseInviteHereRequest,
@@ -88,7 +88,7 @@ export const createSocketInviteHereManager = ({
         };
         activeByDrawing.set(payload.drawingId, invitation);
         emitStatus(invitation);
-        socket.to(roomName(payload.drawingId)).emit("invite-here", {
+        socket.to(roomName(payload.drawingId)).emit(collaborationEvents.inviteHere, {
           drawingId: payload.drawingId,
           invitationId: invitation.invitationId,
           inviterPresenceId: invitation.inviterPresenceId,
@@ -101,7 +101,7 @@ export const createSocketInviteHereManager = ({
 
     registerAuthorizedRoomEvent({
       socket,
-      event: "invite-here-response",
+      event: collaborationEvents.inviteHereResponse,
       limit: INVITE_HERE_LIMITS.responseEventsPerWindow,
       windowMs: INVITE_HERE_LIMITS.durationMs,
       parse: parseInviteHereResponse,

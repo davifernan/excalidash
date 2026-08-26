@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { structuredLogReplacer as errorReplacer, type LogFields } from "@excalidash/domain/shared";
 
 /**
  * The one place frontend code writes a log line (NIL-510/NIL-513) -- the
@@ -29,7 +30,7 @@ import { toast } from "sonner";
  * the user this failed, and migrating the call site here is what gives that
  * failure a reader for the first time.
  */
-export type LogFields = Record<string, unknown>;
+export type { LogFields } from "@excalidash/domain/shared";
 
 export interface ErrorLogOptions {
   /** Show a toast carrying the reference id. Default true -- see file comment. */
@@ -48,9 +49,6 @@ const newRef = (): string => {
  * Same fix as `backend/src/logger.ts`'s replacer, for the same reason: an
  * Error passed in `fields` must not vanish without an error of its own.
  */
-const errorReplacer = (_key: string, value: unknown) =>
-  value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value;
-
 // A live property lookup, not a captured reference -- console[level] re-reads
 // console.error/warn/info/debug on every call, the same way the code this
 // replaced did. A lookup table built once at module load would freeze in

@@ -31,7 +31,7 @@ jobs:
           fetch-tags: true
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
       - run: node --test scripts/*.test.cjs
       - run: node scripts/delivery-routing-probe.cjs
       # Named explicitly rather than left to the counterprobe, same reasoning
@@ -66,15 +66,21 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: npm ci
 
       - name: Typecheck frontend
         run: npm run typecheck --prefix frontend
+
+      - name: Check the shared-domain boundary
+        run: npm run check:domain-boundary
+
+      - name: Prove the shared-domain boundary rejects copied contracts
+        run: npm run test:domain-boundary
 
       # Deliberately inside an already-required context rather than a new job.
       # A new check would not be in the branch ruleset, so it could go red
@@ -119,9 +125,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: Install backend dependencies
         run: |
@@ -147,7 +153,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       # No dependency install: the check reads backend/src with node:fs and
       # nothing else. That is deliberate -- a boundary check that needs a
@@ -170,7 +176,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       # No dependency install, same reasoning as Authz Boundary: this reads
       # backend/src with node:fs and nothing else.
@@ -191,7 +197,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       # No dependency install, same reasoning as Authz Boundary: this reads
       # backend/src with node:fs and nothing else. Not yet in
@@ -216,7 +222,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       # No dependency install, same reasoning as Env Boundary: this reads
       # frontend/src and backend/src/index.ts with node:fs and nothing else.
@@ -240,7 +246,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       # No dependency install, same reasoning as Authz Boundary: this reads
       # frontend/src and backend/src with node:fs and nothing else.
@@ -261,12 +267,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: npm ci
 
       - name: Check frontend formatting
         run: npm run format:check --prefix frontend
@@ -292,12 +298,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: Install backend dependencies
-        run: npm ci --prefix backend
+        run: npm ci
 
       - name: Check backend formatting
         run: npm run format:check --prefix backend
@@ -342,9 +348,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: Install backend dependencies
         run: |
@@ -373,22 +379,22 @@ jobs:
     name: Frontend Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-      
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
       - name: Install frontend dependencies
         run: |
           cd frontend
           npm ci
-      
+
       - name: Run frontend tests
         run: |
           cd frontend
@@ -405,16 +411,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
 
       - name: Install package dependencies
-        run: |
-          npm ci --prefix backend
-          npm ci --prefix frontend
+        run: npm ci
 
       - name: Check backend dead code
         run: npm run check:dead-code --prefix backend
@@ -440,52 +443,51 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2]
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
             e2e/package-lock.json
-      
+
       - name: Install backend dependencies
         run: |
           cd backend
           npm ci
-      
+
       - name: Generate Prisma client
         run: |
           cd backend
           npx prisma generate
-      
+
       - name: Setup backend database
         run: |
           cd backend
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-test.db
-      
+
       - name: Install frontend dependencies
         run: |
           cd frontend
           npm ci
-      
+
       - name: Install E2E test dependencies
         run: |
           cd e2e
           npm ci
-      
+
       - name: Install Playwright browsers
         run: |
           cd e2e
           npx playwright install chromium --with-deps
-      
+
       - name: Start servers and run E2E tests
         run: |
           # Start backend server in background
@@ -589,7 +591,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-
   # The other engines, in their own job rather than as more projects in the
   # shards. Same reasoning the shards are built on: one backend and one SQLite
   # file cannot take the same specs running four times over with the same board
@@ -606,49 +607,48 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
             e2e/package-lock.json
-      
+
       - name: Install backend dependencies
         run: |
           cd backend
           npm ci
-      
+
       - name: Generate Prisma client
         run: |
           cd backend
           npx prisma generate
-      
+
       - name: Setup backend database
         run: |
           cd backend
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-cross.db
-      
+
       - name: Install frontend dependencies
         run: |
           cd frontend
           npm ci
-      
+
       - name: Install E2E test dependencies
         run: |
           cd e2e
           npm ci
-      
+
       - name: Install Playwright browsers
         run: |
           cd e2e
           npx playwright install firefox webkit chromium --with-deps
-      
+
       - name: Start servers and run E2E tests
         run: |
           # Start backend server in background
@@ -748,7 +748,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-
   # comments-two-account.spec.ts (NIL-356) toggles real auth on for whatever
   # backend it runs against, which every other spec's no-auth "bootstrap
   # identity" mode depends on staying off (see playwright.config.ts's
@@ -770,11 +769,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
@@ -928,11 +926,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
@@ -1076,11 +1073,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
@@ -1232,27 +1228,27 @@ jobs:
     name: Security Sanitization Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-      
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
       - name: Install backend dependencies
         run: |
           cd backend
           npm ci
-      
+
       - name: Generate Prisma client
         run: |
           cd backend
           npx prisma generate
-      
+
       - name: Run security tests
         run: |
           cd backend

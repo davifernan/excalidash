@@ -12,10 +12,11 @@
  * to that name -- which means it tracks the pointer exactly, at no cost, and
  * without a renderer of our own that would have to be kept in step.
  */
+import { CURSOR_CHAT_MAX_LENGTH, collaborationEvents } from "@excalidash/domain/collaboration";
 
-export const CURSOR_CHAT_EVENT = "cursor-chat";
+export const CURSOR_CHAT_EVENT = collaborationEvents.cursorChat;
 /** Matches the server's cap; the server is still the one that enforces it. */
-export const CURSOR_CHAT_MAX_LENGTH = 140;
+export { CURSOR_CHAT_MAX_LENGTH } from "@excalidash/domain/collaboration";
 /**
  * How often the draft goes out while somebody types.
  *

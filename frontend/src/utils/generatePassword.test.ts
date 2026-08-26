@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { generatePassword, type PasswordPolicy } from "./passwordPolicy";
+import { generatePassword, type ResolvedPasswordPolicy } from "./passwordPolicy";
 
-const policy = (overrides: Partial<PasswordPolicy> = {}): PasswordPolicy => ({
+const policy = (overrides: Partial<ResolvedPasswordPolicy> = {}): ResolvedPasswordPolicy => ({
   minLength: 12,
   maxLength: 100,
   requiresComplexity: true,

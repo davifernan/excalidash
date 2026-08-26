@@ -1,28 +1,12 @@
 import type { Prisma, PrismaClient } from "../generated/client";
+import type { CommentDTO } from "@excalidash/domain/shared";
 import { sanitizeText } from "../security";
 import { getDrawingRosters } from "../authz/roster";
 import { extractMentionedUserIds } from "./mentions";
 
 export const COMMENT_BODY_MAX_LENGTH = 4000;
 
-export type CommentDTO = {
-  id: string;
-  drawingId: string;
-  rootId: string | null;
-  authorUserId: string;
-  authorName: string;
-  body: string | null;
-  elementId: string | null;
-  anchorX: number | null;
-  anchorY: number | null;
-  resolvedAt: string | null;
-  resolvedByUserId: string | null;
-  editedAt: string | null;
-  deletedAt: string | null;
-  mentionedUserIds: string[];
-  createdAt: string;
-  updatedAt: string;
-};
+export type { CommentDTO } from "@excalidash/domain/shared";
 
 const COMMENT_SELECT = {
   id: true,

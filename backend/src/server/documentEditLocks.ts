@@ -1,14 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { DocumentEditLock, PublicDocumentEditLock } from "@excalidash/domain/collaboration";
 
-export type DocumentEditLock = Readonly<{
-  drawingId: string;
-  assetId: string;
-  presenceId: string;
-  ownerName: string;
-  token: string;
-}>;
-
-export type PublicDocumentEditLock = Omit<DocumentEditLock, "token" | "drawingId">;
+export type { DocumentEditLock, PublicDocumentEditLock } from "@excalidash/domain/collaboration";
 
 const keyOf = (drawingId: string, assetId: string) => `${drawingId}\u0000${assetId}`;
 

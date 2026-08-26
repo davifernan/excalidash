@@ -1,4 +1,11 @@
 import type { Socket } from "socket.io-client";
+import {
+  REMOTE_SELECTION_PAYLOAD_BYTES,
+  collaborationEvents,
+  remoteSelectionUpdateSchema,
+  selectionSnapshotUpdateSchema,
+  type SelectionPayload as RemoteSelection,
+} from "@excalidash/domain/collaboration";
 import type { CollaborationCapability } from "../../integrations/excalidraw/capabilities";
 import type { CapabilityFailure, CapabilityResult } from "../../integrations/excalidraw/errors";
 import type {
@@ -10,10 +17,8 @@ import type {
 
 // This mirrors the server's transport budget so an oversized selection becomes
 // the same compact marker before it reaches the socket.
-export const REMOTE_SELECTION_LIMITS = { payloadBytes: 256 * 1024 } as const;
+export const REMOTE_SELECTION_LIMITS = { payloadBytes: REMOTE_SELECTION_PAYLOAD_BYTES } as const;
 const SELECTION_THROTTLE_MS = 50;
-
-type RemoteSelection = { selectedElementIds: string[] } | { allSelected: true };
 
 const LARGE_SELECTION_SUFFIX = " · large selection";
 
@@ -71,7 +76,7 @@ export const bindRemoteSelection = ({
   const send = (selection: RemoteSelection) => {
     lastSentAt = Date.now();
     lastSentSignature = JSON.stringify(selection);
-    socket.emit("selection-update", { drawingId, ...selection });
+    socket.emit(collaborationEvents.selectionUpdate, { drawingId, ...selection });
   };
 
   const clearTimer = () => {
@@ -142,18 +147,21 @@ export const bindRemoteSelection = ({
   };
 
   const onSelection = (payload: any) => {
+    const parsed = remoteSelectionUpdateSchema.safeParse(payload);
+    if (!parsed.success) return;
     const collaborators = currentCollaborators();
     if (!collaborators) return;
-    const patch = patchForSelection(collaborators.get(payload?.presenceId), payload);
+    const patch = patchForSelection(collaborators.get(parsed.data.presenceId), parsed.data);
     if (patch) applyPatches([patch]);
   };
 
   const onSnapshot = (payload: any) => {
-    if (payload?.drawingId !== drawingId || !Array.isArray(payload?.selections)) return;
+    const parsed = selectionSnapshotUpdateSchema.safeParse(payload);
+    if (!parsed.success || parsed.data.drawingId !== drawingId) return;
     const collaborators = currentCollaborators();
     if (!collaborators) return;
     const patches: CollaboratorPatch[] = [];
-    for (const selection of payload.selections) {
+    for (const selection of parsed.data.selections) {
       const patch = patchForSelection(collaborators.get(selection?.presenceId), {
         drawingId,
         ...selection,
@@ -185,15 +193,15 @@ export const bindRemoteSelection = ({
     lastSentSignature = null;
   };
 
-  socket.on("selection-update", onSelection);
-  socket.on("selection-snapshot", onSnapshot);
+  socket.on(collaborationEvents.selectionUpdate, onSelection);
+  socket.on(collaborationEvents.selectionSnapshot, onSnapshot);
   return {
     publish,
     reset,
     dispose() {
       reset();
-      socket.off("selection-update", onSelection);
-      socket.off("selection-snapshot", onSnapshot);
+      socket.off(collaborationEvents.selectionUpdate, onSelection);
+      socket.off(collaborationEvents.selectionSnapshot, onSnapshot);
     },
   };
 };

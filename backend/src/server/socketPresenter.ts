@@ -1,15 +1,16 @@
 import type { Server, Socket } from "socket.io";
+import { collaborationEvents } from "@excalidash/domain/collaboration";
 import { isOwnerAccess, type DrawingAccess } from "../authz/sharing";
 import type { PresenceEntry } from "./presenceRegistry";
 import { PresenterRegistry, type PresenterSnapshot } from "./presenterRegistry";
 import { parseDrawingId, parseSceneBounds, type SceneBounds } from "./socketProtocol";
 import { createRoomEventFeedback, type RoomEventAck } from "./socketRoomEvent";
 
-export const PRESENTER_COMMAND_EVENT = "presenter-command";
-export const PRESENTER_VIEWPORT_EVENT = "presenter-viewport";
-export const PRESENTER_STATE_EVENT = "presenter-state";
-export const PRESENTER_NOTES_EVENT = "presenter-notes";
-export const PRESENTER_NOTES_SET_EVENT = "presenter-notes-set";
+export const PRESENTER_COMMAND_EVENT = collaborationEvents.presenterCommand;
+export const PRESENTER_VIEWPORT_EVENT = collaborationEvents.presenterViewport;
+export const PRESENTER_STATE_EVENT = collaborationEvents.presenterState;
+export const PRESENTER_NOTES_EVENT = collaborationEvents.presenterNotes;
+export const PRESENTER_NOTES_SET_EVENT = collaborationEvents.presenterNotesSet;
 
 const MAX_FRAME_ID_LENGTH = 200;
 const MAX_NOTES_LENGTH = 4_000;

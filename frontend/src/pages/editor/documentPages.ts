@@ -1,9 +1,15 @@
 import type { Socket } from "socket.io-client";
+import {
+  collaborationEvents,
+  documentPageUpdateEntrySchema,
+  documentPageSnapshotSchema,
+  type SharedDocumentPage,
+} from "@excalidash/domain/collaboration";
 
-const DOCUMENT_PAGE_EVENT = "document-page-update";
-export const DOCUMENT_PAGE_COMMAND_EVENT = "document-page-command";
+const DOCUMENT_PAGE_EVENT = collaborationEvents.documentPageUpdate;
+export const DOCUMENT_PAGE_COMMAND_EVENT = collaborationEvents.documentPageCommand;
 
-export type SharedDocumentPage = Readonly<{ page: number; revision: number }>;
+export type { SharedDocumentPage } from "@excalidash/domain/collaboration";
 /** Authoritative page and revision for each document widget, by element id. */
 export type SharedDocumentPages = Readonly<Record<string, SharedDocumentPage>>;
 
@@ -20,11 +26,6 @@ export type DocumentPageController = {
   requestPage: (elementId: string, page: number) => Promise<DocumentPageRequestResult>;
 };
 
-const isPage = (value: unknown): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value >= 1;
-const isRevision = (value: unknown): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value >= 0;
-
 /**
  * Read a page update from the server.
  *
@@ -36,21 +37,14 @@ export const parseDocumentPageUpdate = (
   value: unknown,
   drawingId: string,
 ): SharedDocumentPages | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as Record<string, unknown>;
-  if (data.drawingId !== drawingId || !Array.isArray(data.pages)) return null;
+  const parsed = documentPageSnapshotSchema.safeParse(value);
+  if (!parsed.success || parsed.data.drawingId !== drawingId) return null;
+  const data = parsed.data;
   const pages: Record<string, SharedDocumentPage> = {};
-  for (const entry of data.pages) {
-    if (!entry || typeof entry !== "object") continue;
-    const { elementId, page, revision } = entry as Record<string, unknown>;
-    if (
-      typeof elementId !== "string" ||
-      elementId.length === 0 ||
-      !isPage(page) ||
-      !isRevision(revision)
-    ) {
-      continue;
-    }
+  for (const value of data.pages) {
+    const parsedEntry = documentPageUpdateEntrySchema.safeParse(value);
+    if (!parsedEntry.success) continue;
+    const { elementId, page, revision } = parsedEntry.data;
     pages[elementId] = { page, revision };
   }
   return pages;

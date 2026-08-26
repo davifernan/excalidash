@@ -77,6 +77,7 @@ import {
   DOCUMENT_EDIT_LOCK_EVENT,
   registerDocumentEditLockRoomEvent,
 } from "./socketDocumentEditLocks";
+import { collaborationEvents, joinRoomRequestSchema } from "@excalidash/domain/collaboration";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -193,7 +194,7 @@ export const registerSocketHandlers = ({
     const recipients = apiKeySocketIds.length
       ? io.to(roomName(drawingId)).except(apiKeySocketIds)
       : io.to(roomName(drawingId));
-    recipients.emit("presence-update", presences.listPublic(drawingId));
+    recipients.emit(collaborationEvents.presenceUpdate, presences.listPublic(drawingId));
   };
 
   const emitDocumentEditLocks = (drawingId: string) => {
@@ -406,7 +407,7 @@ export const registerSocketHandlers = ({
     });
     inviteHereManager.registerHandlers(socket);
 
-    socket.on("join-room", (data: unknown, ack?: (value: unknown) => void) => {
+    socket.on(collaborationEvents.joinRoom, (data: unknown, ack?: (value: unknown) => void) => {
       const rejectJoin = (code: string, message: string) => {
         const error = { code, message };
         socket.emit("error", error);
@@ -416,11 +417,12 @@ export const registerSocketHandlers = ({
         rejectJoin("rate-limited", "Join room rate limit exceeded");
         return;
       }
-      if (!data || typeof data !== "object") {
+      const parsedJoin = joinRoomRequestSchema.safeParse(data);
+      if (!parsedJoin.success) {
         rejectJoin("invalid-request", "Invalid join room request");
         return;
       }
-      const payload = data as Record<string, unknown>;
+      const payload = parsedJoin.data;
       const drawingId = parseDrawingId(payload.drawingId);
       const shareToken = parseShareLinkToken(payload.shareToken);
       if (!drawingId) {
@@ -465,10 +467,7 @@ export const registerSocketHandlers = ({
           await removeFromDrawing(socket, "board-changed");
           if (!isCurrentJoin()) return;
         }
-        const clientUser =
-          payload.user && typeof payload.user === "object"
-            ? (payload.user as Record<string, unknown>)
-            : {};
+        const clientUser = payload.user;
         const principal = principals.get(socket.id) || null;
         // Auth switched off gives every visitor the same standing identity,
         // which is another way of saying nobody has one. That is the only case
@@ -564,7 +563,7 @@ export const registerSocketHandlers = ({
       return result;
     });
 
-    socket.on("leave-room", async (data: unknown, ack?: RoomEventAck) => {
+    socket.on(collaborationEvents.leaveRoom, async (data: unknown, ack?: RoomEventAck) => {
       joinRevision += 1;
       if (!allowJoin()) {
         leaveRoomFeedback.rateLimited();

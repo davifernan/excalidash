@@ -6,14 +6,17 @@ import {
 } from "../../integrations/excalidraw/viewport";
 import type { Socket } from "socket.io-client";
 import { stacking } from "../../integrations/excalidraw/stacking";
+import {
+  collaborationEvents,
+  followedByUpdateSchema,
+  followSceneBoundsSchema,
+  followStatusSchema,
+  viewportBoundsUpdateSchema,
+  type Follower,
+  type FollowSceneBounds,
+} from "@excalidash/domain/collaboration";
 
-/** Four scene coordinates: minX, minY, maxX, maxY. */
-export type FollowSceneBounds = readonly [number, number, number, number];
-
-export type Follower = {
-  presenceId: string;
-  name: string;
-};
+export type { Follower, FollowSceneBounds } from "@excalidash/domain/collaboration";
 
 export const getFollowInterruptionMessage = (reason: string): string => {
   switch (reason) {
@@ -48,15 +51,9 @@ type ExcalidrawApi = {
   ) => () => void;
 };
 
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
 export const parseFollowSceneBounds = (value: unknown): FollowSceneBounds | null => {
-  if (!Array.isArray(value) || value.length !== 4) return null;
-  if (!value.every(isFiniteNumber)) return null;
-  const [x1, y1, x2, y2] = value;
-  if (x2 <= x1 || y2 <= y1) return null;
-  return [x1, y1, x2, y2] as FollowSceneBounds;
+  const parsed = followSceneBoundsSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 };
 
 /**
@@ -258,7 +255,7 @@ export const bindFollowMode = ({
   const sendBounds = () => {
     sendTimer = null;
     if (followers.size === 0) return;
-    socket.emit("viewport-bounds", {
+    socket.emit(collaborationEvents.viewportBounds, {
       drawingId,
       sceneBounds: visibleBoundsOf(api),
     });
@@ -296,7 +293,7 @@ export const bindFollowMode = ({
   };
 
   const emitFollowCommand = (payload: { action: string; targetSocketId: string | null }) => {
-    socket.emit("follow-user", {
+    socket.emit(collaborationEvents.followCommand, {
       drawingId,
       targetPresenceId: payload.targetSocketId ?? undefined,
       action: payload.action,
@@ -342,17 +339,11 @@ export const bindFollowMode = ({
   const unsubscribeScroll = viewport.subscribeScroll(scheduleBounds);
 
   const onFollowedBy = (payload: any) => {
-    if (payload?.drawingId !== drawingId || !Array.isArray(payload.followers)) {
-      return;
-    }
+    const parsed = followedByUpdateSchema.safeParse(payload);
+    if (!parsed.success || parsed.data.drawingId !== drawingId) return;
     const next = new Map<string, Follower>();
-    for (const follower of payload.followers) {
-      if (typeof follower?.presenceId === "string" && typeof follower?.name === "string") {
-        next.set(follower.presenceId, {
-          presenceId: follower.presenceId,
-          name: follower.name,
-        });
-      }
+    for (const follower of parsed.data.followers) {
+      next.set(follower.presenceId, follower);
     }
     followers = next;
     onFollowersChange(Array.from(next.values()));
@@ -361,13 +352,13 @@ export const bindFollowMode = ({
   };
 
   const onFollowStatus = (payload: any) => {
-    if (payload?.drawingId !== drawingId) return;
-    const targetPresenceId =
-      typeof payload.followingPresenceId === "string" ? payload.followingPresenceId : null;
+    const parsed = followStatusSchema.safeParse(payload);
+    if (!parsed.success || parsed.data.drawingId !== drawingId) return;
+    const targetPresenceId = parsed.data.followingPresenceId;
     const state = collaboration.readFollowState();
     const currentTargetId = state.ok ? state.value.followingSocketId : null;
-    if (typeof payload.reason === "string") {
-      onFollowInterrupted?.(payload.reason);
+    if (parsed.data.reason) {
+      onFollowInterrupted?.(parsed.data.reason);
     }
     if (currentTargetId === targetPresenceId) return;
     const previousTargetId = currentTargetId;
@@ -387,29 +378,28 @@ export const bindFollowMode = ({
   };
 
   const onViewportBounds = (payload: any) => {
-    if (payload?.drawingId !== drawingId) return;
-    const bounds = parseFollowSceneBounds(payload.sceneBounds);
-    if (!bounds || typeof payload.presenceId !== "string") return;
-    if (!Number.isSafeInteger(payload.sequence) || payload.sequence < 1) return;
-    if ((lastViewportSequence.get(payload.presenceId) || 0) >= payload.sequence) {
+    const parsed = viewportBoundsUpdateSchema.safeParse(payload);
+    if (!parsed.success || parsed.data.drawingId !== drawingId) return;
+    const { sceneBounds: bounds, presenceId, sequence } = parsed.data;
+    if ((lastViewportSequence.get(presenceId) || 0) >= sequence) {
       return;
     }
     const state = collaboration.readFollowState();
     if (!state.ok) return;
-    if (state.value.followingSocketId !== payload.presenceId) return;
+    if (state.value.followingSocketId !== presenceId) return;
     // Somebody following me does not get to move my view: that would be a loop
     // between two people each following the other.
-    if (state.value.followedBySocketIds.includes(payload.presenceId as never)) return;
+    if (state.value.followedBySocketIds.includes(presenceId as never)) return;
     lastViewportSequence.clear();
-    lastViewportSequence.set(payload.presenceId, payload.sequence);
+    lastViewportSequence.set(presenceId, sequence);
     lastReceivedBounds = bounds;
-    lastReceivedPresenceId = payload.presenceId;
+    lastReceivedPresenceId = presenceId;
     applyReceivedBounds();
   };
 
-  socket.on("followed-by-update", onFollowedBy);
-  socket.on("follow-status", onFollowStatus);
-  socket.on("viewport-bounds", onViewportBounds);
+  socket.on(collaborationEvents.followedByUpdate, onFollowedBy);
+  socket.on(collaborationEvents.followStatus, onFollowStatus);
+  socket.on(collaborationEvents.viewportBounds, onViewportBounds);
   const resizeObserver =
     container && typeof ResizeObserver !== "undefined"
       ? new ResizeObserver(() => {
@@ -440,9 +430,9 @@ export const bindFollowMode = ({
   const cleanup = () => {
     unsubscribeFollow();
     unsubscribeScroll();
-    socket.off("followed-by-update", onFollowedBy);
-    socket.off("follow-status", onFollowStatus);
-    socket.off("viewport-bounds", onViewportBounds);
+    socket.off(collaborationEvents.followedByUpdate, onFollowedBy);
+    socket.off(collaborationEvents.followStatus, onFollowStatus);
+    socket.off(collaborationEvents.viewportBounds, onViewportBounds);
     resizeObserver?.disconnect();
     if (sendTimer !== null) clearTimeout(sendTimer);
     if (pendingUnfollowTimer !== null) clearTimeout(pendingUnfollowTimer);

@@ -6,16 +6,14 @@ import type {
   CollaboratorPatch,
   SocketId,
 } from "../../integrations/excalidraw/types";
+import {
+  collaborationEvents,
+  presenceSnapshotSchema,
+  remoteCursorUpdateSchema,
+  type PresenceIdentity,
+} from "@excalidash/domain/collaboration";
 
-export interface Peer {
-  presenceId: string;
-  // No account id: the server keeps that to itself, because a share link puts
-  // anonymous visitors in the same room as everyone else.
-  name: string;
-  initials: string;
-  color: string;
-  isActive: boolean;
-}
+export type Peer = PresenceIdentity;
 
 /**
  * Inactive is not gone.
@@ -229,8 +227,10 @@ export const bindSocketCollaborators = ({
     if (animationFrameId === 0) animationFrameId = requestAnimationFrame(renderCursors);
   };
 
-  const onPresence = (users: Peer[]) => {
-    if (!Array.isArray(users)) return;
+  const onPresence = (value: unknown) => {
+    const parsed = presenceSnapshotSchema.safeParse(value);
+    if (!parsed.success) return;
+    const users = parsed.data;
     lastPresenceUsers = users;
     const selfId = selfPresenceId || socket.id;
     onPeersChange(users.filter((user) => user.presenceId !== selfId));
@@ -301,10 +301,11 @@ export const bindSocketCollaborators = ({
     write(patches);
   };
 
-  const onCursor = (data: any) => {
-    if (typeof data?.presenceId !== "string") return;
+  const onCursor = (value: unknown) => {
+    const parsed = remoteCursorUpdateSchema.safeParse(value);
+    if (!parsed.success) return;
+    const data = parsed.data;
     const target = data.pointer;
-    if (!target || typeof target.x !== "number" || typeof target.y !== "number") return;
     const now = Date.now();
     const existing = cursorAnims.get(data.presenceId);
     cursorAnims.set(data.presenceId, {
@@ -329,8 +330,8 @@ export const bindSocketCollaborators = ({
     wake();
   };
 
-  socket.on("presence-update", onPresence);
-  socket.on("cursor-move", onCursor);
+  socket.on(collaborationEvents.presenceUpdate, onPresence);
+  socket.on(collaborationEvents.cursorMove, onCursor);
 
   const clearAllAwayTimers = () => {
     awayTimers.forEach((timer) => clearTimeout(timer));
@@ -370,8 +371,8 @@ export const bindSocketCollaborators = ({
     },
     reset,
     dispose() {
-      socket.off("presence-update", onPresence);
-      socket.off("cursor-move", onCursor);
+      socket.off(collaborationEvents.presenceUpdate, onPresence);
+      socket.off(collaborationEvents.cursorMove, onCursor);
       cancelAnimationFrame(animationFrameId);
       clearAllAwayTimers();
     },

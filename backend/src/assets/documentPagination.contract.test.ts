@@ -50,4 +50,13 @@ describe("document pagination package contract", () => {
     );
     expect(serverPages).toEqual(browserPages);
   });
+
+  it("splits 50,000 characters without a separator into the same three pages", () => {
+    const source = "x".repeat(50_000);
+    const serverPages = paginateOnServer(source, "TEXT");
+    const browserPages = paginateInBrowser(source, "TEXT");
+
+    expect(serverPages).toHaveLength(3);
+    expect(browserPages).toEqual(serverPages);
+  });
 });

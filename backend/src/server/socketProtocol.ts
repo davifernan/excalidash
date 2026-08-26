@@ -9,13 +9,20 @@ import {
   parseElementUpdateShape,
   type ElementUpdateLimitError,
 } from "./socketElementUpdateLimits";
+import {
+  cursorUpdateSchema,
+  type CursorUpdate,
+  type ElementUpdatePayload as ElementUpdateWirePayload,
+  type SceneBounds,
+} from "@excalidash/domain/collaboration";
 
 export { ELEMENT_UPDATE_TRAFFIC_LIMITS, SOCKET_LIMITS, type ElementUpdateTrafficLimits };
 export { elementUpdateLimitError, type ElementUpdateLimitError };
 
 export const SOCKET_QUEUE_LIMITS = { joins: 8 } as const;
 
-export type RoomEventError = { code: string; message: string };
+export type { RoomEventError } from "@excalidash/domain/collaboration";
+import type { RoomEventError } from "@excalidash/domain/collaboration";
 
 /**
  * Returned by a `parse` function in place of `null` when the refusal reason
@@ -26,23 +33,12 @@ export class RoomEventParseFailure {
   constructor(public readonly error: RoomEventError | null) {}
 }
 
-export type SceneBounds = [number, number, number, number];
+export type { SceneBounds } from "@excalidash/domain/collaboration";
 
 export type { PresenceEntry as PresenceUser } from "./presenceRegistry";
 
-export type CursorPayload = {
-  drawingId: string;
-  pointer: { x: number; y: number; tool: "pointer" | "laser" };
-  button: "up" | "down";
-};
-
-export type ElementUpdatePayload = {
+export type ParsedElementUpdatePayload = ElementUpdateWirePayload & {
   serializedBytes: number;
-  drawingId: string;
-  elements: unknown[];
-  files?: Record<string, unknown>;
-  elementOrder?: string[];
-  elementOrderOmittedBytes?: number;
 };
 
 export const parseDrawingId = (value: unknown): string | null => {
@@ -81,20 +77,16 @@ export const parseSceneBounds = (value: unknown): SceneBounds | null => {
   return [x1, y1, x2, y2];
 };
 
-export const parseCursorPayload = (value: unknown): CursorPayload | null => {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Record<string, unknown>;
-  const drawingId = parseDrawingId(data.drawingId);
-  const rawPointer = data.pointer;
-  if (!drawingId || !rawPointer || typeof rawPointer !== "object") return null;
-  const pointer = rawPointer as Record<string, unknown>;
-  if (!isWorldCoordinate(pointer.x) || !isWorldCoordinate(pointer.y)) return null;
-  if (pointer.tool !== "pointer" && pointer.tool !== "laser") return null;
-  const button = data.button === "down" ? "down" : "up";
+export const parseCursorPayload = (value: unknown): CursorUpdate | null => {
+  const parsed = cursorUpdateSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const { pointer } = parsed.data;
+  const drawingId = parseDrawingId(parsed.data.drawingId);
+  if (!drawingId || !isWorldCoordinate(pointer.x) || !isWorldCoordinate(pointer.y)) return null;
   return {
     drawingId,
-    pointer: { x: pointer.x, y: pointer.y, tool: pointer.tool },
-    button,
+    pointer,
+    button: parsed.data.button,
   };
 };
 
@@ -109,7 +101,7 @@ export const parseCursorPayload = (value: unknown): CursorPayload | null => {
  */
 export const parseElementUpdateEvent = (
   value: unknown,
-): ElementUpdatePayload | RoomEventParseFailure => {
+): ParsedElementUpdatePayload | RoomEventParseFailure => {
   const shapeResult = parseElementUpdateShape(value);
   if (shapeResult.error !== undefined) return new RoomEventParseFailure(shapeResult.error);
   const { value: shaped, serializedBytes } = shapeResult;
@@ -141,7 +133,7 @@ export const parseElementUpdateEvent = (
   return {
     drawingId,
     serializedBytes,
-    elements: shaped.elements,
+    elements: shaped.elements as Record<string, unknown>[],
     files,
     elementOrder,
     elementOrderOmittedBytes,
@@ -149,7 +141,7 @@ export const parseElementUpdateEvent = (
 };
 
 /** Legacy accept/reject contract for callers that don't need the refusal reason. */
-export const parseElementUpdatePayload = (value: unknown): ElementUpdatePayload | null => {
+export const parseElementUpdatePayload = (value: unknown): ParsedElementUpdatePayload | null => {
   const result = parseElementUpdateEvent(value);
   return result instanceof RoomEventParseFailure ? null : result;
 };

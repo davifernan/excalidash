@@ -19,18 +19,9 @@
  * this" across a reconnect, without needing to diff the whole snapshot.
  */
 import type { SceneBounds } from "./socketProtocol";
+import type { PresenterSnapshot, PresenterStatus } from "@excalidash/domain/collaboration";
 
-export type PresenterStatus = "idle" | "presenting";
-
-export type PresenterSnapshot = {
-  readonly drawingId: string;
-  readonly status: PresenterStatus;
-  readonly presenterPresenceId: string | null;
-  readonly presenterName: string | null;
-  readonly frameId: string | null;
-  readonly bounds: SceneBounds | null;
-  readonly revision: number;
-};
+export type { PresenterSnapshot, PresenterStatus } from "@excalidash/domain/collaboration";
 
 type PresenterState = {
   presenterSocketId: string;

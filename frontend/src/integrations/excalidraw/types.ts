@@ -1,3 +1,5 @@
+import type { SceneBounds } from "@excalidash/domain/collaboration";
+
 /**
  * Local types for the Excalidraw boundary.
  *
@@ -232,7 +234,7 @@ export type AppliedViewport = {
   readonly zoomClamped: boolean;
 };
 
-export type SceneBounds = readonly [minX: number, minY: number, maxX: number, maxY: number];
+export type { SceneBounds } from "@excalidash/domain/collaboration";
 
 export type ScenePoint = { readonly x: number; readonly y: number };
 export type ViewportPoint = { readonly x: number; readonly y: number };

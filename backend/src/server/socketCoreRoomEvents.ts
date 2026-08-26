@@ -4,9 +4,10 @@ import {
   parseCursorPayload,
   parseDrawingId,
   parseElementUpdateEvent,
-  type ElementUpdatePayload,
+  type ParsedElementUpdatePayload,
 } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
+import { collaborationEvents, userActivitySchema } from "@excalidash/domain/collaboration";
 
 type CoreRoomEventDeps = {
   socket: Socket;
@@ -26,12 +27,10 @@ type ActivityPayload = RoomEventPayload & { isActive: boolean };
 const roomName = (drawingId: string) => `drawing_${drawingId}`;
 
 const parseActivityPayload = (value: unknown): ActivityPayload | null => {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Record<string, unknown>;
-  const drawingId = parseDrawingId(data.drawingId);
-  return drawingId && typeof data.isActive === "boolean"
-    ? { drawingId, isActive: data.isActive }
-    : null;
+  const parsed = userActivitySchema.safeParse(value);
+  if (!parsed.success) return null;
+  const drawingId = parseDrawingId(parsed.data.drawingId);
+  return drawingId ? { ...parsed.data, drawingId } : null;
 };
 
 export const registerCoreRoomEvents = ({
@@ -46,7 +45,7 @@ export const registerCoreRoomEvents = ({
 }: CoreRoomEventDeps): void => {
   registerAuthorizedRoomEvent({
     socket,
-    event: "cursor-move",
+    event: collaborationEvents.cursorMove,
     limit: 40,
     windowMs: 1_000,
     parse: parseCursorPayload,
@@ -55,7 +54,7 @@ export const registerCoreRoomEvents = ({
     handle: (payload) => {
       const self = getPresence(socket.id);
       if (!self) return;
-      socket.volatile.to(roomName(payload.drawingId)).emit("cursor-move", {
+      socket.volatile.to(roomName(payload.drawingId)).emit(collaborationEvents.cursorMove, {
         drawingId: payload.drawingId,
         presenceId: socket.id,
         pointer: payload.pointer,
@@ -66,9 +65,9 @@ export const registerCoreRoomEvents = ({
     },
   });
 
-  registerAuthorizedRoomEvent<ElementUpdatePayload>({
+  registerAuthorizedRoomEvent<ParsedElementUpdatePayload>({
     socket,
-    event: "element-update",
+    event: collaborationEvents.elementUpdate,
     limit: 120,
     windowMs: 1_000,
     parse: parseElementUpdateEvent,
@@ -76,7 +75,7 @@ export const registerCoreRoomEvents = ({
     allowPayload: (payload) => allowElementUpdate(payload.drawingId, payload.serializedBytes),
     requireEdit: true,
     handle: (payload) => {
-      socket.to(roomName(payload.drawingId)).emit("element-update", {
+      socket.to(roomName(payload.drawingId)).emit(collaborationEvents.elementUpdate, {
         elements: payload.elements,
         files: payload.files,
         elementOrder: payload.elementOrder,
@@ -94,7 +93,7 @@ export const registerCoreRoomEvents = ({
 
   registerAuthorizedRoomEvent({
     socket,
-    event: "user-activity",
+    event: collaborationEvents.userActivity,
     limit: 20,
     windowMs: 10_000,
     allow: allowActivity,

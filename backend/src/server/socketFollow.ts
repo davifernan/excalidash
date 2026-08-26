@@ -2,6 +2,11 @@ import type { Server, Socket } from "socket.io";
 import { canViewDrawing, type DrawingAccess } from "../authz/sharing";
 import { parseDrawingId, parseSceneBounds, type PresenceUser } from "./socketProtocol";
 import { createRoomEventFeedback, type RoomEventAck } from "./socketRoomEvent";
+import {
+  collaborationEvents,
+  followCommandSchema,
+  viewportBoundsInputSchema,
+} from "@excalidash/domain/collaboration";
 
 type SocketFollowManagerDeps = {
   io: Server;
@@ -68,12 +73,12 @@ export const createSocketFollowManager = ({
       .map(getPresence)
       .filter((user): user is PresenceUser => Boolean(user))
       .map((user) => ({ presenceId: user.presenceId, name: user.name }));
-    io.to(targetId).emit("followed-by-update", { drawingId, followers });
+    io.to(targetId).emit(collaborationEvents.followedByUpdate, { drawingId, followers });
   };
 
   const emitFollowStatus = (socket: Socket, drawingId: string, reason?: string) => {
     const targetId = followingBySocket.get(socket.id);
-    socket.emit("follow-status", {
+    socket.emit(collaborationEvents.followStatus, {
       drawingId,
       followingPresenceId:
         targetId && drawingBySocket.get(targetId) === drawingId ? targetId : null,
@@ -141,9 +146,17 @@ export const createSocketFollowManager = ({
     let pendingFollowCommands = 0;
     let followCancellationRevision = 0;
     const MAX_PENDING_FOLLOW_COMMANDS = 8;
-    const followFeedback = createRoomEventFeedback(socket, "follow-user", 60_000);
-    const viewportFeedback = createRoomEventFeedback(socket, "viewport-bounds", 1_000);
-    socket.on("follow-user", (data: unknown, ack?: RoomEventAck) => {
+    const followFeedback = createRoomEventFeedback(
+      socket,
+      collaborationEvents.followCommand,
+      60_000,
+    );
+    const viewportFeedback = createRoomEventFeedback(
+      socket,
+      collaborationEvents.viewportBounds,
+      1_000,
+    );
+    socket.on(collaborationEvents.followCommand, (data: unknown, ack?: RoomEventAck) => {
       const drawingId =
         data && typeof data === "object"
           ? parseDrawingId((data as Record<string, unknown>).drawingId)
@@ -156,7 +169,12 @@ export const createSocketFollowManager = ({
         followFeedback.invalid(ack);
         return;
       }
-      const payload = data as Record<string, unknown>;
+      const parsedCommand = followCommandSchema.safeParse(data);
+      if (!parsedCommand.success) {
+        followFeedback.invalid(ack);
+        return;
+      }
+      const payload = parsedCommand.data;
       if (payload.action === "UNFOLLOW") {
         if (!allowUnfollow()) return;
         // Keep recovery outside the FOLLOW queue so it can still overtake a
@@ -276,18 +294,14 @@ export const createSocketFollowManager = ({
       return result;
     });
 
-    socket.on("viewport-bounds", async (data: unknown, ack?: RoomEventAck) => {
+    socket.on(collaborationEvents.viewportBounds, async (data: unknown, ack?: RoomEventAck) => {
       if (!allowViewport()) {
         viewportFeedback.rateLimited();
         return;
       }
-      if (!data || typeof data !== "object") {
-        viewportFeedback.invalid(ack);
-        return;
-      }
-      const payload = data as Record<string, unknown>;
-      const drawingId = parseDrawingId(payload.drawingId);
-      const sceneBounds = parseSceneBounds(payload.sceneBounds);
+      const parsed = viewportBoundsInputSchema.safeParse(data);
+      const drawingId = parsed.success ? parseDrawingId(parsed.data.drawingId) : null;
+      const sceneBounds = parsed.success ? parseSceneBounds(parsed.data.sceneBounds) : null;
       if (!drawingId || !sceneBounds) {
         viewportFeedback.invalid(ack);
         return;
@@ -322,7 +336,7 @@ export const createSocketFollowManager = ({
           await removeFromDrawing(followerSocket, "access-revoked");
           continue;
         }
-        io.to(followerId).volatile.emit("viewport-bounds", {
+        io.to(followerId).volatile.emit(collaborationEvents.viewportBounds, {
           drawingId,
           presenceId: socket.id,
           sceneBounds,
