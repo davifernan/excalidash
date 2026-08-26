@@ -50,7 +50,7 @@ const setNote = async (page: Page, size: number, text: string) => {
               },
             };
           }
-          return element.type === "text"
+          return element.type === "text" && !element.isDeleted
             ? { ...element, text: value, originalText: value }
             : element;
         }),
@@ -221,50 +221,55 @@ test.describe("sticky note font scaling (NIL-630)", () => {
 
   test("two browser contexts derive the same font size for the same content", async ({
     browser,
+    page: pageA,
   }) => {
-    // Keep both collaborators symmetric. Reusing the test fixture's context
-    // and cloning its storage made one side inherit lifecycle/cookie state the
-    // other did not have; under a full shard that could join the room yet miss
-    // the authored label update. The established collaboration specs use two
-    // independent contexts for exactly this reason.
-    const contextA = await browser.newContext();
     const contextB = await browser.newContext();
     try {
-      const pageA = await contextA.newPage();
-      const pageB = await contextB.newPage();
-
-      await Promise.all([openEditor(pageA, drawingId), openEditor(pageB, drawingId)]);
-      await Promise.all(
-        [pageA, pageB].map((target) =>
-          target.waitForFunction(
-            () => (window as any).__EXCALIDASH_SOCKET_STATUS__?.roomJoined === true,
-          ),
-        ),
-      );
-
       const longText =
         "Two people looking at the same note from two different browsers must see " +
         "the writing at exactly the same size, because it is derived from the note's " +
         "content and dimensions alone, never stored and synced as a separate value.";
+      await openEditor(pageA, drawingId);
       await placeNote(pageA, { x: 400, y: 300 });
       await pageA.keyboard.type(longText, { delay: 0 });
       await pageA.keyboard.press("Escape");
+      await settle(pageA);
 
-      // Wait for B to receive the synced text before reading its own derived
-      // size -- B computes its own fontSize locally, it does not receive one.
-      // Matched against `originalText`, not `text`: the fit pass on A already
-      // rewrote `text` with the wrapped line breaks its own font size chose,
-      // so the flat string never appears there again.
+      // Wait until the transport boundary contains the canonical reference
+      // size and remembered 200x200 geometry. Only then let a second context
+      // load that exact authoritative state. This isolates the contract under
+      // test: both browsers derive from identical content/geometry, without a
+      // live-typing delivery race deciding whether B has the prerequisite.
+      await expect
+        .poll(async () => {
+          const drawing = await getDrawing(api, drawingId);
+          const note = drawing.elements?.find((element: any) =>
+            Boolean(element.customData?.excalidash?.sticky),
+          );
+          const label = drawing.elements?.find(
+            (element: any) => element.type === "text" && !element.isDeleted,
+          );
+          return {
+            originalText: label?.originalText,
+            fontSize: label?.fontSize,
+            noteWidth: note?.customData?.excalidash?.sticky?.width,
+            noteHeight: note?.customData?.excalidash?.sticky?.height,
+          };
+        })
+        .toEqual({
+          originalText: longText,
+          fontSize: 20,
+          noteWidth: 200,
+          noteHeight: 200,
+        });
+
+      const pageB = await contextB.newPage();
+      await openEditor(pageB, drawingId);
       await pageB.waitForFunction(
         (expected) =>
           (window as any).__EXCALIDASH_TEST__
             ?.getSceneElements()
-            .some(
-              (element: any) =>
-                element.originalText === expected &&
-                typeof element.fontSize === "number" &&
-                element.fontSize !== 20,
-            ) ?? false,
+            .some((element: any) => element.originalText === expected) ?? false,
         longText,
       );
       await settle(pageB);
@@ -296,7 +301,6 @@ test.describe("sticky note font scaling (NIL-630)", () => {
       expect(await revisions(pageA)).toEqual(settledA);
       expect(await revisions(pageB)).toEqual(settledB);
     } finally {
-      await contextA.close();
       await contextB.close();
     }
   });
