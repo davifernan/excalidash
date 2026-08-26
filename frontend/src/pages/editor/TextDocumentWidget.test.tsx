@@ -8,28 +8,14 @@ import {
 } from "../../api";
 import { TextDocumentWidget } from "./TextDocumentWidget";
 
-const { paginateDocumentSourceMock } = vi.hoisted(() => ({
-  paginateDocumentSourceMock: vi.fn(),
-}));
-
 const { paginateDocumentOffThreadMock } = vi.hoisted(() => ({
   paginateDocumentOffThreadMock: vi.fn(),
 }));
 
-vi.mock("./documentPagination", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./documentPagination")>();
-  return {
-    ...actual,
-    paginateDocumentSource: (...args: Parameters<typeof actual.paginateDocumentSource>) => {
-      paginateDocumentSourceMock(...args);
-      return actual.paginateDocumentSource(...args);
-    },
-  };
-});
-
 vi.mock("./documentPaginationWorker", async () => {
-  const actual =
-    await vi.importActual<typeof import("./documentPagination")>("./documentPagination");
+  const actual = await vi.importActual<
+    typeof import("@excalidash/domain/documents/pagination")
+  >("@excalidash/domain/documents/pagination");
   paginateDocumentOffThreadMock.mockImplementation(
     async (source: string, kind: "MARKDOWN" | "TEXT") =>
       actual.paginateDocumentSource(source, kind),
@@ -393,7 +379,6 @@ describe("TextDocumentWidget", () => {
       "MARKDOWN",
       expect.any(AbortSignal),
     );
-    expect(paginateDocumentSourceMock).not.toHaveBeenCalled();
   });
 
   it("shows a stable error when the pagination worker fails", async () => {
