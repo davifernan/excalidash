@@ -8,6 +8,7 @@ const {
   imageUrls,
   inspectPr,
   primaryPackage,
+  runWatch,
 } = require("./screenshot-evidence-watch.cjs");
 
 const SHA = "a".repeat(40);
@@ -44,6 +45,20 @@ test("recognizes Markdown and HTML images without treating ordinary links as evi
       ].join("\n"),
     ),
     ["https://example.test/proof.png", "https://example.test/proof.webp"],
+  );
+});
+
+test("recognizes full and collapsed Markdown image references", () => {
+  assert.deepEqual(
+    imageUrls(
+      [
+        "![light theme][Light Proof]",
+        "![dark-proof][]",
+        '[light proof]: https://example.test/light.png "Light"',
+        "[dark-proof]: <https://example.test/dark.webp>",
+      ].join("\n"),
+    ),
+    ["https://example.test/light.png", "https://example.test/dark.webp"],
   );
 });
 
@@ -180,4 +195,37 @@ test("ambiguous evidence reports without setting any status", async () => {
   assert.equal(result.result, "ambiguous");
   assert.deepEqual(adapter.calls.statuses, []);
   assert.equal(adapter.calls.comments.length, 1);
+});
+
+test("one failing PR is reported as ambiguous without skipping later PRs", async () => {
+  const first = adapterFor();
+  first.setStatus = () => {
+    throw new Error('gh "api" "repos/davifernan/excalidash/statuses/aaa" failed: HTTP 502');
+  };
+  const second = adapterFor();
+  const adapters = new Map([
+    [192, first],
+    [193, second],
+  ]);
+  const adapter = {
+    listOpenPrs: () => [pr(), pr({ number: 193 })],
+    getIssue: () => issue(),
+    getComments: (number) => {
+      currentPr = number;
+      return adapters.get(number).getComments(number);
+    },
+    setStatus: (...args) => adapters.get(currentPr).setStatus(...args),
+    addLabel: (...args) => adapters.get(currentPr).addLabel(...args),
+    comment: (...args) => adapters.get(currentPr).comment(...args),
+  };
+  let currentPr;
+
+  const result = await runWatch({ adapter });
+
+  assert.equal(result.events[0].result, "ambiguous");
+  assert.equal(result.events[0].reason, "pr-inspection-failed");
+  assert.match(result.events[0].error, /PR #192.*HTTP 502/);
+  assert.equal(result.events[1].pr, 193);
+  assert.equal(result.events[1].result, "missing");
+  assert.equal(second.calls.statuses[0][1], "failure");
 });

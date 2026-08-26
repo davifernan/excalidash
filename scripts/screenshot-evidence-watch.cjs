@@ -25,8 +25,18 @@ function primaryPackage(body) {
 function imageUrls(text) {
   const source = String(text || "");
   const urls = [];
+  const references = new Map();
+  for (const match of source.matchAll(
+    /^\s{0,3}\[([^\]]+)\]:\s*<?(https?:\/\/[^\s>]+)>?(?:\s+.*)?$/gim,
+  )) {
+    references.set(match[1].trim().replace(/\s+/g, " ").toLowerCase(), match[2]);
+  }
   for (const match of source.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)(?:\s+[^)]*)?\)/gi)) {
     urls.push(match[1]);
+  }
+  for (const match of source.matchAll(/!\[([^\]]*)\]\[([^\]]*)\]/gi)) {
+    const label = (match[2] || match[1]).trim().replace(/\s+/g, " ").toLowerCase();
+    if (references.has(label)) urls.push(references.get(label));
   }
   for (const match of source.matchAll(/<img\b[^>]*\bsrc=["'](https?:\/\/[^"']+)["'][^>]*>/gi)) {
     urls.push(match[1]);
@@ -92,7 +102,11 @@ function commandJson(command, args, { allowFailure = false } = {}) {
   });
   if (result.status !== 0) {
     if (allowFailure) return null;
-    throw new Error(`${command} ${args.slice(0, 3).join(" ")} failed`);
+    const printableArgs = args.map((arg) =>
+      String(arg).startsWith("body=") ? "body=<redacted>" : JSON.stringify(String(arg)),
+    );
+    const stderr = String(result.stderr || "").trim() || "no stderr";
+    throw new Error(`${command} ${printableArgs.join(" ")} failed: ${stderr}`);
   }
   return JSON.parse(result.stdout);
 }
@@ -243,7 +257,18 @@ async function inspectPr({ adapter, pr, fetchImpl = fetch }) {
 
 async function runWatch({ adapter, fetchImpl = fetch }) {
   const events = [];
-  for (const pr of adapter.listOpenPrs()) events.push(await inspectPr({ adapter, pr, fetchImpl }));
+  for (const pr of adapter.listOpenPrs()) {
+    try {
+      events.push(await inspectPr({ adapter, pr, fetchImpl }));
+    } catch (error) {
+      events.push({
+        pr: pr.number,
+        result: "ambiguous",
+        reason: "pr-inspection-failed",
+        error: `PR #${pr.number}: ${error.message}`,
+      });
+    }
+  }
   return { ok: true, checkedAt: new Date().toISOString(), events };
 }
 
