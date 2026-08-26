@@ -226,7 +226,14 @@ export const registerAuthorizedRoomEvent = <Payload extends RoomEventPayload>({
     // A thrown handler must not poison the tail for everything after it, and
     // an acknowledged command must never be left waiting until client timeout.
     tail = tail.catch((error) => {
-      logger.error("Room event failed", { event, error });
+      // NIL-619: an HTTP request gets a requestId that follows it end to end;
+      // a socket connection gets nothing equivalent anywhere in this
+      // codebase today. socket.id is the cheapest available substitute --
+      // it does not survive a reconnect, but it is enough to tell "these
+      // failures are the same connection" apart from "these are two
+      // different people," which requestId alone cannot do for anything
+      // that happens over this channel.
+      logger.error("Room event failed", { event, socketId: socket.id, error });
       feedback.rejected(
         { code: "internal-error", message: `${event} could not be completed` },
         ack,
