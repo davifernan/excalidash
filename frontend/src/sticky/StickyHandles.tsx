@@ -13,7 +13,7 @@
  * Subscribing keeps the churn inside this component, and the layout is compared
  * before it is stored so a change that moves nothing costs nothing.
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type {
   InteractionCapability,
   SceneCapability,
@@ -52,7 +52,7 @@ type Props = {
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
   isDragging: () => boolean;
-  interaction: Pick<InteractionCapability, "read" | "setActiveTool">;
+  interaction: Pick<InteractionCapability, "read" | "setActiveTool" | "setActiveToolSettled">;
   scene: Pick<SceneCapability, "subscribe" | "summaries" | "summaryById" | "applySettled">;
   selection: Pick<SelectionCapability, "read">;
   ui: Pick<UiCapability, "beginTextEditing">;
@@ -129,6 +129,9 @@ export const StickyHandles: React.FC<Props> = ({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout | null>(null);
   const [previewSide, setPreviewSide] = useState<HandleSide | null>(null);
+  const handleGestureActive = useRef(false);
+  const activeGestures = useRef(new Set<string>());
+  const creatingChildren = useRef(new Set<string>());
 
   // Excalidraw does not say what the pointer is over, so the note under it is
   // worked out here. Sticky notes are plain axis-aligned boxes, which makes
@@ -169,6 +172,7 @@ export const StickyHandles: React.FC<Props> = ({
     if (!canEdit) return;
     const refresh = () =>
       setLayout((current) => {
+        if (handleGestureActive.current) return current;
         const next = layoutFor(
           { interaction, scene, selection, viewport },
           isDragging(),
@@ -279,6 +283,14 @@ export const StickyHandles: React.FC<Props> = ({
             const container = containerRef.current;
             if (!note.ok || !note.value || !viewportState.ok || !container) return;
             const parent = note.value;
+            const gestureKey = `${parent.id}:${dot.side}`;
+            if (activeGestures.current.has(gestureKey)) return;
+            activeGestures.current.add(gestureKey);
+            handleGestureActive.current = true;
+            // Preparing the tool does not start a canvas gesture or create a
+            // history entry. It only lets Excalidraw commit the tool before a
+            // later threshold-crossing move asks the DOM bridge to pointerdown.
+            interaction.setActiveTool({ type: "builtin", name: "arrow" });
 
             const from = startPoint(parent, dot.side);
             const point = projectPoint({ x: from.x, y: from.y }, viewportState.value);
@@ -292,21 +304,35 @@ export const StickyHandles: React.FC<Props> = ({
             const pointerId = event.pointerId;
             const pressedAt = { x: event.clientX, y: event.clientY };
             let armingDrag = false;
+            let dragReady = false;
             let releasedWhileArming = false;
             let latest = { x: event.clientX, y: event.clientY };
-            let holdTimer = 0;
 
             const cleanup = () => {
-              window.clearTimeout(holdTimer);
+              handleGestureActive.current = false;
+              activeGestures.current.delete(gestureKey);
               window.removeEventListener("pointermove", onMove);
               window.removeEventListener("pointerup", onUp);
               window.removeEventListener("pointercancel", onCancel);
+            };
+            const createChild = () => {
+              setPreviewSide(null);
+              const creationKey = `${parent.id}:${dot.side}`;
+              if (creatingChildren.current.has(creationKey)) return;
+              creatingChildren.current.add(creationKey);
+              void (async () => {
+                await interaction.setActiveToolSettled({ type: "builtin", name: "selection" });
+                await createConnectedChild(parent, dot.side, scene, ui);
+              })().finally(() => {
+                creatingChildren.current.delete(creationKey);
+              });
             };
             const startDrag = () => {
               if (armingDrag) return;
               armingDrag = true;
               setPreviewSide(null);
               void beginArrowDrag(interaction, container, origin).then(() => {
+                dragReady = true;
                 // Moves can outrun the one frame needed to arm the tool. Replay
                 // the latest point after Excalidraw has received pointerdown;
                 // if release also won that race, replay it in the same order.
@@ -323,8 +349,8 @@ export const StickyHandles: React.FC<Props> = ({
                     pointerId,
                     pointerType: event.pointerType,
                   });
+                  cleanup();
                 }
-                cleanup();
               });
             };
             const onMove = (move: PointerEvent) => {
@@ -339,25 +365,29 @@ export const StickyHandles: React.FC<Props> = ({
               if (up.pointerId !== pointerId) return;
               latest = { x: up.clientX, y: up.clientY };
               if (armingDrag) {
-                releasedWhileArming = true;
+                if (dragReady) cleanup();
+                else releasedWhileArming = true;
                 return;
               }
               cleanup();
-              setPreviewSide(null);
-              void createConnectedChild(parent, dot.side, scene, ui);
+              createChild();
             };
             const onCancel = (cancel: PointerEvent) => {
               if (cancel.pointerId !== pointerId) return;
               cleanup();
               setPreviewSide(null);
+              if (dragReady) {
+                dispatchCanvasDragPointer("pointercancel", {
+                  clientX: latest.x,
+                  clientY: latest.y,
+                  pointerId,
+                  pointerType: event.pointerType,
+                });
+              }
             };
             window.addEventListener("pointermove", onMove);
             window.addEventListener("pointerup", onUp);
             window.addEventListener("pointercancel", onCancel);
-            // A deliberate press-and-hold is also a drag even before motion.
-            // This lets the editor receive its pointerdown before a quick
-            // subsequent sweep can outrun the one-frame tool switch.
-            holdTimer = window.setTimeout(startDrag, 100);
           }}
           style={{
             position: "absolute",

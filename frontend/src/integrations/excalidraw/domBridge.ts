@@ -309,7 +309,7 @@ export const beginCanvasDrag = async (
  * pointerdown above: both are the same unsupported DOM seam.
  */
 export const dispatchCanvasDragPointer = (
-  type: "pointermove" | "pointerup",
+  type: "pointermove" | "pointerup" | "pointercancel",
   pointer: {
     clientX: number;
     clientY: number;
@@ -317,7 +317,7 @@ export const dispatchCanvasDragPointer = (
     pointerType?: string;
   },
 ): void => {
-  const released = type === "pointerup";
+  const released = type !== "pointermove";
   window.dispatchEvent(
     new PointerEvent(type, {
       bubbles: true,

@@ -164,6 +164,69 @@ test.describe("dragging an arrow out of a note", () => {
     expect(movedNotes[1].y).toBeGreaterThan(childY + 100);
   });
 
+  test("treats a 150ms stationary press as a click, not a drag", async ({ page }) => {
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+    expect(await notes(page)).toHaveLength(2);
+    expect((await scene(page)).filter((element: any) => element.type === "arrow")).toHaveLength(1);
+  });
+
+  test("coalesces two same-frame clicks on one handle", async ({ page }) => {
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+    await handle.evaluate((element) => {
+      const dispatchClick = (pointerId: number) => {
+        element.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            pointerId,
+            pointerType: "mouse",
+            button: 0,
+            buttons: 1,
+            clientX: 505,
+            clientY: 300,
+          }),
+        );
+        window.dispatchEvent(
+          new PointerEvent("pointerup", {
+            bubbles: true,
+            pointerId,
+            pointerType: "mouse",
+            button: 0,
+            buttons: 0,
+            clientX: 505,
+            clientY: 300,
+          }),
+        );
+      };
+      dispatchClick(41);
+      dispatchClick(42);
+    });
+
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+    await settle(page);
+    expect(await notes(page)).toHaveLength(2);
+    expect((await scene(page)).filter((element: any) => element.type === "arrow")).toHaveLength(1);
+  });
+
   test("undoes a click-created note and arrow as one gesture", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
