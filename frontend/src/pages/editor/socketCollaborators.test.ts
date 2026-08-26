@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bindSocketCollaborators, withAwayStatus } from "./socketCollaborators";
+import {
+  AWAY_CURSOR_GRAY_MIX,
+  awayCursorColor,
+  bindSocketCollaborators,
+  withAwayStatus,
+} from "./socketCollaborators";
 
 class FakeSocket {
   id = "self";
@@ -141,6 +146,14 @@ describe("socket collaborators", () => {
     expect(withAwayStatus("Peer", false)).toBe("Peer");
   });
 
+  it("mutes an away cursor by a measured 20% greyscale mix without changing its identity", () => {
+    expect(AWAY_CURSOR_GRAY_MIX).toBe(0.2);
+    expect(awayCursorColor("#3b82f6")).toBe("#4881dd");
+    expect(awayCursorColor("#ffffff")).toBe("#ffffff");
+    expect(awayCursorColor("currentColor")).toBe("currentColor");
+    expect(awayCursorColor(null)).toBeNull();
+  });
+
   it("NIL-372: does not delete a collaborator merely because a tab lost focus", () => {
     // This is the root-cause regression test: before the fix, `isActive: false`
     // went straight into the `gone` list and `collaboration.removeCollaborators`
@@ -215,12 +228,14 @@ describe("socket collaborators", () => {
     ]);
     vi.advanceTimersByTime(4_000);
     expect(peers.get("peer")?.name).toBe("Peer · away");
+    expect(peers.get("peer")?.color).toBe("#18334e");
 
     // Returning clears it immediately, without a second grace window.
     socket.trigger("presence-update", [
       { presenceId: "peer", name: "Peer", color: "#123456", isActive: true },
     ]);
     expect(peers.get("peer")?.name).toBe("Peer");
+    expect(peers.get("peer")?.color).toBe("#123456");
 
     vi.useRealTimers();
   });
@@ -243,6 +258,7 @@ describe("socket collaborators", () => {
       { presenceId: "peer", name: "Peer", color: "#123456", isActive: false },
     ]);
     expect(peers.get("peer")?.name).toBe("Peer · away");
+    expect(peers.get("peer")?.color).toBe("#18334e");
     expect(capability.removeCollaborators).not.toHaveBeenCalled();
   });
 
@@ -340,6 +356,48 @@ describe("socket collaborators", () => {
 
       advanceFrame(25); // the glide completes
       expect(peers.get("peer")?.pointer).toEqual({ x: 100, y: 0 });
+
+      vi.useRealTimers();
+    });
+
+    it("keeps the away label and muted colour across a late cursor frame, then restores both", () => {
+      vi.useFakeTimers();
+      const { advanceFrame } = withControllableFrames();
+      const socket = new FakeSocket();
+      const { peers, capability } = fakeCollaboration();
+      bindSocketCollaborators({
+        socket: socket as any,
+        collaboration: capability,
+        onPeersChange: vi.fn(),
+      });
+
+      socket.trigger("presence-update", [
+        { presenceId: "peer", name: "Peer", color: "#3b82f6", isActive: true },
+      ]);
+      socket.trigger("presence-update", [
+        { presenceId: "peer", name: "Peer", color: "#3b82f6", isActive: false },
+      ]);
+      vi.advanceTimersByTime(4_000);
+
+      // A queued cursor packet can arrive after inactivity was observed. Its
+      // active payload must not repaint the already-away peer as active.
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 10, y: 20 },
+        username: "Peer",
+        color: "#3b82f6",
+      });
+      advanceFrame(0);
+      expect(peers.get("peer")).toMatchObject({
+        name: "Peer · away",
+        color: "#4881dd",
+        pointer: { x: 10, y: 20 },
+      });
+
+      socket.trigger("presence-update", [
+        { presenceId: "peer", name: "Peer", color: "#3b82f6", isActive: true },
+      ]);
+      expect(peers.get("peer")).toMatchObject({ name: "Peer", color: "#3b82f6" });
 
       vi.useRealTimers();
     });
