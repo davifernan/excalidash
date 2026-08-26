@@ -186,7 +186,8 @@ export const useEditorCanvasHandlers = ({
       if (allDroppedFiles.length > 0 && !canUploadFiles) {
         event.preventDefault();
         event.stopPropagation();
-        toast.error(
+        notify(
+          "error",
           "Guests cannot upload files to this board. Ask the board owner to enable guest uploads.",
         );
         return;
