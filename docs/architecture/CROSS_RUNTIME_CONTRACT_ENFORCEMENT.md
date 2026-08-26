@@ -29,6 +29,9 @@ Use a narrower combination:
 5. Exact behavioral countertests exercise the real adapters for shared algorithms and failure
    policy. Opaque/branded parsed values may add compile-time friction inside the adapter APIs,
    but they are defense in depth, not the enforcement boundary.
+6. Treat finite seam ownership as a reusable architecture pattern across and within runtimes,
+   but keep each capability's home and guard separate. This package does not create a universal
+   seam detector or absorb the existing Excalidraw, notification, CSS, or component boundaries.
 
 This confirms the hypothesis in NIL-635 only after narrowing it. A prohibition is tractable
 when it says "only this finite adapter may own this raw capability." The broader statement
@@ -47,6 +50,33 @@ It is deliberately not:
 
 The second claim is neither necessary for runtime correctness nor completely decidable for
 arbitrary TypeScript programs.
+
+## Observed benefit: what this would and would not have caught
+
+The user feedback represented by NIL-601 through NIL-632 on 2026-08-26 is not evidence for this
+proposal. Counting the reports rather than classifying them by impression gives **0** cases that
+the cross-runtime chain in this document would have prevented. They were UI, UX, or
+single-runtime failures: for example, one follow path did not call `collaboration.follow`, while
+an old board produced "Document Widget is not part of the board." Neither was disagreement
+between independently executed contract implementations.
+
+Across all findings that day, exactly one belongs to this document's category: NIL-624. The
+backend exposed one document page while the frontend exposed three and then sent page numbers
+the server rejected. It came from sweep NIL-613, not from user feedback. The strongest additional
+motivation is therefore a near miss, not a reported incident: while removing Mind Map fields,
+the backend copy of the `customData` schema was almost left behind. Hans-Friedrich found the copy;
+no automated boundary did.
+
+That is a narrow evidence base: **0 prevented user reports, 1 discovered cross-runtime defect,
+and 1 cross-runtime near miss** on the measured day. It does not justify a repository-wide
+detector. It does justify fixing NIL-624 independently and testing whether finite ownership can
+make the same class of near miss mechanically visible at the seams where the cost is bounded.
+
+Four other same-day duplication findings were real but inside one runtime: NIL-628's second live
+adapter in follow mode, NIL-629's independently built inner markup for each floating element bar,
+NIL-614's 80 direct Sonner calls, and NIL-627's CSS seams outside the inventory. The proposed
+cross-runtime package would have caught **none** of them. They test whether seam ownership is a
+useful broader principle; they are not retroactive benefit attributed to this package.
 
 ## Why PR #203 is evidence, not a delivery candidate
 
@@ -216,6 +246,53 @@ As local cost references, existing home-based boundary checks measured over twen
 Those checks are not implementations of this proposal, so their times are not a promised result.
 They show the cost class of checking a finite ownership boundary. A future contract-boundary
 check should have a 250 ms local median budget and must be measured before admission.
+
+## Does finite seam ownership generalize within one runtime?
+
+Yes as an architecture pattern; no as one generalized guard. The reusable rule is:
+
+1. Name a finite raw capability and one owner home.
+2. Give consumers a higher-level facade or capability instead of the raw handle, import,
+   selector, or construction recipe.
+3. Prevent the raw capability from escaping that home.
+4. Add a zero-baseline counterprobe that deliberately crosses that particular boundary and is
+   observed to fail.
+
+The same-day cases separate clean applications of that rule from a merely related case:
+
+| Test case                                        | Would finite ownership apply?                                                                            | Correct boundary                                                                                                                                                                        |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NIL-628: second live adapter in follow mode      | Yes. Raw Excalidraw access and adapter construction are finite capabilities.                             | `adapter-boundary` keeps package access, raw editor behavior, and construction in the Excalidraw integration home.                                                                      |
+| NIL-614: 80 direct Sonner calls                  | Yes. Importing Sonner is the finite raw capability.                                                      | `notification-boundary` permits that import only in the notification facade; callers express severity and content through `notify()`.                                                   |
+| NIL-627: CSS seams outside the inventory         | Yes, with a selector-specific proof. A selector targeting foreign internals is the raw capability token. | The CSS inventory stays owned by the Excalidraw integration and `adapter-boundary` requires exact, complete inventoried selectors. A generic import guard would not prove this.         |
+| NIL-629: separate inner markup for floating bars | Related, but not automatically. Similar JSX has no finite raw dependency or token.                       | Give the markup one canonical component/renderer when the product requires one representation, then test its behavior and visuals. Do not revive shape- or markup-similarity detection. |
+
+The existing `adapter-boundary`, `notification-boundary`, and CSS seam inventory are therefore
+instances of **one ownership pattern with separate enforcement mechanisms**. Combining them into
+one script would save little: the Excalidraw check reasons about package imports, raw APIs, DOM
+selectors, synthetic events, and `customData`; the notification check reasons about all static
+and dynamic Sonner import forms; the CSS check needs full-selector boundaries and an explicit
+inventory. A common engine would either expose capability-specific plug-ins that are still three
+guards, or grow into the same open-ended syntax enumeration that failed in PR #203.
+
+NIL-629 marks the stopping point. A boundary is enforceable when the raw capability or canonical
+construction entry is finite. "No independently similar implementation anywhere" is not such a
+boundary. Component ownership may instantiate the pattern after a canonical renderer exists,
+but searching arbitrary JSX for semantic duplication must remain out of scope.
+
+The notification merge on 2026-08-26 is measured positive evidence for the pattern. PR #200
+made Sonner private behind `notify()` and removed a direct import. PR #211 had branched earlier
+and added another `toast.error` on a different line. Git reported no textual conflict when the
+changes were collected; the protected boundary made the semantic conflict fail admission instead
+of landing silently. The immediate symptom was an unresolved `toast` reference after #200's
+import removal, while `notification-boundary` also prevents resolving it by restoring a direct
+Sonner import outside the facade. The subsequent fix routed the call through `notify()`.
+
+This evidence supports capability-specific prohibitions once a home exists. It does not support
+widening NIL-635: cross-runtime schemas and transports have deployment-skew, decode-policy, and
+bidirectional-adapter risks that the three frontend boundaries do not. Keep this document's
+implementation packages cross-runtime-specific, and reuse the four-step ownership test when a
+different package proposes a bounded intra-runtime seam.
 
 ## Target shape
 
@@ -421,7 +498,7 @@ measured benefit, not a goal of emptying every local DTO, decides whether this p
 
 ## Approval gates
 
-No implementation package should start until Davi approves these three decisions:
+No implementation package should start until Davi approves these four decisions:
 
 1. Runtime seam ownership, rather than repository-wide duplicate detection, is the enforcement
    target.
@@ -429,6 +506,8 @@ No implementation package should start until Davi approves these three decisions
    one-time lockfile and Docker/build churn.
 3. Collaboration migration must preserve each event family's failure policy and may not use
    whole-array Zod parsing as a mechanical replacement for per-entry validation.
+4. Finite seam ownership is the shared architecture principle, but cross-runtime enforcement and
+   intra-runtime capability guards remain separately scoped and capability-specific.
 
 If any gate is rejected, the valid fallback is no generalized guard: ship only the focused
 pagination correction with exact cross-runtime tests. The measurements do not justify maintaining
