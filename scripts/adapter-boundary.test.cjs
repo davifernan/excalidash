@@ -175,6 +175,11 @@ const probes = [
     ".Island--dragging { opacity: .5; }\n",
   ],
   [
+    "CSS pseudo-selector derived from an inventoried selector",
+    "cssHelpIconPseudo.css",
+    ".help-icon:hover { opacity: .5; }\n",
+  ],
+  [
     "direct customData write",
     "customDataWrite.ts",
     "export const probe = (element: { customData?: unknown }) => ({\n  ...element,\n  customData: { excalidash: { schemaVersion: 2 } },\n});\n",

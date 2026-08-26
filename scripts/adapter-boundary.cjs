@@ -40,7 +40,7 @@ const readCssSeamInventory = () => {
 
 const CSS_SEAM_INVENTORY = readCssSeamInventory();
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const isCssIdentifierCharacter = (value) => /[A-Za-z0-9_-]/.test(value ?? "");
+const isCssSelectorBoundary = (value) => value === undefined || /[\s>+~,{]/.test(value);
 
 /**
  * Is this exact regex hit inside a complete inventoried CSS selector?
@@ -48,9 +48,10 @@ const isCssIdentifierCharacter = (value) => /[A-Za-z0-9_-]/.test(value ?? "");
  * The earlier `selector.includes(hit)` compared only a class-name prefix, so
  * `.help-icon-badge` inherited the licence for `.help-icon`. CSS permits `-`
  * inside an identifier, hence a word boundary is insufficient here. We instead
- * find each full inventoried selector in the stylesheet, require identifier
- * boundaries around that selector, and then require the guard's own hit to lie
- * inside that exact occurrence.
+ * find each full inventoried selector in the stylesheet, require CSS-selector
+ * boundaries around it, and then require the guard's own hit to lie inside that
+ * exact occurrence. A pseudo-class or extra compound class is a distinct
+ * selector and must be inventoried explicitly.
  */
 const isInventoriedCssSelector = (relative, contents, matchedSelector, matchIndex) =>
   relative.endsWith(".css") &&
@@ -60,8 +61,8 @@ const isInventoriedCssSelector = (relative, contents, matchedSelector, matchInde
       const start = inventoryMatch.index;
       const end = start + inventoryMatch[0].length;
       if (
-        isCssIdentifierCharacter(contents[start - 1]) ||
-        isCssIdentifierCharacter(contents[end]) ||
+        !isCssSelectorBoundary(contents[start - 1]) ||
+        !isCssSelectorBoundary(contents[end]) ||
         matchIndex < start ||
         matchIndex + matchedSelector.length > end
       ) {
