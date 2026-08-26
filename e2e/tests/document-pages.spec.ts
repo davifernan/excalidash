@@ -138,14 +138,15 @@ const DEFAULT_MAX_BLOCK_MS = 500;
  * the maximum it also moves when the whole browser process is descheduled.
  * Six local runs under an 8-core host load of 7-10 showed two groups: ordinary
  * trials around 20-40 ms and contended trials around 58-79 ms. The failing
- * GitHub runner showed the same shape at 31.8/82.0/99.8 ms while every median
- * stayed at 10 ms and every maximum stayed below Chromium's 500 ms ceiling.
+ * Two GitHub runner runs showed the same shape at 31.8/82.0/99.8 ms and then
+ * 90.3/112.4 ms while every median stayed at 10 ms and every maximum stayed
+ * below Chromium's 500 ms ceiling.
  *
- * 125 ms leaves 25% headroom above that measured runner tail without turning
- * this into a no-op: repeated 130 ms stalls still fail below, and a single
+ * 150 ms leaves 33% headroom above that measured runner tail without turning
+ * this into a no-op: repeated 160 ms stalls still fail below, and a single
  * long block still fails independently against DEFAULT_MAX_BLOCK_MS.
  */
-const MAX_P95_GAP_MS = 125;
+const MAX_P95_GAP_MS = 150;
 
 type ResponsivenessTrial = { samples: number; p95GapMs: number; maxGapMs: number };
 
@@ -244,11 +245,11 @@ test.describe("responsiveness budget: two of three trials, not one absolute samp
     expect(passesResponsivenessBudget(trials, DEFAULT_MAX_BLOCK_MS)).toBe(false);
   });
 
-  test("goes red on repeated 130 ms stalls even when no single block reaches 500 ms", () => {
+  test("goes red on repeated 160 ms stalls even when no single block reaches 500 ms", () => {
     const trials: ResponsivenessTrial[] = [
-      { samples: 40, p95GapMs: 130, maxGapMs: 450 },
-      { samples: 41, p95GapMs: 135, maxGapMs: 460 },
-      { samples: 39, p95GapMs: 140, maxGapMs: 470 },
+      { samples: 40, p95GapMs: 160, maxGapMs: 450 },
+      { samples: 41, p95GapMs: 165, maxGapMs: 460 },
+      { samples: 39, p95GapMs: 170, maxGapMs: 470 },
     ];
     expect(passesResponsivenessBudget(trials, DEFAULT_MAX_BLOCK_MS)).toBe(false);
   });
