@@ -81,3 +81,41 @@ Der kontra-faktische Acht-Stunden-Preis fuer denselben 8-vCPU-Runner waere $10,5
 3. **Keine Scheinsicherheit:** Den Standard-Runner nicht als bestaetigte Kapazitaetsloesung dokumentieren. Er isoliert Produktion und ist kostenlos, aber seine 4 vCPU / 16 GB wurden mit dem Sechs-Kontext-Soak noch nicht gemessen und das Vollprofil kann er wegen der Zeitgrenze nicht erfuellen.
 
 Damit ist die Empfehlung **gemischt**: ein GitHub-Runner fuer haeufige, kurze, sichere Frueherkennung und dedizierte eigene Rechenkapazitaet fuer das seltene, unveraenderte Acht-Stunden-Gate. Die Produktionsmaschine ist fuer beides kein Ziel.
+
+## Nachtrag 2026-08-26: Vollprofil in vier Teilen auf dem Standard-Runner (NIL-639)
+
+Die obige Empfehlung ging von einem **ungeteilten** Acht-Stunden-Lauf aus und schloss den
+GitHub-gehosteten Standard-Runner dafuer allein wegen der Sechs-Stunden-Jobgrenze aus. Diese
+Praemisse ist inzwischen ueberholt: Davi hat entschieden, dass der Soak nachts auf einem
+GitHub-Runner laeuft, aber in **vier Teilen** zu je rund zwei Stunden statt als ein
+Acht-Stunden-Lauf -- eine Festlegung, die vorher nirgends schriftlich stand und hiermit an
+NIL-330 nachgetragen ist (Ausgangspunkt fuer diesen Nachtrag).
+
+Damit aendert sich, was gemessen werden muss: nicht mehr "traegt ein Standard-Runner sechs
+Kontexte 30 Minuten", sondern **"traegt ein Standard-Runner zehn Kontexte rund zwei Stunden, vier
+Mal nacheinander"** -- NIL-639s eigentlicher Auftrag. Ein dedizierter Host ist fuer dieses
+Vollprofil-Ersatzverfahren nicht mehr erforderlich; die Produktionsmaschine bleibt trotzdem fuer
+jeden Soak-Lauf tabu.
+
+**Wie die vier Teile zusammenhaengen, statt vier unabhaengige Stichproben zu sein:**
+`.github/workflows/nightly-team-readiness-soak.yml` (vier sequentielle Jobs ueber
+`.github/workflows/_soak-part.yml`) reicht die SQLite-Datenbank und das Asset-Verzeichnis von
+Teil zu Teil per Artefakt weiter und laesst alle vier Teile dasselbe geteilte Board
+(`SOAK_EXISTING_BOARD_ID`) bespielen. Die Szene, Kommentare und hochgeladenen Assets wachsen
+dadurch ueber alle vier Teile hinweg genau wie in einem durchgehenden Lauf -- nur die
+Browser-Prozesse selbst starten pro Teil neu. Was das **nicht** abdeckt: einen Leck-Effekt, der
+sich erst innerhalb eines einzelnen, acht Stunden durchgehend offenen Browser-Tabs zeigt. Dafuer
+bleibt der unveraenderte, manuell ausloesbare Acht-Stunden-Lauf auf einem dedizierten,
+nicht-produktiven Host das richtige Werkzeug.
+
+Ein fehlschlagender Teil bricht die Kette ab (`needs:`) und wird sofort sichtbar gemacht -- ein
+Kommentar auf einem angehefteten Tracking-Issue, nicht nur ein rotes Kaestchen in der
+Actions-Oberflaeche, das erst jemand finden muesste. Der Summary-Job laeuft trotzdem immer
+(`if: always()`) und schreibt die Rohwerte dieses Laufs an ein dauerhaftes, anhaengendes Log auf
+dem `evidence`-Branch. **Median und p95 werden erst berichtet, sobald dieses Log mindestens drei
+erfolgreiche Laeufe desselben Profils (Kontextzahl, Engines, Teil-Dauer) enthaelt** -- dieselbe
+Regel wie oben im Dokument, jetzt automatisiert statt nur als Text hier zu stehen.
+
+Die konkreten Zahlen aus mindestens drei gleichartigen Laeufen dieses Profils sind zum Zeitpunkt
+dieses Nachtrags noch nicht vorhanden; sie werden im Zuge von NIL-639 erhoben und hier oder am
+Ticket nachgetragen, sobald sie vorliegen -- nicht vorher behauptet.
