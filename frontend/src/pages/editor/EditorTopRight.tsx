@@ -10,10 +10,9 @@
  * useExcalidrawUiState.ts already takes on for zen mode and the mobile
  * breakpoint, not a new category of risk.
  *
- * Invite and Share are now `HeaderControlSlotEntry` entries from
- * chromeSlots.tsx rather than hardcoded here, alongside a duplicate route to
- * each in the hamburger (MAIN_MENU_ENTRIES) for when this whole group stands
- * down on mobile -- see the follow-up paragraph below.
+ * Invite and Share are `HeaderControlSlotEntry` entries from chromeSlots.tsx
+ * rather than hardcoded here. NIL-608 removed their duplicate hamburger
+ * routes; this component is their single visible entry point.
  *
  * `renderTopRightUI` is the slot Excalidraw offers for exactly this, sitting
  * between the avatar list and the Library trigger.
@@ -45,9 +44,8 @@ export const EditorTopRight = ({
   ctx: ChromeSlotContext;
 }) => {
   // Excalidraw's mobile tool row already fills the width -- an island beside
-  // it pushes tools off the screen. The same actions live in the hamburger
-  // there instead (MAIN_MENU_ENTRIES: invite-everyone-here, share), which is
-  // the one place that exists at every window size.
+  // it pushes tools off the screen. NIL-608 deliberately does not recreate
+  // these desktop header actions as duplicate hamburger entries.
   if (isMobile) return null;
 
   const hasPresenceZone = ctx.peers.length > 0;
