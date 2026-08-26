@@ -16,13 +16,17 @@ describe("socket collaboration security and follow state", () => {
   let io: FakeIo;
   let allowed: boolean;
   let accessLookups: number;
+  let documentPageFindFirst: ReturnType<typeof vi.fn>;
   let documentPageFindMany: ReturnType<typeof vi.fn>;
+  let documentPageFindUnique: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     io = new FakeIo();
     allowed = true;
     accessLookups = 0;
+    documentPageFindFirst = vi.fn().mockResolvedValue(null);
     documentPageFindMany = vi.fn().mockResolvedValue([]);
+    documentPageFindUnique = vi.fn().mockResolvedValue(null);
     const prisma = {
       drawing: {
         findUnique: async () => {
@@ -33,7 +37,11 @@ describe("socket collaboration security and follow state", () => {
         },
       },
       drawingLinkShare: { findFirst: async () => null },
-      documentPageView: { findMany: documentPageFindMany },
+      documentPageView: {
+        findFirst: documentPageFindFirst,
+        findMany: documentPageFindMany,
+        findUnique: documentPageFindUnique,
+      },
     };
     registerSocketHandlers({
       io: io as any,
@@ -131,6 +139,70 @@ describe("socket collaboration security and follow state", () => {
           drawingId: "drawing-1",
         });
         expect(line.error).toMatchObject({ message: "database unavailable" });
+      });
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("distinguishes simultaneous document-page diagnostics from different sockets", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const first = await io.connect("socket-page-first");
+      const second = await io.connect("socket-page-second");
+      await Promise.all([join(first), join(second)]);
+
+      await Promise.all([
+        first.trigger("document-page-command", {
+          drawingId: "drawing-1",
+          elementId: "missing-widget",
+          page: 2,
+        }),
+        second.trigger("document-page-command", {
+          drawingId: "drawing-1",
+          elementId: "missing-widget",
+          page: 2,
+        }),
+      ]);
+
+      const diagnostics = stderr.mock.calls
+        .map(([line]) => JSON.parse(line as string))
+        .filter(
+          (line) => line.message === "NIL-601 diagnostic: document widget not found for page set",
+        );
+      expect(diagnostics).toHaveLength(2);
+      expect(diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ drawingId: "drawing-1", correlationId: "socket-page-first" }),
+          expect.objectContaining({ drawingId: "drawing-1", correlationId: "socket-page-second" }),
+        ]),
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("adds the socket correlation ID to a document edit-lock diagnostic", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const socket = await io.connect("socket-edit-lock-diagnostic");
+      await join(socket);
+
+      await socket.trigger("document-edit-lock-command", {
+        drawingId: "drawing-1",
+        assetId: "missing-asset",
+        action: "acquire",
+      });
+
+      const line = stderr.mock.calls
+        .map(([value]) => JSON.parse(value as string))
+        .find(
+          (value) =>
+            value.message === "NIL-601 diagnostic: markdown edit lock refused, asset not on board",
+        );
+      expect(line).toMatchObject({
+        drawingId: "drawing-1",
+        correlationId: "socket-edit-lock-diagnostic",
       });
     } finally {
       stderr.mockRestore();
