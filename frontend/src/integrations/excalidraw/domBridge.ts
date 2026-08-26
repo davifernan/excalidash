@@ -43,6 +43,30 @@ export const INTERNAL_SELECTORS = {
   interactiveCanvas: "canvas.excalidraw__canvas.interactive",
 } as const;
 
+/**
+ * CSS selectors through which ExcaliDash deliberately restyles Excalidraw's
+ * own markup.
+ *
+ * They are separate from INTERNAL_SELECTORS because no TypeScript capability
+ * queries them. They are no less of a seam, though: a renamed class can make a
+ * carefully chosen visual correction disappear just as surely as it can break
+ * a DOM bridge lookup. Keep every foreign CSS target here so the compatibility
+ * canary can mount the real editor and so adapter-boundary.cjs can reject a
+ * new, un-inventoried stylesheet reach into Excalidraw.
+ */
+export const INTERNAL_CSS_SELECTORS = {
+  topRight: ".layer-ui__wrapper__top-right",
+  collaboratorWrapper: ".UserList__wrapper",
+  collaboratorList: ".UserList",
+  libraryTrigger: ".sidebar-trigger.default-sidebar-trigger",
+  mainMenuTrigger: ".main-menu-trigger.dropdown-menu-button",
+  helpIcon: ".help-icon",
+  extraToolsLaser: '[data-testid="toolbar-laser"]',
+  collaborationLaserIsland:
+    '.App-toolbar-container > .Island:not(.App-toolbar):has([data-testid="toolbar-LaserPointer"])',
+  widgetHyperlink: '.excalidraw-hyperlinkContainer:has(a[href^="excalidash://"])',
+} as const;
+
 // Unlike INTERNAL_SELECTORS these may legitimately be absent in a healthy
 // editor, so the compatibility canary must not report their absence as a seam
 // failure. The shape-actions panel exists only while a selected element has
