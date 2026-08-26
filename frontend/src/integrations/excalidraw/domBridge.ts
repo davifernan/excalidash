@@ -301,6 +301,38 @@ export const beginCanvasDrag = async (
 };
 
 /**
+ * Continue a synthetic canvas drag after its delayed pointerdown.
+ *
+ * The sticky handle must first distinguish a click from a drag, so the real
+ * pointer can move (or even be released) during the frame in which the editor
+ * arms its tool. Replaying that latest state belongs beside the synthetic
+ * pointerdown above: both are the same unsupported DOM seam.
+ */
+export const dispatchCanvasDragPointer = (
+  type: "pointermove" | "pointerup" | "pointercancel",
+  pointer: {
+    clientX: number;
+    clientY: number;
+    pointerId: number;
+    pointerType?: string;
+  },
+): void => {
+  const released = type !== "pointermove";
+  window.dispatchEvent(
+    new PointerEvent(type, {
+      bubbles: true,
+      clientX: pointer.clientX,
+      clientY: pointer.clientY,
+      pointerId: pointer.pointerId,
+      pointerType: pointer.pointerType || "mouse",
+      button: 0,
+      buttons: released ? 0 : 1,
+      isPrimary: true,
+    }),
+  );
+};
+
+/**
  * Turn a plain wheel over the canvas into the zoom gesture the editor listens
  * for.
  *
