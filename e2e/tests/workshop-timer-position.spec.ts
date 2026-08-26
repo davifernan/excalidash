@@ -53,6 +53,9 @@ test.describe("workshop timer position", () => {
         parentBackground: parent.backgroundColor,
         childBackgrounds: children.map((style) => style.backgroundColor),
         childShadows: children.map((style) => style.boxShadow),
+        restartIconOpacity: getComputedStyle(
+          element.querySelector("[data-testid=workshop-timer-restart] svg")!,
+        ).opacity,
       };
     });
     expect(styles.parentBackground).not.toBe("rgba(0, 0, 0, 0)");
@@ -62,6 +65,7 @@ test.describe("workshop timer position", () => {
       "rgba(0, 0, 0, 0)",
     ]);
     expect(styles.childShadows).toEqual(["none", "none", "none"]);
+    expect(styles.restartIconOpacity).toBe("0.7");
   });
 
   test("drags to wherever the handle is pulled, and a plain click still opens the panel", async ({
