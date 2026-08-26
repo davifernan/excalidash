@@ -153,7 +153,7 @@ export const MentionTextarea: React.FC<Props> = ({
           id={listboxId}
           role="listbox"
           aria-label="Mention suggestions"
-          className="absolute left-0 top-full mt-1 z-50 w-full max-w-[220px] rounded-lg border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
+          className="excalidash-z-popup absolute left-0 top-full mt-1 w-full max-w-[220px] rounded-lg border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
           data-testid="mention-suggestions"
         >
           {matches.map((candidate, index) => (

@@ -17,6 +17,7 @@ import type { Thread } from "./useComments";
 import type { ThreadDraftAnchor } from "./useComments";
 import { MentionTextarea } from "./MentionTextarea";
 import { splitMentionSegments } from "./mentionTokens";
+import { stacking } from "../../../integrations/excalidraw/stacking";
 
 type Filter = "open" | "resolved" | "all";
 
@@ -333,7 +334,7 @@ export const CommentPanel: React.FC<Props> = ({
     <div
       data-testid="comment-panel"
       className="pointer-events-auto absolute top-14 right-2 bottom-2 w-[300px] flex flex-col rounded-2xl border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-950 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.08)] overflow-hidden"
-      style={{ zIndex: 50 }}
+      style={{ zIndex: stacking.chrome }}
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b-2 border-black dark:border-neutral-700">
         <span className="text-xs font-black uppercase tracking-wide text-slate-900 dark:text-neutral-100">

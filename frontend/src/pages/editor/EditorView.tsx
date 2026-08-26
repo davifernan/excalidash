@@ -1,6 +1,7 @@
 import React from "react";
 import { Toaster, toast } from "sonner";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
+import { ElementStackingBoundary } from "../../integrations/excalidraw/ElementStackingBoundary";
 import { UIOptions } from "./shared";
 import { AssetWidget } from "./AssetWidget";
 import { getAssetWidgetData, validateEmbeddableLink } from "./pdfWidgetElements";
@@ -212,7 +213,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     // Excalidraw's own toolbar hop 64px. Chrome floats above it instead.
     <div
       ref={editorContainerRef}
-      className="absolute inset-0 w-full overflow-hidden bg-white dark:bg-neutral-950"
+      className="excalidash-editor-stacking-root absolute inset-0 w-full overflow-hidden bg-white dark:bg-neutral-950"
       style={{ height: "100dvh" }}
       onDropCapture={onCanvasDropCapture}
     >
@@ -271,35 +272,39 @@ export const EditorView: React.FC<EditorViewProps> = ({
                     }
                   : null;
               return data && id ? (
-                <AssetWidget
-                  data={data}
-                  drawingId={id}
-                  theme={appState.theme}
-                  canEdit={canEdit}
-                  toolbar={toolbar}
-                  editLock={documentEdits.locks[data.assetId] ?? null}
-                  onAcquireEditLock={() => documentEdits.acquire(data.assetId)}
-                  onReleaseEditLock={(token) => documentEdits.release(data.assetId, token)}
-                  onDocumentAssetReplacement={onDocumentAssetReplacement}
-                  sharing={{
-                    elementId: element.id,
-                    sharedPage: documentPages.pages[element.id]?.page,
-                    canControl: canEdit,
-                    // The server answers every request with an ack, including a
-                    // refusal (the widget's server row is gone, the page no
-                    // longer exists). useSharedDocumentPage only reads the
-                    // promise to clear its own pending flag -- a `{ok: false}`
-                    // resolution otherwise reaches nobody, and the click that
-                    // caused it just does nothing. Surfacing it here is the
-                    // same pattern reportCapabilityFailure uses elsewhere in
-                    // this editor for a result that would otherwise go unread.
-                    onRequestPage: (elementId, page) =>
-                      documentPages.requestPage(elementId, page).then((result) => {
-                        if (!result.ok) toast.error(result.error.message);
-                        return result;
-                      }),
-                  }}
-                />
+                <ElementStackingBoundary
+                  elevated={Boolean(appState.selectedElementIds[element.id])}
+                >
+                  <AssetWidget
+                    data={data}
+                    drawingId={id}
+                    theme={appState.theme}
+                    canEdit={canEdit}
+                    toolbar={toolbar}
+                    editLock={documentEdits.locks[data.assetId] ?? null}
+                    onAcquireEditLock={() => documentEdits.acquire(data.assetId)}
+                    onReleaseEditLock={(token) => documentEdits.release(data.assetId, token)}
+                    onDocumentAssetReplacement={onDocumentAssetReplacement}
+                    sharing={{
+                      elementId: element.id,
+                      sharedPage: documentPages.pages[element.id]?.page,
+                      canControl: canEdit,
+                      // The server answers every request with an ack, including a
+                      // refusal (the widget's server row is gone, the page no
+                      // longer exists). useSharedDocumentPage only reads the
+                      // promise to clear its own pending flag -- a `{ok: false}`
+                      // resolution otherwise reaches nobody, and the click that
+                      // caused it just does nothing. Surfacing it here is the
+                      // same pattern reportCapabilityFailure uses elsewhere in
+                      // this editor for a result that would otherwise go unread.
+                      onRequestPage: (elementId, page) =>
+                        documentPages.requestPage(elementId, page).then((result) => {
+                          if (!result.ok) toast.error(result.error.message);
+                          return result;
+                        }),
+                    }}
+                  />
+                </ElementStackingBoundary>
               ) : null;
             }}
             renderTopRightUI={(isMobile) => (
@@ -356,7 +361,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
           </span>
         </div>
       )}
-      <Toaster position="bottom-center" />
+      <div className="excalidash-notification-context">
+        <Toaster position="bottom-center" />
+      </div>
     </div>
   );
 };

@@ -5,6 +5,7 @@ import type {
   ViewportCapability,
 } from "../../../integrations/excalidraw/capabilities";
 import type { ElementId } from "../../../integrations/excalidraw/types";
+import { stacking } from "../../../integrations/excalidraw/stacking";
 import type { Thread } from "./useComments";
 
 type Props = {
@@ -95,6 +96,7 @@ export const CommentMarkers: React.FC<Props> = ({
           onClick={() => onSelectThread(position.threadId)}
           data-testid="comment-marker"
           data-thread-id={position.threadId}
+          data-active={position.threadId === activeThreadId || undefined}
           title={position.resolved ? "Resolved thread" : "Open thread"}
           aria-label={
             position.resolved
@@ -106,7 +108,7 @@ export const CommentMarkers: React.FC<Props> = ({
             left: position.left,
             top: position.top,
             transform: "translate(-6px, -100%)",
-            zIndex: position.threadId === activeThreadId ? 40 : 30,
+            zIndex: stacking.elementOverlay,
           }}
           className="pointer-events-auto flex items-center gap-0.5 rounded-full rounded-bl-none border-2 border-black dark:border-neutral-700 px-1.5 py-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-transform hover:scale-110"
         >

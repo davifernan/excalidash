@@ -61,7 +61,7 @@ export const MindMapImportDialog: React.FC<Props> = ({ isOpen, onClose, onImport
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="excalidash-z-modal fixed inset-0 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-neutral-900/20 backdrop-blur-sm" onClick={onClose} />
 
       <div

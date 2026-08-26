@@ -37,6 +37,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { Pin } from "lucide-react";
 import type { AmbientOverlayState } from "./useAmbientOverlayState";
+import { stacking } from "../integrations/excalidraw/stacking";
 
 const BADGE_COLOR = "#868e96"; // same token as ambient edges (`IMPORT_COLORS.edgeStroke`)
 const PIN_COLOR = "#f76707"; // same open-color orange-7 v1 used for its pinned stroke
@@ -66,7 +67,7 @@ export const AmbientNodeOverlay: React.FC<Props> = ({ container, state, onExpand
           height: mask.height,
           background: "var(--island-bg-color, #fff)",
           pointerEvents: "none",
-          zIndex: 2,
+          zIndex: stacking.elementContent,
         }}
       />,
     );
@@ -98,7 +99,7 @@ export const AmbientNodeOverlay: React.FC<Props> = ({ container, state, onExpand
           textAlign: "center",
           cursor: "pointer",
           pointerEvents: "auto",
-          zIndex: 4,
+          zIndex: stacking.chrome,
         }}
       >
         {badge.nodeCount}
@@ -126,7 +127,7 @@ export const AmbientNodeOverlay: React.FC<Props> = ({ container, state, onExpand
           alignItems: "center",
           justifyContent: "center",
           pointerEvents: "none",
-          zIndex: 4,
+          zIndex: stacking.chrome,
         }}
       >
         <Pin size={12} fill="#fff" />

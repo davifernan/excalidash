@@ -27,6 +27,7 @@ import type {
   SelectionState,
 } from "../integrations/excalidraw/types";
 import { projectPoint } from "../integrations/excalidraw/viewport";
+import { stacking } from "../integrations/excalidraw/stacking";
 import {
   HANDLE_SIDES,
   beginArrowDrag,
@@ -211,7 +212,7 @@ export const StickyHandles: React.FC<Props> = ({
             border: "1.5px solid #6965db",
             padding: 0,
             cursor: "crosshair",
-            zIndex: 4,
+            zIndex: stacking.chrome,
           }}
         />
       ))}

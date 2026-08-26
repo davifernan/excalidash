@@ -292,7 +292,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[12vh] p-4">
+    <div className="excalidash-z-modal fixed inset-0 flex items-start justify-center pt-[12vh] p-4">
       <div
         data-testid="command-palette-backdrop"
         className="absolute inset-0 bg-neutral-900/20 backdrop-blur-sm"

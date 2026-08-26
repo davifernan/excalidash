@@ -142,7 +142,7 @@ export const UpdateBanner: React.FC = () => {
   if (!updateAvailable) return null;
 
   return (
-    <div className="sticky top-0 z-[44] -mt-2 mb-6 rounded-xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/80 dark:bg-emerald-950/30 backdrop-blur-md px-3 py-2 shadow-sm transition-all duration-200">
+    <div className="excalidash-z-chrome sticky top-0 -mt-2 mb-6 rounded-xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/80 dark:bg-emerald-950/30 backdrop-blur-md px-3 py-2 shadow-sm transition-all duration-200">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 flex-shrink-0">
