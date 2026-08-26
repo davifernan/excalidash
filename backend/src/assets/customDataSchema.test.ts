@@ -31,7 +31,7 @@ describe("server customData schema", () => {
     ).toBeNull();
   });
 
-  it("ignores an unrelated field beside the widget record -- an element may legitimately carry another writer's data (NIL-570's reading discipline)", () => {
+  it("ignores retired nodeState beside a widget record", () => {
     expect(
       readWidgetRecord(
         element({

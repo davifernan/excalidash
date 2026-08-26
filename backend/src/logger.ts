@@ -38,6 +38,57 @@ export type LogFields = Record<string, unknown>;
 const errorReplacer = (_key: string, value: unknown) =>
   value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value;
 
+/**
+ * NIL-619: this log now survives a week or more instead of a rotating
+ * few-hour window, so a field that was momentarily risky becomes a
+ * durably-retained one. `errorTracker.ts`'s `SAFE_TAG_KEYS` solves the
+ * mirror problem for Sentry with an ALLOWLIST of five tags -- that works
+ * there because Sentry gets a synthetic exception and a handful of
+ * correlation tags, nothing else. This log is the opposite kind of thing:
+ * dozens of call sites pass whatever field actually helps trace a request
+ * (drawingId, elementId, existingRows, statusCode, ...), and an allowlist
+ * narrow enough to be provably safe would gut the log's entire purpose.
+ *
+ * So this is a narrow, named DENYLIST instead -- matched by key name, not
+ * content, against the specific classes NIL-619 was asked to check for
+ * (tokens, addresses): `email`/`userEmail` (an actual address was already
+ * reaching production logs today, in `adminUserRoutes.ts`'s invitation
+ * failure path) and any *token/*secret/*password/*authorization/*cookie/
+ * *apikey/*jwt field. A denylist can miss the next field somebody adds --
+ * that risk is accepted here because the alternative (an allowlist) would
+ * also silently miss the next field, just in the other direction: dropping
+ * it from the log entirely with no signal that anything was lost. A
+ * redacted key is still visible as "redacted"; a field an allowlist never
+ * knew to keep looks identical to one that was never logged.
+ *
+ * What this does NOT cover: a raw `Error.message`/`stack` that happens to
+ * echo back user input (a validation library quoting the rejected value,
+ * say). `errorTracker.ts` sidesteps that by never forwarding the original
+ * message at all; this log keeps it on purpose, because the message and
+ * stack are usually exactly what a real incident needs. Redacting or
+ * dropping messages/stacks wholesale would defeat NIL-619's point. If a
+ * concrete leak through an error message ever turns up, that is a
+ * genuinely separate fix (at the throw site, not here) and needs its own
+ * ticket -- this module has no way to know what a message means.
+ */
+const REDACTED_KEY_PATTERN = /token|secret|password|authorization|cookie|apikey|jwt|email/i;
+const REDACTED_VALUE = "[redacted]";
+
+const redactFields = (fields: LogFields | undefined): LogFields | undefined => {
+  if (!fields) return fields;
+  let changed = false;
+  const result: LogFields = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (REDACTED_KEY_PATTERN.test(key)) {
+      result[key] = REDACTED_VALUE;
+      changed = true;
+    } else {
+      result[key] = value;
+    }
+  }
+  return changed ? result : fields;
+};
+
 const write = (
   stream: NodeJS.WritableStream,
   level: string,
@@ -48,7 +99,7 @@ const write = (
     time: new Date().toISOString(),
     level,
     message,
-    ...fields,
+    ...redactFields(fields),
   };
   stream.write(`${JSON.stringify(line, errorReplacer)}\n`);
 };

@@ -162,7 +162,7 @@ export const StorageManageModal: React.FC<StorageManageModalProps> = ({
   const confirmMatch = confirmInput === drawingName;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="excalidash-z-modal fixed inset-0 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-neutral-900/20 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.08)] animate-in fade-in zoom-in-95 duration-200">
@@ -379,7 +379,7 @@ export const StorageManageModal: React.FC<StorageManageModalProps> = ({
 
         {/* Confirmation overlay */}
         {confirmAction && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm">
+          <div className="excalidash-z-popup absolute inset-0 flex items-center justify-center rounded-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm">
             <div className="w-full max-w-sm p-6 space-y-4">
               <div className="flex flex-col items-center text-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center text-rose-600 dark:text-rose-300 border-2 border-rose-200 dark:border-rose-900/30">

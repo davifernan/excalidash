@@ -130,7 +130,7 @@ export const ShareCollectionModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="excalidash-z-modal fixed inset-0 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-neutral-900/20 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative w-full max-w-[500px] bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.08)] flex flex-col animate-in fade-in zoom-in-95 duration-200">
@@ -183,7 +183,7 @@ export const ShareCollectionModal: React.FC<Props> = ({
             </div>
 
             {results.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 border-2 border-black dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.08)] overflow-hidden z-[200] animate-in fade-in slide-in-from-top-2">
+              <div className="excalidash-z-popup absolute top-full left-0 right-0 mt-2 border-2 border-black dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.08)] overflow-hidden animate-in fade-in slide-in-from-top-2">
                 {results.map((u) => (
                   <button
                     key={u.id}
@@ -291,7 +291,7 @@ export const ShareCollectionModal: React.FC<Props> = ({
 
         {/* Loading overlay */}
         {isLoading && (
-          <div className="absolute inset-0 bg-white/20 dark:bg-black/10 backdrop-blur-[1px] flex items-center justify-center z-[300] pointer-events-none rounded-[14px]">
+          <div className="excalidash-z-popup absolute inset-0 bg-white/20 dark:bg-black/10 backdrop-blur-[1px] flex items-center justify-center pointer-events-none rounded-[14px]">
             <div className="bg-white dark:bg-neutral-900 border-2 border-black dark:border-neutral-700 p-4 rounded-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
               <RefreshCw
                 size={24}

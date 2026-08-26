@@ -67,7 +67,7 @@ export const CustomSelect: React.FC<Props> = ({
       {isOpen && (
         <div
           className={clsx(
-            "absolute top-full z-[100] mt-1.5 min-w-[140px] bg-white dark:bg-neutral-900 border-2 border-black dark:border-neutral-700 rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,0.1)] overflow-hidden animate-in fade-in zoom-in-95 duration-100",
+            "excalidash-z-popup absolute top-full mt-1.5 min-w-[140px] bg-white dark:bg-neutral-900 border-2 border-black dark:border-neutral-700 rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,0.1)] overflow-hidden animate-in fade-in zoom-in-95 duration-100",
             align === "right" ? "right-0" : "left-0",
           )}
         >

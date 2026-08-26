@@ -70,7 +70,7 @@ export const UploadStatus: React.FC = () => {
 
   return (
     <div
-      className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 isolate"
+      className="excalidash-z-notification fixed bottom-6 right-6 flex flex-col items-end gap-2 isolate"
       ref={popoverRef}
     >
       {isOpen && (

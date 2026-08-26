@@ -20,7 +20,7 @@
 
 .workshop-timer__summary svg,
 .workshop-timer-corner__handle svg,
-.workshop-timer-corner__reset svg {
+.workshop-timer-corner__restart svg {
   opacity: 0.7;
 }
 

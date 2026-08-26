@@ -5,6 +5,7 @@ import type {
   ViewportCapability,
 } from "../../../integrations/excalidraw/capabilities";
 import type { ElementId } from "../../../integrations/excalidraw/types";
+import { stacking } from "../../../integrations/excalidraw/stacking";
 import type { Thread } from "./useComments";
 
 type Props = {
@@ -15,12 +16,27 @@ type Props = {
   onSelectThread: (rootId: string) => void;
 };
 
-type MarkerPosition = {
+export type MarkerPosition = {
   threadId: string;
   left: number;
   top: number;
   resolved: boolean;
   count: number;
+};
+
+/**
+ * Same-role precedence belongs to local paint order, not the global scale.
+ * Keeping the active marker last makes it win against every overlapping
+ * sibling without promoting it above unrelated element overlays or chrome.
+ */
+export const orderCommentMarkersForPaint = (
+  positions: readonly MarkerPosition[],
+  activeThreadId: string | null,
+): MarkerPosition[] => {
+  if (!activeThreadId) return [...positions];
+  const active = positions.find((position) => position.threadId === activeThreadId);
+  if (!active) return [...positions];
+  return [...positions.filter((position) => position.threadId !== activeThreadId), active];
 };
 
 /**
@@ -88,7 +104,7 @@ export const CommentMarkers: React.FC<Props> = ({
 
   return (
     <>
-      {positions.map((position) => (
+      {orderCommentMarkersForPaint(positions, activeThreadId).map((position) => (
         <button
           key={position.threadId}
           type="button"
@@ -106,7 +122,7 @@ export const CommentMarkers: React.FC<Props> = ({
             left: position.left,
             top: position.top,
             transform: "translate(-6px, -100%)",
-            zIndex: position.threadId === activeThreadId ? 40 : 30,
+            zIndex: stacking.elementOverlay,
           }}
           className="pointer-events-auto flex items-center gap-0.5 rounded-full rounded-bl-none border-2 border-black dark:border-neutral-700 px-1.5 py-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-transform hover:scale-110"
         >

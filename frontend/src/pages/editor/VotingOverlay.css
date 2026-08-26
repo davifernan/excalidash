@@ -2,7 +2,7 @@
   position: absolute;
   top: 4.5rem;
   right: 1rem;
-  z-index: 6;
+  z-index: var(--excalidash-z-anchored-overlay);
   box-sizing: border-box;
   width: min(300px, calc(100vw - 2rem));
   padding: 10px 12px;

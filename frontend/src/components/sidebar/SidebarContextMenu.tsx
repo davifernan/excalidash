@@ -29,7 +29,7 @@ export const SidebarContextMenu: React.FC<SidebarContextMenuProps> = ({
   onDeleteCollection,
 }) => (
   <div
-    className="fixed inset-0 z-50"
+    className="excalidash-z-modal fixed inset-0"
     onClick={onClose}
     onContextMenu={(e) => {
       e.preventDefault();

@@ -76,7 +76,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     : "w-12 h-12 rounded-full bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center text-rose-600 dark:text-rose-300 border-2 border-rose-200 dark:border-rose-900/30";
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="excalidash-z-modal fixed inset-0 flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-neutral-900/20 backdrop-blur-sm"
         onClick={() => !isPending && onCancel()}

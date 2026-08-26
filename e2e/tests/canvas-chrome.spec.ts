@@ -114,6 +114,91 @@ test.describe("the hamburger carries the board's identity and the way back", () 
     await expect(menuItems.last()).toContainText("Help");
   });
 
+  test("passes through Excalidraw's command palette and canvas search while omitting duplicate collaboration actions", async ({
+    page,
+    browser,
+  }) => {
+    await openEditor(page, drawingId);
+
+    // Keep a real peer connected so the old conditional Invite entry would
+    // be present if it still existed. Checking without a peer only proves the
+    // condition hid it, not that the duplicate route was removed.
+    const peerContext = await browser.newContext();
+    const peerPage = await peerContext.newPage();
+    try {
+      await openEditor(peerPage, drawingId);
+      await expect(page.getByTestId("editor-invite")).toBeVisible();
+
+      await openMenu(page);
+      const menu = page.getByTestId("dropdown-menu");
+      await expect(menu.getByText("Share", { exact: true })).toHaveCount(0);
+      await expect(menu.getByText("Invite everyone here", { exact: true })).toHaveCount(0);
+      await expect(page.getByTestId("command-palette-button")).toBeVisible();
+      await expect(page.getByTestId("search-menu-button")).toBeVisible();
+
+      await page.getByTestId("command-palette-button").click();
+      const palette = page.locator(".command-palette-dialog");
+      await expect(palette).toBeVisible();
+      await palette.locator("input").fill("grid");
+      await expect(palette.locator(".item-selected")).toContainText("Toggle grid");
+      await page.keyboard.press("Enter");
+      // The selected native command changes the board state and the rendered
+      // grid; waiting for persistence proves this was the real Excalidraw
+      // action, not a lookalike palette row that only closed the dialog.
+      await expect
+        .poll(async () => (await getDrawing(api, drawingId)).appState?.gridModeEnabled)
+        .toBe(true);
+
+      await openMenu(page);
+      await page.getByTestId("search-menu-button").click();
+      await expect(page.locator(".layer-ui__search")).toBeVisible();
+    } finally {
+      await peerContext.close();
+    }
+  });
+
+  test("keeps Share and Invite functional in the mobile menu while omitting them on desktop", async ({
+    page,
+    browser,
+  }) => {
+    await openEditor(page, drawingId);
+    const peerContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const peerPage = await peerContext.newPage();
+    const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const mobilePage = await mobileContext.newPage();
+
+    try {
+      await openEditor(peerPage, drawingId);
+      await expect(page.getByTestId("editor-invite")).toBeVisible();
+      await openMenu(page);
+      const desktopMenu = page.getByTestId("dropdown-menu");
+      await expect(desktopMenu.getByText("Share", { exact: true })).toHaveCount(0);
+      await expect(desktopMenu.getByText("Invite everyone here", { exact: true })).toHaveCount(0);
+
+      await openEditor(mobilePage, drawingId);
+      await expect(mobilePage.getByTestId("editor-top-right")).toHaveCount(0);
+      await openMenu(mobilePage);
+      const mobileMenu = mobilePage.getByTestId("dropdown-menu");
+      await expect(mobileMenu.getByText("Share", { exact: true })).toBeVisible();
+      await expect(mobileMenu.getByText("Invite everyone here", { exact: true })).toBeVisible();
+
+      await mobileMenu.getByText("Share", { exact: true }).click();
+      const shareHeading = mobilePage.getByRole("heading", { name: /Share \"/ });
+      await expect(shareHeading).toBeVisible();
+      await shareHeading.locator("..").getByRole("button").click();
+
+      await openMenu(mobilePage);
+      await mobilePage
+        .getByTestId("dropdown-menu")
+        .getByText("Invite everyone here", { exact: true })
+        .click();
+      await expect(peerPage.locator(".invite-here-overlay")).toBeVisible({ timeout: 8_000 });
+    } finally {
+      await mobileContext.close();
+      await peerContext.close();
+    }
+  });
+
   test("the hamburger starts on the same row as the tool bar", async ({ page }) => {
     await openEditor(page, drawingId);
     const hamburger = await page.getByTestId("main-menu-trigger").boundingBox();
@@ -241,6 +326,38 @@ test.describe("the top-right control group reads as one bar", () => {
     expect(Math.abs(libraryCenter - shareCenter)).toBeLessThanOrEqual(1);
   });
 
+  test("Share and Invite expose visible hover tooltips in the top-right bar", async ({
+    page,
+    browser,
+  }) => {
+    await openEditor(page, drawingId);
+
+    const shareTooltip = page.getByRole("tooltip", { name: "Share" });
+    await expect(shareTooltip).toBeHidden();
+    await page.getByTestId("editor-share").hover();
+    await expect(shareTooltip).toBeVisible();
+    const shareBox = await shareTooltip.boundingBox();
+    expect(shareBox).not.toBeNull();
+    expect(shareBox!.width).toBeGreaterThan(0);
+
+    const peerContext = await browser.newContext();
+    const peerPage = await peerContext.newPage();
+    try {
+      await openEditor(peerPage, drawingId);
+      const invite = page.getByTestId("editor-invite");
+      await expect(invite).toBeVisible();
+      const inviteTooltip = page.getByRole("tooltip", { name: "Invite everyone here" });
+      await expect(inviteTooltip).toBeHidden();
+      await invite.hover();
+      await expect(inviteTooltip).toBeVisible();
+      const inviteBox = await inviteTooltip.boundingBox();
+      expect(inviteBox).not.toBeNull();
+      expect(inviteBox!.width).toBeGreaterThan(shareBox!.width);
+    } finally {
+      await peerContext.close();
+    }
+  });
+
   // NIL-579's own Nachweispflicht: prove the presence zone and its hairline
   // divider occupy zero width without peers, as a measured width -- not a
   // visibility flag -- and that the bar returns to that exact width once a
@@ -274,6 +391,109 @@ test.describe("the top-right control group reads as one bar", () => {
     });
     const afterLeaveBox = (await wrapper.boundingBox())!;
     expect(afterLeaveBox.width).toBeCloseTo(aloneBox.width, 0);
+  });
+
+  // NIL-603: NIL-564's max-content bar was correct alone, but NIL-579's
+  // four-slot UserList reservation made it jump by 191px when the first peer
+  // arrived. Exercise every attendance state from the report against the
+  // rendered Excalidraw avatar list: one directly clickable avatar stays
+  // visible, overflow becomes +N, and neither the bar's width nor its 44px
+  // toolbar-aligned height grows further.
+  test("the bar stays hard-bounded with 0, 1, 2, 5, and 12 remote participants", async ({
+    page,
+    browser,
+  }) => {
+    // Twelve real editor contexts are intentional evidence, and a loaded CI
+    // runner can take longer than the suite's ordinary one-page timeout to
+    // bring them all through Vite and the collaboration handshake.
+    test.setTimeout(120_000);
+    await openEditor(page, drawingId);
+
+    const peerContexts: Awaited<ReturnType<typeof browser.newContext>>[] = [];
+    const measurements: Array<{
+      remoteCount: number;
+      width: number;
+      height: number;
+      toolbarHeight: number;
+      visibleAvatars: number;
+      overflowText: string | null;
+      circleOverlap: number | null;
+    }> = [];
+    const targetCounts = [0, 1, 2, 5, 12] as const;
+
+    try {
+      for (const remoteCount of targetCounts) {
+        while (peerContexts.length < remoteCount) {
+          const context = await browser.newContext();
+          peerContexts.push(context);
+          const peer = await context.newPage();
+          await openEditor(peer, drawingId);
+        }
+
+        await expect
+          .poll(async () => {
+            const visible = await page.locator(".UserList__collaborator--avatar-only").count();
+            const overflow = await page
+              .locator(".UserList__more")
+              .evaluateAll((elements) => elements[0]?.textContent ?? null);
+            return visible + Number(overflow?.replace("+", "") || 0);
+          })
+          .toBe(remoteCount);
+
+        const wrapper = (await page.locator(".layer-ui__wrapper__top-right").boundingBox())!;
+        const toolbar = (await page
+          .locator(".App-toolbar-container .Island.App-toolbar")
+          .boundingBox())!;
+        measurements.push({
+          remoteCount,
+          width: wrapper.width,
+          height: wrapper.height,
+          toolbarHeight: toolbar.height,
+          visibleAvatars: await page.locator(".UserList__collaborator--avatar-only").count(),
+          overflowText: await page
+            .locator(".UserList__more")
+            .evaluateAll((elements) => elements[0]?.textContent ?? null),
+          circleOverlap: await page.locator(".UserList > *").evaluateAll((elements) => {
+            if (elements.length !== 2) return null;
+            const first = elements[0].getBoundingClientRect();
+            const second = elements[1].getBoundingClientRect();
+            return first.right - second.left;
+          }),
+        });
+      }
+    } finally {
+      await Promise.all(peerContexts.map((context) => context.close()));
+    }
+
+    expect(measurements.map(({ remoteCount }) => remoteCount)).toEqual(targetCounts);
+    for (const measurement of measurements) {
+      expect(measurement.height).toBeCloseTo(measurement.toolbarHeight, 0);
+    }
+
+    const [alone, one, two, five, twelve] = measurements;
+    expect(alone.visibleAvatars).toBe(0);
+    expect(alone.overflowText).toBeNull();
+    expect(one.visibleAvatars).toBe(1);
+    expect(one.overflowText).toBeNull();
+    expect(two.visibleAvatars).toBe(1);
+    expect(two.overflowText).toBe("+1");
+    expect(two.circleOverlap).toBeCloseTo(6, 0);
+    expect(five.visibleAvatars).toBe(1);
+    expect(five.overflowText).toBe("+4");
+    expect(five.circleOverlap).toBeCloseTo(6, 0);
+    expect(twelve.visibleAvatars).toBe(1);
+    expect(twelve.overflowText).toBe("+11");
+    expect(twelve.circleOverlap).toBeCloseTo(6, 0);
+
+    // The no-peer actions-only state from NIL-564 is unchanged; after the
+    // first peer adds the presence zone, attendance may not add another pixel.
+    expect(one.width).toBeGreaterThan(alone.width);
+    expect(one.width).toBeLessThanOrEqual(240);
+    for (const crowded of [two, five, twelve]) {
+      expect(crowded.width).toBeCloseTo(one.width, 0);
+    }
+
+    console.info("NIL-603 top-right measurements", measurements);
   });
 });
 

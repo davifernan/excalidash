@@ -58,14 +58,27 @@
 }
 
 /* Excalidraw sizes the visible avatar count from `.UserList__wrapper` with a
-   ResizeObserver. Its upstream `width: 100%` has no intrinsic width inside our
-   max-content bar, so it collapses to one overflow slot and turns even a
-   single collaborator into a `+1` button. Give that foreign child four normal
-   avatar slots while allowing it to shrink to one avatar plus overflow. */
+   ResizeObserver: one slot per 38px of wrapper width, with the final slot
+   becoming `+N` once it overflows. NIL-579 gave this node four slots (152px),
+   which made the whole max-content bar jump from 121px alone to 313px as soon
+   as one peer arrived. Reserve exactly two slots instead: one real avatar and
+   one overflow badge. The wrapper therefore has one fixed contribution from
+   1 through 12 peers instead of growing with attendance, while a single peer
+   still remains directly clickable for Follow mode. */
 .excalidraw .layer-ui__wrapper__top-right > .UserList__wrapper {
-  width: min(9.5rem, 40vw);
+  width: 4.75rem;
   min-width: 4.75rem;
-  flex: 0 1 auto;
+  max-width: 4.75rem;
+  flex: 0 0 4.75rem;
+}
+
+/* Stack the overflow badge into the avatar instead of presenting the two
+   circles as another loose row. Excalidraw's 0.625rem gap remains in force;
+   the negative margin exceeds it by 0.375rem, producing a measured 6px
+   overlap while leaving both click targets intact. There can be at most two
+   children under the fixed two-slot contract above. */
+.excalidraw .layer-ui__wrapper__top-right > .UserList__wrapper .UserList > * + * {
+  margin-inline-start: -1rem;
 }
 
 .layer-ui__wrapper__top-right .editor-header-controls {
@@ -150,6 +163,7 @@
 }
 
 .editor-header-control {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -162,6 +176,35 @@
      competing. `--color-gray-60` is an Excalidraw token, theme-aware. */
   color: var(--color-gray-60);
   cursor: pointer;
+}
+
+.editor-header-control__tooltip {
+  position: absolute;
+  z-index: var(--zIndex-popup);
+  inset-block-start: calc(100% + 0.5rem);
+  inset-inline-start: 50%;
+  transform: translate(-50%, -0.25rem);
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--border-radius-md, 0.375rem);
+  background: #000000;
+  color: #ffffff;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.editor-header-control:hover .editor-header-control__tooltip,
+.editor-header-control:focus-visible .editor-header-control__tooltip {
+  visibility: visible;
+  transform: translate(-50%, 0);
+  opacity: 1;
 }
 
 .editor-header-control__badge {

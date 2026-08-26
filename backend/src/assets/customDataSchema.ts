@@ -21,6 +21,10 @@
  * this file duplicates the shape rather than importing it). An old
  * element's stored `mindMap`/`mindMapProjection` fields are simply never
  * read here anymore, the same as on the frontend side.
+ *
+ * `nodeState` is retired for the same reason (NIL-606). The server never
+ * interprets it; spreading an existing namespace while updating a widget
+ * only preserves stored JSON and does not restore any Pin/Collapse behavior.
  */
 
 export const NAMESPACE = "excalidash";

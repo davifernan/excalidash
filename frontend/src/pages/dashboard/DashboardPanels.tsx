@@ -6,6 +6,7 @@ import { DataFailureNotice } from "../../components/DataFailureNotice";
 import type { Collection, DrawingSummary } from "../../types";
 import { useDashboardDataStatus } from "./dashboardDataStatus";
 import { guestCountFor, presenceKeysFor, type PresenceByDrawing } from "./useDashboardPresence";
+import { reverseElementStack } from "../../integrations/excalidraw/stacking";
 
 type DragPreviewProps = {
   drawings: DrawingSummary[];
@@ -24,7 +25,7 @@ export const DragPreview: React.FC<DragPreviewProps> = ({ drawings }) => (
             className="absolute inset-0 bg-slate-50 border-2 border-black rounded-xl shadow-sm flex items-center justify-center overflow-hidden"
             style={{
               transform: `translate(${index * 4}px, ${index * 4}px)`,
-              zIndex: 3 - index,
+              ...reverseElementStack(index),
               width: "100%",
               height: "100%",
             }}
@@ -32,18 +33,18 @@ export const DragPreview: React.FC<DragPreviewProps> = ({ drawings }) => (
             <div className="absolute inset-0 opacity-[0.3] bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] [background-size:24px_24px]" />
             {drawing.preview ? (
               <div
-                className="w-full h-full p-2 flex items-center justify-center [&>svg]:w-auto [&>svg]:h-auto [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:drop-shadow-sm relative z-10"
+                className="excalidash-z-element-content w-full h-full p-2 flex items-center justify-center [&>svg]:w-auto [&>svg]:h-auto [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:drop-shadow-sm relative"
                 dangerouslySetInnerHTML={{ __html: drawing.preview }}
               />
             ) : (
-              <div className="text-slate-300 relative z-10">
+              <div className="excalidash-z-element-content text-slate-300 relative">
                 <Folder size={24} />
               </div>
             )}
           </div>
         ))}
         {drawings.length > 1 && (
-          <div className="absolute -top-2 -right-2 bg-indigo-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-sm z-50">
+          <div className="excalidash-z-chrome absolute -top-2 -right-2 bg-indigo-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
             {drawings.length}
           </div>
         )}
@@ -60,7 +61,7 @@ export const ViewerActionToast: React.FC<ViewerActionToastProps> = ({ message })
   if (!message) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+    <div className="excalidash-z-notification fixed bottom-6 left-1/2 -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-200">
       <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 dark:bg-amber-900/30 border-2 border-amber-500 rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
         <AlertTriangle
           size={18}
@@ -78,7 +79,7 @@ type FileDropOverlayProps = {
 };
 
 export const FileDropOverlay: React.FC<FileDropOverlayProps> = ({ viewTitle }) => (
-  <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm border-4 border-dashed border-indigo-400 rounded-3xl flex flex-col items-center justify-center animate-in fade-in duration-200">
+  <div className="excalidash-z-modal absolute inset-0 bg-white/80 backdrop-blur-sm border-4 border-dashed border-indigo-400 rounded-3xl flex flex-col items-center justify-center animate-in fade-in duration-200">
     <div className="bg-indigo-50 p-6 sm:p-8 rounded-full mb-5 sm:mb-6 shadow-sm">
       <Inbox size={56} className="text-indigo-600 hidden sm:block" />
       <Inbox size={44} className="text-indigo-600 sm:hidden" />

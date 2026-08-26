@@ -1,79 +1,106 @@
-/**
- * A small, permanent, non-toast indicator of this connection's real state
- * (NIL-591).
- *
- * The state belongs in the chrome, not in a message: Davi flagged an
- * internal-throttling toast as disruptive the same day this ticket was
- * filed, and Miro's own documented popup-loop bug is the ticket's explicit
- * warning against repeated messages for something that is not an event but
- * a condition. A dot that is green while connected needs no attention and
- * asks for none; a toast that fires every reconnect asks for attention every
- * time, whether or not anything is actually wrong.
- *
- * The colour/shape encodes something true, the same way the workshop timer
- * pill turns white only while actually running (WorkshopTimerCorner.css) --
- * it is read off the same authoritative signal `useEditorCollaboration`
- * already computes (`onJoined` firing vs. `resetConnectionState` running vs.
- * `navigator.onLine`), not a separate guess.
- *
- * This is also directly what today's reconnect bug was missing: the
- * workshop timer played its sound again on reconnect because local state had
- * fallen to idle while the server's rejoin reply said "finished" -- a gap a
- * visible "reconnecting" state would have made legible to the user instead
- * of looking like the app spontaneously did something.
- *
- * Portalled into the Excalidraw root like WorkshopTimerCorner and the other
- * free-floating widgets, so it inherits colour tokens and
- * `--ui-pointerEvents` instead of drawing on top of them from a layer above.
- */
-import type React from "react";
+import { useEffect, useState, type FC } from "react";
 import { createPortal } from "react-dom";
 import type { ConnectionStatus } from "./useEditorCollaboration";
 import "./ConnectionStatusBadge.css";
 
-const COPY: Record<ConnectionStatus, { label: string; description: string }> = {
-  connected: { label: "Connected", description: "Live -- changes sync in real time." },
-  reconnecting: {
-    label: "Reconnecting",
-    description: "Working on it -- your changes are saved locally and will sync once back.",
-  },
-  offline: {
-    label: "Offline",
-    description: "No network connection -- your changes are saved locally and will sync once back.",
-  },
+const RECONNECTING_DOT_INTERVAL_MS = 450;
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+const usePrefersReducedMotion = () => {
+  const [reduced, setReduced] = useState(() => window.matchMedia(REDUCED_MOTION_QUERY).matches);
+
+  useEffect(() => {
+    const media = window.matchMedia(REDUCED_MOTION_QUERY);
+    const sync = () => setReduced(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  return reduced;
 };
 
-export const ConnectionStatusBadge: React.FC<{
+const useReconnectingDots = (status: ConnectionStatus) => {
+  const reducedMotion = usePrefersReducedMotion();
+  const [count, setCount] = useState(() => (reducedMotion ? 3 : 1));
+
+  useEffect(() => {
+    setCount(reducedMotion ? 3 : 1);
+    if (status !== "reconnecting" || reducedMotion) return;
+
+    const interval = window.setInterval(() => {
+      setCount((current) => (current === 3 ? 1 : current + 1));
+    }, RECONNECTING_DOT_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [reducedMotion, status]);
+
+  return ".".repeat(count);
+};
+
+/**
+ * A failure-only connection signal around the entire editor viewport.
+ *
+ * The healthy state deliberately has no visual or hit-testable chrome. Only
+ * an empty, screen-reader-only live region stays mounted so the first failure
+ * is announced as a text change. During an interruption, the continuous red
+ * rectangle and attached text badge read as one global connection condition,
+ * unlike NIL-590's separate triangular collaborator direction hints at
+ * individual edge positions.
+ *
+ * The whole subtree is pointer-transparent. This is part of the component's
+ * product contract, not merely a convenient default: an overlay at `inset: 0`
+ * would otherwise make every underlying canvas and chrome control unreachable.
+ */
+export const ConnectionStatusBadge: FC<{
   container: HTMLElement | null;
   status: ConnectionStatus;
 }> = ({ container, status }) => {
+  const dots = useReconnectingDots(status);
+
   if (!container) return null;
 
-  const copy = COPY[status];
+  const reconnecting = status === "reconnecting";
+  const label = status === "connected" ? "" : reconnecting ? "Reconnecting" : "Disconnected";
 
   return createPortal(
-    <div
-      className="connection-status-badge"
-      data-status={status}
-      data-testid="connection-status-badge"
-      title={`${copy.label} -- ${copy.description}`}
-    >
-      <span className="connection-status-badge__dot" aria-hidden="true" />
-      {/* `display: none` by default (CSS) -- the dot alone carries the
-          ambient signal on the canvas, shown as text on hover/focus for
-          anyone who wants to check. Deliberately NOT the aria-live region
-          below: a `display: none` element is removed from the accessibility
-          tree along with the page, so it cannot double as the announcement. */}
-      <span className="connection-status-badge__label" aria-hidden="true">
-        {copy.label}
+    <>
+      {status === "connected" ? null : (
+        <div
+          className="connection-status-frame"
+          data-status={status}
+          data-testid="connection-status-frame"
+        >
+          <div
+            className="connection-status-frame__badge"
+            data-testid="connection-status-badge"
+            aria-hidden="true"
+          >
+            <span>{label}</span>
+            {reconnecting ? (
+              <span
+                className="connection-status-frame__dots"
+                data-testid="connection-status-dots"
+                aria-hidden="true"
+              >
+                {dots}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      )}
+      {/* Mounted empty while healthy so the first failure changes an existing
+          live region instead of inserting one with already-final text. */}
+      <span
+        className="sr-only"
+        data-testid="connection-status-announcement"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {label}
       </span>
-      {/* Visually hidden, never `display: none` -- stays in the
-          accessibility tree so a status change is announced without
-          requiring a hover. */}
-      <span className="sr-only" role="status" aria-live="polite">
-        {copy.label}. {copy.description}
-      </span>
-    </div>,
+    </>,
     container,
   );
 };

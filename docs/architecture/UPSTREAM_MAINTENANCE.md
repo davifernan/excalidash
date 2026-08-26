@@ -213,11 +213,11 @@ gültig; der Push-/PR-Status hat sich seit der ursprünglichen Prüfung geänder
 - **NIL-303 hat weiterhin keine offene PR** -- konsistent mit der Bewertung "nicht bereit"
   unten (Umfang muss erst gegen den aktuellen `origin/main`-Stand neu gebaut werden).
 
-| Kandidat | Branch (lokal, ungepusht) | Cherry-Pick auf `origin/main` | Bewertung |
-|---|---|---|---|
-| **NIL-301** Snapshot-Kompression | `feat/snapshot-compression` (`5d672b9`, `304e518`) | sauber, keine Konflikte | bereit. Generischer Perf-Fix an der Versions-Historie (Brotli-Kompression, Rückgabe freier Seiten), hängt an keinem ExcaliDash-Produktmodell |
-| **NIL-302** Resend-Mailversand | `feat/resend-email` (`8baaf15`, `23feee1`) | Auto-Merge in `backend/.env.example` und `backend/src/config.ts`, keine echten Konflikte | bereit nach kurzer manueller Durchsicht der zwei Auto-Merges. SMTP-alongside-Resend für Passwort-Reset-Mails, generisch nutzbar für jede Selbst-Hosting-Instanz |
-| **NIL-303** Sticky-Notes-Toolbar-Button | `feat/sticky-toolbar`, konkret `6e75494` | **8 Konflikte, davon 5× `modify/delete`** auf `frontend/src/sticky/*` -- diese Dateien existieren auf `origin/main` in dieser Form nicht | **nicht bereit.** Der Fork hat die Sticky-Notes-Implementierung strukturell vom Upstream-Stand entkoppelt (eigene `frontend/src/sticky/`-Struktur). Der Commit ist kein kleiner generischer Patch mehr, sondern setzt die Fork-eigene Architektur voraus. Um das upstream-tauglich zu machen, müsste die Idee ("Werkzeug im Toolbar portalen, Taste N") gegen den tatsächlichen aktuellen `origin/main`-Stand der Sticky-Notes neu gebaut werden, nicht per Cherry-Pick übernommen |
+| Kandidat                                | Branch (lokal, ungepusht)                          | Cherry-Pick auf `origin/main`                                                                                                            | Bewertung                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **NIL-301** Snapshot-Kompression        | `feat/snapshot-compression` (`5d672b9`, `304e518`) | sauber, keine Konflikte                                                                                                                  | bereit. Generischer Perf-Fix an der Versions-Historie (Brotli-Kompression, Rückgabe freier Seiten), hängt an keinem ExcaliDash-Produktmodell                                                                                                                                                                                                                                                                                                                                       |
+| **NIL-302** Resend-Mailversand          | `feat/resend-email` (`8baaf15`, `23feee1`)         | Auto-Merge in `backend/.env.example` und `backend/src/config.ts`, keine echten Konflikte                                                 | bereit nach kurzer manueller Durchsicht der zwei Auto-Merges. SMTP-alongside-Resend für Passwort-Reset-Mails, generisch nutzbar für jede Selbst-Hosting-Instanz                                                                                                                                                                                                                                                                                                                    |
+| **NIL-303** Sticky-Notes-Toolbar-Button | `feat/sticky-toolbar`, konkret `6e75494`           | **8 Konflikte, davon 5× `modify/delete`** auf `frontend/src/sticky/*` -- diese Dateien existieren auf `origin/main` in dieser Form nicht | **nicht bereit.** Der Fork hat die Sticky-Notes-Implementierung strukturell vom Upstream-Stand entkoppelt (eigene `frontend/src/sticky/`-Struktur). Der Commit ist kein kleiner generischer Patch mehr, sondern setzt die Fork-eigene Architektur voraus. Um das upstream-tauglich zu machen, müsste die Idee ("Werkzeug im Toolbar portalen, Taste N") gegen den tatsächlichen aktuellen `origin/main`-Stand der Sticky-Notes neu gebaut werden, nicht per Cherry-Pick übernommen |
 
 NIL-303 braucht vor jedem PR-Versuch eine Neubewertung des Umfangs -- das ist kein
 Vorbereitungsschritt mehr, sondern eigene Implementierungsarbeit gegen einen fremden Codestand.
@@ -252,11 +252,11 @@ Ein Upstream-Change ist erst integriert, wenn:
 
 Gesetzt ueber `ops/repository-rules.sh apply` (Stand 2026-08-23):
 
-| Regel | Wirkung |
-|---|---|
-| `allow_squash_merge: false` | Squash ueber die Oberflaeche schreibt den Commit dem zusammenfuehrenden Konto zu und zerstoert die Nilo-Autorschaft. Den lokalen Mergeweg beruehrt die Einstellung nicht. |
-| `non_fast_forward` auf `main` | Kein Force-Push. Ein umgeschriebener `main` wuerde jeden Worktree und jede offene PR-Basis entwurzeln. |
-| `deletion` auf `main` | `main` laesst sich nicht loeschen. |
+| Regel                               | Wirkung                                                                                                                                                                                                                 |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allow_squash_merge: false`         | Squash ueber die Oberflaeche schreibt den Commit dem zusammenfuehrenden Konto zu und zerstoert die Nilo-Autorschaft. Den lokalen Mergeweg beruehrt die Einstellung nicht.                                               |
+| `non_fast_forward` auf `main`       | Kein Force-Push. Ein umgeschriebener `main` wuerde jeden Worktree und jede offene PR-Basis entwurzeln.                                                                                                                  |
+| `deletion` auf `main`               | `main` laesst sich nicht loeschen.                                                                                                                                                                                      |
 | `required_status_checks` auf `main` | Alle als Pflicht markierten `Tests`-Jobs muessen gruen sein (Stand 24.08.2026: neun -- die Zahl waechst mit jedem neuen Waechter; siehe `ops/repository-rules.sh show` fuer den aktuellen Stand statt einer Zahl hier). |
 
 ### Warum Pflichtchecks den lokalen Merge NICHT blockieren
@@ -301,6 +301,10 @@ GitHub jetzt.
 Drift gegen diese Datei findet `ops/repository-rules.sh verify` (Exitcode 1 bei Abweichung).
 
 Rueckgaengig machen: `ops/repository-rules.sh revert`.
+
+CodeQL untersucht jeden PR und taeglich den integrierten Stand, ist aber bewusst kein weiterer
+Pflichtcheck. Wer die Alert-Inbox wann sichtet und wie einzelne Baseline-Funde behandelt werden,
+steht in [CODEQL_OPERATIONS.md](./CODEQL_OPERATIONS.md).
 
 ## Git-Identitaet
 
