@@ -14,7 +14,11 @@
     "!dist/**"
   ],
   "ignoreDependencies": [
+    "@excalidash/domain",
     "@prisma/client",
-    "ts-node"
+    "@types/express-serve-static-core",
+    "nodemon",
+    "prettier",
+    "prisma"
   ]
 }

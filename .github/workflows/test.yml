@@ -129,10 +129,8 @@ jobs:
           cache: "npm"
           cache-dependency-path: package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: |
@@ -456,10 +454,8 @@ jobs:
             package-lock.json
             e2e/package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: |
@@ -472,11 +468,6 @@ jobs:
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-test.db
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
 
       - name: Install E2E test dependencies
         run: |
@@ -617,10 +608,8 @@ jobs:
             package-lock.json
             e2e/package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: |
@@ -633,11 +622,6 @@ jobs:
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-cross.db
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
 
       - name: Install E2E test dependencies
         run: |
@@ -775,10 +759,8 @@ jobs:
             package-lock.json
             e2e/package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: |
@@ -791,11 +773,6 @@ jobs:
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-two-account.db
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
 
       - name: Install E2E test dependencies
         run: |
@@ -932,10 +909,8 @@ jobs:
             package-lock.json
             e2e/package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: |
@@ -948,11 +923,6 @@ jobs:
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-permission-matrix.db
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
 
       - name: Install E2E test dependencies
         run: |
@@ -1079,10 +1049,8 @@ jobs:
             package-lock.json
             e2e/package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: |
@@ -1095,11 +1063,6 @@ jobs:
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-presence-two-account.db
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
 
       - name: Install E2E test dependencies
         run: |
@@ -1239,10 +1202,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
+
+      - name: Build shared domain package
+        run: npm run build:domain
 
       - name: Generate Prisma client
         run: |

@@ -55,10 +55,8 @@ jobs:
             package-lock.json
             e2e/package-lock.json
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+      - name: Install application workspace dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: |
@@ -71,11 +69,6 @@ jobs:
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-team-acceptance.db
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
 
       - name: Install E2E test dependencies
         run: |
