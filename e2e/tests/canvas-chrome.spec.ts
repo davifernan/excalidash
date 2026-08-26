@@ -157,6 +157,48 @@ test.describe("the hamburger carries the board's identity and the way back", () 
     }
   });
 
+  test("keeps Share and Invite functional in the mobile menu while omitting them on desktop", async ({
+    page,
+    browser,
+  }) => {
+    await openEditor(page, drawingId);
+    const peerContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const peerPage = await peerContext.newPage();
+    const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const mobilePage = await mobileContext.newPage();
+
+    try {
+      await openEditor(peerPage, drawingId);
+      await expect(page.getByTestId("editor-invite")).toBeVisible();
+      await openMenu(page);
+      const desktopMenu = page.getByTestId("dropdown-menu");
+      await expect(desktopMenu.getByText("Share", { exact: true })).toHaveCount(0);
+      await expect(desktopMenu.getByText("Invite everyone here", { exact: true })).toHaveCount(0);
+
+      await openEditor(mobilePage, drawingId);
+      await expect(mobilePage.getByTestId("editor-top-right")).toHaveCount(0);
+      await openMenu(mobilePage);
+      const mobileMenu = mobilePage.getByTestId("dropdown-menu");
+      await expect(mobileMenu.getByText("Share", { exact: true })).toBeVisible();
+      await expect(mobileMenu.getByText("Invite everyone here", { exact: true })).toBeVisible();
+
+      await mobileMenu.getByText("Share", { exact: true }).click();
+      const shareHeading = mobilePage.getByRole("heading", { name: /Share \"/ });
+      await expect(shareHeading).toBeVisible();
+      await shareHeading.locator("..").getByRole("button").click();
+
+      await openMenu(mobilePage);
+      await mobilePage
+        .getByTestId("dropdown-menu")
+        .getByText("Invite everyone here", { exact: true })
+        .click();
+      await expect(peerPage.locator(".invite-here-overlay")).toBeVisible({ timeout: 8_000 });
+    } finally {
+      await mobileContext.close();
+      await peerContext.close();
+    }
+  });
+
   test("the hamburger starts on the same row as the tool bar", async ({ page }) => {
     await openEditor(page, drawingId);
     const hamburger = await page.getByTestId("main-menu-trigger").boundingBox();

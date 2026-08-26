@@ -11,8 +11,10 @@
  * breakpoint, not a new category of risk.
  *
  * Invite and Share are `HeaderControlSlotEntry` entries from chromeSlots.tsx
- * rather than hardcoded here. NIL-608 removed their duplicate hamburger
- * routes; this component is their single visible entry point.
+ * rather than hardcoded here. NIL-608 removes their duplicate hamburger
+ * routes on desktop. Because this component intentionally renders nothing on
+ * mobile, the menu keeps a mobile-only bridge until that form factor gets a
+ * dedicated action surface.
  *
  * `renderTopRightUI` is the slot Excalidraw offers for exactly this, sitting
  * between the avatar list and the Library trigger.
@@ -44,8 +46,8 @@ export const EditorTopRight = ({
   ctx: ChromeSlotContext;
 }) => {
   // Excalidraw's mobile tool row already fills the width -- an island beside
-  // it pushes tools off the screen. NIL-608 deliberately does not recreate
-  // these desktop header actions as duplicate hamburger entries.
+  // it pushes tools off the screen. The same actions remain reachable through
+  // chromeSlots.tsx's mobile-only hamburger bridge.
   if (isMobile) return null;
 
   const hasPresenceZone = ctx.peers.length > 0;

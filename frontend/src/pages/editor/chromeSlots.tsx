@@ -203,6 +203,12 @@ export type OverlaySlotEntry = { id: string; render: (ctx: ChromeSlotContext) =>
 
 const byOrder = (a: SlotEntry, b: SlotEntry) => a.order - b.order || a.id.localeCompare(b.id);
 
+const canShareFromMobileMenu = (ctx: ChromeSlotContext): boolean =>
+  ctx.mobile && ctx.accessLevel === "owner" && Boolean(ctx.id);
+
+const canInviteFromMobileMenu = (ctx: ChromeSlotContext): boolean =>
+  ctx.mobile && ctx.canEdit && ctx.peers.length > 0;
+
 const describeFollowers = (followers: readonly Follower[]): string | null => {
   if (followers.length === 0) return null;
   if (followers.length === 1) return `${followers[0].name} is following you`;
@@ -349,6 +355,39 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
       ctx.accessLevel !== "none" && ctx.id ? (
         <MainMenu.Item onSelect={ctx.onToggleComments} icon={<MessageSquare size={16} />}>
           <CommentsMenuEntry ctx={ctx} />
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "mobile-collaboration-separator",
+    order: 195,
+    // Desktop owns these actions in EditorTopRight. That component returns
+    // null on mobile, so the separator and both routes exist only when at
+    // least one mobile fallback action actually follows it.
+    render: (ctx) =>
+      canShareFromMobileMenu(ctx) || canInviteFromMobileMenu(ctx) ? <MainMenu.Separator /> : null,
+  },
+  {
+    id: "share",
+    order: 200,
+    render: (ctx) =>
+      canShareFromMobileMenu(ctx) ? (
+        <MainMenu.Item onSelect={ctx.onShareOpen} icon={<Share2 size={16} />}>
+          Share
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "invite-everyone-here",
+    order: 210,
+    // Temporary bridge, not a second implementation: mobile has no
+    // EditorTopRight, and this invokes the exact same invite action as the
+    // desktop header entry. A dedicated mobile surface belongs to its own
+    // package; until then removal here would make the feature unreachable.
+    render: (ctx) =>
+      canInviteFromMobileMenu(ctx) ? (
+        <MainMenu.Item onSelect={ctx.inviteHere.invite} icon={<LocateFixed size={16} />}>
+          Invite everyone here
         </MainMenu.Item>
       ) : null,
   },
