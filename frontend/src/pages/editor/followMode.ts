@@ -221,6 +221,7 @@ export const bindFollowMode = ({
   let followers = new Map<string, Follower>();
   const lastViewportSequence = new Map<string, number>();
   let sendTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingUnfollowTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressedServerActions: Array<{
     action: "FOLLOW" | "UNFOLLOW";
     targetPresenceId: string | null;
@@ -293,6 +294,14 @@ export const bindFollowMode = ({
     }
   };
 
+  const emitFollowCommand = (payload: { action: string; targetSocketId: string | null }) => {
+    socket.emit("follow-user", {
+      drawingId,
+      targetPresenceId: payload.targetSocketId ?? undefined,
+      action: payload.action,
+    });
+  };
+
   const unsubscribeFollow = collaboration.onFollowIntent((payload) => {
     const targetPresenceId = payload.targetSocketId;
     const suppressedIndex = suppressedServerActions.findIndex(
@@ -311,11 +320,23 @@ export const bindFollowMode = ({
     lastReceivedPresenceId = null;
     lastAppliedVisibleBounds = null;
     viewportIndicator?.hide();
-    socket.emit("follow-user", {
-      drawingId,
-      targetPresenceId: payload.targetSocketId ?? undefined,
-      action: payload.action,
-    });
+    if (payload.action === "UNFOLLOW") {
+      // Excalidraw reports a target switch as UNFOLLOW(old) immediately
+      // followed by FOLLOW(new). Coalesce that pair into the single FOLLOW
+      // command the server already uses to replace its one target slot. A
+      // genuine stop has no matching FOLLOW and is emitted next task.
+      if (pendingUnfollowTimer !== null) clearTimeout(pendingUnfollowTimer);
+      pendingUnfollowTimer = setTimeout(() => {
+        pendingUnfollowTimer = null;
+        emitFollowCommand(payload);
+      }, 0);
+      return;
+    }
+    if (pendingUnfollowTimer !== null) {
+      clearTimeout(pendingUnfollowTimer);
+      pendingUnfollowTimer = null;
+    }
+    emitFollowCommand(payload);
   });
   const unsubscribeScroll = viewport.subscribeScroll(scheduleBounds);
 
@@ -405,10 +426,12 @@ export const bindFollowMode = ({
     lastAppliedVisibleBounds = null;
     viewportIndicator?.hide();
     if (sendTimer !== null) clearTimeout(sendTimer);
+    if (pendingUnfollowTimer !== null) clearTimeout(pendingUnfollowTimer);
     if (suppressionTimer !== null) clearTimeout(suppressionTimer);
     suppressedServerActions = [];
     suppressionTimer = null;
     sendTimer = null;
+    pendingUnfollowTimer = null;
     onFollowersChange([]);
     collaboration.setFollowedBy([]);
   };
@@ -421,10 +444,18 @@ export const bindFollowMode = ({
     socket.off("viewport-bounds", onViewportBounds);
     resizeObserver?.disconnect();
     if (sendTimer !== null) clearTimeout(sendTimer);
+    if (pendingUnfollowTimer !== null) clearTimeout(pendingUnfollowTimer);
     if (suppressionTimer !== null) clearTimeout(suppressionTimer);
     viewportIndicator?.remove();
     onFollowersChange([]);
   };
   cleanup.resetConnectionState = resetConnectionState;
+  cleanup.follow = (targetPresenceId: string) => {
+    // This is the same state transition Excalidraw's collaborator-avatar
+    // click makes. Excalidraw reports it through onUserFollow, so the one
+    // intent handler above remains the only path that clears stale viewport
+    // state and sends the follow command to the server.
+    collaboration.follow(targetPresenceId as never);
+  };
   return cleanup;
 };

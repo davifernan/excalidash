@@ -271,15 +271,6 @@ export const useEditorCollaboration = ({
     });
     const sharedPages = documentPageSharing.bind(socket);
     const sharedDocumentEdits = bindDocumentEditLocks(socket);
-    const inviteHereController = bindInviteHere({
-      socket,
-      drawingId,
-      viewport,
-      onInvitationChange: setViewportInvitation,
-      onStatusChange: setInviteHereStatus,
-      onAlreadyThere: () => toast.info("You're already looking at this area."),
-    });
-    inviteHereRef.current = inviteHereController;
     selectionPublisherRef.current = remoteSelection.publish;
     socket.on("error", (payload: any) => {
       const message = typeof payload?.message === "string" ? payload.message : null;
@@ -313,6 +304,16 @@ export const useEditorCollaboration = ({
       onFollowersChange: setFollowers,
       onFollowInterrupted: (reason) => toast.info(getFollowInterruptionMessage(reason)),
     });
+    const inviteHereController = bindInviteHere({
+      socket,
+      drawingId,
+      viewport,
+      onInvitationChange: setViewportInvitation,
+      onStatusChange: setInviteHereStatus,
+      onAlreadyThere: () => toast.info("You're already looking at this area."),
+      onFollow: unbindFollowMode.follow,
+    });
+    inviteHereRef.current = inviteHereController;
     const resetConnectionState = () => {
       roomJoinedRef.current = false;
       setConnectionStatus(

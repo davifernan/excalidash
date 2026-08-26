@@ -39,6 +39,7 @@ export const isAlreadyThere = (own: FollowSceneBounds, target: FollowSceneBounds
 
 export type ViewportInvitation = {
   invitationId: string;
+  inviterPresenceId: string;
   inviterName: string;
   sceneBounds: FollowSceneBounds;
   expiresAt: number;
@@ -63,6 +64,8 @@ const parseInvitation = (payload: any, drawingId: string): ViewportInvitation | 
   if (
     !sceneBounds ||
     typeof payload.invitationId !== "string" ||
+    typeof payload.inviterPresenceId !== "string" ||
+    payload.inviterPresenceId.length === 0 ||
     typeof payload.inviterName !== "string" ||
     !Number.isFinite(payload.expiresAt) ||
     payload.expiresAt <= Date.now()
@@ -71,6 +74,7 @@ const parseInvitation = (payload: any, drawingId: string): ViewportInvitation | 
   }
   return {
     invitationId: payload.invitationId,
+    inviterPresenceId: payload.inviterPresenceId,
     inviterName: payload.inviterName,
     sceneBounds,
     expiresAt: payload.expiresAt,
@@ -84,12 +88,15 @@ export const bindInviteHere = ({
   onInvitationChange,
   onStatusChange,
   onAlreadyThere,
+  onFollow,
 }: {
   socket: Socket;
   drawingId: string;
   viewport: ViewportAccess;
   onInvitationChange: (invitation: ViewportInvitation | null) => void;
   onStatusChange: (status: InviteHereStatus | null) => void;
+  /** Start the canonical follow mode after accepting the invitation. */
+  onFollow: (targetPresenceId: string) => void;
   /**
    * Accepted, but this browser's own view already overlaps the inviter's
    * closely enough that jumping would be indistinguishable from doing
@@ -168,6 +175,9 @@ export const bindInviteHere = ({
       } else {
         viewport.showBounds(invitation.sceneBounds as SceneBounds);
       }
+      // Overlap only suppresses the initial jump. Following is persistent and
+      // uses the same target-changing path as a collaborator-avatar click.
+      onFollow(invitation.inviterPresenceId);
     }
     socket.emit("invite-here-response", {
       drawingId,

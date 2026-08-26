@@ -30,18 +30,28 @@ const rect = (id: string, x: number, y: number) => ({
   locked: false,
 });
 
+const panBy = async (page: Page, dx: number, dy: number) => {
+  await page.locator(".excalidraw__canvas.interactive").click({ position: { x: 760, y: 400 } });
+  await page.keyboard.press("h");
+  await page.mouse.move(760, 400);
+  await page.mouse.down();
+  await page.mouse.move(760 + dx, 400 + dy, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+};
+
 /**
  * The promise this feature makes is that nothing moves on your screen without
- * your click, and that accepting moves you once rather than tying you to
- * somebody. Both halves are checked through the viewport capability the product
- * uses. A canvas screenshot is only a proxy: WebKit can redraw pixels when the
- * pointer or tool changes, and can leave a blank sampled patch unchanged after
- * a real viewport move.
+ * your click, and that accepting starts the same persistent follow mode as an
+ * avatar click. Both halves are checked through the viewport capability the
+ * product uses. A canvas screenshot is only a proxy: WebKit can redraw pixels
+ * when the pointer or tool changes, and can leave a blank sampled patch
+ * unchanged after a real viewport move.
  */
-test("an invitation waits for a click, then moves the view exactly once", async ({
+test("accepting an invitation starts persistent follow and the native control stops it", async ({
   browser,
   request,
-}) => {
+}, testInfo) => {
   const drawing = await createDrawing(request, {
     name: "Invite E2E",
     elements: [rect("a", 200, 200), rect("b", 1400, 1200)],
@@ -90,6 +100,10 @@ test("an invitation waits for a click, then moves the view exactly once", async 
   const overlay = guestPage.locator(".invite-here-overlay");
   await expect(overlay).toBeVisible({ timeout: 8000 });
   await guestPage.waitForTimeout(800);
+  await testInfo.attach("invite-before-accept", {
+    body: await guestPage.screenshot(),
+    contentType: "image/png",
+  });
 
   // Nothing may have moved yet: the invitation is an offer, not a shove.
   expect(await viewportTrace(guestPage)).toEqual([]);
@@ -107,14 +121,64 @@ test("an invitation waits for a click, then moves the view exactly once", async 
   expect(viewportPosition(acceptedMove.previous)).toEqual(viewportPosition(guestBeforeInvite));
   expect(viewportPosition(acceptedMove.current)).toEqual(viewportPosition(hostAtInvite));
 
-  // And it was a jump, not a leash: the host moving on leaves the guest be.
+  // The first move alone is not proof of follow. The host moves twice more and
+  // each distinct viewport must arrive without another action from the guest.
   await markTrace(guestPage, "host-moved-after-accept");
   await showBounds(hostPage, [-800, -700, 480, 20]);
-  await hostPage.waitForTimeout(1500);
-  expect(await viewportTrace(guestPage)).toEqual([acceptedMove]);
-  expect(viewportPosition(await viewport(guestPage))).toEqual(
-    viewportPosition(acceptedMove.current),
+  await expect.poll(async () => (await viewportTrace(guestPage)).length).toBeGreaterThanOrEqual(2);
+  const afterFirstFollow = viewportPosition(await viewport(guestPage));
+  expect(afterFirstFollow).toEqual(viewportPosition(await viewport(hostPage)));
+
+  await markTrace(guestPage, "host-moved-again");
+  await showBounds(hostPage, [1600, 1300, 2880, 2020]);
+  await expect.poll(async () => (await viewportTrace(guestPage)).length).toBeGreaterThanOrEqual(3);
+  const afterSecondFollow = viewportPosition(await viewport(guestPage));
+  expect(afterSecondFollow).toEqual(viewportPosition(await viewport(hostPage)));
+
+  // Accepting uses Excalidraw's native follow state, so both existing stop
+  // paths remain intact. First, moving B's own camera ends follow.
+  await expect(guestPage.locator(".follow-mode__badge")).toBeVisible({ timeout: 5000 });
+  await expect(hostPage.getByTestId("editor-follower-notice")).toBeVisible({ timeout: 5000 });
+  await testInfo.attach("invite-after-two-follow-moves", {
+    body: await guestPage.screenshot(),
+    contentType: "image/png",
+  });
+  console.log(
+    "[invite-follow-evidence]",
+    JSON.stringify({
+      guestBeforeInvite: viewportPosition(guestBeforeInvite),
+      initialAcceptedMove: viewportPosition(acceptedMove.current),
+      afterFirstFollow,
+      afterSecondFollow,
+    }),
   );
+  await panBy(guestPage, -240, -160);
+  await expect(guestPage.locator(".follow-mode__badge")).toBeHidden({ timeout: 5000 });
+  await expect(hostPage.getByTestId("editor-follower-notice")).toBeHidden({ timeout: 5000 });
+
+  const afterCameraStop = viewportPosition(await viewport(guestPage));
+  await showBounds(hostPage, [300, 200, 1580, 920]);
+  await hostPage.waitForTimeout(1500);
+  expect(viewportPosition(await viewport(guestPage))).toEqual(afterCameraStop);
+
+  // A later accepted invitation enters the one follow slot again; the native
+  // cross then ends it, proving that neither start creates a stacked leash.
+  // Wait out the sender-side invitation cooldown explicitly: this assertion
+  // is about follow replacement, not rate-limit timing.
+  await hostPage.waitForTimeout(5_100);
+  await hostPage.getByTestId("editor-invite").click();
+  await expect(overlay).toBeVisible({ timeout: 8000 });
+  await guestPage.getByRole("button", { name: /accept/i }).click();
+  await expect(guestPage.locator(".follow-mode__badge")).toBeVisible({ timeout: 5000 });
+  await expect(hostPage.getByTestId("editor-follower-notice")).toBeVisible({ timeout: 5000 });
+  await guestPage.locator(".follow-mode__disconnect-btn").click();
+  await expect(guestPage.locator(".follow-mode__badge")).toBeHidden({ timeout: 5000 });
+  await expect(hostPage.getByTestId("editor-follower-notice")).toBeHidden({ timeout: 5000 });
+
+  const afterStop = viewportPosition(await viewport(guestPage));
+  await showBounds(hostPage, [-300, -200, 980, 520]);
+  await hostPage.waitForTimeout(1500);
+  expect(viewportPosition(await viewport(guestPage))).toEqual(afterStop);
 
   await host.close();
   await guest.close();

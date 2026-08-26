@@ -15,12 +15,13 @@ Abgang behandelt wurde. Fünf Reparaturrunden trafen dieses Symptom, bevor die U
 war. Dieses Dokument legt die Begriffe fest, damit eine sechste Runde nicht wieder bei "was
 heisst folgen eigentlich" anfaengt.
 
-## Zwei Aktionen, zwei Vertraege
+## Zwei Einstiege, ein Folge-Vertrag
 
 ### Follow ("Follow me") — dauerhaft
 
 - Startet, wenn jemand den Avatar eines Kollaborators anklickt (Excalidraws eigene
-  `onUserFollow`-UI) oder ueber die sichtbare Follow-Anzeige erneut ausgeloest wird.
+  `onUserFollow`-UI), eine Einladung zu dessen Sicht annimmt oder ueber die sichtbare
+  Follow-Anzeige erneut ausgeloest wird.
 - Haelt an, bis eines von vieren eintritt:
   1. Die folgende Person klickt die sichtbare Abbruchmoeglichkeit — Excalidraws eigenen
      Trennen-Knopf im Follow-Badge (`.follow-mode__disconnect-btn`) — oder klickt den Avatar
@@ -40,30 +41,31 @@ heisst folgen eigentlich" anfaengt.
 - Bewegt fortlaufend den Viewport der folgenden Person, solange sie folgt (blauer Rahmen,
   `createViewportIndicator` in `followMode.ts`).
 
-### Invite Here — einmalig
+### Invite Here — Einladung in denselben Follow-Modus
 
 - Startet, wenn jemand **Invite everyone here** ausloest: ein Broadcast an alle im Raum mit
   der eigenen aktuellen Sicht.
 - Jede empfangende Person **akzeptiert oder lehnt individuell ab**, innerhalb von 15 Sekunden.
-- Ein akzeptierter Sprung ist **ein einziger Viewport-Fit** (`viewport.showBounds`). Danach
-  besteht **keine** fortlaufende Beziehung — kein `userToFollow` wird je gesetzt.
-  `inviteHere.test.ts`s "accepts once, fits once, and never enables follow mode" ist die
-  Gegenprobe dazu, die schon vor diesem Paket bestand.
+- Ein Accept richtet den Viewport zuerst einmal auf die eingeladene Sicht aus
+  (`viewport.showBounds`) und startet danach ueber `bindFollowMode.follow()` denselben
+  `collaboration.follow()`-Zustand wie ein Avatar-Klick. Es gibt keinen zweiten Transport-
+  oder Viewport-Mechanismus fuer Einladungen.
 - Ist die eigene Sicht bereits nahe an der eingeladenen (Overlap ≥ 85 %, `isAlreadyThere` in
-  `inviteHere.ts`), wird nicht gesprungen — Feedback statt Bewegung
-  ("You're already looking at this area."). Der Accept zaehlt trotzdem fuer den
-  Einladenden.
+  `inviteHere.ts`), wird der anfaengliche Sprung ausgelassen — Feedback statt Bewegung
+  ("You're already looking at this area."). Folgen startet trotzdem und der Accept zaehlt
+  fuer den Einladenden.
+- Eine spaeter angenommene Einladung ersetzt das bisherige Follow-Ziel, genau wie der Wechsel
+  per Avatar. Beendet wird ueber Excalidraws sichtbaren Follow-Badge oder durch eine eigene
+  Kamerabewegung der folgenden Person (siehe unten).
 
-### Warum das nicht verwechselt werden kann
+### Warum daraus kein zweiter Follow-Modus entsteht
 
-Beide Pfade waren im Code schon vor diesem Paket architektonisch getrennt (kein Aufruf von
-`collaboration.follow()` irgendwo im Invite-Here-Pfad). Was vor diesem Paket fehlte, war die
-**sichtbare** Unterscheidung: der blaue Rahmen erklaerte, wohin man gezogen wird, aber nicht,
-dass man das angefordert hat oder wie man es beendet — waehrend Invite Here schon immer einen
-Countdown-Banner mit Accept/Decline hatte. Diese Luecke schliesst kein neues Overlay dieses
-Pakets, sondern Excalidraws eigenes, bereits vorhandenes `FollowMode`-Badge (naechster
-Abschnitt) — vor diesem Paket lief es nur ins Leere, weil der Root-Cause-Bug es staendig
-verschwinden liess.
+Invite Here besitzt weiterhin nur den zeitlich begrenzten Countdown-Banner und den anfaenglichen
+Viewport-Fit. Nach dem Accept setzt `bindFollowMode.follow()` ueber den Excalidraw-Adapter
+`userToFollow`; Excalidraws vorhandener `onUserFollow`-Callback laeuft danach durch exakt den
+Intent-, Server-, Viewport- und Abbruchpfad des Avatar-Klicks. Sichtbar ist deshalb ebenfalls
+Excalidraws eigener `FollowMode`-Badge (naechster Abschnitt), kein Invite-spezifischer
+Folgezustand.
 
 ## Follow-Anzeige und Abbruchmöglichkeit: nicht neu gebaut
 
@@ -79,15 +81,15 @@ im E2E-Test sichtbar redundant war. `e2e/tests/follow-mode.spec.ts` haengt sein
 Sichtbarkeits- und Abbruch-Nachweis deshalb an `.follow-mode__badge` /
 `.follow-mode__disconnect-btn`, nicht an eigenem Markup.
 
-## Bekannte Lücke: Follow lässt sich auf Mobile nicht starten
+## Bekannte Lücke: Follow per Avatar lässt sich auf Mobile nicht starten
 
 Gemessen mit einem 390×844-Viewport: Excalidraws eigene Kollaborator-Avatare
 (`.UserList__collaborator`) rendern auf Mobile **gar nicht** — dieselbe
 `layer-ui__wrapper__top-right`-Region, die `EditorTopRight.tsx` dort bereits leer lässt
 (siehe `chromeSlots.tsx`s Dateikopf), verschwindet komplett, nicht nur unser eigener Teil
-davon. Da der einzige Weg, Follow zu **starten**, heute ein Avatar-Klick ist, gibt es auf
-Mobile aktuell keinen Einstiegspunkt dafür — unabhängig von diesem Paket, aber davon auch
-nicht behoben.
+davon. Ein Avatar-Klick kann Follow auf Mobile daher weiterhin nicht starten. Eine empfangene
+Invite-Here-Einladung kann es nach einem ausdruecklichen Accept inzwischen sehr wohl; sie ist
+aber kein jederzeit verfuegbarer Ersatz fuer eine Peer-Auswahl.
 
 Nicht in diesem Paket geschlossen: Ein MainMenu-Eintrag pro Peer ("Follow {Name}") würde
 `collaboration.follow(presenceId)` direkt aufrufen müssen (Excalidraws eigener Watcher
