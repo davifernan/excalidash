@@ -156,10 +156,10 @@ test.describe("dragging an arrow out of a note", () => {
 
     const child = createdNotes[1];
     const childY = child.y;
-    const childViewport = await page.evaluate(
+    const [childViewport, childTargetViewport] = await page.evaluate(
       (point) => {
         const api = (window as any).__EXCALIDASH_TEST__;
-        return api.toViewport(point);
+        return [api.toViewport(point), api.toViewport({ ...point, y: point.y + 120 })];
       },
       {
         x: child.x + child.width / 2,
@@ -167,14 +167,20 @@ test.describe("dragging an arrow out of a note", () => {
       },
     );
     const canvasBox = await page.locator("canvas.excalidraw__canvas.interactive").boundingBox();
-    if (!childViewport || !canvasBox) throw new Error("Could not locate the connected child note");
+    if (!childViewport || !childTargetViewport || !canvasBox) {
+      throw new Error("Could not locate the connected child note");
+    }
     const childPage = {
       x: canvasBox.x + childViewport.x,
       y: canvasBox.y + childViewport.y,
     };
     await page.mouse.move(childPage.x, childPage.y);
     await page.mouse.down();
-    await page.mouse.move(childPage.x, childPage.y + 120, { steps: 12 });
+    await page.mouse.move(
+      canvasBox.x + childTargetViewport.x,
+      canvasBox.y + childTargetViewport.y,
+      { steps: 12 },
+    );
     await page.mouse.up();
     await settle(page);
     const movedNotes = (await notes(page)).sort((a: any, b: any) => a.x - b.x);
