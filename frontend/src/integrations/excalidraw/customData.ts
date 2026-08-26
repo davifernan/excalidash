@@ -55,7 +55,6 @@ export type StickyRecord = {
    */
   readonly width: number;
   readonly height: number;
-  readonly fontSize: number;
 };
 
 export type WidgetKind = "pdf" | "markdown" | "text";
@@ -95,11 +94,10 @@ const parseSticky = (value: unknown): StickyRecord | undefined => {
   const ink = str(value.ink);
   const width = num(value.width);
   const height = num(value.height);
-  const fontSize = num(value.fontSize);
-  if (color === null || ink === null || width === null || height === null || fontSize === null) {
+  if (color === null || ink === null || width === null || height === null) {
     return undefined;
   }
-  return { color, ink, width, height, fontSize };
+  return { color, ink, width, height };
 };
 
 const parseWidget = (value: unknown): WidgetRecord | undefined => {

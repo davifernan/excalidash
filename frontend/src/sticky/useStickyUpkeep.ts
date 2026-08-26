@@ -14,7 +14,7 @@ import type {
   InteractionCapability,
   SceneCapability,
 } from "../integrations/excalidraw/capabilities";
-import { normaliseStickyNotes } from "./stickyNormalise";
+import { normaliseStickyNotes, projectStickyResizeFont } from "./stickyNormalise";
 import { log } from "../logging";
 
 type Options = {
@@ -28,6 +28,11 @@ export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
   const wasResizing = useRef<string | null>(null);
   const queued = useRef(false);
   const watchingEditor = useRef(false);
+  const resizeProjectionFrame = useRef<number | null>(null);
+  const pendingResizeProjection = useRef<{
+    elements: readonly any[];
+    resizingId: string;
+  } | null>(null);
   const alive = useRef(true);
 
   // Set on the way in as well as cleared on the way out. React mounts an effect
@@ -38,6 +43,11 @@ export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
     alive.current = true;
     return () => {
       alive.current = false;
+      if (resizeProjectionFrame.current !== null) {
+        cancelAnimationFrame(resizeProjectionFrame.current);
+        resizeProjectionFrame.current = null;
+      }
+      pendingResizeProjection.current = null;
     };
   }, []);
 
@@ -51,9 +61,49 @@ export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
       const justResized = wasResizing.current && !resizingId ? wasResizing.current : null;
       wasResizing.current = resizingId;
 
-      // Mid-gesture. Measuring now would fight the drag and settle on a size
-      // that is wrong a frame later.
-      if (resizingId || appState?.newElement) return;
+      if (resizingId) {
+        // Pointer events may outnumber paint frames. Keep only the newest
+        // geometry and perform at most one local projection per frame; the
+        // native resize remains the only author of container geometry.
+        pendingResizeProjection.current = { elements, resizingId };
+        if (resizeProjectionFrame.current === null) {
+          resizeProjectionFrame.current = requestAnimationFrame(() => {
+            resizeProjectionFrame.current = null;
+            const pending = pendingResizeProjection.current;
+            pendingResizeProjection.current = null;
+            if (!pending || !alive.current) return;
+            const projected = projectStickyResizeFont(pending.elements, pending.resizingId);
+            if (!projected) return;
+            const applied = scene.apply(
+              [
+                {
+                  kind: "replaceDocument",
+                  document: sealSceneDocument({
+                    elements: projected,
+                    appState: {},
+                    files: {},
+                  }),
+                },
+              ],
+              { capture: "never" },
+            );
+            if (!applied.ok) {
+              log.error(
+                "[Sticky] Failed to project resize font",
+                { result: applied },
+                { notify: false },
+              );
+            }
+          });
+        }
+        return;
+      }
+      if (resizeProjectionFrame.current !== null) {
+        cancelAnimationFrame(resizeProjectionFrame.current);
+        resizeProjectionFrame.current = null;
+      }
+      pendingResizeProjection.current = null;
+      if (appState?.newElement) return;
 
       const editingId = appState?.editingTextElement?.id ?? null;
 

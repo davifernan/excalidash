@@ -403,6 +403,36 @@ describe("sticky consumers at the Excalidraw boundary", () => {
     frame.mockRestore();
   });
 
+  it("coalesces resize events to one projection frame and settles once on release", async () => {
+    const original = createStickyNote(200, 200);
+    const resized = { ...original, width: 320, height: 320 };
+    const adapter = makeAdapter(resized);
+    const frames: FrameRequestCallback[] = [];
+    const frame = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const { result } = renderHook(() =>
+      useStickyUpkeep({
+        canEdit: true,
+        interaction: adapter.interaction as any,
+        scene: adapter.scene as any,
+      }),
+    );
+
+    act(() => result.current.onSceneChange([resized], { resizingElement: resized }));
+    act(() => result.current.onSceneChange([resized], { resizingElement: resized }));
+    await act(async () => Promise.resolve());
+    expect(adapter.scene.apply).not.toHaveBeenCalled();
+    expect(frames).toHaveLength(1);
+    act(() => frames.shift()?.(0));
+
+    act(() => result.current.onSceneChange([resized], {}));
+    await act(async () => Promise.resolve());
+    expect(adapter.scene.apply).toHaveBeenCalledOnce();
+    frame.mockRestore();
+  });
+
   it("reports a rejected sticky upkeep write", async () => {
     const note = { ...createStickyNote(200, 200), height: 300 };
     const adapter = makeAdapter(note);

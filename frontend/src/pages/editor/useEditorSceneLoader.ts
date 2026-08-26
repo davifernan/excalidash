@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import type { NavigateFunction } from "react-router-dom";
 import type { MutableRefObject } from "react";
 import { toast } from "sonner";
+import { deriveStickyFontState } from "../../sticky/stickyDerivedState";
 import * as api from "../../api";
 import { getPersistedAppState, hasRenderableElements, resolveObjectsSnapMode } from "./shared";
 import { computeElementOrderSig } from "./useEditorElementTracking";
@@ -133,6 +134,7 @@ export const useEditorSceneLoader = ({
               "view",
         );
         const elements = data.elements || [];
+        const renderedElements = deriveStickyFontState(elements);
         const files = data.files || {};
         const hasPreview = typeof data.preview === "string" && data.preview.trim().length > 0;
         const loadedRenderable = hasRenderableElements(elements);
@@ -146,8 +148,8 @@ export const useEditorSceneLoader = ({
           version: data.version ?? null,
           suspiciousBlankLoad: refs.suspiciousBlankLoad.current,
         });
-        refs.latestElements.current = elements;
-        refs.initialSceneElements.current = elements;
+        refs.latestElements.current = renderedElements;
+        refs.initialSceneElements.current = renderedElements;
         refs.latestFiles.current = files;
         refs.lastSyncedFiles.current = files;
         refs.lastPersistedFiles.current = files;
@@ -169,7 +171,7 @@ export const useEditorSceneLoader = ({
         // itself reports, once the scene has hydrated.
         refs.lastPersistedAppStateSig.current = null;
         setInitialData({
-          elements,
+          elements: renderedElements,
           appState: hydratedAppState,
           files,
           scrollToContent: true,

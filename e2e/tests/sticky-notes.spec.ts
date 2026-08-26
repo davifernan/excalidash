@@ -110,7 +110,7 @@ test.describe("sticky notes", () => {
 
     const written = await labels(page);
     expect(written).toHaveLength(1);
-    expect(written[0].text).toContain("Deploy on Friday");
+    expect(written[0].originalText).toContain("Deploy on Friday");
   });
 
   test("shrinks the writing rather than growing the note", async ({ page }) => {
@@ -129,7 +129,7 @@ test.describe("sticky notes", () => {
     const [label] = await labels(page);
     expect(note.height).toBe(200);
     expect(note.width).toBe(200);
-    expect(label.fontSize).toBeLessThan(20);
+    expect(label.fontSize).toBeLessThan(30);
   });
 
   test("still shows its opening lines when nothing fits, instead of refusing", async ({ page }) => {
@@ -183,7 +183,7 @@ test.describe("sticky notes", () => {
     expect(label.height).toBeGreaterThan(200 - 10);
   });
 
-  test("keeps a short note at its full size", async ({ page }) => {
+  test("starts a short note large instead of leaving the paper empty", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
     await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
@@ -193,7 +193,7 @@ test.describe("sticky notes", () => {
     await settle(page);
 
     const [label] = await labels(page);
-    expect(label.fontSize).toBe(20);
+    expect(label.fontSize).toBeGreaterThan(40);
   });
 
   test("Tab makes the next note beside the one selected", async ({ page }) => {
@@ -275,7 +275,7 @@ test.describe("sticky notes", () => {
     await settle(page);
 
     const [label] = await labels(page);
-    expect(label.text).toBe("Ship it, blue one");
+    expect(label.originalText).toBe("Ship it, blue one");
   });
 
   test("survives a reload with its size and metadata intact", async ({ page }) => {
@@ -296,7 +296,7 @@ test.describe("sticky notes", () => {
     expect(placed[0].sticky).toMatchObject({ color: "yellow" });
     expect(placed[0].schemaVersion).toBe(2);
     const [label] = await labels(page);
-    expect(label.text).toContain("Persisted");
+    expect(label.originalText).toContain("Persisted");
   });
 
   test("settles instead of drifting when left alone", async ({ page }) => {

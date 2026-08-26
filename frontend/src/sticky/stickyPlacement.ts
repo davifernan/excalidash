@@ -11,7 +11,7 @@
  * just said yes. If it ever genuinely does not open, the note is still there and
  * still selected, and Enter or a double-click does what it does on any shape.
  */
-import { STICKY_BASE_FONT_SIZE, type StickyColor } from "./stickyNote";
+import { STICKY_REFERENCE_FONT_SIZE, type StickyColor } from "./stickyNote";
 
 import type {
   InteractionCapability,
@@ -104,7 +104,7 @@ export function insertStickyNote(
     { kind: "select", ids: [placed.id] },
     {
       kind: "itemDefaults",
-      fontSize: STICKY_BASE_FONT_SIZE,
+      fontSize: STICKY_REFERENCE_FONT_SIZE,
       strokeColor: color.ink,
     },
   ]);

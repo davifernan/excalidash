@@ -14,7 +14,7 @@
  * when nothing actually differs, and that is what makes the loop terminate.
  */
 import { withChanges } from "../integrations/excalidraw/elements";
-import { fitTextToNote } from "./stickyFit";
+import { deriveStickyFontSize, fitTextToNote } from "./stickyFit";
 import { withExcalidashData } from "../integrations/excalidraw/customData";
 import { stickyDataOf, type StickyData } from "./stickyNote";
 
@@ -49,11 +49,47 @@ export type NormaliseOptions = {
 };
 
 /**
+ * Local-only font projection for an in-progress native resize.
+ *
+ * The container's remembered dimensions must not be adopted until pointer-up,
+ * and its geometry must not be rewritten while Excalidraw owns the gesture.
+ * This therefore changes only the bound label's derived font and preserves all
+ * revision fields.
+ */
+export function projectStickyFonts(
+  elements: readonly any[],
+  onlyContainerId?: string,
+): any[] | null {
+  const byId = new Map(elements.map((element) => [element.id, element]));
+  const projected = new Map<string, any>();
+  for (const note of elements) {
+    if (
+      !note ||
+      note.isDeleted ||
+      !stickyDataOf(note) ||
+      (onlyContainerId && note.id !== onlyContainerId)
+    ) {
+      continue;
+    }
+    const label = labelOf(note, byId);
+    if (!label) continue;
+    const fontSize = deriveStickyFontSize(note, label);
+    if (fontSize === null || fontSize === label.fontSize) continue;
+    projected.set(label.id, { ...label, fontSize });
+  }
+  return projected.size ? elements.map((element) => projected.get(element.id) ?? element) : null;
+}
+
+export const projectStickyResizeFont = (elements: readonly any[], resizingId: string) =>
+  projectStickyFonts(elements, resizingId);
+
+/**
  * The scene with every note put right, or null when nothing needed changing.
  *
  * Returning null rather than an equal array lets the caller skip the scene
- * update entirely, which is the difference between a quiet board and one that
- * re-renders on every mouse move.
+ * update entirely. During a resize, `useStickyUpkeep` calls the narrower font
+ * projection at most once per animation frame; this settled pass still runs
+ * only when actual note state differs.
  */
 export function normaliseStickyNotes(
   elements: readonly any[],
@@ -100,22 +136,29 @@ export function normaliseStickyNotes(
       const target = beingTyped
         ? { ...container, width: next.width, height: next.height }
         : container;
-      const fit = fitTextToNote(target, label, next.fontSize);
-      if (fit) {
+      const fit = beingTyped ? null : fitTextToNote(target, label);
+      const fontSize = beingTyped ? deriveStickyFontSize(target, label) : fit?.fontSize;
+      if (fontSize !== null && fontSize !== undefined) {
         // The writing belongs to the note, the way it does on a real one:
         // Excalidraw would otherwise hand the label whichever colour the person
         // last drew a line in.
-        const fitted = beingTyped
-          ? withChanges(label, { fontSize: fit.fontSize } as any)
+        const authoritative = beingTyped
+          ? label
           : withChanges(label, {
-              fontSize: fit.fontSize,
-              text: fit.text,
-              width: fit.width,
-              height: fit.height,
-              x: fit.x,
-              y: fit.y,
+              text: fit!.text,
+              width: fit!.width,
+              height: fit!.height,
+              x: fit!.x,
+              y: fit!.y,
               strokeColor: next.ink,
             } as any);
+        // `fontSize` is local presentation, not an authored scene edit. A raw
+        // projection is intentional here: bumping version/versionNonce would
+        // make two clients repeatedly send each other a value both can derive.
+        // Authoritative wrapping/colour changes above still use `withChanges`
+        // and therefore retain Excalidraw's normal revision semantics.
+        const fitted =
+          authoritative.fontSize === fontSize ? authoritative : { ...authoritative, fontSize };
         if (fitted !== label) replacements.set(label.id, fitted);
       }
     }

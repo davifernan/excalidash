@@ -46,6 +46,7 @@ export const scene = (page: Page) =>
       containerId: element.containerId,
       fontSize: element.fontSize,
       text: element.text,
+      originalText: element.originalText,
       sticky: element.customData?.excalidash?.sticky ?? null,
       mindMap: element.customData?.excalidash?.mindMap ?? null,
       mindMapProjection: element.customData?.excalidash?.mindMapProjection ?? null,

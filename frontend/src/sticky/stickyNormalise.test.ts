@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { setCustomTextMetricsProvider } from "@excalidraw/excalidraw";
-import { normaliseStickyNotes } from "./stickyNormalise";
+import { normaliseStickyNotes, projectStickyResizeFont } from "./stickyNormalise";
 import {
-  STICKY_BASE_FONT_SIZE,
+  STICKY_REFERENCE_FONT_SIZE,
   STICKY_COLORS,
   STICKY_SIZE,
   createStickyNote,
@@ -44,7 +44,7 @@ const labelFor = (note: any, text: string, over: Record<string, any> = {}) => ({
   locked: false,
   text,
   originalText: text,
-  fontSize: STICKY_BASE_FONT_SIZE,
+  fontSize: STICKY_REFERENCE_FONT_SIZE,
   fontFamily: 5,
   textAlign: "center",
   verticalAlign: "middle",
@@ -73,7 +73,7 @@ describe("putting a note back to size", () => {
   it("shrinks the writing instead", () => {
     const [note, label] = scene(long, { height: 640 });
     const out = normaliseStickyNotes([note, label])!;
-    expect(out[1].fontSize).toBeLessThan(STICKY_BASE_FONT_SIZE);
+    expect(out[1].fontSize).toBeLessThan(STICKY_REFERENCE_FONT_SIZE);
   });
 
   it("gives the writing the note's own colour", () => {
@@ -121,6 +121,18 @@ describe("staying still once everything is right", () => {
 });
 
 describe("a note somebody resized by hand", () => {
+  it("projects the live geometry without changing container state or revision", () => {
+    const [note, label] = scene("tiny", { width: 260, height: 260 });
+    const out = projectStickyResizeFont([note, label], note.id)!;
+    expect(out[0]).toBe(note);
+    expect(out[1].fontSize).toBeGreaterThan(label.fontSize);
+    expect(out[1]).toMatchObject({
+      version: label.version,
+      versionNonce: label.versionNonce,
+      updated: label.updated,
+    });
+  });
+
   it("keeps the new size and remembers it", () => {
     const [note, label] = scene("Hello", { width: 400, height: 320 });
     const out = normaliseStickyNotes([note, label], { resized: new Set([note.id]) })!;
@@ -171,7 +183,18 @@ describe("while somebody is typing", () => {
   it("shrinks the writing as it is typed", () => {
     const [note, label] = scene(long);
     const out = normaliseStickyNotes([note, label], { editing: editingLabel(note) })!;
-    expect(out[1].fontSize).toBeLessThan(STICKY_BASE_FONT_SIZE);
+    expect(out[1].fontSize).toBeLessThan(STICKY_REFERENCE_FONT_SIZE);
+  });
+
+  it("projects the derived font without authoring a new scene revision", () => {
+    const [note, label] = scene("tiny");
+    const out = normaliseStickyNotes([note, label], { editing: editingLabel(note) })!;
+    expect(out[1].fontSize).toBeGreaterThan(label.fontSize);
+    expect(out[1]).toMatchObject({
+      version: label.version,
+      versionNonce: label.versionNonce,
+      updated: label.updated,
+    });
   });
 
   it("leaves the wrapped text to Excalidraw, which owns it mid-edit", () => {

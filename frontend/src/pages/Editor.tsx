@@ -18,6 +18,7 @@ import { useEditorCollaboration } from "./editor/useEditorCollaboration";
 import { useEditorPersistence } from "./editor/useEditorPersistence";
 import { useEditorCanvasHandlers } from "./editor/useEditorCanvasHandlers";
 import { useStickyNotesFeature } from "../sticky";
+import { canonicalizeStickyFontState } from "../sticky/stickyDerivedState";
 import { useMindMapFeature } from "../mindMap";
 import { mindMapLayoutRunCount } from "../mindMap/mindMapScene";
 import { ambientTreeDragApplyCount, useAmbientTreeDrag } from "../ambientTree/useAmbientTreeDrag";
@@ -192,6 +193,8 @@ export const Editor: React.FC = () => {
         openDocument(adapter.scene.readDocument({ includeDeleted: true })),
       getFiles: () => unwrap(adapter.files.read(), {} as Record<string, unknown>),
       getViewport: () => unwrap(adapter.viewport.read(), null),
+      toViewport: (point: { x: number; y: number }) =>
+        unwrap(adapter.viewport.toViewport(point as never), null),
       showViewportBounds: (bounds: readonly number[]) =>
         adapter.viewport.showBounds(bounds as never),
       markViewportTrace: (trigger: string) => {
@@ -311,6 +314,11 @@ export const Editor: React.FC = () => {
     initialSceneElementsRef,
     latestElementsRef,
   });
+  const normalizeSceneForTransport = useCallback(
+    (elements: readonly any[] = [], files?: Record<string, any> | null) =>
+      canonicalizeStickyFontState(normalizeImageElementStatus(elements, files)),
+    [normalizeImageElementStatus],
+  );
   useEffect(() => {
     isUnmounting.current = false;
     return () => {
@@ -439,7 +447,7 @@ export const Editor: React.FC = () => {
     fileCapability: adapter.files,
     interaction: adapter.interaction,
     user,
-    normalizeImageElementStatus,
+    normalizeImageElementStatus: normalizeSceneForTransport,
     resolveSafeSnapshot,
   });
   useEditorFileUploads({ drawingId: id, fileCapability: adapter.files });
@@ -461,7 +469,7 @@ export const Editor: React.FC = () => {
     debouncedSavePreview,
     computeElementOrderSig,
     hasElementChanged,
-    normalizeImageElementStatus,
+    normalizeImageElementStatus: normalizeSceneForTransport,
     recordElementVersion,
     setHasSceneChangesSinceLoad: markSceneChangedSinceLoad,
   });

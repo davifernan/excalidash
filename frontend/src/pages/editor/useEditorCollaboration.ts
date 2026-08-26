@@ -43,6 +43,7 @@ import type {
   ViewportCapability,
 } from "../../integrations/excalidraw/capabilities";
 import { log } from "../../logging";
+import { deriveStickyFontState } from "../../sticky/stickyDerivedState";
 export type { Peer } from "./socketCollaborators";
 
 /**
@@ -444,6 +445,9 @@ export const useEditorCollaboration = ({
             filesAdded = false;
           }
         }
+        const renderedElements = mergedElements
+          ? deriveStickyFontState(mergedElements)
+          : mergedElements;
         let sceneApplied = true;
         if (filesAdded && mergedElements && sceneUpdate && "elements" in sceneUpdate) {
           const applied = scene.apply(
@@ -451,7 +455,7 @@ export const useEditorCollaboration = ({
               {
                 kind: "replaceDocument",
                 document: sealSceneDocument({
-                  elements: sceneUpdate.elements,
+                  elements: renderedElements ?? sceneUpdate.elements,
                   appState: {},
                   files: {},
                 }),
@@ -485,7 +489,7 @@ export const useEditorCollaboration = ({
           pendingElements.forEach((el: any) => {
             recordElementVersion(el);
           });
-          latestElementsRef.current = mergedElements;
+          latestElementsRef.current = renderedElements ?? mergedElements;
         }
         if (shouldUpdateFiles && filesAdded && sceneApplied) {
           latestFilesRef.current = nextFiles;

@@ -25,7 +25,12 @@ import {
 export const STICKY_SHORTCUT = "n";
 
 export const STICKY_SIZE = 200;
-export const STICKY_BASE_FONT_SIZE = 20;
+/**
+ * Stable measuring coordinate for sticky text. It is deliberately not a
+ * chosen or persisted font size: every visible size is derived from the text
+ * and note geometry against this one reference.
+ */
+export const STICKY_REFERENCE_FONT_SIZE = 20;
 
 export type StickyColor = {
   id: string;
@@ -112,7 +117,6 @@ export function createStickyNote(
     ink: color.ink,
     width: STICKY_SIZE,
     height: STICKY_SIZE,
-    fontSize: STICKY_BASE_FONT_SIZE,
   };
 
   return {

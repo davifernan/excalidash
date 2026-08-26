@@ -1,22 +1,15 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { setCustomTextMetricsProvider } from "@excalidraw/excalidraw";
 import { MIN_FONT_SIZE, fitTextToNote } from "./stickyFit";
-import { STICKY_BASE_FONT_SIZE, STICKY_SIZE, createStickyNote } from "./stickyNote";
+import { STICKY_REFERENCE_FONT_SIZE, createStickyNote } from "./stickyNote";
 
-/**
- * Real fonts are not loaded in jsdom, so the numbers a browser would produce
- * are unavailable. Excalidraw lets a caller supply its own metrics, which makes
- * these tests exact instead of approximately right: every character is half the
- * font size wide, so at 20pt a 19 character line is 190px and fills a 200px
- * note precisely.
- */
 beforeAll(() => {
   setCustomTextMetricsProvider({
     getLineWidth: (text: string, font: string) => text.length * (parseFloat(font) / 2),
   });
 });
 
-const label = (note: any, text: string) => ({
+const label = (note: any, text: string, fontSize = STICKY_REFERENCE_FONT_SIZE) => ({
   id: "label",
   type: "text",
   x: note.x,
@@ -45,7 +38,7 @@ const label = (note: any, text: string) => ({
   locked: false,
   text,
   originalText: text,
-  fontSize: STICKY_BASE_FONT_SIZE,
+  fontSize,
   fontFamily: 5,
   textAlign: "center",
   verticalAlign: "middle",
@@ -54,115 +47,92 @@ const label = (note: any, text: string) => ({
   autoResize: true,
 });
 
-const noteWith = (text: string) => {
-  const note = createStickyNote(0, 0);
+const noteAt = (size: number) => {
+  const note = createStickyNote(size / 2, size / 2);
+  note.width = size;
+  note.height = size;
   note.boundElements = [{ id: "label", type: "text" }];
-  return { note, text: label(note, text) };
+  return note;
 };
 
-describe("continuous shrink, not a ladder", () => {
-  it("produces sizes between rungs the old ladder never had", () => {
-    // 36/28/20/16/12/10/8 was the old ladder. A body of text sized to need
-    // something strictly between two old rungs (here: between 16 and 20) must
-    // land on a real in-between number, not snap to either neighbour.
-    const long = Array.from({ length: 20 }, (_, i) => `word${i}`).join(" ");
-    const { note, text } = noteWith(long);
-    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
-    expect(fit.fontSize).toBeLessThan(20);
-    expect(fit.fontSize).toBeGreaterThan(16);
-    expect([36, 28, 20, 16, 12, 10, 8]).not.toContain(fit.fontSize);
+const textAt = (length: number) =>
+  Array.from({ length }, (_, index) => (index % 6 === 5 ? " " : "x")).join("");
+
+const sizeFor = (noteSize: number, length: number, currentFont?: number) => {
+  const note = noteAt(noteSize);
+  return fitTextToNote(note, label(note, textAt(length), currentFont))!.fontSize;
+};
+
+describe("fixed-reference ratio curve", () => {
+  it("produces one smooth content curve at small, medium, and large note sizes", () => {
+    const noteSizes = [120, 200, 360];
+    const lengths = [3, 30, 300, 3000];
+    const matrix = noteSizes.map((noteSize) => ({
+      noteSize,
+      sizes: lengths.map((length) => sizeFor(noteSize, length)),
+    }));
+
+    // Keep the ticket's required numeric matrix visible in test output.
+    console.log(`NIL630_FONT_MATRIX=${JSON.stringify({ lengths, matrix })}`);
+
+    for (const { sizes } of matrix) {
+      expect(sizes[0]).toBeGreaterThan(sizes[1]);
+      expect(sizes[1]).toBeGreaterThan(sizes[2]);
+      expect(sizes[2]).toBeGreaterThanOrEqual(sizes[3]);
+    }
+    expect(matrix[2].sizes[0]).toBeGreaterThan(matrix[1].sizes[0]);
+    expect(matrix[1].sizes[0]).toBeGreaterThan(matrix[0].sizes[0]);
   });
 
-  it("shrinks strictly with length instead of jumping between fixed steps", () => {
-    // Three lengths on either side of an old rung boundary (16/12) should each
-    // get their own distinct size, not collapse onto the same rung.
-    const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
-    const sizes = [18, 24, 30].map((n) => {
-      const { note, text } = noteWith(words(n));
-      return fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!.fontSize;
-    });
-    expect(sizes[0]).toBeGreaterThan(sizes[1]);
-    expect(sizes[1]).toBeGreaterThan(sizes[2]);
+  it("changes continuously at the per-character boundary instead of jumping", () => {
+    const samples = Array.from({ length: 180 }, (_, index) => sizeFor(200, index + 20));
+    const at = samples.findIndex((value, index) => index > 0 && value < samples[index - 1]);
+    expect(at).toBeGreaterThan(0);
+    const delta = samples[at - 1] - samples[at];
+    expect(delta).toBeGreaterThan(0);
+    expect(delta).toBeLessThan(1);
   });
 
-  it("never shrinks below the reasoned floor", () => {
-    const essay = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
-    const { note, text } = noteWith(essay);
-    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
-    expect(fit.fontSize).toBe(MIN_FONT_SIZE);
-    expect(fit.fits).toBe(false);
+  it("does not feed the currently rendered font back into the answer", () => {
+    const fromTinyRender = sizeFor(200, 87, 8);
+    const fromHugeRender = sizeFor(200, 87, 96);
+    const fromItsOwnResult = sizeFor(200, 87, fromTinyRender);
+    expect(fromTinyRender).toBe(fromHugeRender);
+    expect(fromItsOwnResult).toBe(fromTinyRender);
+  });
+
+  it("is stable on both sides of a one-character shrink", () => {
+    const before = sizeFor(200, 87);
+    const after = sizeFor(200, 88);
+    expect(after).toBeLessThan(before);
+    for (let pass = 0; pass < 20; pass += 1) {
+      expect(sizeFor(200, 87, pass % 2 ? 8 : 96)).toBe(before);
+      expect(sizeFor(200, 88, pass % 2 ? 96 : 8)).toBe(after);
+    }
   });
 });
 
-describe("fitting the writing to the note", () => {
-  it("leaves a short note at its chosen size", () => {
-    const { note, text } = noteWith("Ship it");
-    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
-    expect(fit.fontSize).toBe(STICKY_BASE_FONT_SIZE);
-    expect(fit.fits).toBe(true);
-  });
-
-  it("wraps at the note's width, not the label's", () => {
-    const { note, text } = noteWith("hello world this is a fairly long sticky note text");
-    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
-    // 200 wide minus five points of padding a side leaves 190.
-    expect(fit.width).toBeLessThanOrEqual(STICKY_SIZE - 10);
+describe("fitting and floor behavior", () => {
+  it("wraps at the note width and keeps the note geometry unchanged", () => {
+    const note = noteAt(200);
+    const fit = fitTextToNote(note, label(note, textAt(300)))!;
+    expect(fit.width).toBeLessThanOrEqual(190);
+    expect(fit.height).toBeLessThanOrEqual(190);
     expect(fit.text).toContain("\n");
+    expect(note.width).toBe(200);
+    expect(note.height).toBe(200);
   });
 
-  it("shrinks the writing rather than growing the note", () => {
-    const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
-    const { note, text } = noteWith(long);
-    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
-    expect(fit.fontSize).toBeLessThan(STICKY_BASE_FONT_SIZE);
-    expect(fit.height).toBeLessThanOrEqual(STICKY_SIZE - 10);
-    expect(fit.fits).toBe(true);
-  });
-
-  it("says so when even the smallest writing overflows", () => {
-    const essay = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
-    const { note, text } = noteWith(essay);
-    const fit = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
-    expect(fit.fits).toBe(false);
+  it("uses the readable floor and reports overflow beyond it", () => {
+    const note = noteAt(120);
+    const fit = fitTextToNote(note, label(note, textAt(3000)))!;
     expect(fit.fontSize).toBe(MIN_FONT_SIZE);
+    expect(fit.fits).toBe(false);
   });
 
-  it("measures from the unwrapped text, so shrinking does not keep the old breaks", () => {
-    // The regression this guards: after one fit the label's `text` already
-    // carries newlines. Wrapping that again preserves them, so a smaller font
-    // reports the same number of lines and the note never actually shrinks.
-    const sentence = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
-    const { note, text } = noteWith(sentence);
-    const shrunk = { ...text, text: sentence.split(" ").join("\n"), originalText: sentence };
-    const fit = fitTextToNote(note, shrunk, 12)!;
-    expect(fit.text.split("\n").length).toBeLessThan(10);
-  });
-
-  it("climbs back to the chosen size when the text is deleted again", () => {
-    const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
-    const { note, text } = noteWith(long);
-    const shrunk = fitTextToNote(note, text, STICKY_BASE_FONT_SIZE)!;
-    expect(shrunk.fontSize).toBeLessThan(STICKY_BASE_FONT_SIZE);
-
-    const emptied = { ...text, text: "Short", originalText: "Short", fontSize: shrunk.fontSize };
-    const grown = fitTextToNote(note, emptied, STICKY_BASE_FONT_SIZE)!;
-    expect(grown.fontSize).toBe(STICKY_BASE_FONT_SIZE);
-  });
-
-  it("uses the whole note when the note was made bigger", () => {
-    const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
-    const small = noteWith(long);
-    const roomy = noteWith(long);
-    roomy.note.width = 600;
-    roomy.note.height = 600;
-
-    const tight = fitTextToNote(small.note, small.text, STICKY_BASE_FONT_SIZE)!;
-    const loose = fitTextToNote(roomy.note, roomy.text, STICKY_BASE_FONT_SIZE)!;
-    expect(loose.fontSize).toBeGreaterThan(tight.fontSize);
-  });
-
-  it("returns nothing rather than guessing when there is no label", () => {
-    expect(fitTextToNote(createStickyNote(0, 0), null, 20)).toBeNull();
-    expect(fitTextToNote(null, label({ id: "x", x: 0, y: 0 }, "hi"), 20)).toBeNull();
+  it("returns nothing instead of guessing without a container or label", () => {
+    const note = noteAt(200);
+    expect(fitTextToNote(note, null)).toBeNull();
+    expect(fitTextToNote(null, label(note, "hi"))).toBeNull();
   });
 });

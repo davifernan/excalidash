@@ -9,7 +9,7 @@ import {
   withExcalidashData,
 } from "./customData";
 
-const sticky = { color: "yellow", ink: "#422006", width: 180, height: 180, fontSize: 20 };
+const sticky = { color: "yellow", ink: "#422006", width: 180, height: 180 };
 const widget = { kind: "pdf" as const, assetId: "asset-1" };
 
 const element = (own: unknown, rest: Record<string, unknown> = {}) => ({
@@ -33,8 +33,14 @@ describe("the customData schema", () => {
   });
 
   it("refuses a note with a field missing rather than filling it in", () => {
-    const { fontSize: _dropped, ...incomplete } = sticky;
+    const { height: _dropped, ...incomplete } = sticky;
     expect(readSticky(element({ schemaVersion: SCHEMA_VERSION, sticky: incomplete }))).toBeNull();
+  });
+
+  it("drops the legacy stored font size because it is now derived", () => {
+    expect(
+      readSticky(element({ schemaVersion: SCHEMA_VERSION, sticky: { ...sticky, fontSize: 12 } })),
+    ).toEqual(sticky);
   });
 
   it("refuses a widget kind it does not know", () => {
