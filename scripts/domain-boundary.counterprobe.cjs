@@ -41,6 +41,10 @@ const installRenamedShapeProbe = ({ fixture, domainName, applicationName }) => {
   return applicationCopy;
 };
 
+const removeProbeDirectories = (...directories) => {
+  for (const directory of directories) fs.rmSync(directory, { recursive: true, force: true });
+};
+
 try {
   assert.equal(run().status, 0, "the real migrated tree must be clean before probing");
 
@@ -72,6 +76,85 @@ try {
     force: true,
   });
 
+  const interfaceSource = path.join(
+    repoRoot,
+    "scripts",
+    "test-fixtures",
+    "domain-boundary-interface-object.ts",
+  );
+  const domainType = path.join(
+    root,
+    "packages",
+    "domain",
+    "src",
+    "__interface_probe__",
+    "coordinate.ts",
+  );
+  const applicationInterface = path.join(
+    root,
+    "frontend",
+    "src",
+    "__interface_probe__",
+    "point.ts",
+  );
+  fs.mkdirSync(path.dirname(domainType), { recursive: true });
+  fs.mkdirSync(path.dirname(applicationInterface), { recursive: true });
+  fs.copyFileSync(interfaceSource, domainType);
+  fs.copyFileSync(interfaceSource, applicationInterface);
+  fs.writeFileSync(
+    applicationInterface,
+    fs
+      .readFileSync(applicationInterface, "utf8")
+      .replace(
+        "export type SharedProbeCoordinate = { probeX: number; probeY: string };",
+        "export interface LocalProbePoint { probeX: number; probeY: string }",
+      ),
+    "utf8",
+  );
+  const interfaceResult = run();
+  assert.equal(
+    interfaceResult.status,
+    1,
+    "a renamed interface copy of a domain type must turn the guard red",
+  );
+  assert.match(
+    output(interfaceResult),
+    /DUPLICATE SHAPE\s+SharedProbeCoordinate .* <> LocalProbePoint /,
+  );
+  removeProbeDirectories(path.dirname(domainType), path.dirname(applicationInterface));
+
+  const functionSource = path.join(
+    repoRoot,
+    "scripts",
+    "test-fixtures",
+    "domain-boundary-pure-function.ts",
+  );
+  const frontendFunction = path.join(
+    root,
+    "frontend",
+    "src",
+    "__function_probe__",
+    "pagination.ts",
+  );
+  const backendFunction = path.join(root, "backend", "src", "__function_probe__", "pagination.ts");
+  fs.mkdirSync(path.dirname(frontendFunction), { recursive: true });
+  fs.mkdirSync(path.dirname(backendFunction), { recursive: true });
+  fs.copyFileSync(functionSource, frontendFunction);
+  fs.copyFileSync(functionSource, backendFunction);
+  fs.writeFileSync(
+    backendFunction,
+    fs.readFileSync(backendFunction, "utf8").replace("sharedPageCount", "serverPageCount"),
+    "utf8",
+  );
+  const functionResult = run();
+  assert.equal(
+    functionResult.status,
+    1,
+    "a pure function duplicated between frontend and backend must turn the guard red",
+  );
+  assert.match(output(functionResult), /DUPLICATE SHAPE\s+sharedPageCount .* <> serverPageCount /);
+  removeProbeDirectories(path.dirname(frontendFunction), path.dirname(backendFunction));
+
   const renamedUnion = installRenamedShapeProbe({
     fixture: "domain-boundary-small-union.ts",
     domainName: "SharedOutcome",
@@ -93,7 +176,7 @@ try {
   assert.match(output(inwardResult), /INWARD IMPORT/);
 
   console.log(
-    "Domain boundary counterprobes passed (same-name copy, renamed small object/union, and inward import red).",
+    "Domain boundary counterprobes passed (same-name copy; renamed small object, union, and interface; pure cross-application function; and inward import red).",
   );
 } finally {
   removeSandbox(root);

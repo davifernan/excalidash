@@ -7,7 +7,8 @@
  * moving this file leaves the widgets invisible to the server -- the board
  * renders, and every page command is refused as "not part of this board".
  *
- * Kept in step with frontend/src/integrations/excalidraw/customData.ts.
+ * The schema source of truth is packages/domain/src/excalidraw/customData.ts;
+ * this module contains only the server-side reader and writer behavior.
  *
  * `mindMap`/`mindMapProjection` (`mapId`/`parentId`/`orderKey`) are gone
  * (NIL-593, Schnitt 2): the frontend's own relationship layer for the v1

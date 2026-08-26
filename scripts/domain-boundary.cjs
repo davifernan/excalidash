@@ -49,6 +49,12 @@ const compact = (text) =>
     .replace(/\/\/[^\n]*/g, "")
     .replace(/\s+/g, "");
 
+const structuralMembersShape = (members, sourceFile) =>
+  members
+    .map((member) => compact(member.getText(sourceFile)).replace(/[;,]+$/, ""))
+    .sort()
+    .join(";");
+
 const declarationOf = (node, sourceFile, file) => {
   if (!exported(node)) return null;
   let shape = null;
@@ -59,14 +65,21 @@ const declarationOf = (node, sourceFile, file) => {
       : ts.isUnionTypeNode(node.type)
         ? "union"
         : "type";
-    shape = `${structuralKind}:${compact(node.type.getText(sourceFile))}`;
+    shape = ts.isTypeLiteralNode(node.type)
+      ? `object:{${structuralMembersShape(node.type.members, sourceFile)}}`
+      : ts.isUnionTypeNode(node.type)
+        ? `union:${node.type.types
+            .map((type) => compact(type.getText(sourceFile)))
+            .sort()
+            .join("|")}`
+        : `type:${compact(node.type.getText(sourceFile))}`;
     // A small object or two-branch result union is still a complete domain
     // contract. Text length and branch count say nothing about whether copying
     // that contract creates a second source of truth, so every structural type
     // participates in shape matching. Simple reference aliases stay consumers.
     weight = structuralKind === "type" ? 1 : 3;
   } else if (ts.isInterfaceDeclaration(node)) {
-    shape = `object:${compact(node.members.map((member) => member.getText(sourceFile)).join(";"))}`;
+    shape = `object:{${structuralMembersShape(node.members, sourceFile)}}`;
     weight = 3;
   } else if (ts.isEnumDeclaration(node)) {
     shape = `enum:${compact(node.members.map((member) => member.getText(sourceFile)).join(";"))}`;
@@ -76,11 +89,14 @@ const declarationOf = (node, sourceFile, file) => {
     if (declarations.length !== 1 || !ts.isIdentifier(declarations[0].name)) return null;
     const declaration = declarations[0];
     if (!declaration.initializer) return null;
-    shape = `const:${compact(declaration.initializer.getText(sourceFile))}`;
-    weight = shape.length >= 30 ? 3 : 1;
     const callable =
       ts.isArrowFunction(declaration.initializer) ||
       ts.isFunctionExpression(declaration.initializer);
+    shape = `const:${compact(declaration.initializer.getText(sourceFile))}`;
+    // Exact non-trivial callable implementations participate in shape
+    // matching just like other constants. Tiny lifecycle/test seams are not
+    // treated as domain algorithms merely because both assign the same flag.
+    weight = shape.length >= 40 ? 3 : 1;
     const referenceOnly =
       ts.isIdentifier(declaration.initializer) ||
       ts.isPropertyAccessExpression(declaration.initializer) ||
@@ -141,9 +157,9 @@ const findViolations = ({ declarations, inwardImports }) => {
       const touchesDomain = a.owner === "domain" || b.owner === "domain";
       if (!crossesApplications && !touchesDomain) continue;
       // An exported alias is a consumer of the shared definition, not another
-      // definition. Likewise, same-named endpoint/service functions in the two
-      // applications are implementations, not wire contracts. Exact non-trivial
-      // function bodies are still caught by the shape check below.
+      // definition. Same-named endpoint/service functions in the two
+      // applications are not sufficient evidence by name alone, but an exact
+      // copied implementation is caught by the shape check below.
       if (a.referenceOnly || b.referenceOnly) continue;
       if (a.name === b.name) {
         if (!(a.callable && b.callable && !touchesDomain)) {
@@ -151,12 +167,7 @@ const findViolations = ({ declarations, inwardImports }) => {
           continue;
         }
       }
-      if (
-        a.weight >= 3 &&
-        b.weight >= 3 &&
-        a.shape === b.shape &&
-        !(a.callable && b.callable && !touchesDomain)
-      ) {
+      if (a.weight >= 3 && b.weight >= 3 && a.shape === b.shape) {
         violations.push(`DUPLICATE SHAPE  ${a.name} (${a.file}) <> ${b.name} (${b.file})`);
       }
     }

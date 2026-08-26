@@ -64,6 +64,26 @@ describe("document pagination worker client", () => {
     ).toHaveLength(3);
   });
 
+  it("rejects malformed data at the production worker boundary", async () => {
+    const postMessage = vi.fn<(response: DocumentPaginationResponse) => void>();
+    const workerScope: {
+      onmessage?: (event: MessageEvent<DocumentPaginationRequest>) => void;
+      postMessage: typeof postMessage;
+    } = { postMessage };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+
+    await import("./documentPagination.worker");
+    workerScope.onmessage?.(
+      new MessageEvent("message", {
+        data: { source: "not a valid kind", kind: "PDF" },
+      }),
+    );
+
+    expect(postMessage).toHaveBeenCalledOnce();
+    expect(postMessage.mock.calls[0][0]).toMatchObject({ ok: false });
+  });
+
   it("posts source to a module worker and releases it after the result", async () => {
     const result = paginateDocumentOffThread("one\ntwo", "TEXT");
     const worker = FakeWorker.instances[0];
