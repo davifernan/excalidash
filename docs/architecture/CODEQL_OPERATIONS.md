@@ -56,3 +56,20 @@ If either property stops holding, remove the `pull_request` trigger and retain t
 observer while investigating. The workflow contract test protects the remaining static boundary:
 exactly these three triggers, pull requests targeting `main`, no query filters, and no CodeQL
 context in `ops/repository-rules.sh`.
+
+### Activation measurement, 2026-08-26
+
+- Baseline analysis `1675407378` on `main` SHA `ef95be6bc9afc41dd1091e5278f5f8cc4f983cfd`
+  created five open alerts, GitHub #1 through #5.
+- With all five still open, the native CodeQL Action analyzed real draft PR #199 at merge SHA
+  `fd360190d0a9488e8bcc559da3f1fda2dec5eb06`. Workflow run `32972407958` succeeded and PR
+  analysis `1675458755` recorded zero results. The unchanged base alerts were therefore not
+  presented as alerts introduced by that PR.
+- Alerts #1 through #5 were then dismissed separately as false positives with the five reasons
+  in the baseline table. Analysis `1675466163` uploaded the exact same SARIF again for the exact
+  same `main` SHA. It still recorded five raw results—proving that neither query was disabled—but
+  the open-alert set was empty and the dismissed set retained the same five alert numbers and
+  reasons. No replacement alerts were created.
+
+The raw-result count and open-alert count answer different questions. Raw results prove the
+queries still ran; the alert state proves that GitHub remembered the individual decisions.
