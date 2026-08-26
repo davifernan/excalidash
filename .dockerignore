@@ -7,9 +7,12 @@ dist
 .env
 .DS_Store
 *.log
-backend
 frontend/node_modules
 frontend/dist
 frontend/coverage
 frontend/test-results
 frontend/playwright-report
+backend/node_modules
+backend/dist
+backend/coverage
+backend/test-results

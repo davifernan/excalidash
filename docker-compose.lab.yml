@@ -8,8 +8,8 @@ x-default-logging: &default-logging
 
 x-backend-build: &backend-build
   build:
-    context: ./backend
-    dockerfile: Dockerfile
+    context: .
+    dockerfile: backend/Dockerfile
 
 x-frontend-build: &frontend-build
   build:

@@ -29,10 +29,8 @@ help: ## Show this help message
 	@echo "Current version: $(VERSION)"
 
 install: ## Install all dependencies (frontend, backend, e2e)
-	@echo "Installing frontend dependencies..."
-	cd frontend && npm install
-	@echo "Installing backend dependencies..."
-	cd backend && npm install
+	@echo "Installing application workspace dependencies..."
+	npm install
 	@echo "Installing e2e dependencies..."
 	cd e2e && npm install
 	@echo "All dependencies installed."

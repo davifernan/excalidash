@@ -1,0 +1,20 @@
+{
+  "name": "excalidash",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @excalidash/domain && npm run build --workspace backend && npm run build --workspace frontend",
+    "build:domain": "npm run build --workspace @excalidash/domain",
+    "build:backend": "npm run build:domain && npm run build --workspace backend",
+    "build:frontend": "npm run build:domain && npm run build --workspace frontend",
+    "check:domain-boundary": "node scripts/domain-boundary.cjs",
+    "test:domain-boundary": "node scripts/domain-boundary.counterprobe.cjs"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

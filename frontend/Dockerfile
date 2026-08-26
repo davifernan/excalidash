@@ -1,17 +1,21 @@
 # Build stage
 FROM node:24-alpine AS builder
 
-WORKDIR /app/frontend
+WORKDIR /app
 
-# Copy package files first for better caching
-COPY frontend/package*.json ./
+# The frontend consumes the private domain workspace. Copy manifests first so
+# dependency installation remains cacheable without copying either source tree.
+COPY package.json package-lock.json ./
+COPY frontend/package.json ./frontend/package.json
+COPY backend/package.json ./backend/package.json
+COPY packages/domain/package.json ./packages/domain/package.json
 
-# Install dependencies
-RUN npm ci && npm cache clean --force
+RUN npm ci --workspace frontend --workspace @excalidash/domain --include-workspace-root && \
+    npm cache clean --force
 
-# Copy source code and config files
-COPY frontend/ ./
-COPY VERSION ../VERSION
+COPY packages/domain/ ./packages/domain/
+COPY frontend/ ./frontend/
+COPY VERSION ./VERSION
 
 # Build arguments
 ARG VITE_APP_VERSION
@@ -20,7 +24,7 @@ ENV VITE_APP_VERSION=$VITE_APP_VERSION
 ENV VITE_APP_BUILD_LABEL=$VITE_APP_BUILD_LABEL
 
 # Build the application
-RUN npm run build
+RUN npm run build:frontend
 
 # Production stage
 FROM nginx:alpine

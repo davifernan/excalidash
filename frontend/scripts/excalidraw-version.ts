@@ -14,6 +14,21 @@ const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
  */
 export const readExcalidrawVersion = (): string => {
   try {
+    let packageDirectory = path.dirname(
+      fileURLToPath(import.meta.resolve("@excalidraw/excalidraw")),
+    );
+    while (packageDirectory !== path.dirname(packageDirectory)) {
+      const candidate = path.join(packageDirectory, "package.json");
+      if (fs.existsSync(candidate)) {
+        const candidatePackage = JSON.parse(fs.readFileSync(candidate, "utf8"));
+        if (candidatePackage.name === "@excalidraw/excalidraw") {
+          return typeof candidatePackage.version === "string" && candidatePackage.version
+            ? candidatePackage.version
+            : "unknown";
+        }
+      }
+      packageDirectory = path.dirname(packageDirectory);
+    }
     const manifest = path.join(
       frontendRoot,
       "node_modules",

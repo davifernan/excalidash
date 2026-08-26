@@ -50,6 +50,7 @@ backend/.prisma-workspaces.tmp/
 frontend/dist/
 frontend/build/
 backend/dist/
+packages/domain/dist/
 
 # Generated Excalidraw assets (copied from node_modules for runtime)
 frontend/public/excalidraw-assets/
