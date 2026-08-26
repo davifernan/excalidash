@@ -20,7 +20,11 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
-const { checkDrift } = require("./deployment-drift-check.cjs");
+const {
+  checkDrift,
+  extractKeyValues,
+  extractServiceBlocks,
+} = require("./deployment-drift-check.cjs");
 
 const repoRoot = path.resolve(__dirname, "..");
 const CANONICAL_TEXT = fs.readFileSync(path.join(repoRoot, "docker-compose.prod.yml"), "utf8");
@@ -52,11 +56,23 @@ const MINIMAL_NO_LOGGING = `services:
     networks:
       - net
 
-  bugsink:
-    image: bugsink/bugsink:2.5.0
+  glitchtip-postgres:
+    image: postgres:17.11-alpine
     profiles: ["observability"]
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 192m
+    memswap_limit: 192m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "20"
+        compress: "true"
+
+  glitchtip:
+    image: glitchtip/glitchtip:6.2.6
+    profiles: ["observability"]
+    mem_limit: 320m
+    memswap_limit: 320m
     logging:
       driver: json-file
       options:
@@ -96,11 +112,23 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
     networks:
       - net
 
-  bugsink:
-    image: bugsink/bugsink:2.5.0
+  glitchtip-postgres:
+    image: postgres:17.11-alpine
     profiles: ["observability"]
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 192m
+    memswap_limit: 192m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "20"
+        compress: "true"
+
+  glitchtip:
+    image: glitchtip/glitchtip:6.2.6
+    profiles: ["observability"]
+    mem_limit: 320m
+    memswap_limit: 320m
     logging:
       driver: json-file
       options:
@@ -112,6 +140,25 @@ networks:
   net:
     driver: bridge
 `;
+
+test("observability is GlitchTip plus Postgres, without Redis/Valkey, inside one 512 MiB ceiling", () => {
+  const services = extractServiceBlocks(CANONICAL_TEXT);
+  assert.ok(services.glitchtip, "expected the GlitchTip service");
+  assert.ok(services["glitchtip-postgres"], "expected GlitchTip's Postgres service");
+  assert.equal(services.redis, undefined);
+  assert.equal(services.valkey, undefined);
+  assert.match(services.glitchtip, /^ {6}- VALKEY_URL=\s*$/m);
+  assert.match(services.glitchtip, /^ {6}- SERVER_ROLE=all_in_one\s*$/m);
+
+  const glitchtipLimits = extractKeyValues(services.glitchtip);
+  const postgresLimits = extractKeyValues(services["glitchtip-postgres"]);
+  assert.deepEqual(glitchtipLimits, { mem_limit: "320m", memswap_limit: "320m" });
+  assert.deepEqual(postgresLimits, { mem_limit: "192m", memswap_limit: "192m" });
+  assert.equal(
+    Number.parseInt(glitchtipLimits.mem_limit) + Number.parseInt(postgresLimits.mem_limit),
+    512,
+  );
+});
 
 test("catches the real NIL-416 regression: the actual repo prod.yml vs. a deployment file with no logging block", () => {
   withTempFile(MINIMAL_NO_LOGGING, (deploymentPath) => {
@@ -183,7 +230,7 @@ test("flags a mem_limit that reverted to a different value", () => {
 
 test("flags a service present upstream but entirely missing from the deployment file", () => {
   const missingFrontend = MINIMAL_WITH_MATCHING_LOGGING.replace(
-    /\n  frontend:[\s\S]*?(?=\n  bugsink:)/,
+    /\n  frontend:[\s\S]*?(?=\n  glitchtip-postgres:)/,
     "\n",
   );
   withTempFile(missingFrontend, (deploymentPath) => {
@@ -196,17 +243,32 @@ test("flags a service present upstream but entirely missing from the deployment 
   });
 });
 
-test("still requires a profile-gated service in the deployment definition", () => {
-  const missingBugsink = MINIMAL_WITH_MATCHING_LOGGING.replace(
-    /\n  bugsink:[\s\S]*?(?=\nnetworks:)/,
+test("still requires the profile-gated GlitchTip service in the deployment definition", () => {
+  const missingGlitchTip = MINIMAL_WITH_MATCHING_LOGGING.replace(
+    /\n  glitchtip:[\s\S]*?(?=\nnetworks:)/,
     "\n",
   );
-  withTempFile(missingBugsink, (deploymentPath) => {
+  withTempFile(missingGlitchTip, (deploymentPath) => {
     const result = checkDrift({ deploymentPath, canonicalText: CANONICAL_TEXT, canonicalLabel: LABEL });
     assert.equal(result.ok, false);
     assert.ok(
-      result.findings.some((f) => f.includes('service "bugsink"') && f.includes("not in")),
-      `expected a missing Bugsink finding, got: ${JSON.stringify(result.findings)}`,
+      result.findings.some((f) => f.includes('service "glitchtip"') && f.includes("not in")),
+      `expected a missing GlitchTip finding, got: ${JSON.stringify(result.findings)}`,
+    );
+  });
+});
+
+test("still requires GlitchTip's profile-gated Postgres service", () => {
+  const missingPostgres = MINIMAL_WITH_MATCHING_LOGGING.replace(
+    /\n  glitchtip-postgres:[\s\S]*?(?=\n  glitchtip:)/,
+    "\n",
+  );
+  withTempFile(missingPostgres, (deploymentPath) => {
+    const result = checkDrift({ deploymentPath, canonicalText: CANONICAL_TEXT, canonicalLabel: LABEL });
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.findings.some((f) => f.includes('service "glitchtip-postgres"') && f.includes("not in")),
+      `expected a missing GlitchTip Postgres finding, got: ${JSON.stringify(result.findings)}`,
     );
   });
 });
@@ -260,11 +322,23 @@ test("does not cry wolf over the deliberate host-only differences in the real de
         max-file: "20"
         compress: "true"
 
-  bugsink:
-    image: bugsink/bugsink:2.5.0
+  glitchtip-postgres:
+    image: postgres:17.11-alpine
     profiles: ["observability"]
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 192m
+    memswap_limit: 192m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "20"
+        compress: "true"
+
+  glitchtip:
+    image: glitchtip/glitchtip:6.2.6
+    profiles: ["observability"]
+    mem_limit: 320m
+    memswap_limit: 320m
     logging:
       driver: json-file
       options:

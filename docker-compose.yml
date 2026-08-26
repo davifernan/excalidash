@@ -123,39 +123,78 @@ services:
       timeout: 10s
       retries: 3
 
-  bugsink:
-    image: bugsink/bugsink:2.5.0
+  glitchtip-postgres:
+    image: postgres:17.11-alpine
     profiles: ["observability"]
-    container_name: excalidash-bugsink
-    mem_limit: 512m
-    memswap_limit: 512m
-    ports:
-      - "${BUGSINK_PORT:-8088}:8000"
+    container_name: excalidash-glitchtip-postgres
+    # NIL-626: the complete observability profile keeps Bugsink's former
+    # 512 MiB ceiling. Fresh migrations peaked at 51.4 MiB here; a paced
+    # 12-event backend run peaked at 63.3 MiB (26.08.2026).
+    mem_limit: 192m
+    memswap_limit: 192m
     environment:
-      - SECRET_KEY=${BUGSINK_SECRET_KEY:-}
-      - CREATE_SUPERUSER=${BUGSINK_CREATE_SUPERUSER:-}
-      - BASE_URL=${BUGSINK_BASE_URL:-http://localhost:8088}
-      - PORT=8000
-      - SINGLE_USER=True
-      - USER_REGISTRATION=CB_NOBODY
-      - PHONEHOME=False
-      - MINIMIZE_INFORMATION_EXPOSURE=True
-      - BEHIND_HTTPS_PROXY=${BUGSINK_BEHIND_HTTPS_PROXY:-False}
+      - POSTGRES_DB=${GLITCHTIP_DB_NAME:-glitchtip}
+      - POSTGRES_USER=${GLITCHTIP_DB_USER:-glitchtip}
+      - POSTGRES_PASSWORD=${GLITCHTIP_DB_PASSWORD:-}
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30"]
     volumes:
-      - bugsink-data:/data
+      - glitchtip-postgres-data:/var/lib/postgresql/data
+    networks:
+      - excalidash-network
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import requests; requests.get('http://127.0.0.1:8000/health/ready', timeout=5).raise_for_status()",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  glitchtip:
+    image: glitchtip/glitchtip:6.2.6
+    profiles: ["observability"]
+    container_name: excalidash-glitchtip
+    # Together with glitchtip-postgres this remains within the old 512 MiB
+    # Bugsink budget. Fresh migrations peaked at 140.3 MiB; the paced event
+    # run peaked at 172.6 MiB. Equal memswap_limit forbids host swap usage.
+    mem_limit: 320m
+    memswap_limit: 320m
+    ports:
+      - "${GLITCHTIP_PORT:-8088}:8000"
+    environment:
+      - DATABASE_URL=postgresql://${GLITCHTIP_DB_USER:-glitchtip}:${GLITCHTIP_DB_PASSWORD:-}@glitchtip-postgres:5432/${GLITCHTIP_DB_NAME:-glitchtip}
+      # An explicit empty value disables Valkey/Redis. GlitchTip then uses
+      # Postgres for its task queue, cache and sessions.
+      - VALKEY_URL=
+      - SECRET_KEY=${GLITCHTIP_SECRET_KEY:-}
+      - EMAIL_URL=${GLITCHTIP_EMAIL_URL:-consolemail://}
+      - DEFAULT_FROM_EMAIL=${GLITCHTIP_DEFAULT_FROM_EMAIL:-glitchtip@localhost}
+      - GLITCHTIP_DOMAIN=${GLITCHTIP_DOMAIN:-http://localhost:8088}
+      - ALLOWED_HOSTS=${GLITCHTIP_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - CSRF_TRUSTED_ORIGINS=${GLITCHTIP_CSRF_TRUSTED_ORIGINS:-}
+      - SERVER_ROLE=all_in_one
+      - ENABLE_USER_REGISTRATION=False
+      - ENABLE_ORGANIZATION_CREATION=False
+      - GLITCHTIP_ENABLE_LOGS=False
+      - GLITCHTIP_ENABLE_UPTIME=False
+      - GLITCHTIP_ENABLE_MCP=False
+      - GLITCHTIP_ENABLE_DUCKDB=False
+      - VTASKS_CONCURRENCY=2
+      - DATABASE_POOL_MAX_SIZE=5
+      - GLITCHTIP_RETENTION_DAYS=${GLITCHTIP_RETENTION_DAYS:-90}
+    depends_on:
+      glitchtip-postgres:
+        condition: service_healthy
+    volumes:
+      - glitchtip-uploads:/code/uploads
+    networks:
+      - excalidash-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "python", "healthcheck.py"]
       interval: 10s
       timeout: 10s
-      retries: 12
+      retries: 20
 
 networks:
   excalidash-network:
@@ -163,4 +202,5 @@ networks:
 
 volumes:
   backend-data:
-  bugsink-data:
+  glitchtip-postgres-data:
+  glitchtip-uploads:
