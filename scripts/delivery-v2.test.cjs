@@ -301,6 +301,57 @@ test("RED: User-Facing rejects ticket and PR number references (NIL-507, Davi's 
   assert.equal(hashNotNumber.ok, true);
 });
 
+test("RED: User-Facing rejects `none -- <reason>` regardless of Change-Kind (NIL-599)", () => {
+  const manifest = impact([]);
+
+  // The literal escape hatch stays valid with any Change-Kind.
+  for (const changeKind of ["none", "added", "fixed", "changed"]) {
+    const literalNone = checkPrAdmission({
+      body: prBody({ userFacing: "none", changeKind }),
+      impactManifest: manifest,
+    });
+    if (changeKind === "none") {
+      assert.equal(literalNone.ok, true, `User-Facing: none must stay valid with Change-Kind: ${changeKind}`);
+    }
+    // (non-"none" Change-Kind cases paired with User-Facing: none are already
+    // covered by the NIL-577 pairing rule above -- not re-asserted here.)
+  }
+
+  // A "none -- reason" sentence must be rejected no matter which Change-Kind
+  // is declared alongside it -- the bug this ticket fixes is that pairing it
+  // with a non-`none` Change-Kind used to slip past both existing checks.
+  for (const changeKind of ["none", "added", "fixed", "changed"]) {
+    const noneWithReason = checkPrAdmission({
+      body: prBody({
+        userFacing: "none -- test-only change to an e2e performance regression check.",
+        changeKind,
+      }),
+      impactManifest: manifest,
+    });
+    assert.equal(noneWithReason.code, "delivery-contract", `must reject with Change-Kind: ${changeKind}`);
+    assert.match(noneWithReason.message, /User-Facing must be exactly `none`/);
+  }
+
+  // An ordinary sentence that merely contains the word "none" somewhere in
+  // the middle -- not at the start -- must remain valid.
+  const midSentence = checkPrAdmission({
+    body: prBody({
+      userFacing: "Boards can now be starred; none of your existing collections change.",
+      changeKind: "changed",
+    }),
+    impactManifest: manifest,
+  });
+  assert.equal(midSentence.ok, true);
+
+  // A word that merely starts with the substring "none" (not the word
+  // "none" itself) must remain valid too.
+  const wordPrefix = checkPrAdmission({
+    body: prBody({ userFacing: "nonexistent boards now return a clear 404.", changeKind: "fixed" }),
+    impactManifest: manifest,
+  });
+  assert.equal(wordPrefix.ok, true);
+});
+
 test("PR admission surfaces Change-Kind, and requires it to agree with User-Facing (NIL-577)", () => {
   const manifest = impact([]);
 

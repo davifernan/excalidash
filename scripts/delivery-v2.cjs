@@ -334,6 +334,14 @@ function parsePrDeliveryContract(body) {
         "access. Describe what changed in plain language instead.",
     );
   }
+  if (userFacing[0] !== USER_FACING_NONE && /^none\b/.test(userFacing[0])) {
+    throw new Error(
+      "User-Facing must be exactly `none`, not a sentence that starts with the word \"none\" " +
+        "(e.g. `none -- test-only change`) -- the release-notes collector treats anything " +
+        "other than the exact literal `none` as a real, user-facing sentence and would ship " +
+        "it verbatim in the changelog. Received: `" + userFacing[0] + "`.",
+    );
+  }
 
   const changeKindFields = fieldValues(text, "Change-Kind");
   if (changeKindFields.length !== 1 || !Object.values(CHANGE_KIND).includes(changeKindFields[0])) {
