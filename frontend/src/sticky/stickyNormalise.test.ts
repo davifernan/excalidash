@@ -1,6 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { setCustomTextMetricsProvider } from "@excalidraw/excalidraw";
-import { normaliseStickyNotes, projectStickyResizeFont } from "./stickyNormalise";
+import {
+  normaliseStickyNotes,
+  projectStickyFonts,
+  projectStickyResizeFont,
+} from "./stickyNormalise";
 import {
   STICKY_REFERENCE_FONT_SIZE,
   STICKY_COLORS,
@@ -121,6 +125,15 @@ describe("staying still once everything is right", () => {
 });
 
 describe("a note somebody resized by hand", () => {
+  it("ignores transient label-driven growth outside the live-resize path", () => {
+    const [note, label] = scene(long, { width: 640, height: 640 });
+    const projected = projectStickyFonts([note, label])!;
+    const liveResize = projectStickyResizeFont([note, label], note.id)!;
+
+    expect(projected[1].fontSize).toBeLessThan(liveResize[1].fontSize);
+    expect(projected[1].fontSize).toBeLessThan(STICKY_REFERENCE_FONT_SIZE);
+  });
+
   it("projects the live geometry without changing container state or revision", () => {
     const [note, label] = scene("tiny", { width: 260, height: 260 });
     const out = projectStickyResizeFont([note, label], note.id)!;

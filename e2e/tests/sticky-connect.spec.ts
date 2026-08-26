@@ -453,7 +453,7 @@ test.describe("two clients typing into the same note", () => {
       () =>
         (window as any).__EXCALIDASH_TEST__
           .getSceneElements()
-          .find((e: any) => e.containerId)?.text ?? null,
+          .find((e: any) => e.containerId)?.originalText ?? null,
     );
 
   test("keeps this browser's in-progress typing when the other browser's edit of the same note arrives mid-keystroke", async ({

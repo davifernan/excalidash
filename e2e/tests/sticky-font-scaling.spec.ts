@@ -25,22 +25,6 @@ const settle = async (page: Page) => {
   await page.waitForTimeout(400);
 };
 
-/** Sets a note's label text directly through the harness, bypassing typing --
- * the measurement series and cross-context checks care about the derived
- * size for a given piece of content, not about the typing path itself
- * (sticky-notes.spec.ts already covers typing). */
-const setLabelText = async (page: Page, text: string) => {
-  await page.evaluate((value) => {
-    const api = (window as any).__EXCALIDASH_TEST__;
-    const elements = api.getSceneElements();
-    const withText = elements.map((element: any) =>
-      element.type === "text" ? { ...element, text: value, originalText: value } : element,
-    );
-    api.updateScene({ elements: withText });
-  }, text);
-  await settle(page);
-};
-
 const textAt = (length: number) =>
   Array.from({ length }, (_, index) => (index % 6 === 5 ? " " : "x")).join("");
 
@@ -255,21 +239,13 @@ test.describe("sticky note font scaling (NIL-630)", () => {
         ),
       );
 
-      await placeNote(pageA, { x: 400, y: 300 });
-      await pageA.keyboard.type("x");
-      await pageA.keyboard.press("Escape");
-      await settle(pageA);
-      await pageB.waitForFunction(() =>
-        (window as any).__EXCALIDASH_TEST__
-          .getSceneElements()
-          .some((element: any) => element.originalText === "x"),
-      );
-
       const longText =
         "Two people looking at the same note from two different browsers must see " +
         "the writing at exactly the same size, because it is derived from the note's " +
         "content and dimensions alone, never stored and synced as a separate value.";
-      await setLabelText(pageA, longText);
+      await placeNote(pageA, { x: 400, y: 300 });
+      await pageA.keyboard.type(longText, { delay: 0 });
+      await pageA.keyboard.press("Escape");
 
       // Wait for B to receive the synced text before reading its own derived
       // size -- B computes its own fontSize locally, it does not receive one.

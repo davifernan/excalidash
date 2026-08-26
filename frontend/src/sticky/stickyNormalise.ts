@@ -73,7 +73,16 @@ export function projectStickyFonts(
     }
     const label = labelOf(note, byId);
     if (!label) continue;
-    const fontSize = deriveStickyFontSize(note, label);
+    const data = stickyDataOf(note)!;
+    // Excalidraw may temporarily grow a bound container while its label is
+    // edited. That transient geometry can cross the collaboration boundary,
+    // but it is not the note size the user chose. Inbound/local projections
+    // therefore use the remembered size; only the explicitly scoped live
+    // resize path is allowed to follow current pointer geometry.
+    const measuringNote = onlyContainerId
+      ? note
+      : { ...note, width: data.width, height: data.height };
+    const fontSize = deriveStickyFontSize(measuringNote, label);
     if (fontSize === null || fontSize === label.fontSize) continue;
     projected.set(label.id, { ...label, fontSize });
   }
