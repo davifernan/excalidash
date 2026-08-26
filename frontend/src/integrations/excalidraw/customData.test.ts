@@ -4,8 +4,7 @@ import {
   NAMESPACE,
   SCHEMA_VERSION,
   readExcalidashData,
-  readMindMap,
-  readMindMapProjection,
+  readNodeState,
   readSticky,
   readWidget,
   withExcalidashData,
@@ -13,8 +12,7 @@ import {
 
 const sticky = { color: "yellow", ink: "#422006", width: 180, height: 180, fontSize: 20 };
 const widget = { kind: "pdf" as const, assetId: "asset-1" };
-const mindMap = { mapId: "map-1", parentId: "node-parent", orderKey: "0002" };
-const mindMapProjection = { mapId: "map-1", childId: "node-child" };
+const nodeState = { pinned: true, collapsed: true };
 
 const element = (own: unknown, rest: Record<string, unknown> = {}) => ({
   customData: { ...rest, [NAMESPACE]: own },
@@ -55,51 +53,10 @@ describe("the customData schema", () => {
     ).toBeNull();
   });
 
-  it("reads the semantic relationship from the node and the projection marker from the arrow", () => {
-    const data = readExcalidashData(
-      element({ schemaVersion: SCHEMA_VERSION, mindMap, mindMapProjection }),
-    );
-    expect(data).toEqual({
-      schemaVersion: SCHEMA_VERSION,
-      mindMap,
-      mindMapProjection,
-    });
-    expect(readMindMap(element({ schemaVersion: SCHEMA_VERSION, mindMap }))).toEqual(mindMap);
-    expect(
-      readMindMapProjection(element({ schemaVersion: SCHEMA_VERSION, mindMapProjection })),
-    ).toEqual(mindMapProjection);
-  });
-
-  it("accepts a root relation only with an explicit null parent", () => {
-    const root = { mapId: "map-1", parentId: null, orderKey: "root" };
-    expect(readMindMap(element({ schemaVersion: SCHEMA_VERSION, mindMap: root }))).toEqual(root);
-    expect(
-      readMindMap(
-        element({
-          schemaVersion: SCHEMA_VERSION,
-          mindMap: { mapId: "map-1", orderKey: "root" },
-        }),
-      ),
-    ).toBeNull();
-  });
-
-  it("refuses incomplete or empty semantic and projection identifiers", () => {
-    expect(
-      readMindMap(
-        element({
-          schemaVersion: SCHEMA_VERSION,
-          mindMap: { mapId: "", parentId: null, orderKey: "root" },
-        }),
-      ),
-    ).toBeNull();
-    expect(
-      readMindMapProjection(
-        element({
-          schemaVersion: SCHEMA_VERSION,
-          mindMapProjection: { mapId: "map-1", childId: "" },
-        }),
-      ),
-    ).toBeNull();
+  it("reads pin/collapse state off nodeState", () => {
+    const data = readExcalidashData(element({ schemaVersion: SCHEMA_VERSION, nodeState }));
+    expect(data).toEqual({ schemaVersion: SCHEMA_VERSION, nodeState });
+    expect(readNodeState(element({ schemaVersion: SCHEMA_VERSION, nodeState }))).toEqual(nodeState);
   });
 
   it("returns nothing for an element that carries neither", () => {
@@ -107,6 +64,78 @@ describe("the customData schema", () => {
     expect(readExcalidashData({ customData: {} })).toBeNull();
     expect(readExcalidashData({})).toBeNull();
     expect(readExcalidashData(null)).toBeNull();
+  });
+
+  // NIL-593, Schnitt 2: the mind-map tool's own structural fields
+  // (mapId/parentId/orderKey) are torn down. An element that still carries
+  // them in stored JSON must neither crash this reader nor have them come
+  // back out as structure -- readExcalidashData has simply never heard of
+  // them.
+  describe("an existing board with old mind-map data (NIL-593 teardown)", () => {
+    const legacyMindMap = { mapId: "map-1", parentId: "node-parent", orderKey: "0002" };
+    const legacyProjection = { mapId: "map-1", childId: "node-child" };
+
+    it("does not throw and reports no excalidash data for a node whose only record was the dead structure", () => {
+      expect(() =>
+        readExcalidashData(element({ schemaVersion: SCHEMA_VERSION, mindMap: legacyMindMap })),
+      ).not.toThrow();
+      expect(
+        readExcalidashData(element({ schemaVersion: SCHEMA_VERSION, mindMap: legacyMindMap })),
+      ).toBeNull();
+    });
+
+    it("does not throw for the old projection marker on an arrow either", () => {
+      expect(() =>
+        readExcalidashData(
+          element({ schemaVersion: SCHEMA_VERSION, mindMapProjection: legacyProjection }),
+        ),
+      ).not.toThrow();
+    });
+
+    it("never surfaces mapId/parentId as a field of ExcalidashData -- there is no reader left that returns them", () => {
+      const data = readExcalidashData(
+        element({ schemaVersion: SCHEMA_VERSION, sticky, mindMap: legacyMindMap }),
+      );
+      expect(data).toEqual({ schemaVersion: SCHEMA_VERSION, sticky });
+      expect(data).not.toHaveProperty("mindMap");
+    });
+
+    it("readNodeState falls back to the old pinned/collapsed booleans once, but never to mapId/parentId", () => {
+      const legacy = { mapId: "map-1", parentId: null, orderKey: "root", pinned: true };
+      const state = readNodeState(element({ schemaVersion: SCHEMA_VERSION, mindMap: legacy }));
+      expect(state).toEqual({ pinned: true });
+    });
+
+    it("readNodeState prefers the new nodeState field once a client has written one", () => {
+      const legacy = { mapId: "map-1", parentId: null, orderKey: "root", pinned: true };
+      const state = readNodeState(
+        element({
+          schemaVersion: SCHEMA_VERSION,
+          mindMap: legacy,
+          nodeState: { collapsed: true },
+        }),
+      );
+      expect(state).toEqual({ collapsed: true });
+    });
+
+    it("readNodeState returns null, not an empty object, when neither shape carries a true flag", () => {
+      expect(readNodeState(element({ schemaVersion: SCHEMA_VERSION }))).toBeNull();
+      expect(
+        readNodeState(
+          element({
+            schemaVersion: SCHEMA_VERSION,
+            mindMap: { mapId: "map-1", parentId: null, orderKey: "root" },
+          }),
+        ),
+      ).toBeNull();
+    });
+
+    it("a patch that touches an unrelated field lets the dead structure fall away, not round-trip forever", () => {
+      const original = element({ schemaVersion: SCHEMA_VERSION, mindMap: legacyMindMap });
+      const written = withExcalidashData(original, { widget });
+      expect((written[NAMESPACE] as Record<string, unknown>).mindMap).toBeUndefined();
+      expect(readWidget({ customData: written })).toEqual(widget);
+    });
   });
 
   describe("writing", () => {
@@ -138,14 +167,13 @@ describe("the customData schema", () => {
       expect(JSON.stringify(original)).toBe(snapshot);
     });
 
-    it("round-trips what it wrote", () => {
-      const written = withExcalidashData({}, { sticky, widget, mindMap, mindMapProjection });
+    it("round-trips what it wrote, including nodeState", () => {
+      const written = withExcalidashData({}, { sticky, widget, nodeState });
       expect(readExcalidashData({ customData: written })).toEqual({
         schemaVersion: SCHEMA_VERSION,
         sticky,
         widget,
-        mindMap,
-        mindMapProjection,
+        nodeState,
       });
     });
 
@@ -157,47 +185,28 @@ describe("the customData schema", () => {
           {
             id: "node-child",
             type: "rectangle",
-            customData: withExcalidashData({}, { mindMap }),
-          },
-          {
-            id: "edge-child",
-            type: "arrow",
-            customData: withExcalidashData({}, { mindMapProjection }),
+            customData: withExcalidashData({}, { nodeState }),
           },
         ],
       };
       const restored = JSON.parse(JSON.stringify(drawing)) as typeof drawing;
 
-      expect(readMindMap(restored.elements[0])).toEqual(mindMap);
-      expect(readMindMapProjection(restored.elements[1])).toEqual(mindMapProjection);
-      expect(restored.elements.map((entry) => entry.type)).toEqual(["rectangle", "arrow"]);
+      expect(readNodeState(restored.elements[0])).toEqual(nodeState);
+      expect(restored.elements.map((entry) => entry.type)).toEqual(["rectangle"]);
     });
 
-    it("can remove semantic data without disturbing another record or foreign customData", () => {
+    it("can remove nodeState without disturbing another record or foreign customData", () => {
       const first = withExcalidashData(
         { customData: { foreign: { retained: true } } },
-        { widget, mindMap, mindMapProjection },
+        { widget, nodeState },
       );
-      const second = withExcalidashData(
-        { customData: first },
-        { mindMap: null, mindMapProjection: null },
-      );
+      const second = withExcalidashData({ customData: first }, { nodeState: null });
 
       expect(second.foreign).toEqual({ retained: true });
       expect(readExcalidashData({ customData: second })).toEqual({
         schemaVersion: SCHEMA_VERSION,
         widget,
       });
-    });
-
-    it("does not silently erase malformed semantic data while updating another record", () => {
-      const malformed = { mapId: "map-1", parentId: 17, orderKey: "a" };
-      const original = element({ schemaVersion: SCHEMA_VERSION, mindMap: malformed });
-      const written = withExcalidashData(original, { widget });
-
-      expect((written[NAMESPACE] as Record<string, unknown>).mindMap).toEqual(malformed);
-      expect(readMindMap({ customData: written })).toBeNull();
-      expect(readWidget({ customData: written })).toEqual(widget);
     });
   });
 });

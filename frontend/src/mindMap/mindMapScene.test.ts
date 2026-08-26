@@ -1,740 +1,218 @@
 import { describe, expect, it } from "vitest";
-import type { ElementSummary } from "../integrations/excalidraw/types";
-import { withExcalidashData } from "../integrations/excalidraw/customData";
-import {
-  addNodeOps,
-  arrangeOps,
-  collapsedHiddenIds,
-  collapsedNodeIds,
-  dropTargetFor,
-  pinnedNodeIds,
-  readMindMapEdges,
-  readMindMapNodes,
-  reparentOps,
-  toggleCollapseOps,
-  togglePinOps,
-} from "./mindMapScene";
-import { MIND_MAP_COLORS } from "./mindMapElements";
-import { MIND_MAP_LAYOUT_V1 } from "./layout";
+import { arrangeOps, importOps, mindMapLayoutRunCount } from "./mindMapScene";
+import type { ElementId, ElementSummary } from "../integrations/excalidraw/types";
+import type { ImportedNode } from "./outlineParser";
 
-let counter = 0;
-const nextId = () => `el-${++counter}`;
+const summary = (over: Partial<ElementSummary> = {}): ElementSummary => ({
+  id: "e1" as ElementId,
+  type: "rectangle",
+  x: 0,
+  y: 0,
+  width: 200,
+  height: 80,
+  angle: 0,
+  isDeleted: false,
+  frameId: null,
+  containerId: null,
+  link: null,
+  customData: null,
+  name: null,
+  boundElements: null,
+  startBinding: null,
+  endBinding: null,
+  ...over,
+});
 
-function nodeSummary(
+const arrow = (
+  id: string,
+  startId: string | null,
+  endId: string | null,
+  over: Partial<ElementSummary> = {},
+): ElementSummary =>
+  summary({
+    id: id as ElementId,
+    type: "arrow",
+    startBinding: startId ? { elementId: startId as ElementId } : null,
+    endBinding: endId ? { elementId: endId as ElementId } : null,
+    ...over,
+  });
+
+const node = (
   id: string,
   x: number,
   y: number,
-  relation: {
-    mapId: string;
-    parentId: string | null;
-    orderKey: string;
-    pinned?: boolean;
-    collapsed?: boolean;
-  },
-): ElementSummary {
-  return {
-    id: id as never,
-    type: "rectangle",
-    x,
-    y,
-    width: MIND_MAP_LAYOUT_V1.nodeWidth,
-    height: MIND_MAP_LAYOUT_V1.nodeHeight,
-    angle: 0,
-    isDeleted: false,
-    frameId: null,
-    containerId: null,
-    link: null,
-    customData: withExcalidashData({}, { mindMap: relation }) as any,
-  } as ElementSummary;
-}
+  over: Partial<ElementSummary> = {},
+): ElementSummary => summary({ id: id as ElementId, x, y, ...over });
 
-function edgeSummary(id: string, mapId: string, childId: string): ElementSummary {
-  return {
-    id: id as never,
-    type: "arrow",
-    x: 0,
-    y: 0,
-    width: 1,
-    height: 1,
-    angle: 0,
-    isDeleted: false,
-    frameId: null,
-    containerId: null,
-    link: null,
-    customData: withExcalidashData({}, { mindMapProjection: { mapId, childId } }) as any,
-  } as ElementSummary;
-}
-
-describe("addNodeOps", () => {
-  it("adds a child under the anchor and lays out the whole map in one batch", () => {
-    const mapId = "map-1";
-    const root = nodeSummary(nextId(), 100, 100, { mapId, parentId: null, orderKey: "m" });
-    const summaries = [root];
-
-    const result = addNodeOps(summaries, "child", root.id as unknown as string);
-    expect(result).not.toBeNull();
-    const insertOp = result!.ops.find(
-      (op) => op.kind === "insert" && (op.elements[0] as any).id === result!.newNodeId,
-    );
-    expect(insertOp).toBeDefined();
-    // Root itself never moves for its own first child (nothing else on its
-    // level) -- it does still get a `boundElements` patch (NIL-575: the new
-    // edge is a real bound arrow, native binding on both ends).
-    const rootPositionPatch = result!.ops.find(
-      (op) => op.kind === "patch" && op.id === root.id && "x" in op.changes,
-    );
-    expect(rootPositionPatch).toBeUndefined();
-    const rootBindingPatch = result!.ops.find(
-      (op) => op.kind === "patch" && op.id === root.id && "boundElements" in op.changes,
-    ) as any;
-    expect(rootBindingPatch).toBeDefined();
-    // Exactly the new edge, native and bidirectional: root's own boundElements
-    // now names the arrow the new child insert also carries a matching
-    // startBinding/endBinding for (checked in the mindMapElements tests).
-    const newEdge = result!.ops.find(
-      (op) => op.kind === "insert" && (op.elements[0] as any).type === "arrow",
-    ) as any;
-    expect(rootBindingPatch.changes.boundElements).toEqual([
-      { id: newEdge.elements[0].id, type: "arrow" },
-    ]);
-  });
-
-  it("adds a sibling under the same parent, never as a second root", () => {
-    const mapId = "map-2";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-    const summaries = [root, child];
-
-    const result = addNodeOps(summaries, "sibling", childId);
-    expect(result).not.toBeNull();
-
-    const inserted = result!.ops.find(
-      (op) => op.kind === "insert" && (op.elements[0] as any).id === result!.newNodeId,
-    ) as any;
-    const relation = inserted.elements[0].customData.excalidash.mindMap;
-    expect(relation.parentId).toBe(rootId);
-    expect(relation.mapId).toBe(mapId);
-  });
-
-  it("Enter on the root adds a child, not a second root (explicit decision, NIL-570)", () => {
-    const mapId = "map-3";
-    const rootId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-
-    const result = addNodeOps([root], "sibling", rootId);
-    expect(result).not.toBeNull();
-    const inserted = result!.ops.find(
-      (op) => op.kind === "insert" && (op.elements[0] as any).id === result!.newNodeId,
-    ) as any;
-    expect(inserted.elements[0].customData.excalidash.mindMap.parentId).toBe(rootId);
-  });
-
-  it("returns null for an anchor that isn't a mind-map node", () => {
-    expect(addNodeOps([], "child", "nope")).toBeNull();
-  });
-
-  /**
-   * Counter-test: break the enforcement by reverting to "always attach the
-   * new node under the clicked anchor, regardless of Tab vs Enter" -- a
-   * plausible-looking bug where the sibling branch is dropped. Copied here,
-   * not `git checkout --`'d, per NIL-570's evidence rule.
-   */
-  it("regression guard: a build that ignores kind and always adds a child would fail the sibling assertion above", () => {
-    const alwaysChild = (
-      summaries: readonly ElementSummary[],
-      _kind: "child" | "sibling",
-      anchorId: string,
-    ) => addNodeOps(summaries, "child", anchorId);
-
-    const mapId = "map-4";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-
-    const broken = alwaysChild([root, child], "sibling", childId)!;
-    const insertedBroken = broken.ops.find(
-      (op) => op.kind === "insert" && (op.elements[0] as any).id === broken.newNodeId,
-    ) as any;
-    // Under the bug, "sibling of child" becomes "child of child" -- wrong.
-    expect(insertedBroken.elements[0].customData.excalidash.mindMap.parentId).toBe(childId);
-
-    const correct = addNodeOps([root, child], "sibling", childId)!;
-    const insertedCorrect = correct.ops.find(
-      (op) => op.kind === "insert" && (op.elements[0] as any).id === correct.newNodeId,
-    ) as any;
-    expect(insertedCorrect.elements[0].customData.excalidash.mindMap.parentId).toBe(rootId);
-  });
+const importedNode = (text: string, children: readonly ImportedNode[] = []): ImportedNode => ({
+  text,
+  line: 1,
+  children,
 });
 
-describe("arrangeOps", () => {
-  it("replaces every projection edge for the map and repositions nodes deterministically", () => {
-    const mapId = "map-5";
-    const rootId = nextId();
-    const aId = nextId();
-    const bId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    // Deliberately mis-positioned children -- arrange should move them.
-    const a = nodeSummary(aId, 9999, 9999, { mapId, parentId: rootId, orderKey: "a" });
-    const b = nodeSummary(bId, -50, -50, { mapId, parentId: rootId, orderKey: "m" });
-    const staleEdge = edgeSummary(nextId(), mapId, aId);
-    const summaries = [root, a, b, staleEdge];
-
-    const ops = arrangeOps(summaries, mapId)!;
-    expect(ops).not.toBeNull();
-
-    const removed = ops.find((op) => op.kind === "remove") as any;
-    expect(removed.ids).toContain(staleEdge.id);
-
-    const inserted = ops.filter((op) => op.kind === "insert").flatMap((op: any) => op.elements);
-    expect(inserted).toHaveLength(2); // one edge per child of root
-
-    const patched = ops.filter((op) => op.kind === "patch");
-    expect(patched.some((op: any) => op.id === aId)).toBe(true);
-    expect(patched.some((op: any) => op.id === bId)).toBe(true);
-  });
-
-  it("returns null for a map with an unresolved integrity problem (cycle, orphan, ...)", () => {
-    const mapId = "map-6";
-    const aId = nextId();
-    const bId = nextId();
-    // a's parent is b, b's parent is a: a cycle, no valid root.
-    const a = nodeSummary(aId, 0, 0, { mapId, parentId: bId, orderKey: "m" });
-    const b = nodeSummary(bId, 0, 0, { mapId, parentId: aId, orderKey: "m" });
-
-    expect(arrangeOps([a, b], mapId)).toBeNull();
-  });
-
-  it("is a no-op when the map is already at its deterministic layout", () => {
-    const mapId = "map-7";
-    const rootId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const ops = arrangeOps([root], mapId)!;
-    // No edges, no children, nothing to patch or replace.
-    expect(ops).toEqual([]);
-  });
-
-  it("moves a node's bound label by the same delta as the node itself", () => {
-    const mapId = "map-9";
-    const rootId = nextId();
-    const childId = nextId();
-    const labelId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    // Mis-positioned so arrange has to move it -- label offset by (10, 30)
-    // from its container, the kind of offset Excalidraw's own centering
-    // produces and this code must never assume is (0, 0).
-    const child = nodeSummary(childId, 9999, 9999, { mapId, parentId: rootId, orderKey: "m" });
-    const label = {
-      ...child,
-      id: labelId as never,
-      type: "text",
-      containerId: childId,
-      x: 10009,
-      y: 10029,
-    };
-    const summaries = [root, child, label] as ElementSummary[];
-
-    const ops = arrangeOps(summaries, mapId)!;
-    const childPatch = ops.find((op) => op.kind === "patch" && op.id === childId) as any;
-    const labelPatch = ops.find((op) => op.kind === "patch" && op.id === labelId) as any;
-    expect(childPatch).toBeDefined();
-    expect(labelPatch).toBeDefined();
-    expect(labelPatch.changes.x - label.x).toBe(childPatch.changes.x - child.x);
-    expect(labelPatch.changes.y - label.y).toBe(childPatch.changes.y - child.y);
-  });
-
-  /**
-   * Counter-test: break the enforcement by reverting to the version that
-   * only patched the container, leaving its bound label behind -- exactly
-   * the bug a real browser run (mind-map.spec.ts's drag-test screenshots)
-   * caught and this file's jsdom tests could not, since jsdom has no layout
-   * engine to notice a label sitting in the wrong place.
-   */
-  it("regression guard: patching only the container would leave the label unpatched", () => {
-    const mapId = "map-10";
-    const rootId = nextId();
-    const childId = nextId();
-    const labelId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const child = nodeSummary(childId, 9999, 9999, { mapId, parentId: rootId, orderKey: "m" });
-    const label = {
-      ...child,
-      id: labelId as never,
-      type: "text",
-      containerId: childId,
-      x: 10009,
-      y: 10029,
-    };
-    const summaries = [root, child, label] as ElementSummary[];
-
-    const ops = arrangeOps(summaries, mapId)!;
-    const withoutLabelPatch = ops.filter((op) => !(op.kind === "patch" && op.id === labelId));
-    expect(withoutLabelPatch.some((op) => op.kind === "patch" && op.id === labelId)).toBe(false);
-    expect(ops.some((op) => op.kind === "patch" && op.id === labelId)).toBe(true);
-  });
-});
-
-describe("readMindMapNodes / readMindMapEdges", () => {
-  it("ignores deleted elements and elements without the customData record", () => {
-    const mapId = "map-8";
-    const live = nodeSummary(nextId(), 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const deleted = {
-      ...nodeSummary(nextId(), 0, 0, { mapId, parentId: null, orderKey: "m" }),
-      isDeleted: true,
-    };
-    const plain = { ...live, id: nextId() as any, customData: null };
-
-    const nodes = readMindMapNodes([live, deleted, plain] as ElementSummary[]);
-    expect(nodes.map((node) => node.summary.id)).toEqual([live.id]);
-
-    const edges = readMindMapEdges([live] as ElementSummary[]);
-    expect(edges.size).toBe(0);
-  });
-});
-
-describe("dropTargetFor", () => {
-  it("finds the node whose box contains the point, excluding the excluded ids", () => {
-    const mapId = "drop-1";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const child = nodeSummary(childId, 400, 0, { mapId, parentId: rootId, orderKey: "m" });
-    const summaries = [root, child];
-
-    const center = { x: root.x + root.width / 2, y: root.y + root.height / 2 };
-    expect(dropTargetFor(summaries, mapId, new Set(), center)).toBe(rootId);
-    expect(dropTargetFor(summaries, mapId, new Set([rootId]), center)).toBeNull();
-    expect(dropTargetFor(summaries, mapId, new Set(), { x: -999, y: -999 })).toBeNull();
-  });
-
-  it("never returns a node from a different map, even at the same coordinates", () => {
-    const rootA = nodeSummary(nextId(), 0, 0, { mapId: "map-a", parentId: null, orderKey: "m" });
-    const rootB = nodeSummary(nextId(), 0, 0, { mapId: "map-b", parentId: null, orderKey: "m" });
-    const center = { x: rootA.x + rootA.width / 2, y: rootA.y + rootA.height / 2 };
-    // Searching within map-a's own map must find rootA, never rootB --
-    // even though rootB sits at the exact same coordinates in map-b.
-    expect(dropTargetFor([rootA, rootB], "map-a", new Set(), center)).toBe(rootA.id);
-    expect(dropTargetFor([rootA, rootB], "map-a", new Set(), center)).not.toBe(rootB.id);
-  });
-});
-
-describe("reparentOps", () => {
-  it("moves a node under a new parent and lays out the whole map in one batch", () => {
-    const mapId = "rep-1";
-    const rootId = nextId();
-    const aId = nextId();
-    const bId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-    const b = nodeSummary(bId, 300, 200, { mapId, parentId: rootId, orderKey: "n" });
-
-    const result = reparentOps([root, a, b], bId, aId)!;
-    expect(result).not.toBeNull();
-    const relationPatch = result.ops.find((op) => op.kind === "patch" && op.id === bId) as any;
-    expect(relationPatch.changes.customData.excalidash.mindMap).toEqual({
-      mapId,
-      parentId: aId,
-      orderKey: expect.any(String),
-    });
-    // One deterministic layout pass follows -- b's position is recomputed
-    // from the new tree, not left at its drop-point coordinates.
-    const positionPatch = result.ops.find(
-      (op) => op.kind === "patch" && op.id === bId && "x" in op.changes,
-    );
-    expect(positionPatch).toBeDefined();
-  });
-
-  it("rejects reparenting into one's own descendant (a cycle), without losing the node", () => {
-    const mapId = "rep-2";
-    const rootId = nextId();
-    const aId = nextId();
-    const bId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-    const b = nodeSummary(bId, 600, 0, { mapId, parentId: aId, orderKey: "m" }); // b is a's child
-
-    // Reparenting a under its own child b would make a its own grandchild.
-    expect(reparentOps([root, a, b], aId, bId)).toBeNull();
-  });
-
-  it("rejects a cross-map target, without losing the node", () => {
-    const rootA = nodeSummary(nextId(), 0, 0, { mapId: "map-a", parentId: null, orderKey: "m" });
-    const childA = nodeSummary(nextId(), 300, 0, {
-      mapId: "map-a",
-      parentId: rootA.id as unknown as string,
-      orderKey: "m",
-    });
-    const rootB = nodeSummary(nextId(), 0, 500, { mapId: "map-b", parentId: null, orderKey: "m" });
-
-    expect(
-      reparentOps(
-        [rootA, childA, rootB],
-        childA.id as unknown as string,
-        rootB.id as unknown as string,
-      ),
-    ).toBeNull();
-  });
-
-  it("is a genuine no-op when dropped back onto its current parent (never triggers layout)", () => {
-    const mapId = "rep-4";
-    const rootId = nextId();
-    const aId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-
-    const result = reparentOps([root, a], aId, rootId)!;
-    expect(result.ops).toEqual([]);
-  });
-
-  it("returns null for an unknown node or target id", () => {
-    const mapId = "rep-5";
-    const root = nodeSummary(nextId(), 0, 0, { mapId, parentId: null, orderKey: "m" });
-    expect(reparentOps([root], "nope", root.id as unknown as string)).toBeNull();
-    expect(reparentOps([root], root.id as unknown as string, "nope")).toBeNull();
-  });
-
-  /**
-   * Counter-test: break the enforcement by reverting to a version that
-   * reparents without re-normalizing afterward -- a plausible half-fix that
-   * would silently create a cycle in customData instead of rejecting it,
-   * exactly the "keine unsichtbaren oder fremd-referenzierenden Strukturen"
-   * failure this package's own evidence rule exists to catch. Copied here,
-   * not `git checkout --`'d.
-   */
-  it("regression guard: skipping the re-normalize check would accept the cycle", () => {
-    const mapId = "rep-6";
-    const rootId = nextId();
-    const aId = nextId();
-    const bId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const a = nodeSummary(aId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-    const b = nodeSummary(bId, 600, 0, { mapId, parentId: aId, orderKey: "m" });
-
-    const acceptsAnything = (nodeId: string, _newParentId: string) => ({
-      ops: [{ kind: "patch" as const, id: nodeId as never, changes: {} }],
-    });
-    // Under the bug, reparenting a under its own child b "succeeds".
-    expect(acceptsAnything(aId, bId).ops).toHaveLength(1);
-    // The real implementation refuses.
-    expect(reparentOps([root, a, b], aId, bId)).toBeNull();
-  });
-});
-
-describe("pinnedNodeIds", () => {
-  it("collects only the nodes explicitly marked pinned", () => {
-    const mapId = "pin-1";
-    const rootId = nextId();
-    const pinnedId = nextId();
-    const plainId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const pinned = nodeSummary(pinnedId, 300, 0, {
-      mapId,
-      parentId: rootId,
-      orderKey: "a",
-      pinned: true,
-    });
-    const plain = nodeSummary(plainId, 300, 200, { mapId, parentId: rootId, orderKey: "m" });
-
-    const ids = pinnedNodeIds([root, pinned, plain]);
-    expect(ids.has(pinnedId)).toBe(true);
-    expect(ids.has(plainId)).toBe(false);
-    expect(ids.has(rootId)).toBe(false);
-  });
-});
-
-describe("togglePinOps", () => {
-  it("pins an unpinned node: sets the flag and the pinned stroke colour", () => {
-    const mapId = "pin-2";
-    const rootId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-
-    const ops = togglePinOps([root], rootId)!;
-    expect(ops).toHaveLength(1);
-    const patch = ops[0] as any;
-    expect(patch.kind).toBe("patch");
-    expect(patch.id).toBe(rootId);
-    expect(patch.changes.strokeColor).toBe(MIND_MAP_COLORS.pinnedStroke);
-    expect(patch.changes.customData.excalidash.mindMap.pinned).toBe(true);
-  });
-
-  it("unpins a pinned node: clears the flag and restores the default stroke colour", () => {
-    const mapId = "pin-3";
-    const rootId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m", pinned: true });
-
-    const ops = togglePinOps([root], rootId)!;
-    const patch = ops[0] as any;
-    expect(patch.changes.strokeColor).toBe(MIND_MAP_COLORS.nodeStroke);
-    expect(patch.changes.customData.excalidash.mindMap.pinned).toBeUndefined();
-  });
-
-  it("returns null for an unknown node id", () => {
-    expect(togglePinOps([], "nope")).toBeNull();
-  });
-
-  it("preserves the node's parentId and orderKey -- pinning is not a structural change", () => {
-    const mapId = "pin-4";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "a" });
-
-    const ops = togglePinOps([root, child], childId)!;
-    const patch = ops[0] as any;
-    expect(patch.changes.customData.excalidash.mindMap.parentId).toBe(rootId);
-    expect(patch.changes.customData.excalidash.mindMap.orderKey).toBe("a");
-  });
-});
-
-describe("arrangeOps respects pinned nodes (NIL-571 v2)", () => {
-  it("does not patch a pinned node's position, but still repositions its unpinned siblings", () => {
-    const mapId = "pin-5";
-    const rootId = nextId();
-    const pinnedId = nextId();
-    const plainId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    // Both children deliberately mis-positioned -- arrange would move both
-    // if neither were pinned (see the plain "arrangeOps" describe block).
-    const pinned = nodeSummary(pinnedId, 9999, 9999, {
-      mapId,
-      parentId: rootId,
-      orderKey: "a",
-      pinned: true,
-    });
-    const plain = nodeSummary(plainId, -50, -50, { mapId, parentId: rootId, orderKey: "m" });
-
-    const ops = arrangeOps([root, pinned, plain], mapId)!;
-    const patched = ops.filter((op) => op.kind === "patch");
-    expect(
-      patched.some((op: any) => op.id === pinnedId && ("x" in op.changes || "y" in op.changes)),
-    ).toBe(false);
-    expect(patched.some((op: any) => op.id === plainId)).toBe(true);
-  });
-
-  it("draws the edge into a pinned node from its own current position, not a recomputed one", () => {
-    const mapId = "pin-6";
-    const rootId = nextId();
-    const pinnedId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const pinned = nodeSummary(pinnedId, 9999, 9999, {
-      mapId,
-      parentId: rootId,
-      orderKey: "m",
-      pinned: true,
-    });
-
-    const ops = arrangeOps([root, pinned], mapId)!;
-    const inserted = ops.filter((op) => op.kind === "insert").flatMap((op: any) => op.elements);
-    const edge = inserted.find((el: any) => el.type === "arrow");
-    expect(edge).toBeDefined();
-    // The edge's endBinding resolves against the pinned node's own live box
-    // (9999, 9999), not wherever the deterministic tree layout would put it.
-    expect(edge.endBinding.elementId).toBe(pinnedId);
-  });
-
-  /**
-   * Counter-test: break the enforcement by never consulting `pinnedIds` in
-   * `layoutOps` (the pre-NIL-571-v2 behaviour) -- a pinned node's hand-set
-   * position would be silently discarded by the very next "Arrange mind
-   * map" run, exactly the epic's own documented breaking point. Copied
-   * here, not `git checkout --`'d.
-   */
-  it("regression guard: ignoring pinnedIds would patch the pinned node's position anyway", () => {
-    const mapId = "pin-7";
-    const rootId = nextId();
-    const pinnedId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const pinned = nodeSummary(pinnedId, 9999, 9999, {
-      mapId,
-      parentId: rootId,
-      orderKey: "m",
-      pinned: true,
-    });
-
-    const withoutPinAwareness = (position: { x: number; y: number }) =>
-      position.x !== 9999 || position.y !== 9999; // the bug: always patches to the computed position
-
-    const ops = arrangeOps([root, pinned], mapId)!;
-    const patched = ops.filter((op) => op.kind === "patch");
-    // Under the bug, the deterministic layout position for this node is not
-    // (9999, 9999), so it would always be patched.
-    expect(withoutPinAwareness({ x: 200, y: 0 })).toBe(true);
-    // The real implementation refuses to move a pinned node at all.
-    expect(
-      patched.some((op: any) => op.id === pinnedId && ("x" in op.changes || "y" in op.changes)),
-    ).toBe(false);
-  });
-});
-
-describe("collapsedNodeIds", () => {
-  it("collects only the nodes explicitly marked collapsed", () => {
-    const mapId = "collapse-1";
-    const rootId = nextId();
-    const collapsedId = nextId();
-    const plainId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const collapsed = nodeSummary(collapsedId, 300, 0, {
-      mapId,
-      parentId: rootId,
-      orderKey: "a",
-      collapsed: true,
-    });
-    const plain = nodeSummary(plainId, 300, 200, { mapId, parentId: rootId, orderKey: "m" });
-
-    const ids = collapsedNodeIds([root, collapsed, plain]);
-    expect(ids.has(collapsedId)).toBe(true);
-    expect(ids.has(plainId)).toBe(false);
-  });
-});
-
-describe("collapsedHiddenIds", () => {
-  it("hides descendant nodes, their labels, and edges among them -- but not the node itself or its own incoming edge", () => {
-    const mapId = "collapse-2";
-    const rootId = nextId();
-    const branchId = nextId();
-    const childId = nextId();
-    const grandchildId = nextId();
-    const labelId = nextId();
-
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const branch = nodeSummary(branchId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-    const child = nodeSummary(childId, 600, 0, { mapId, parentId: branchId, orderKey: "m" });
-    const grandchild = nodeSummary(grandchildId, 900, 0, {
-      mapId,
-      parentId: childId,
-      orderKey: "m",
-    });
-    const label = {
-      ...child,
-      id: labelId as never,
-      type: "text",
-      containerId: childId as never,
-      customData: {},
-    };
-    const incomingEdge = edgeSummary(nextId(), mapId, branchId); // root -> branch
-    const internalEdge = edgeSummary(nextId(), mapId, childId); // branch -> child
-    const deeperEdge = edgeSummary(nextId(), mapId, grandchildId); // child -> grandchild
-
-    const result = collapsedHiddenIds(
-      [root, branch, child, grandchild, label, incomingEdge, internalEdge, deeperEdge],
-      branchId,
-    )!;
-    expect(result).not.toBeNull();
-    expect(result.nodeCount).toBe(2); // child, grandchild
-
-    expect(result.ids.has(childId)).toBe(true);
-    expect(result.ids.has(grandchildId)).toBe(true);
-    expect(result.ids.has(labelId)).toBe(true);
-    expect(result.ids.has(internalEdge.id as unknown as string)).toBe(true);
-    expect(result.ids.has(deeperEdge.id as unknown as string)).toBe(true);
-
-    // Never the collapsed node itself, and never the edge coming INTO it.
-    expect(result.ids.has(branchId)).toBe(false);
-    expect(result.ids.has(incomingEdge.id as unknown as string)).toBe(false);
-  });
-
-  it("returns null for a leaf (nothing to collapse)", () => {
-    const mapId = "collapse-3";
-    const rootId = nextId();
-    const leafId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const leaf = nodeSummary(leafId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-
-    expect(collapsedHiddenIds([root, leaf], leafId)).toBeNull();
-  });
-
-  it("returns null for an unknown node id", () => {
-    expect(collapsedHiddenIds([], "nope")).toBeNull();
-  });
-});
-
-describe("toggleCollapseOps", () => {
-  it("collapses a node with children: a single customData patch, nothing else", () => {
-    const mapId = "collapse-4";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-
-    const ops = toggleCollapseOps([root, child], rootId)!;
-    expect(ops).toHaveLength(1);
-    const patch = ops[0] as any;
-    expect(patch.kind).toBe("patch");
-    expect(patch.id).toBe(rootId);
-    expect(patch.changes.customData.excalidash.mindMap.collapsed).toBe(true);
-    // Never touches the child, the label, or any position -- only the
-    // toggled node's own customData (the JSON-roundtrip requirement: a
-    // client without this feature sees the subtree completely unchanged).
-    expect(Object.keys(patch.changes)).toEqual(["customData"]);
-  });
-
-  it("refuses to collapse a leaf (nothing to hide, nothing for the badge to count)", () => {
-    const mapId = "collapse-5";
-    const leafId = nextId();
-    const leaf = nodeSummary(leafId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-
-    expect(toggleCollapseOps([leaf], leafId)).toBeNull();
-  });
-
-  it("un-collapses a collapsed node: clears the flag", () => {
-    const mapId = "collapse-6";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, {
-      mapId,
-      parentId: null,
-      orderKey: "m",
-      collapsed: true,
-    });
-    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-
-    const ops = toggleCollapseOps([root, child], rootId)!;
-    const patch = ops[0] as any;
-    expect(patch.changes.customData.excalidash.mindMap.collapsed).toBeUndefined();
-  });
-
-  it("returns null for an unknown node id", () => {
-    expect(toggleCollapseOps([], "nope")).toBeNull();
-  });
-
-  it("preserves an independently pinned node's pin state when collapsing it", () => {
-    const mapId = "collapse-7";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m", pinned: true });
-    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-
-    const ops = toggleCollapseOps([root, child], rootId)!;
-    const patch = ops[0] as any;
-    expect(patch.changes.customData.excalidash.mindMap.pinned).toBe(true);
-    expect(patch.changes.customData.excalidash.mindMap.collapsed).toBe(true);
-  });
-
-  /**
-   * Counter-test: break the enforcement by patching the whole subtree's
-   * position/visibility when collapsing, instead of leaving every
-   * descendant untouched -- a plausible-looking "collapse" that would
-   * actually lose data for a client without the feature (a real element
-   * field changing, not just customData only this build understands).
-   * Copied here, not `git checkout --`'d.
-   */
-  it("regression guard: patching descendants on collapse would break the no-data-loss promise", () => {
-    const mapId = "collapse-8";
-    const rootId = nextId();
-    const childId = nextId();
-    const root = nodeSummary(rootId, 0, 0, { mapId, parentId: null, orderKey: "m" });
-    const child = nodeSummary(childId, 300, 0, { mapId, parentId: rootId, orderKey: "m" });
-
-    const hidesByPatchingDescendants = (nodeId: string) => [
-      { kind: "patch" as const, id: nodeId as never, changes: { customData: {} } },
-      { kind: "patch" as const, id: childId as never, changes: { opacity: 0 } }, // the bug
+describe("arrangeOps: the explicit 'Arrange' command, ambient graph in", () => {
+  it("patches descendant positions and leaves the root's own position untouched", () => {
+    const before = mindMapLayoutRunCount();
+    const summaries = [
+      node("root", 500, 500),
+      // Both children far away, but consistently to the right of root, the
+      // same "same coarse direction" the layout itself always produces --
+      // Arrange must still fix their exact position.
+      node("a", 9999, 100),
+      node("b", 9999, 900),
+      arrow("e1", "root", "a"),
+      arrow("e2", "root", "b"),
     ];
-    expect(hidesByPatchingDescendants(rootId)).toHaveLength(2);
 
-    const ops = toggleCollapseOps([root, child], rootId)!;
-    expect(ops).toHaveLength(1);
-    expect(ops.some((op: any) => op.id === childId)).toBe(false);
+    const ops = arrangeOps(summaries, "root");
+    expect(ops).not.toBeNull();
+    expect(ops!.some((op) => op.kind === "patch" && op.id === "root")).toBe(false);
+    const patchedIds = ops!.filter((op) => op.kind === "patch").map((op) => (op as any).id);
+    // Node positions AND the two edges' own geometry -- neither move is a
+    // native drag, so nothing reflows the arrows on its own.
+    expect(new Set(patchedIds)).toEqual(new Set(["a", "b", "e1", "e2"]));
+    expect(mindMapLayoutRunCount()).toBe(before + 1);
+  });
+
+  it("recomputes edge geometry so an arranged arrow visually reaches both its endpoints", () => {
+    const summaries = [
+      node("root", 500, 500),
+      node("a", 9999, 100),
+      node("b", 9999, 900),
+      arrow("e1", "root", "a"),
+      arrow("e2", "root", "b"),
+    ];
+
+    const ops = arrangeOps(summaries, "root")!;
+    const edgeOp = ops.find((op) => op.kind === "patch" && op.id === "e1") as any;
+    expect(edgeOp).toBeDefined();
+    // Not the placeholder [[0.5,0.5],[0.5,0.5]] convertToExcalidrawElements
+    // leaves an arrow at when only `start`/`end` binding shorthand is used
+    // -- a real, non-zero span.
+    expect(edgeOp.changes.points[1]).not.toEqual([0.5, 0.5]);
+    const [dx, dy] = edgeOp.changes.points[1];
+    expect(Math.hypot(dx, dy)).toBeGreaterThan(1);
+  });
+
+  it("returns null for an unknown root id", () => {
+    expect(arrangeOps([node("root", 0, 0)], "does-not-exist")).toBeNull();
+  });
+
+  it("returns null for a leaf with no qualifying children -- nothing to arrange", () => {
+    expect(arrangeOps([node("solo", 0, 0)], "solo")).toBeNull();
+  });
+
+  it("returns null on a cycle rather than a partial layout (NIL-593's own silence-over-guessing rule)", () => {
+    const before = mindMapLayoutRunCount();
+    const summaries = [
+      node("a", 0, 0),
+      node("b", 300, 0),
+      node("c", 600, 0),
+      arrow("e1", "a", "b"),
+      arrow("e2", "b", "c"),
+      arrow("e3", "c", "a"),
+    ];
+    expect(arrangeOps(summaries, "a")).toBeNull();
+    expect(mindMapLayoutRunCount()).toBe(before); // a declined arrange never runs layout
+  });
+
+  it("a flowchart decision point's diverging branches: nothing to arrange, existing board unharmed", () => {
+    const summaries = [
+      node("hub", 0, 0),
+      node("down", 0, 300),
+      node("right", 300, 0),
+      arrow("e1", "hub", "down"),
+      arrow("e2", "hub", "right"),
+    ];
+    expect(arrangeOps(summaries, "hub")).toBeNull();
+  });
+
+  it("moves a bound label along with its container by the same delta", () => {
+    const summaries = [
+      node("root", 0, 0),
+      node("a", 9000, 9000, { boundElements: [{ id: "a-label" as ElementId, type: "text" }] }),
+      node("a-label", 9010, 9010, { containerId: "a" as ElementId, type: "text" }),
+      arrow("e1", "root", "a"),
+    ];
+    const ops = arrangeOps(summaries, "root");
+    expect(ops).not.toBeNull();
+    const labelOp = ops!.find((op) => op.kind === "patch" && op.id === "a-label") as any;
+    const nodeOp = ops!.find((op) => op.kind === "patch" && op.id === "a") as any;
+    expect(labelOp).toBeDefined();
+    // the label kept its original +10/+10 offset from its container
+    expect(labelOp.changes.x - nodeOp.changes.x).toBe(10);
+    expect(labelOp.changes.y - nodeOp.changes.y).toBe(10);
+  });
+});
+
+describe("importOps: an outline becomes ordinary elements, never customData.mindMap", () => {
+  it("creates one rectangle+label insert per node, one arrow insert per edge, and selects the root", () => {
+    const before = mindMapLayoutRunCount();
+    const root = importedNode("Project", [importedNode("Design"), importedNode("Build")]);
+
+    const { ops, rootId } = importOps(root, { x: 0, y: 0 });
+
+    const inserts = ops.filter((op) => op.kind === "insert");
+    // 3 nodes -> 3 (rectangle, label) inserts; 2 edges -> 2 arrow inserts.
+    expect(inserts).toHaveLength(5);
+    const insertedElements = inserts.flatMap((op) => (op as any).elements);
+    expect(insertedElements).toHaveLength(3 * 2 + 2);
+
+    const arrows = insertedElements.filter((el: any) => el.type === "arrow");
+    expect(arrows).toHaveLength(2);
+
+    const selectOp = ops.find((op) => op.kind === "select");
+    expect(selectOp).toEqual({ kind: "select", ids: [rootId] });
+
+    expect(mindMapLayoutRunCount()).toBe(before + 1);
+  });
+
+  it("gives every created arrow real, non-degenerate geometry -- not the [0,0]/[1,1] placeholder", () => {
+    const root = importedNode("Project", [importedNode("Design")]);
+    const { ops } = importOps(root, { x: 0, y: 0 });
+    const arrows = ops
+      .filter((op) => op.kind === "insert")
+      .flatMap((op) => (op as any).elements)
+      .filter((el: any) => el.type === "arrow");
+    expect(arrows).toHaveLength(1);
+    const [start, end] = arrows[0].points;
+    expect(start).toEqual([0, 0]);
+    expect(Math.hypot(end[0], end[1])).toBeGreaterThan(1);
+  });
+
+  it("never writes customData.excalidash.mindMap on any created element", () => {
+    const root = importedNode("Root", [importedNode("Child")]);
+    const { ops } = importOps(root, { x: 0, y: 0 });
+
+    for (const op of ops) {
+      if (op.kind !== "insert") continue;
+      for (const element of (op as any).elements) {
+        const excalidash = element.customData?.excalidash;
+        expect(excalidash?.mindMap).toBeUndefined();
+        expect(excalidash?.mindMapProjection).toBeUndefined();
+      }
+    }
+  });
+
+  it("gives every node real text via a bound label, not an empty rectangle", () => {
+    const root = importedNode("Hello world");
+    const { ops } = importOps(root, { x: 0, y: 0 });
+    const labels = ops
+      .filter((op) => op.kind === "insert")
+      .flatMap((op) => (op as any).elements)
+      .filter((el: any) => el.type === "text");
+    expect(labels).toHaveLength(1);
+    expect(labels[0].text).toBe("Hello world");
+  });
+
+  it("a single-node outline (no edges) still imports and selects that one node", () => {
+    const root = importedNode("Solo");
+    const { ops, rootId } = importOps(root, { x: 0, y: 0 });
+    const arrows = ops
+      .filter((op) => op.kind === "insert")
+      .flatMap((op) => (op as any).elements)
+      .filter((el: any) => el.type === "arrow");
+    expect(arrows).toHaveLength(0);
+    expect(ops.find((op) => op.kind === "select")).toEqual({ kind: "select", ids: [rootId] });
   });
 });

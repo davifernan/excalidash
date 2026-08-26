@@ -1,6 +1,26 @@
 import { hierarchy, tree } from "d3-hierarchy";
 
-import type { NormalizedMindMap, NormalizedMindMapNode } from "./model";
+/**
+ * A generic labeled tree -- what the layout core actually reads, nothing
+ * more (NIL-593, Schnitt 2: used to be `NormalizedMindMap`/
+ * `NormalizedMindMapNode` from the now-deleted `model.ts`, which carried
+ * `mapId`/`parentId`/`orderKey` for its OWN validation pass; this file
+ * never read those three fields, only `elementId` and `children`, so they
+ * are gone from the type along with the module that needed them). Any
+ * caller can build this shape: `mindMapScene.ts`'s "Arrange" from the
+ * ambient graph, its "import" from a freshly parsed outline -- this file
+ * stays exactly as unaware of where the tree came from as it always was.
+ */
+export type MindMapTreeNode = {
+  readonly elementId: string;
+  readonly children: readonly MindMapTreeNode[];
+};
+
+export type MindMapTree = {
+  readonly root: MindMapTreeNode;
+  /** Stable pre-order, useful for one batched scene update. */
+  readonly nodes: readonly MindMapTreeNode[];
+};
 
 export type MindMapLayoutConfig = {
   readonly nodeWidth: number;
@@ -58,14 +78,14 @@ const validateInputs = (config: MindMapLayoutConfig, anchor: MindMapRootAnchor):
  * orientation: left to right. The supplied root top-left remains fixed.
  */
 export const layoutMindMap = (
-  map: NormalizedMindMap,
+  map: MindMapTree,
   config: MindMapLayoutConfig,
   rootAnchor: MindMapRootAnchor,
 ): readonly MindMapLayoutPosition[] => {
   validateInputs(config, rootAnchor);
 
-  const root = hierarchy<NormalizedMindMapNode>(map.root, (node) => node.children);
-  const laidOut = tree<NormalizedMindMapNode>().nodeSize([
+  const root = hierarchy<MindMapTreeNode>(map.root, (node) => node.children);
+  const laidOut = tree<MindMapTreeNode>().nodeSize([
     config.nodeHeight + config.siblingGap,
     config.nodeWidth + config.levelGap,
   ])(root);

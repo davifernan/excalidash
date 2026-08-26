@@ -564,15 +564,8 @@ export const Editor: React.FC = () => {
     selection: adapter.selection,
     viewport: adapter.viewport,
   });
-  const {
-    mindMapOverlay,
-    onArrangeMindMap,
-    onCanvasChange: handleChangeWithMindMap,
-  } = useMindMapFeature({
-    containerRef: editorContainerRef,
+  const { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport } = useMindMapFeature({
     canEdit,
-    interaction: adapter.interaction,
-    onCanvasChange: handleChangeWithNotes,
     scene: adapter.scene,
     selection: adapter.selection,
     viewport: adapter.viewport,
@@ -602,11 +595,14 @@ export const Editor: React.FC = () => {
       );
       // Ambient tree drag first: on every board, tool-less, reading only
       // native arrow bindings (NIL-593) -- independent of the mind-map
-      // feature below it, which still owns its own tagged nodes.
+      // feature below it, which no longer tags any node of its own (the
+      // v1 mode's customData.excalidash.mindMap relationship layer is
+      // torn down this schnitt; "Import mind map..." and "Arrange" both
+      // read structure the same ambient way this drag hook does).
       onAmbientTreeSceneChange();
-      handleChangeWithMindMap(elements, appState, files);
+      handleChangeWithNotes(elements, appState, files);
     },
-    [handleChangeWithMindMap, onAmbientTreeSceneChange, onSelectionChange],
+    [handleChangeWithNotes, onAmbientTreeSceneChange, onSelectionChange],
   );
   // A comment/mention/activity deep link arrives as `?thread=<rootId>`
   // (built by the Inbox and Activity pages). Captured once, then stripped
@@ -713,6 +709,7 @@ export const Editor: React.FC = () => {
         stickyOverlay={stickyOverlay}
         mindMapOverlay={mindMapOverlay}
         onArrangeMindMap={onArrangeMindMap}
+        onOpenMindMapImport={onOpenMindMapImport}
         commentsOverlay={commentsOverlay}
         offscreenPresenceOverlay={offscreenPresenceOverlay}
         isCommentsOpen={isCommentsOpen}

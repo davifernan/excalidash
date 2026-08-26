@@ -67,6 +67,7 @@ type EditorViewProps = {
   stickyOverlay?: React.ReactNode;
   mindMapOverlay?: React.ReactNode;
   onArrangeMindMap: () => void;
+  onOpenMindMapImport: () => void;
   onCanvasDropCapture: (event: React.DragEvent<HTMLDivElement>) => void;
   onExportClick: () => void;
   onLibraryChange: (items: readonly any[]) => void;
@@ -138,6 +139,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   stickyOverlay,
   mindMapOverlay,
   onArrangeMindMap,
+  onOpenMindMapImport,
   onExportClick,
   onLibraryChange,
   onNavigateHome,
@@ -190,6 +192,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     onStartVoteCompose: voting.openCompose,
     onInsertTemplate,
     onArrangeMindMap,
+    onOpenMindMapImport,
     onBackClick,
     onNewNameChange,
     onRenameBlur,

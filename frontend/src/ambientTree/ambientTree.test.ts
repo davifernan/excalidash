@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { ambientSubtreeIds, type ArrowEdge, type ShapeBox } from "./ambientTree";
+import {
+  ambientSubtreeIds,
+  ambientTreeRootedAt,
+  type AmbientTreeNode,
+  type ArrowEdge,
+  type ShapeBox,
+} from "./ambientTree";
+
+/** Flattens an AmbientTreeNode to id -> sorted child ids, for order-independent comparison. */
+const shapeOf = (node: AmbientTreeNode): Record<string, string[]> => {
+  const out: Record<string, string[]> = {};
+  const visit = (n: AmbientTreeNode) => {
+    out[n.id] = n.children.map((c) => c.id).sort();
+    n.children.forEach(visit);
+  };
+  visit(node);
+  return out;
+};
 
 const box = (id: string, x: number, y: number, width = 200, height = 80): ShapeBox => ({
   id,
@@ -186,5 +203,50 @@ describe("ambientSubtreeIds: direction consistency", () => {
     const boxes = [box("hub", 0, 0), box("down", 0, 300), box("right", 300, 0)];
     const edges = [edge("e1", "hub", "down"), edge("e2", "hub", "right")];
     expect(ambientSubtreeIds("hub", edges, boxesOf(boxes))).toEqual(new Set());
+  });
+});
+
+// NIL-593, Schnitt 2: "Arrange" needs real parent-child topology, not just
+// "which shapes move together" -- ambientTreeRootedAt shares the exact same
+// qualifying-children rule as ambientSubtreeIds (same underlying helper),
+// so these pin that the two can never disagree.
+describe("ambientTreeRootedAt: real tree topology for Arrange", () => {
+  it("builds the same branching structure ambientSubtreeIds already follows", () => {
+    const boxes = [box("root", 0, 100), box("a", 300, 0), box("b", 300, 200), box("a1", 600, 0)];
+    const edges = [edge("e1", "root", "a"), edge("e2", "root", "b"), edge("e3", "a", "a1")];
+
+    const tree = ambientTreeRootedAt("root", edges, boxesOf(boxes));
+    expect(tree).not.toBeNull();
+    expect(shapeOf(tree!)).toEqual({
+      root: ["a", "b"].sort(),
+      a: ["a1"],
+      b: [],
+      a1: [],
+    });
+  });
+
+  it("a decision point's diverging branches contribute nothing -- root has no children", () => {
+    const boxes = [box("hub", 0, 0), box("down", 0, 300), box("right", 300, 0)];
+    const edges = [edge("e1", "hub", "down"), edge("e2", "hub", "right")];
+    const tree = ambientTreeRootedAt("hub", edges, boxesOf(boxes));
+    expect(tree).toEqual({ id: "hub", children: [] });
+  });
+
+  it("a flowchart merge point (two incoming edges) is excluded from both would-be parents", () => {
+    const boxes = [box("a", 0, 0), box("b", 0, 200), box("merge", 300, 100)];
+    const edges = [edge("e1", "a", "merge"), edge("e2", "b", "merge")];
+    expect(ambientTreeRootedAt("a", edges, boxesOf(boxes))).toEqual({ id: "a", children: [] });
+    expect(ambientTreeRootedAt("b", edges, boxesOf(boxes))).toEqual({ id: "b", children: [] });
+  });
+
+  it("returns null on a cycle instead of a partial tree", () => {
+    const boxes = [box("a", 0, 0), box("b", 300, 0), box("c", 600, 0)];
+    const edges = [edge("e1", "a", "b"), edge("e2", "b", "c"), edge("e3", "c", "a")];
+    expect(ambientTreeRootedAt("a", edges, boxesOf(boxes))).toBeNull();
+  });
+
+  it("a leaf with no qualifying outgoing edges is a childless root, not null", () => {
+    const boxes = [box("solo", 0, 0)];
+    expect(ambientTreeRootedAt("solo", [], boxesOf(boxes))).toEqual({ id: "solo", children: [] });
   });
 });

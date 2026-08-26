@@ -44,20 +44,18 @@
  * Excalidraw only glues a label to its container through its own
  * interactive move machinery, not through a raw element patch.
  *
- * ## Why a v1 mind-map node is excluded here
+ * ## No more v1 exclusion (NIL-593, Schnitt 2)
  *
- * NIL-570/571's mind-map tool is not being removed this slice (that is its
- * own future cut) and still runs its own per-tick drag translate
- * (`useMindMapDrag.ts`) for anything carrying
- * `customData.excalidash.mindMap`. Since NIL-575 already made THAT tool's
- * own edges real native bound arrows, a v1 mind-map subtree also happens to
- * satisfy this module's own rules -- both mechanisms would otherwise
- * compute the same drag and both call `scene.apply` for it, independently,
- * in the same tick. Rather than rely on both landing on the identical
- * delta by coincidence, a shape carrying that customData key is filtered
- * out of this module's graph entirely, on both ends of every edge: v1
- * boards keep working exactly as they do today, and this module never
- * looks at them.
+ * NIL-570/571's mind-map tool -- and its own separate per-tick drag
+ * translate, `useMindMapDrag.ts` -- is torn down this slice, so there is no
+ * second mechanism left to double-process against. An old v1 node's real
+ * bound arrows (NIL-575 already made that tool's own edges genuine
+ * `startBinding`/`endBinding`) now simply participate in this module's
+ * graph like any other shape's -- exactly the uniform "structure comes
+ * from the binding" end state the ambient tree was always meant to reach.
+ * Its stale `customData.excalidash.mindMap` field (mapId/parentId/
+ * orderKey) is never read by anything anymore, here or in
+ * `../integrations/excalidraw/customData.ts`.
  *
  * ## Why an incoming realtime sync tick must not be read as a local drag
  * (PR #175 review, Medium finding)
@@ -112,12 +110,6 @@ import { useTickDragDetection, type TrackedPosition } from "../hooks/useTickDrag
 import type { SceneCapability, SelectionCapability } from "../integrations/excalidraw/capabilities";
 import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
 import { ambientSubtreeIds, type ArrowEdge, type ShapeBox } from "./ambientTree";
-
-/** Whether `element` belongs to the v1 mind-map tool -- see the file comment on why those are excluded here. */
-const isV1MindMapElement = (element: ElementSummary): boolean => {
-  const excalidash = element.customData?.excalidash as { mindMap?: unknown } | undefined;
-  return !!excalidash?.mindMap;
-};
 
 /**
  * Test-only counter, wired into `__EXCALIDASH_TEST__` the same way
@@ -183,7 +175,7 @@ export function useAmbientTreeDrag({ canEdit, scene, selection }: Options) {
     }
 
     const shapes = summaries.value.filter(
-      (element) => !element.isDeleted && element.type !== "arrow" && !isV1MindMapElement(element),
+      (element) => !element.isDeleted && element.type !== "arrow",
     );
     const positions: TrackedPosition[] = shapes.map((shape) => ({
       id: shape.id,

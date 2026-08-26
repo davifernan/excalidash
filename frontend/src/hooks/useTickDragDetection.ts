@@ -2,15 +2,19 @@
  * Detects a live drag from ordinary scene snapshots, comparing positions
  * tick to tick -- there is no "an element is being pointer-dragged" signal
  * to read directly (`appState.draggingElement` only covers an element still
- * being *drawn*, never one being moved; see `useMindMapDrag.ts`'s git
- * history for the long version, NIL-570/NIL-576).
+ * being *drawn*, never one being moved; see this file's own git history,
+ * and the deleted `useMindMapDrag.ts`'s, for the long version, NIL-570/
+ * NIL-576).
  *
  * A drag is "in progress" if exactly one tracked id moved this tick and it
  * is the sole selection; anything else (0, 2+, or a selection mismatch)
- * means no drag is happening right now. Shared by `useMindMapDrag.ts`
- * (NIL-570) and `useAmbientTreeDrag.ts` (NIL-593), which both derive this
- * the same way (PR #175 review, Low finding: two near-identical copies of
- * this exact comparison were a real seam once there were two).
+ * means no drag is happening right now. Extracted from v1's own
+ * `useMindMapDrag.ts` (NIL-570) once `useAmbientTreeDrag.ts` (NIL-593)
+ * needed the identical comparison (PR #175 review, Low finding: two
+ * near-identical copies of this exact comparison were a real seam once
+ * there were two) -- `useMindMapDrag.ts` itself is gone since (NIL-593,
+ * Schnitt 2's mode teardown); `useAmbientTreeDrag.ts` is this hook's one
+ * remaining consumer.
  *
  * This hook only answers "did a local-looking tick just happen" -- it does
  * not know whether the tick actually originated from this client's own
