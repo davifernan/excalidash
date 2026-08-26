@@ -122,7 +122,9 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
             version: { increment: 1 },
           },
         });
-        await syncDrawingDocumentState(tx, id, trimPlan.activeElements);
+        await syncDrawingDocumentState(tx, id, trimPlan.activeElements, {
+          correlationId: req.headers["x-request-id"] as string | undefined,
+        });
         // DrawingFile rows (NIL-381) are this drawing's own storage-backed
         // image references, the same relationship S3File has above --
         // deleting the row does not delete the underlying blob immediately;
@@ -277,7 +279,9 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
             version: { increment: 1 },
           },
         });
-        await syncDrawingDocumentState(tx, id, deletePlan.cleanedElements);
+        await syncDrawingDocumentState(tx, id, deletePlan.cleanedElements, {
+          correlationId: req.headers["x-request-id"] as string | undefined,
+        });
         // Same relationship as S3File above, for DrawingFile rows (NIL-381):
         // deleting the reference does not delete the underlying blob
         // immediately -- collectExpired (assetService.ts) reclaims it once

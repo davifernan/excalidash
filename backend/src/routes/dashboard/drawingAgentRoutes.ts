@@ -187,7 +187,9 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           }
 
           await captureSnapshotAssets(tx, snapshot.id, id);
-          await syncDrawingDocumentState(tx, id, newElements);
+          await syncDrawingDocumentState(tx, id, newElements, {
+            correlationId: req.headers["x-request-id"] as string | undefined,
+          });
           await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
 
           return tx.drawing.findFirst({ where: { id } });

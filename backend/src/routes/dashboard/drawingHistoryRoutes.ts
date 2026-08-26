@@ -161,7 +161,9 @@ export const registerDrawingHistoryRoutes = (
             update: { state: "ACTIVE", expiresAt: null },
           });
         }
-        await syncDrawingDocumentState(tx, id, parseJsonField(restoredElements, []));
+        await syncDrawingDocumentState(tx, id, parseJsonField(restoredElements, []), {
+          correlationId: req.headers["x-request-id"] as string | undefined,
+        });
 
         const restored = await tx.drawing.update({
           where: { id },

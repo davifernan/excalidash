@@ -573,7 +573,9 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
               data: { elements: JSON.stringify(nextElements), version: { increment: 1 } },
             });
             if (result.count !== 1) throw new Error("DOCUMENT_VERSION_CONFLICT");
-            await syncDrawingDocumentState(tx, found.drawingId, nextElements);
+            await syncDrawingDocumentState(tx, found.drawingId, nextElements, {
+              correlationId: req.headers["x-request-id"] as string | undefined,
+            });
             await pruneDrawingSnapshots(tx, found.drawingId, config.snapshotMaxCountPerDrawing);
             return {
               drawing: await tx.drawing.findUniqueOrThrow({ where: { id: found.drawingId } }),

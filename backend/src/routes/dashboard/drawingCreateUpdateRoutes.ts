@@ -347,7 +347,9 @@ export const registerDrawingCreateUpdateRoutes = (
               // ignored, because a client naming someone else's document is not
               // a mistake to paper over.
               if (payload.elements !== undefined) {
-                await syncDrawingDocumentState(tx, id, payload.elements);
+                await syncDrawingDocumentState(tx, id, payload.elements, {
+                  correlationId: req.headers["x-request-id"] as string | undefined,
+                });
               }
 
               await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
