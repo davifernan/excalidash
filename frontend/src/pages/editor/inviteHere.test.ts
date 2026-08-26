@@ -42,6 +42,7 @@ const setup = () => {
   const onInvitationChange = vi.fn();
   const onStatusChange = vi.fn();
   const onAlreadyThere = vi.fn();
+  const onFollow = vi.fn();
   const controller = bindInviteHere({
     socket: socket as any,
     drawingId: "drawing-1",
@@ -49,16 +50,28 @@ const setup = () => {
     onInvitationChange,
     onStatusChange,
     onAlreadyThere,
+    onFollow,
   });
   const receive = (invitationId: string, sceneBounds = [0, 0, 100, 100]) =>
     handlers.get("invite-here")?.({
       drawingId: "drawing-1",
       invitationId,
+      inviterPresenceId: `presence-${invitationId}`,
       inviterName: "Inviter",
       sceneBounds,
       expiresAt: Date.now() + 15_000,
     });
-  return { api, controller, handlers, onAlreadyThere, onInvitationChange, socket, state, receive };
+  return {
+    api,
+    controller,
+    handlers,
+    onAlreadyThere,
+    onFollow,
+    onInvitationChange,
+    socket,
+    state,
+    receive,
+  };
 };
 
 describe("invite here client", () => {
@@ -103,8 +116,8 @@ describe("invite here client", () => {
     vi.useRealTimers();
   });
 
-  it("accepts once, fits once, and never enables follow mode", () => {
-    const { api, controller, socket, state, receive } = setup();
+  it("accepts once, fits once, and starts canonical follow mode", () => {
+    const { api, controller, onFollow, socket, receive } = setup();
     receive("invite-a", [-100, -50, 500, 350]);
 
     controller.accept();
@@ -118,7 +131,8 @@ describe("invite here client", () => {
       invitationId: "invite-a",
       decision: "accepted",
     });
-    expect(state.userToFollow).toBeNull();
+    expect(onFollow).toHaveBeenCalledTimes(1);
+    expect(onFollow).toHaveBeenCalledWith("presence-invite-a");
 
     controller.dispose();
     vi.useRealTimers();
@@ -128,7 +142,7 @@ describe("invite here client", () => {
     // The mocked own view is [-50, -25, 450, 275] (getVisibleSceneBounds
     // above). An invitation to almost exactly that rectangle is the "already
     // there" case this test targets.
-    const { api, controller, onAlreadyThere, socket, receive } = setup();
+    const { api, controller, onAlreadyThere, onFollow, socket, receive } = setup();
     receive("invite-a", [-48, -24, 448, 274]);
 
     controller.accept();
@@ -136,6 +150,7 @@ describe("invite here client", () => {
     expect(onAlreadyThere).toHaveBeenCalledTimes(1);
     expect(excalidrawMocks.zoomToFitBounds).not.toHaveBeenCalled();
     expect(api.updateScene).not.toHaveBeenCalled();
+    expect(onFollow).toHaveBeenCalledWith("presence-invite-a");
     // The accept still has to reach the inviter -- "already there" is
     // feedback about the jump, not a silent decline.
     expect(socket.emit).toHaveBeenCalledWith("invite-here-response", {
@@ -143,6 +158,20 @@ describe("invite here client", () => {
       invitationId: "invite-a",
       decision: "accepted",
     });
+
+    controller.dispose();
+    vi.useRealTimers();
+  });
+
+  it("uses the latest accepted invitation as the next follow target", () => {
+    const { controller, onFollow, receive } = setup();
+
+    receive("invite-a", [0, 0, 100, 100]);
+    controller.accept();
+    receive("invite-b", [200, 300, 600, 700]);
+    controller.accept();
+
+    expect(onFollow.mock.calls).toEqual([["presence-invite-a"], ["presence-invite-b"]]);
 
     controller.dispose();
     vi.useRealTimers();

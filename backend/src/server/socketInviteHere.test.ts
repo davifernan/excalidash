@@ -85,6 +85,7 @@ describe("invite here socket flow", () => {
     io.emissions.length = 0;
     await sender.trigger("invite-here", { drawingId: "drawing-1", sceneBounds: bounds });
     const invitation = io.emissions.find((item) => item.event === "invite-here")?.payload;
+    expect(invitation.inviterPresenceId).toBe("sender");
     expect(invitation.expiresAt - Date.now()).toBeGreaterThanOrEqual(14_900);
     expect(invitation.expiresAt - Date.now()).toBeLessThanOrEqual(15_000);
     const initialStatus = io.emissions.find((item) => item.event === "invite-here-status")?.payload;

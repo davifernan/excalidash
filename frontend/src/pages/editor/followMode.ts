@@ -426,5 +426,12 @@ export const bindFollowMode = ({
     onFollowersChange([]);
   };
   cleanup.resetConnectionState = resetConnectionState;
+  cleanup.follow = (targetPresenceId: string) => {
+    // This is the same state transition Excalidraw's collaborator-avatar
+    // click makes. Excalidraw reports it through onUserFollow, so the one
+    // intent handler above remains the only path that clears stale viewport
+    // state and sends the follow command to the server.
+    collaboration.follow(targetPresenceId as never);
+  };
   return cleanup;
 };

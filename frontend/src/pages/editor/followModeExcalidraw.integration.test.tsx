@@ -50,6 +50,47 @@ vi.hoisted(() => {
 });
 
 describe("follow correction with the real Excalidraw API", () => {
+  it("starts the same Excalidraw follow intent used by an avatar click", async () => {
+    let api: any;
+    const view = render(
+      <div style={{ width: 900, height: 600 }}>
+        <Excalidraw
+          excalidrawAPI={(value) => {
+            api = value;
+          }}
+        />
+      </div>,
+    );
+    await waitFor(() => expect(api).toBeDefined());
+
+    const socket = {
+      emit: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+    const cleanup = bindFollowMode({
+      socket: socket as any,
+      drawingId: "drawing-1",
+      api,
+      container: null,
+      onFollowersChange: vi.fn(),
+    });
+
+    await act(async () => cleanup.follow("target-socket"));
+
+    await waitFor(() =>
+      expect(socket.emit).toHaveBeenCalledWith("follow-user", {
+        drawingId: "drawing-1",
+        targetPresenceId: "target-socket",
+        action: "FOLLOW",
+      }),
+    );
+    expect(api.getAppState().userToFollow?.socketId).toBe("target-socket");
+
+    cleanup();
+    view.unmount();
+  });
+
   it("does not echo the real onUserFollow callbacks caused by updateScene", async () => {
     let api: any;
     const view = render(

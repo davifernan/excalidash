@@ -2,8 +2,9 @@ import { test, expect, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
 
 /**
- * NIL-372: Follow ("Follow me") is a persistent relationship, distinct from
- * Invite Here's one-time jump (covered separately in invite-here.spec.ts).
+ * NIL-372: Follow ("Follow me") is a persistent relationship. The avatar
+ * entry point is covered here; invite-here.spec.ts proves that accepting an
+ * invitation enters this same relationship after its initial viewport fit.
  * These three tests are the real-browser convergence evidence the ticket's
  * exit criteria ask for: start/track/cancel, tab inactivity vs. a real
  * departure, and the follower's own brief reconnect. See

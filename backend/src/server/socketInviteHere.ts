@@ -91,6 +91,7 @@ export const createSocketInviteHereManager = ({
         socket.to(roomName(payload.drawingId)).emit("invite-here", {
           drawingId: payload.drawingId,
           invitationId: invitation.invitationId,
+          inviterPresenceId: invitation.inviterPresenceId,
           inviterName: inviter.name,
           sceneBounds: payload.sceneBounds,
           expiresAt: invitation.expiresAt,
