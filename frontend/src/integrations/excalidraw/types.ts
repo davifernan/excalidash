@@ -81,14 +81,6 @@ export type ElementSummary = {
   readonly width: number;
   readonly height: number;
   readonly angle: number;
-  /**
-   * 0-100. Exposed for `ambientTree/nodeState.ts`'s pin/collapse toggle,
-   * which nudges it by exactly one point and back as the one native,
-   * always-safe field that makes an otherwise `customData`-only patch
-   * undo-able -- see that file's own comment for the measured reason a
-   * `customData`-only patch is not undo-able on its own.
-   */
-  readonly opacity: number;
   readonly isDeleted: boolean;
   readonly frameId: ElementId | null;
   readonly containerId: ElementId | null;

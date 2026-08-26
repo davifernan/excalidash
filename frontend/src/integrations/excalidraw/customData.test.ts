@@ -4,7 +4,6 @@ import {
   NAMESPACE,
   SCHEMA_VERSION,
   readExcalidashData,
-  readNodeState,
   readSticky,
   readWidget,
   withExcalidashData,
@@ -12,7 +11,6 @@ import {
 
 const sticky = { color: "yellow", ink: "#422006", width: 180, height: 180, fontSize: 20 };
 const widget = { kind: "pdf" as const, assetId: "asset-1" };
-const nodeState = { pinned: true, collapsed: true };
 
 const element = (own: unknown, rest: Record<string, unknown> = {}) => ({
   customData: { ...rest, [NAMESPACE]: own },
@@ -51,12 +49,6 @@ describe("the customData schema", () => {
     expect(
       readWidget(element({ schemaVersion: SCHEMA_VERSION, widget: { kind: "pdf", assetId: "" } })),
     ).toBeNull();
-  });
-
-  it("reads pin/collapse state off nodeState", () => {
-    const data = readExcalidashData(element({ schemaVersion: SCHEMA_VERSION, nodeState }));
-    expect(data).toEqual({ schemaVersion: SCHEMA_VERSION, nodeState });
-    expect(readNodeState(element({ schemaVersion: SCHEMA_VERSION, nodeState }))).toEqual(nodeState);
   });
 
   it("returns nothing for an element that carries neither", () => {
@@ -100,34 +92,13 @@ describe("the customData schema", () => {
       expect(data).not.toHaveProperty("mindMap");
     });
 
-    it("readNodeState falls back to the old pinned/collapsed booleans once, but never to mapId/parentId", () => {
-      const legacy = { mapId: "map-1", parentId: null, orderKey: "root", pinned: true };
-      const state = readNodeState(element({ schemaVersion: SCHEMA_VERSION, mindMap: legacy }));
-      expect(state).toEqual({ pinned: true });
-    });
-
-    it("readNodeState prefers the new nodeState field once a client has written one", () => {
-      const legacy = { mapId: "map-1", parentId: null, orderKey: "root", pinned: true };
-      const state = readNodeState(
-        element({
-          schemaVersion: SCHEMA_VERSION,
-          mindMap: legacy,
-          nodeState: { collapsed: true },
-        }),
-      );
-      expect(state).toEqual({ collapsed: true });
-    });
-
-    it("readNodeState returns null, not an empty object, when neither shape carries a true flag", () => {
-      expect(readNodeState(element({ schemaVersion: SCHEMA_VERSION }))).toBeNull();
-      expect(
-        readNodeState(
-          element({
-            schemaVersion: SCHEMA_VERSION,
-            mindMap: { mapId: "map-1", parentId: null, orderKey: "root" },
-          }),
-        ),
-      ).toBeNull();
+    it("tolerates but never surfaces retired nodeState data", () => {
+      const old = element({
+        schemaVersion: SCHEMA_VERSION,
+        nodeState: { pinned: true, collapsed: true },
+      });
+      expect(() => readExcalidashData(old)).not.toThrow();
+      expect(readExcalidashData(old)).toBeNull();
     });
 
     it("a patch that touches an unrelated field lets the dead structure fall away, not round-trip forever", () => {
@@ -167,43 +138,27 @@ describe("the customData schema", () => {
       expect(JSON.stringify(original)).toBe(snapshot);
     });
 
-    it("round-trips what it wrote, including nodeState", () => {
-      const written = withExcalidashData({}, { sticky, widget, nodeState });
+    it("round-trips the records it owns", () => {
+      const written = withExcalidashData({}, { sticky, widget });
       expect(readExcalidashData({ customData: written })).toEqual({
         schemaVersion: SCHEMA_VERSION,
         sticky,
         widget,
-        nodeState,
       });
     });
 
-    it("survives an Excalidraw JSON serialization round-trip", () => {
-      const drawing = {
-        type: "excalidraw",
-        version: 2,
-        elements: [
-          {
-            id: "node-child",
-            type: "rectangle",
-            customData: withExcalidashData({}, { nodeState }),
-          },
-        ],
+    it("drops retired nodeState on the next owned write without disturbing foreign customData", () => {
+      const old = {
+        customData: {
+          foreign: { retained: true },
+          [NAMESPACE]: { schemaVersion: SCHEMA_VERSION, nodeState: { pinned: true } },
+        },
       };
-      const restored = JSON.parse(JSON.stringify(drawing)) as typeof drawing;
+      const written = withExcalidashData(old, { widget });
 
-      expect(readNodeState(restored.elements[0])).toEqual(nodeState);
-      expect(restored.elements.map((entry) => entry.type)).toEqual(["rectangle"]);
-    });
-
-    it("can remove nodeState without disturbing another record or foreign customData", () => {
-      const first = withExcalidashData(
-        { customData: { foreign: { retained: true } } },
-        { widget, nodeState },
-      );
-      const second = withExcalidashData({ customData: first }, { nodeState: null });
-
-      expect(second.foreign).toEqual({ retained: true });
-      expect(readExcalidashData({ customData: second })).toEqual({
+      expect(written.foreign).toEqual({ retained: true });
+      expect((written[NAMESPACE] as Record<string, unknown>).nodeState).toBeUndefined();
+      expect(readExcalidashData({ customData: written })).toEqual({
         schemaVersion: SCHEMA_VERSION,
         widget,
       });

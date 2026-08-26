@@ -44,9 +44,9 @@ const rawScene = (page: Page) =>
  * rectangle, real bound text, a real bound arrow between them
  * (NIL-575 -- the v1 tool's own edges were already native bindings before
  * this teardown), and the dying `customData.excalidash.mindMap` relation
- * on both nodes (`mapId`/`parentId`/`orderKey`, plus `pinned`/`collapsed`
- * on the root to prove the nodeState migration fallback doesn't crash
- * anything even though nothing reads it yet in this schnitt).
+ * on both nodes (`mapId`/`parentId`/`orderKey`) plus the now-retired
+ * `nodeState` sibling. NIL-606 requires the stored field to remain harmless:
+ * it must neither stop the board loading nor restore Pin/Collapse behavior.
  */
 const legacyBoardElements = () => {
   const rootId = "legacy-root";
@@ -86,6 +86,7 @@ const legacyBoardElements = () => {
       excalidash: {
         schemaVersion: 2,
         mindMap: { mapId, parentId: id === rootId ? null : rootId, orderKey: "0001", pinned: true },
+        nodeState: id === rootId ? { pinned: true } : { collapsed: true },
       },
     },
   });
@@ -193,6 +194,22 @@ test("an existing board with old mind-map data loads and stays usable", async ({
     const elements = await scene(page);
     const rectangles = elements.filter((element: any) => element.type === "rectangle");
     expect(rectangles).toHaveLength(2);
+
+    // Select every stored element type individually. The retired actions
+    // used to attach to every one of them; an empty generic toolbar must not
+    // survive after its last actions are removed.
+    for (const element of await rawScene(page)) {
+      await page.evaluate((id) => {
+        const api = (window as any).__EXCALIDASH_TEST__;
+        api.updateScene({ appState: { ...api.getAppState(), selectedElementIds: { [id]: true } } });
+      }, element.id);
+      await expect(page.getByRole("toolbar", { name: "Node actions" })).toHaveCount(0);
+      await expect(page.getByTestId("mind-map-pin-button")).toHaveCount(0);
+      await expect(page.getByTestId("mind-map-collapse-button")).toHaveCount(0);
+    }
+    await expect(page.getByTestId("mind-map-pin-badge")).toHaveCount(0);
+    await expect(page.getByTestId("mind-map-collapse-badge")).toHaveCount(0);
+    await expect(page.getByTestId("mind-map-collapse-mask")).toHaveCount(0);
 
     // Still fully editable: draw a fresh shape, confirm the board accepts it.
     await page

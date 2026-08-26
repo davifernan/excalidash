@@ -73,12 +73,11 @@ export type ShapeBox = {
 
 /**
  * The three projections every consumer of this module's qualifying-
- * children rule needs from a live `ElementSummary[]` (`nodeState.ts`,
- * `../mindMap/mindMapScene.ts`'s `arrangeOps`, `useAmbientTreeDrag.ts`) --
+ * children rule needs from a live `ElementSummary[]`
+ * (`../mindMap/mindMapScene.ts`'s `arrangeOps`, `useAmbientTreeDrag.ts`) --
  * shared here (Hans finding, NIL-593 Schnitt 3 review) so the one
  * "!isDeleted && type !== 'arrow'" filter and the one `ArrowEdge`/
- * `ShapeBox` projection can't drift apart across three near-identical
- * copies the way they had before this.
+ * `ShapeBox` projection can't drift apart across consumers.
  */
 export const shapesOf = (summaries: readonly ElementSummary[]): readonly ElementSummary[] =>
   summaries.filter((element) => !element.isDeleted && element.type !== "arrow");
