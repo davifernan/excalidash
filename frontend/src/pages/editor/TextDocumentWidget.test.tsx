@@ -13,9 +13,9 @@ const { paginateDocumentOffThreadMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("./documentPaginationWorker", async () => {
-  const actual = await vi.importActual<
-    typeof import("@excalidash/domain/documents/pagination")
-  >("@excalidash/domain/documents/pagination");
+  const actual = await vi.importActual<typeof import("@excalidash/domain/documents/pagination")>(
+    "@excalidash/domain/documents/pagination",
+  );
   paginateDocumentOffThreadMock.mockImplementation(
     async (source: string, kind: "MARKDOWN" | "TEXT") =>
       actual.paginateDocumentSource(source, kind),

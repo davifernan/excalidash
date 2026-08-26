@@ -31,12 +31,6 @@
  *             shared domain package and removed every cross-application pair;
  *             a new Klasse-2 collision is therefore an unbaselined failure.
  *
- * A third shape, not named in NIL-489's own text but found by running this
- * script: two types that share no concept and no import relationship at all,
- * whose literals happen to overlap (`TeamRole` / `PresenceKind`). Structurally
- * identical to Klasse 1 -- only nominal types close it -- but arrived at by
- * accident rather than by one alphabet being deliberately extended.
- *
  * A type that is a bare re-export of another (`export type A = B;`, no
  * literal of its own) is not counted here. It cannot drift: it IS the other
  * type, by reference, forever. `AssetWidgetKind = WidgetKind` in
@@ -392,18 +386,7 @@ const findCollisions = (candidates) => {
  * a real new collision fails the check until it is either fixed or added here
  * with a reason, by a reviewed change to this file.
  */
-const BASELINE = [
-  {
-    key: "PresenceKind / TeamRole",
-    reason:
-      "Accidental, not a shared concept: TeamRole (backend/src/authz/team.ts, a member's role " +
-      "in a team) happens to be a subset of PresenceKind's (backend/src/server/" +
-      "presenceRegistry.ts, why a socket connection is present) literals. Different questions, " +
-      "no import relationship, nothing to consolidate -- would need nominal types to close, " +
-      "same as the Klasse 1 authz cluster above. Found by this script, not anticipated by " +
-      "NIL-489's own text; reported as a comment on NIL-489 rather than fixed here.",
-  },
-];
+const BASELINE = [];
 const BASELINE_KEYS = new Set(BASELINE.map((entry) => entry.key));
 
 const main = () => {
