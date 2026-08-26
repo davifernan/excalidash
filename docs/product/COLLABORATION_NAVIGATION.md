@@ -8,12 +8,14 @@ Betroffene Verträge: `frontend/src/pages/editor/followMode.ts`, `inviteHere.ts`
 
 ## Verbindungszustand: nur der Stoerfall zeichnet Chrome
 
-Eine gesunde, beigetretene Socket-Verbindung erzeugt kein Status-Element. Der fruehere gruene
-"Connected"-Punkt war fast immer sichtbar und trug deshalb keine handlungsrelevante Information.
+Eine gesunde, beigetretene Socket-Verbindung erzeugt kein sichtbares oder hit-testbares
+Status-Element. Der fruehere gruene "Connected"-Punkt war fast immer sichtbar und trug deshalb
+keine handlungsrelevante Information.
 Die Zustandsquelle in `useEditorCollaboration.ts` bleibt unveraendert; nur ihre Darstellung in
 `ConnectionStatusBadge.tsx` folgt jetzt diesen Regeln:
 
-- `connected`: kein Rahmen, kein Badge und kein entsprechendes DOM-Element.
+- `connected`: kein Rahmen und kein Badge; nur die leere, visuell verborgene Live-Region bleibt
+  im DOM und kann keine Zeigerereignisse abfangen.
 - `offline`: ein durchgehender roter 1-px-Rahmen um den gesamten Editor mit dem unten
   angesetzten Badge **Disconnected**.
 - `reconnecting`: derselbe Rahmen mit **Reconnecting**, dessen Punkte sichtbar

@@ -88,6 +88,11 @@ test("connection failures frame the viewport without intercepting any edge", asy
     await expect(badge(first)).toHaveCount(0);
     await expect(frame(second)).toHaveCount(0);
     await expect(badge(second)).toHaveCount(0);
+    await expect(announcement(first)).toHaveCount(1);
+    await expect(announcement(first)).toHaveText("");
+    await announcement(first).evaluate((element) => {
+      element.setAttribute("data-persistence-probe", "mounted-while-connected");
+    });
     await testInfo.attach("connected-no-connection-chrome", {
       body: await first.screenshot(),
       contentType: "image/png",
@@ -137,6 +142,10 @@ test("connection failures frame the viewport without intercepting any edge", asy
     await expect(frame(first)).toHaveAttribute("data-status", "offline");
     await expect(badge(first)).toHaveText("Disconnected");
     await expect(announcement(first)).toHaveText("Disconnected");
+    await expect(announcement(first)).toHaveAttribute(
+      "data-persistence-probe",
+      "mounted-while-connected",
+    );
 
     const presenceCollision = await first.evaluate(() => {
       const frameElement = document.querySelector<HTMLElement>(

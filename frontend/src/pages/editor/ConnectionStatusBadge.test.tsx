@@ -21,7 +21,7 @@ describe("connection failure frame", () => {
     setReducedMotion(false);
   });
 
-  it("has no DOM in the normal connected state", () => {
+  it("has no visible or hit-testable connection chrome in the normal state", () => {
     const host = document.createElement("div");
     document.body.append(host);
 
@@ -29,6 +29,9 @@ describe("connection failure frame", () => {
 
     expect(host.querySelector("[data-testid='connection-status-frame']")).toBeNull();
     expect(host.querySelector("[data-testid='connection-status-badge']")).toBeNull();
+    expect(host.querySelector("[data-testid='connection-status-announcement']")?.textContent).toBe(
+      "",
+    );
     host.remove();
   });
 
@@ -69,8 +72,12 @@ describe("connection failure frame", () => {
     const host = document.createElement("div");
     document.body.append(host);
 
-    const { rerender } = render(<ConnectionStatusBadge container={host} status="offline" />);
+    const { rerender } = render(<ConnectionStatusBadge container={host} status="connected" />);
     const announcement = host.querySelector("[data-testid='connection-status-announcement']");
+    expect(announcement?.textContent).toBe("");
+
+    rerender(<ConnectionStatusBadge container={host} status="offline" />);
+    expect(host.querySelector("[data-testid='connection-status-announcement']")).toBe(announcement);
     expect(announcement?.textContent).toBe("Disconnected");
 
     rerender(<ConnectionStatusBadge container={host} status="reconnecting" />);
