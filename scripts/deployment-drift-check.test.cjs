@@ -62,6 +62,7 @@ const MINIMAL_NO_LOGGING = `services:
       options:
         max-size: "10m"
         max-file: "20"
+        compress: "true"
 
 networks:
   net:
@@ -78,6 +79,7 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
       options:
         max-size: "10m"
         max-file: "20"
+        compress: "true"
     networks:
       - net
 
@@ -90,6 +92,7 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
       options:
         max-size: "10m"
         max-file: "20"
+        compress: "true"
     networks:
       - net
 
@@ -103,6 +106,7 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
       options:
         max-size: "10m"
         max-file: "20"
+        compress: "true"
 
 networks:
   net:
@@ -140,6 +144,27 @@ test("flags a max-size that quietly reverted, not just a missing block", () => {
     assert.ok(
       result.findings.some((f) => f.includes('service "backend"') && f.includes("logging mismatch")),
       `expected a logging mismatch finding, got: ${JSON.stringify(result.findings)}`,
+    );
+  });
+});
+
+test("flags a deployment file that carries max-file but drops compress (NIL-619 review finding)", () => {
+  // Hans-Friedrich, PR #193: a host file that picks up the bigger max-file
+  // but drops compress on the way used to sail through as a match, because
+  // extractLogging never read the field at all.
+  const drifted = MINIMAL_WITH_MATCHING_LOGGING.replace('compress: "true"\n', "");
+  withTempFile(drifted, (deploymentPath) => {
+    const result = checkDrift({ deploymentPath, canonicalText: CANONICAL_TEXT, canonicalLabel: LABEL });
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.findings.some(
+        (f) =>
+          f.includes('service "backend"') &&
+          f.includes("logging mismatch") &&
+          f.includes('"compress":"false"') &&
+          f.includes('"compress":"true"'),
+      ),
+      `expected a compress mismatch finding, got: ${JSON.stringify(result.findings)}`,
     );
   });
 });
@@ -218,6 +243,7 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       options:
         max-size: "10m"
         max-file: "20"
+        compress: "true"
 
   frontend:
     image: ghcr.io/davifernan/excalidash-frontend:\${EXCALIDASH_IMAGE_TAG:?set EXCALIDASH_IMAGE_TAG to a verified sha tag}
@@ -232,6 +258,7 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       options:
         max-size: "10m"
         max-file: "20"
+        compress: "true"
 
   bugsink:
     image: bugsink/bugsink:2.5.0
@@ -243,6 +270,7 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       options:
         max-size: "10m"
         max-file: "20"
+        compress: "true"
 
 networks:
   net:
