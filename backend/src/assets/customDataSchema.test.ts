@@ -1,62 +1,42 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  NAMESPACE,
-  SCHEMA_VERSION,
-  readMindMapProjectionRecord,
-  readMindMapRecord,
-  readWidgetRecord,
-} from "./customDataSchema";
+import { NAMESPACE, SCHEMA_VERSION, readWidgetRecord } from "./customDataSchema";
 
 const element = (record: Record<string, unknown>) => ({
   customData: { [NAMESPACE]: { schemaVersion: SCHEMA_VERSION, ...record } },
 });
 
 describe("server customData schema", () => {
-  it("reads node authority and arrow projection independently", () => {
-    const mindMap = { mapId: "map-1", parentId: "root", orderKey: "0001" };
-    const projection = { mapId: "map-1", childId: "child" };
-
-    expect(readMindMapRecord(element({ mindMap }))).toEqual(mindMap);
-    expect(readMindMapProjectionRecord(element({ mindMapProjection: projection }))).toEqual(
-      projection,
-    );
+  it("reads the widget record", () => {
+    expect(readWidgetRecord(element({ widget: { kind: "pdf", assetId: "asset-1" } }))).toEqual({
+      kind: "pdf",
+      assetId: "asset-1",
+    });
   });
 
-  it("accepts only an explicit null for a root parent", () => {
+  it("rejects an unknown widget kind or an empty asset id", () => {
     expect(
-      readMindMapRecord(element({ mindMap: { mapId: "map-1", parentId: null, orderKey: "root" } })),
-    ).toEqual({ mapId: "map-1", parentId: null, orderKey: "root" });
-    expect(
-      readMindMapRecord(element({ mindMap: { mapId: "map-1", orderKey: "root" } })),
+      readWidgetRecord(element({ widget: { kind: "unknown", assetId: "asset-1" } })),
     ).toBeNull();
+    expect(readWidgetRecord(element({ widget: { kind: "pdf", assetId: "" } }))).toBeNull();
   });
 
-  it("rejects empty identifiers and unknown schema versions", () => {
+  it("rejects an unknown schema version", () => {
     expect(
-      readMindMapRecord(element({ mindMap: { mapId: "", parentId: null, orderKey: "root" } })),
-    ).toBeNull();
-    expect(
-      readMindMapProjectionRecord(element({ mindMapProjection: { mapId: "map-1", childId: "" } })),
-    ).toBeNull();
-    expect(
-      readMindMapRecord({
+      readWidgetRecord({
         customData: {
-          [NAMESPACE]: {
-            schemaVersion: 999,
-            mindMap: { mapId: "map-1", parentId: null, orderKey: "root" },
-          },
+          [NAMESPACE]: { schemaVersion: 999, widget: { kind: "pdf", assetId: "asset-1" } },
         },
       }),
     ).toBeNull();
   });
 
-  it("keeps the existing widget reader working beside a mind-map record", () => {
+  it("ignores an unrelated field beside the widget record -- an element may legitimately carry another writer's data (NIL-570's reading discipline)", () => {
     expect(
       readWidgetRecord(
         element({
           widget: { kind: "pdf", assetId: "asset-1" },
-          mindMap: { mapId: "map-1", parentId: null, orderKey: "root" },
+          nodeState: { pinned: true },
         }),
       ),
     ).toEqual({ kind: "pdf", assetId: "asset-1" });

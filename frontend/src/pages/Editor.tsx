@@ -595,7 +595,10 @@ export const Editor: React.FC = () => {
       );
       // Ambient tree drag first: on every board, tool-less, reading only
       // native arrow bindings (NIL-593) -- independent of the mind-map
-      // feature below it, which still owns its own tagged nodes.
+      // feature below it, which no longer tags any node of its own (the
+      // v1 mode's customData.excalidash.mindMap relationship layer is
+      // torn down this schnitt; "Import mind map..." and "Arrange" both
+      // read structure the same ambient way this drag hook does).
       onAmbientTreeSceneChange();
       handleChangeWithNotes(elements, appState, files);
     },

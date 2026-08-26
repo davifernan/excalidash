@@ -8,6 +8,19 @@
  * renders, and every page command is refused as "not part of this board".
  *
  * Kept in step with frontend/src/integrations/excalidraw/customData.ts.
+ *
+ * `mindMap`/`mindMapProjection` (`mapId`/`parentId`/`orderKey`) are gone
+ * (NIL-593, Schnitt 2): the frontend's own relationship layer for the v1
+ * mind-map tool's mode was torn down, and this server side never had a
+ * second caller for the equivalent readers -- `readMindMapRecord`/
+ * `readMindMapProjectionRecord` existed only for their own unit test,
+ * found and removed as dead code once the frontend teardown's own "nothing
+ * reads mapId/parentId as structure anymore" claim was checked against the
+ * whole codebase, not just `git grep` on the removed name (a plain search
+ * for those identifiers never crossed the frontend/backend boundary, since
+ * this file duplicates the shape rather than importing it). An old
+ * element's stored `mindMap`/`mindMapProjection` fields are simply never
+ * read here anymore, the same as on the frontend side.
  */
 
 export const NAMESPACE = "excalidash";
@@ -18,17 +31,6 @@ export type WidgetKind = "pdf" | "markdown" | "text";
 export type WidgetRecord = {
   kind: WidgetKind;
   assetId: string;
-};
-
-export type MindMapRecord = {
-  mapId: string;
-  parentId: string | null;
-  orderKey: string;
-};
-
-export type MindMapProjectionRecord = {
-  mapId: string;
-  childId: string;
 };
 
 const WIDGET_KINDS = new Set<string>(["pdf", "markdown", "text"]);
@@ -78,28 +80,4 @@ export function withWidgetRecord(element: unknown, widget: WidgetRecord): Record
       },
     },
   };
-}
-
-/**
- * Server-side validation for the same semantic node record the adapter writes.
- * The server does not infer relationships from arrows and does not repair an
- * invalid tree while saving or restoring a drawing.
- */
-export function readMindMapRecord(element: unknown): MindMapRecord | null {
-  const own = readNamespace(element);
-  if (!own || !isBag(own.mindMap)) return null;
-  const { mapId, parentId, orderKey } = own.mindMap;
-  if (typeof mapId !== "string" || mapId.length === 0) return null;
-  if (parentId !== null && (typeof parentId !== "string" || parentId.length === 0)) return null;
-  if (typeof orderKey !== "string" || orderKey.length === 0) return null;
-  return { mapId, parentId, orderKey };
-}
-
-export function readMindMapProjectionRecord(element: unknown): MindMapProjectionRecord | null {
-  const own = readNamespace(element);
-  if (!own || !isBag(own.mindMapProjection)) return null;
-  const { mapId, childId } = own.mindMapProjection;
-  if (typeof mapId !== "string" || mapId.length === 0) return null;
-  if (typeof childId !== "string" || childId.length === 0) return null;
-  return { mapId, childId };
 }
