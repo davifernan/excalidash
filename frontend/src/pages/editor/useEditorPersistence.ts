@@ -316,6 +316,17 @@ export const useEditorPersistence = ({
         notify("error", "Drawing changed in another tab. Refresh to load latest.");
         throw err;
       }
+      if (
+        api.isAxiosError(err) &&
+        err.response?.status === 403 &&
+        err.response.data?.code === "GUEST_UPLOAD_DISABLED"
+      ) {
+        notify("error", "Changes were not saved because this board does not allow guest uploads.", {
+          detail:
+            "Your changes are still open. Remove the embedded image or ask the board owner to enable guest uploads.",
+        });
+        throw err;
+      }
       log.error("Failed to save drawing", { error: err }, { notify: false });
       notify("error", "Failed to save changes");
       throw err;

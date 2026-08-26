@@ -274,6 +274,52 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
     ).toContain(dataURL);
   });
 
+  it("lets a guest save scene text beside an already-persisted inline preview", async () => {
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const preview = `<svg xmlns="http://www.w3.org/2000/svg"><image href="${dataURL}" /></svg>`;
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({
+        name: "Legacy inline preview",
+        elements: [],
+        appState: {},
+        files: {},
+        preview,
+      });
+    expect(created.status).toBe(200);
+
+    const drawingId = created.body.id as string;
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+
+    const saved = await anonymousAgent
+      .put(`/drawings/${drawingId}`)
+      .set("User-Agent", userAgent)
+      .set("x-share-token", token)
+      .set(anonymousCsrfHeaderName, anonymousCsrfToken)
+      .send({
+        version: created.body.version,
+        elements: [{ id: "guest-text", type: "text", text: "Keep this text" }],
+        appState: {},
+        preview,
+      });
+
+    expect(saved.status).toBe(200);
+    expect(saved.body.elements).toEqual([
+      expect.objectContaining({ id: "guest-text", text: "Keep this text" }),
+    ]);
+  });
+
   it("keeps an existing file when a later save's files payload does not repeat it", async () => {
     const created = await ownerAgent
       .post("/drawings")

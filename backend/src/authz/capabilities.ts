@@ -130,19 +130,69 @@ export const hasEmbeddedFileUpload = (files: unknown): boolean => {
   });
 };
 
-/** Whether a persisted SVG preview carries inline image bytes. */
-export const hasEmbeddedPreviewUpload = (preview: unknown): boolean => {
-  if (typeof preview !== "string") return false;
-  return /<image\b[^>]*\s(?:href|xlink:href)\s*=\s*(?:"\s*data:image\/|'\s*data:image\/)/i.test(
-    preview,
-  );
+const embeddedPreviewImageDataUrls = (preview: unknown): string[] => {
+  if (typeof preview !== "string") return [];
+  const urls: string[] = [];
+  const imageHref =
+    /<image\b[^>]*\s(?:href|xlink:href)\s*=\s*(?:"\s*(data:image\/[^\"]*)"|'\s*(data:image\/[^']*)')/gi;
+  for (const match of preview.matchAll(imageHref)) {
+    const url = match[1] ?? match[2];
+    if (url) urls.push(url);
+  }
+  return urls;
 };
 
-/** Every drawing-update carrier that can persist newly supplied image bytes. */
-export const hasEmbeddedDrawingUpload = (payload: {
-  files?: unknown;
-  preview?: unknown;
-}): boolean => hasEmbeddedFileUpload(payload.files) || hasEmbeddedPreviewUpload(payload.preview);
+/** Whether a persisted SVG preview carries inline image bytes. */
+export const hasEmbeddedPreviewUpload = (preview: unknown): boolean => {
+  return embeddedPreviewImageDataUrls(preview).length > 0;
+};
+
+/**
+ * Whether an update would introduce image bytes that are not already stored
+ * on this drawing. Replaying a legacy inline preview is not an upload: it
+ * cannot increase storage, so it must not prevent an otherwise editable
+ * board from saving its text or geometry. A new inline image still is an
+ * upload, including the preview-only autosave path that this guard closes.
+ */
+export const hasEmbeddedDrawingUpload = (
+  payload: {
+    files?: unknown;
+    preview?: unknown;
+  },
+  existing: {
+    files?: unknown;
+    preview?: unknown;
+  } = {},
+): boolean => {
+  const existingFiles =
+    existing.files && typeof existing.files === "object" && !Array.isArray(existing.files)
+      ? (existing.files as Record<string, unknown>)
+      : {};
+  const filesContainNewBytes =
+    payload.files && typeof payload.files === "object" && !Array.isArray(payload.files)
+      ? Object.entries(payload.files as Record<string, unknown>).some(([fileId, entry]) => {
+          const dataURL =
+            entry && typeof entry === "object" && !Array.isArray(entry)
+              ? (entry as Record<string, unknown>).dataURL
+              : null;
+          const existingDataURL =
+            existingFiles[fileId] &&
+            typeof existingFiles[fileId] === "object" &&
+            !Array.isArray(existingFiles[fileId])
+              ? (existingFiles[fileId] as Record<string, unknown>).dataURL
+              : null;
+          return (
+            typeof dataURL === "string" &&
+            dataURL.startsWith("data:") &&
+            dataURL !== existingDataURL
+          );
+        })
+      : false;
+  if (filesContainNewBytes) return true;
+
+  const existingUrls = new Set(embeddedPreviewImageDataUrls(existing.preview));
+  return embeddedPreviewImageDataUrls(payload.preview).some((url) => !existingUrls.has(url));
+};
 
 export const GUEST_UPLOAD_DENIED = {
   error: "Guest upload disabled",

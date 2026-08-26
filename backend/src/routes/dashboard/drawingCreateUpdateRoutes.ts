@@ -210,7 +210,13 @@ export const registerDrawingCreateUpdateRoutes = (
         files?: Record<string, unknown>;
         version?: number;
       };
-      if (hasEmbeddedDrawingUpload(payload) && !decision.capabilities.uploadFiles) {
+      if (
+        hasEmbeddedDrawingUpload(payload, {
+          files: parseJsonField(existingDrawing.files, {}),
+          preview: existingDrawing.preview,
+        }) &&
+        !decision.capabilities.uploadFiles
+      ) {
         return res.status(403).json(GUEST_UPLOAD_DENIED);
       }
       const ownerUserId = existingDrawing.userId;
