@@ -144,7 +144,59 @@ const withSchemaArg = (args, schema) => {
   return [...args, "--schema", schema];
 };
 
+/**
+ * `generate` never touches migrations, so the temp-workspace copy the other
+ * subcommands need (a real, provider-specific `migrations/` directory next
+ * to the schema) buys it nothing -- and it actively breaks two things at
+ * once when the copy lands under `os.tmpdir()`:
+ *
+ * 1. Prisma's own "auto-install on generate" step infers the *project root*
+ *    to install into from the `--schema` path, not from `cwd`. A schema
+ *    under `/tmp` has no ancestor `package.json`, so it falls back to `/`
+ *    and `npm i prisma@... -D` there fails outright (NIL-597) -- the
+ *    reproducible crash this fix exists for.
+ * 2. Even past that: the generator block's `output = "../src/generated/
+ *    client"` is resolved relative to the schema file's own location. From
+ *    a `/tmp` copy that resolves to a `/tmp/src/generated/client` that
+ *    nothing in this app ever imports from -- a client would "generate"
+ *    successfully and land somewhere useless.
+ *
+ * `docker-entrypoint.sh` already gets this right for the same reason: it
+ * `sed`-rewrites the real `/app/prisma/schema.prisma` in place, then runs
+ * `prisma generate` straight against it, no temp copy anywhere. This does
+ * the dev-time equivalent -- rewrite the real schema in place, generate,
+ * restore the original content in a `finally` so the checked-in file is
+ * never actually changed on disk after the call returns (success or not).
+ */
+const runPrismaGenerate = (args, options = {}) => {
+  const env = {
+    ...process.env,
+    ...(options.env || {}),
+  };
+  const provider = inferProvider(env);
+  env.DATABASE_PROVIDER = provider;
+  env.DATABASE_URL = normalizeDatabaseUrl(env.DATABASE_URL);
+
+  const originalSchema = fs.readFileSync(schemaFile, "utf8");
+  const rewrittenSchema = rewriteSchemaProvider(originalSchema, provider);
+  const needsRewrite = rewrittenSchema !== originalSchema;
+  if (needsRewrite) fs.writeFileSync(schemaFile, rewrittenSchema);
+
+  try {
+    return execFileSync(npxBin, ["prisma", ...withSchemaArg(args, schemaFile)], {
+      cwd: backendRoot,
+      env,
+      stdio: options.stdio || "inherit",
+      encoding: options.encoding,
+    });
+  } finally {
+    if (needsRewrite) fs.writeFileSync(schemaFile, originalSchema);
+  }
+};
+
 const runPrisma = (args, options = {}) => {
+  if (args[0] === "generate") return runPrismaGenerate(args, options);
+
   const env = {
     ...process.env,
     ...(options.env || {}),
