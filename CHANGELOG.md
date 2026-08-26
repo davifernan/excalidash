@@ -13,9 +13,79 @@ gets here: going forward, each pull request's mandatory `User-Facing:` line is t
 material, collected and grouped automatically at tag time and polished by a human before the
 release is published. Nothing here is invented from commit history after the fact.
 
-Release tags follow `vX.Y.Z-nilo.N` -- see
+Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
-("Tag-Namensraum") for why the suffix is permanent rather than cosmetic.
+("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
+
+## v0.12.0 -- 2026-08-26
+
+### Added
+- Dragging a box now takes along whatever it points to via a connecting arrow, on any board -- no tool needed.
+- Pin (P) and collapse (the floating "Collapse" toolbar) work on any node with children now, not just an imported mind-map tree -- no tool, no mode to switch into first. A pinned node's position survives the next "Arrange" run; a collapsed node's descendants hide behind a badge that expands them again.
+
+### Fixed
+- Fixes an intermittent bug where a collapsed subtree's count badge sometimes never appeared for a collaborator who only received the collapse over the socket, even though the collapse itself synced correctly.
+
+### Changed
+
+- The mind-map tool's own mode is gone. "Import mind map..." now creates an ordinary tree of boxes and arrows that behaves exactly like a hand-drawn one -- ambient drag, native undo, no separate mode to opt into. "Arrange mind map" is renamed to "Arrange" and now works on any ambient tree, not just an imported one.
+
+## v0.11.0 -- 2026-08-25
+
+### Added
+
+- Dragging a mind-map node onto another one now moves it there in the tree, with a live preview of the drop target before you let go.
+- Mind-map nodes can now be pinned in place, so their position survives the next "Arrange mind map".
+- A mind-map branch can now be collapsed to a count badge and expanded again with one click.
+- A small colored dot next to the menu now shows live connection state (green connected, amber reconnecting, red offline) instead of nothing.
+- When a collaborator's cursor is outside the part of the board you're currently viewing, a small arrow at the edge of your screen points toward them.
+
+### Changed
+
+- Sticky notes now show the colour picker while you're still typing, so you can change the colour without losing your place.
+
+## v0.10.0 -- 2026-08-25
+
+### Added
+
+- You can now build mind maps directly on the canvas -- pick the Mind Map tool, click to start a root idea, press Tab for a child or Enter for a sibling, and drag any node to take its whole branch with it. "Arrange mind map" tidies the layout on demand.
+- Editing a Markdown document now shows a live preview next to the source, so bold, italic, and other formatting appear as you type instead of only after switching to view mode.
+
+### Fixed
+
+- The workshop timer's settings menu now closes itself the moment you press Start, the timer looks like the rest of the canvas chrome until it's actually running (then it turns white, like the main toolbar), and a short chime plays for anyone who's touched the timer when it runs out.
+
+### Changed
+
+- The floating toolbar on a document or PDF now shows a clear divider between the filename and its action buttons, so the rename pencil no longer reads as acting on the whole toolbar.
+- Mind map edges now render as fully connected, native arrows that stay attached the way any other Excalidraw connector does.
+- The top-right control bar (avatars, invite, share, Library) is now visually recessed grey behind the main toolbar, matches the toolbar's height, and separates into a presence group and an actions group with a hairline divider that only appears when someone else is on the board.
+
+## v0.9.0 -- 2026-08-25
+
+### Fixed
+
+- Floating document controls now move clear of editor tools and long filenames stay compact.
+- Markdown files on a board can now be edited, saved across reloads, and clearly locked while another person is editing.
+
+### Changed
+
+- Administrators can opt into self-hosted error tracking while board content and user identities stay out of reports.
+
+## v0.8.0 -- 2026-08-25
+
+### Fixed
+
+- Collaborator names no longer keep the large-selection label after that selection has been cleared.
+- Cursor traffic protection no longer interrupts image uploads with internal rate-limit notices.
+- Canvas controls are now compact, aligned, and grouped into consistent toolbars.
+
+### Changed
+
+- Native drawing export coverage now prepares stored board images through the durable server boundary instead of racing editor autosave.
+- Release-Versionen heissen jetzt schlicht vX.Y.Z.
+- Die naechste Version heisst 0.8.0.
+- PDF, Markdown/text and sticky-note controls now appear in a viewport-sized toolbar beside the single selected element.
 
 ## v0.7.0-nilo.1 -- 2026-08-24
 
@@ -59,24 +129,26 @@ Release tags follow `vX.Y.Z-nilo.N` -- see
 - Run `docker compose -f docker-compose.prod.yml logs backend --tail=200` after rollout and
   verify startup/migration status.
 
-### Recommended upgrade (Docker Hub compose)
+### Recommended upgrade (GHCR compose)
+
+### Pin this release (required)
+
+Both services read the same `EXCALIDASH_IMAGE_TAG` from `.env`. There is no
+per-service `image:` tag to edit in `docker-compose.prod.yml` — and no `:latest`
+fallback if the variable is unset, so compose refuses to start without it.
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+# .env
+EXCALIDASH_IMAGE_TAG=0.7.0
 ```
 
-### Pin images to this release (recommended for reproducible deploys)
-
-Edit `docker-compose.prod.yml` and pin the release tags:
-
-```yaml
-services:
-  backend:
-    image: ghcr.io/davifernan/excalidash-backend:0.7.0
-  frontend:
-    image: ghcr.io/davifernan/excalidash-frontend:0.7.0
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml pull
+docker compose --env-file .env -f docker-compose.prod.yml up -d
 ```
+
+To roll back, put the previous value back into `.env` and repeat the two commands.
+No compose-file edit is involved in either direction.
 
 </details>
 
