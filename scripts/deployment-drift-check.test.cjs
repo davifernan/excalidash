@@ -61,7 +61,7 @@ const MINIMAL_NO_LOGGING = `services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "20"
 
 networks:
   net:
@@ -77,7 +77,7 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "20"
     networks:
       - net
 
@@ -89,7 +89,7 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "20"
     networks:
       - net
 
@@ -102,7 +102,7 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "20"
 
 networks:
   net:
@@ -217,7 +217,7 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "20"
 
   frontend:
     image: ghcr.io/davifernan/excalidash-frontend:\${EXCALIDASH_IMAGE_TAG:?set EXCALIDASH_IMAGE_TAG to a verified sha tag}
@@ -231,7 +231,7 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "20"
 
   bugsink:
     image: bugsink/bugsink:2.5.0
@@ -242,7 +242,7 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "20"
 
 networks:
   net:
