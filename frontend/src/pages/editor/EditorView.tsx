@@ -27,7 +27,10 @@ import {
   renderMainMenuEntries,
   type ChromeSlotContext,
 } from "./chromeSlots";
-import { EditorMenu as MainMenu } from "../../integrations/excalidraw/slots";
+import {
+  EditorCommandPalette as CommandPalette,
+  EditorMenu as MainMenu,
+} from "../../integrations/excalidraw/slots";
 import "./editorChrome.css";
 import { elementViewportBounds, isOnlySelectedElement } from "./floatingToolbarGeometry";
 import { readViewport } from "../../integrations/excalidraw/viewport";
@@ -317,6 +320,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
           >
             {renderFooterEntries(chromeCtx)}
             <MainMenu>{renderMainMenuEntries(chromeCtx)}</MainMenu>
+            <CommandPalette />
           </ExcalidrawHost>
           {/*
             One free-floating widget for every layout, portalled into

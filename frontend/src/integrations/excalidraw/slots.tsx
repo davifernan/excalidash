@@ -11,10 +11,22 @@
  * verifySeams can say so, rather than the footer quietly not appearing.
  */
 
-import { Footer, MainMenu } from "@excalidraw/excalidraw";
+import {
+  ExcalidrawCommandPalette as CommandPalette,
+  Footer,
+  MainMenu,
+} from "@excalidraw/excalidraw";
 
 /** The strip along the bottom of the canvas. */
 export const EditorFooter = Footer;
 
 /** The hamburger menu, with the editor's own default entries available on it. */
 export const EditorMenu = MainMenu;
+
+/**
+ * Excalidraw's native command palette host. The published 0.18.1 bundle
+ * contains this component but does not export it, while its menu default item
+ * assumes a host mounted it. The audited preparation script exposes that
+ * existing component; this seam remains the only application import.
+ */
+export const EditorCommandPalette = CommandPalette;

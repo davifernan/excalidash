@@ -163,6 +163,7 @@
 }
 
 .editor-header-control {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -175,6 +176,35 @@
      competing. `--color-gray-60` is an Excalidraw token, theme-aware. */
   color: var(--color-gray-60);
   cursor: pointer;
+}
+
+.editor-header-control__tooltip {
+  position: absolute;
+  z-index: var(--zIndex-popup);
+  inset-block-start: calc(100% + 0.5rem);
+  inset-inline-start: 50%;
+  transform: translate(-50%, -0.25rem);
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--border-radius-md, 0.375rem);
+  background: #000000;
+  color: #ffffff;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.editor-header-control:hover .editor-header-control__tooltip,
+.editor-header-control:focus-visible .editor-header-control__tooltip {
+  visibility: visible;
+  transform: translate(-50%, 0);
+  opacity: 1;
 }
 
 .editor-header-control__badge {

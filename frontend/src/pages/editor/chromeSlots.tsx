@@ -18,8 +18,9 @@
  * - **Header control** (`HeaderControlSlotEntry`) -- an icon button in the
  *   top-right grey control group (EditorTopRight.tsx), flush with Excalidraw's
  *   own collaborator avatars and Library trigger. Hidden entirely on mobile
- *   (EditorTopRight stands down there; its entry points live in the menu
- *   instead -- see EditorTopRight.tsx's own file comment for why).
+ *   (EditorTopRight stands down there). A header entry does not implicitly
+ *   create a duplicate mobile menu route; a feature that must survive mobile
+ *   adds a deliberate menu or overlay entry of its own.
  *
  *   This slot has a factual upper limit: a third icon here, alongside
  *   invite-everyone-here and share, pushes `.layer-ui__wrapper__top-right`
@@ -202,6 +203,12 @@ export type OverlaySlotEntry = { id: string; render: (ctx: ChromeSlotContext) =>
 
 const byOrder = (a: SlotEntry, b: SlotEntry) => a.order - b.order || a.id.localeCompare(b.id);
 
+const canShareFromMobileMenu = (ctx: ChromeSlotContext): boolean =>
+  ctx.mobile && ctx.accessLevel === "owner" && Boolean(ctx.id);
+
+const canInviteFromMobileMenu = (ctx: ChromeSlotContext): boolean =>
+  ctx.mobile && ctx.canEdit && ctx.peers.length > 0;
+
 const describeFollowers = (followers: readonly Follower[]): string | null => {
   if (followers.length === 0) return null;
   if (followers.length === 1) return `${followers[0].name} is following you`;
@@ -289,6 +296,24 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
   },
   { id: "lead-in-separator", order: 25, render: () => <MainMenu.Separator /> },
   { id: "toggle-theme", order: 100, render: () => <MainMenu.DefaultItems.ToggleTheme /> },
+  {
+    id: "command-palette",
+    order: 105,
+    // Supplying any custom MainMenu children disables Excalidraw's fallback
+    // menu wholesale. Native entries therefore have to be passed through
+    // here explicitly; omitting this one made the command palette (and its
+    // grid toggle) unreachable from the menu even though Excalidraw exports
+    // the complete implementation for embedders.
+    render: () => <MainMenu.DefaultItems.CommandPalette />,
+  },
+  {
+    id: "search-menu",
+    order: 107,
+    // The same fallback-replacement audit that found CommandPalette also
+    // found Excalidraw's canvas search missing. Keep both native capabilities
+    // at the adapter seam instead of rebuilding either command locally.
+    render: () => <MainMenu.DefaultItems.SearchMenu />,
+  },
   { id: "save-as-image", order: 110, render: () => <MainMenu.DefaultItems.SaveAsImage /> },
   {
     id: "export",
@@ -333,12 +358,20 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
         </MainMenu.Item>
       ) : null,
   },
-  { id: "collab-separator", order: 195, render: () => <MainMenu.Separator /> },
+  {
+    id: "mobile-collaboration-separator",
+    order: 195,
+    // Desktop owns these actions in EditorTopRight. That component returns
+    // null on mobile, so the separator and both routes exist only when at
+    // least one mobile fallback action actually follows it.
+    render: (ctx) =>
+      canShareFromMobileMenu(ctx) || canInviteFromMobileMenu(ctx) ? <MainMenu.Separator /> : null,
+  },
   {
     id: "share",
     order: 200,
     render: (ctx) =>
-      ctx.accessLevel === "owner" && ctx.id ? (
+      canShareFromMobileMenu(ctx) ? (
         <MainMenu.Item onSelect={ctx.onShareOpen} icon={<Share2 size={16} />}>
           Share
         </MainMenu.Item>
@@ -347,11 +380,12 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
   {
     id: "invite-everyone-here",
     order: 210,
-    // Mirrors EditorTopRight's own invite entry (order 20 there): the header
-    // control disappears on mobile, so the same action needs a route in the
-    // menu too. Two entries, one `inviteHere.invite` -- not a second feature.
+    // Temporary bridge, not a second implementation: mobile has no
+    // EditorTopRight, and this invokes the exact same invite action as the
+    // desktop header entry. A dedicated mobile surface belongs to its own
+    // package; until then removal here would make the feature unreachable.
     render: (ctx) =>
-      ctx.canEdit && ctx.peers.length > 0 ? (
+      canInviteFromMobileMenu(ctx) ? (
         <MainMenu.Item onSelect={ctx.inviteHere.invite} icon={<LocateFixed size={16} />}>
           Invite everyone here
         </MainMenu.Item>
@@ -487,7 +521,7 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
         <button
           onClick={ctx.inviteHere.invite}
           className="editor-header-control"
-          title="Invite everyone here"
+          aria-describedby="editor-invite-tooltip"
           aria-label={
             ctx.inviteHere.status
               ? `Invite everyone here; ${ctx.inviteHere.status.arrivedCount} arrived`
@@ -501,6 +535,13 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
               {ctx.inviteHere.status.arrivedCount}
             </span>
           ) : null}
+          <span
+            id="editor-invite-tooltip"
+            role="tooltip"
+            className="editor-header-control__tooltip"
+          >
+            Invite everyone here
+          </span>
         </button>
       ) : null,
   },
@@ -513,11 +554,14 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
         <button
           onClick={ctx.onShareOpen}
           className="editor-header-control"
-          title="Share"
+          aria-describedby="editor-share-tooltip"
           aria-label="Share"
           data-testid="editor-share"
         >
           <Share2 size={16} />
+          <span id="editor-share-tooltip" role="tooltip" className="editor-header-control__tooltip">
+            Share
+          </span>
         </button>
       ) : null,
   },
