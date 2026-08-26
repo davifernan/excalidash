@@ -9,7 +9,7 @@ const { createSandbox, removeSandbox } = require("./test-helpers/sandbox-tree.cj
 
 const repoRoot = path.resolve(__dirname, "..");
 
-test("the notification boundary accepts the facade and rejects a direct Sonner import", () => {
+test("the notification boundary accepts the facade and rejects every direct Sonner access form", () => {
   const root = createSandbox(
     repoRoot,
     ["frontend/src", "scripts/notification-boundary.cjs"],
@@ -23,14 +23,19 @@ test("the notification boundary accepts the facade and rejects a direct Sonner i
     const clean = run();
     assert.equal(clean.status, 0, clean.stderr);
 
-    fs.writeFileSync(
-      probe,
-      'import { toast } from "sonner";\nexport const probe = () => toast.error("red");\n',
-      "utf8",
-    );
-    const red = run();
-    assert.equal(red.status, 1, `${red.stdout}\n${red.stderr}`);
-    assert.match(red.stderr, /notification-boundary-probe\.ts/);
+    const forbiddenAccesses = [
+      'import { toast } from "sonner";\nexport const probe = toast;\n',
+      'export { toast } from "sonner";\n',
+      'export const probe = () => import("sonner");\n',
+      'const sonner = require("sonner");\nexport const probe = sonner.toast;\n',
+    ];
+
+    for (const source of forbiddenAccesses) {
+      fs.writeFileSync(probe, source, "utf8");
+      const red = run();
+      assert.equal(red.status, 1, `${source}\n${red.stdout}\n${red.stderr}`);
+      assert.match(red.stderr, /notification-boundary-probe\.ts/);
+    }
 
     fs.rmSync(probe);
     const restored = run();
