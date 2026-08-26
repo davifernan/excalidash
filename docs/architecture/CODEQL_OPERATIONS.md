@@ -6,9 +6,9 @@ alert to the change before merge; the daily run is a backstop for integrated cod
 prevent a vulnerable change from merging and is not a merge gate: the workflow is deliberately
 absent from the repository's required status checks.
 
-A green workflow run means that CodeQL completed and introduced no visible alert. It does not
-mean that a person reviewed the result, and a red CodeQL result does not block merge. Existing
-required security boundaries remain the preventive gates.
+A green workflow run means that CodeQL completed. It does not prove that the result contains no
+alert or that a person reviewed it; inspect the code-scanning result separately. A CodeQL finding
+does not block merge. Existing required security boundaries remain the preventive gates.
 
 ## Daily ownership
 
