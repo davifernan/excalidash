@@ -92,6 +92,12 @@ jobs:
       - name: Prove the boundary check rejects what it claims to
         run: node scripts/adapter-boundary.test.cjs
 
+      - name: Check semantic stacking policy
+        run: node scripts/stacking-policy.cjs
+
+      - name: Prove stacking policy rejects raw values and ignores foreign CSS
+        run: node scripts/stacking-policy.test.cjs
+
       # Same "already-required job, not a new one" reasoning as the adapter
       # boundary above -- the frontend logging boundary (NIL-510/NIL-513)
       # lives here for the identical reason as logging-boundary.cjs living in
