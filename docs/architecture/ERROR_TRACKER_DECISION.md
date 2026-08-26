@@ -1,8 +1,8 @@
 # Error tracker: which one, and why now (NIL-415)
 
-Status: decision made, not yet deployed. Deployment needs Davi's explicit
-sign-off, since it means standing up new infrastructure on the shared IONOS
-server -- see "What this issue is not" below.
+Status: target updated by NIL-626. Davi explicitly chose GlitchTip on
+26.08.2026; the opt-in deployment now lives in the Compose `observability`
+profile.
 
 ## The question this answers
 
@@ -59,35 +59,33 @@ In short: the channel NIL-415 said to wait for now carries real signal
 (`editor-changed` and its neighbors, 90 backend `logger.error` sites), so a
 tracker installed today has something other than silence to show.
 
-## Decision: Bugsink, with GlitchTip as the named fallback
+## Decision update: GlitchTip replaces Bugsink (NIL-626)
 
 Both are MIT-licensed, Django-based, and implement the Sentry event-ingestion
 protocol -- either one accepts events from the standard `@sentry/react` and
 `@sentry/node` SDKs unmodified, so the SDK choice does not depend on which
 server wins.
 
-**Bugsink is the primary recommendation.** It is built explicitly for this
-deployment shape: single container, SQLite-friendly (this repo's own default
-`DATABASE_URL` is SQLite -- see `backend/.env.example`), no required Redis or
-Celery worker/beat pair. That matters concretely here, not abstractly: a
-self-hosted single-instance deployment runs alongside whatever else already
-occupies its host, and this repo's own history is consistent about weighing
-that (asset render concurrency defaults to 1, backup jobs check free-disk
-headroom before running, E2E runs are told to scope themselves and use free
-ports). The same reasoning applies to a new always-on service: prefer the
-option with the smaller permanent footprint when both satisfy the
-requirement, rather than assume headroom that may not be there on a given
-operator's box.
+NIL-415 originally recommended Bugsink for its single-container footprint and
+named GlitchTip as the protocol-compatible fallback. Davi has now exercised
+that fallback because GlitchTip's dashboard is materially more useful for this
+instance. This changes the deployment target, not the application integration:
+both accept the Sentry wire format, so `backend/src/errorTracker.ts` and the
+frontend SDK remain unchanged.
 
-**GlitchTip is the named fallback**, not a rejected option. It is more
-mature, has a larger community and more complete docs, and includes features
-Bugsink does not (release-adjacent alerting integrations, a more built-out
-UI). If Bugsink's smaller project turns out to be missing something this
-instance needs once it is actually run, or its single-container simplicity
-turns out to cost more in features than the resource savings are worth,
-GlitchTip is the fallback with no protocol-level migration cost -- both sides
-speak the same Sentry wire format, so switching servers later does not mean
-re-touching every SDK call site.
+The resource objection has also changed. GlitchTip 6.2.6 does not require a
+Celery/Redis service for this deployment shape. Its [official installation
+guide](https://glitchtip.com/documentation/install/) documents Valkey as
+optional: setting `VALKEY_URL` to the empty string uses Postgres for task queue,
+cache and sessions, while `SERVER_ROLE=all_in_one` embeds the worker. The
+Compose profile sets exactly that shape and includes no Redis/Valkey service.
+
+The no-Redis shape was measured, not inferred from YAML. With swap disabled per
+container, a fresh Postgres migration peaked at 140.3 MiB for GlitchTip and
+51.4 MiB for Postgres. Twelve accepted backend events over twelve seconds
+peaked at 172.6 MiB and 63.3 MiB. The final limits are 320 MiB + 192 MiB, so the
+complete two-container profile retains Bugsink's former aggregate 512 MiB
+ceiling.
 
 Full self-hosted Sentry is not reconsidered here; nothing has changed about
 the resource case against it, and NIL-415's original write-up already
@@ -99,43 +97,27 @@ Board content, element text, file names, and raw user identifiers are
 explicitly out. This is a design constraint on integration, not just an
 operational promise:
 
-- `reportFailure`'s event shape (`seam`, `code`, `fallback`,
-  `packageVersion`) already excludes all of this by construction -- there is
-  no field to carry board content even by accident. Any future wiring reads
-  from this event, not from broader capability state.
-- `AppErrorBoundary.componentDidCatch` currently logs `error` and
-  `errorInfo.componentStack` -- a React component stack can include prop
-  values in dev builds. Wiring this to a tracker needs an explicit
-  `beforeSend`/scrubber on the client SDK, not a bare pass-through.
-- The backend's `logger.error` fields are already reviewed per-callsite
-  during NIL-504 (structured `fields`, not string interpolation) but were
-  not reviewed for tracker-safety specifically -- a wiring PR needs a pass
-  over what actually ends up in `fields` for the highest-traffic call sites
-  (auth failures, S3 errors) before enabling forwarding, not after.
-- Both SDKs support a `beforeSend` hook and default PII scrubbing
-  (`sendDefaultPii: false` is the correct default here, not the opt-in
-  default some SDK quickstarts suggest).
+- Adapter reports carry only `seam`, `code`, `fallback` and `packageVersion`;
+  there is no field for board content.
+- The frontend `beforeSend` hook rebuilds render-crash events instead of
+  forwarding the original message or React component stack.
+- The backend `beforeSend` hook rebuilds each event around a synthetic
+  `BackendError` and accepts only `requestId`, `statusCode`, `method`, `code`
+  and `event` as tags. Logger fields such as email, user/board ids, object keys
+  and stored paths cannot cross that allowlist.
+- Both SDKs set `sendDefaultPii: false`, disable default integrations and omit
+  breadcrumbs. These are application guarantees independent of whether the
+  Sentry endpoint is Bugsink or GlitchTip.
 
-## What this issue is not
+## Deployment boundary after NIL-626
 
-This is the decision and its reasoning, not the installation. Standing up
-Bugsink (or GlitchTip) means a new long-running service on Davi's server,
-holding real user error data -- that needs his explicit sign-off before
-anything runs, the same way any new persistent infrastructure on this box
-would. A follow-up implementation ticket, once approved, would need:
+GlitchTip and Postgres remain opt-in infrastructure. Without the
+`observability` profile neither starts; without `ERROR_TRACKER_DSN` neither SDK
+initializes or sends. Enabling the profile does not itself enable application
+reporting.
 
-1. A `bugsink` (or `glitchtip`) service added to the relevant
-   `docker-compose*.yml`, with its own volume.
-2. A DSN-equivalent env var in both `backend/.env.example` and
-   `frontend/.env.example`, undocumented/unset by default so a fresh install
-   never reports anywhere until an operator opts in.
-3. `backend/src/logger.ts`'s `error()` forwarding to the client SDK when the
-   DSN is configured -- one change, because of NIL-504.
-4. The app shell subscribing to `onDiagnostic` and wiring
-   `AppErrorBoundary.componentDidCatch`, both gated the same way.
-5. The `beforeSend` scrub pass named above, reviewed before either wiring
-   point is turned on by default for anyone.
-
-None of that is done by this document. This document is the answer to "which
-one, and why," so that question does not get re-litigated from zero the next
-time it comes up.
+The application-side work listed by NIL-415 was completed before this target
+change. NIL-626 deliberately does not revisit it: the Sentry SDK configuration,
+`sendDefaultPii: false`, disabled default integrations and the allowlist-based
+`beforeSend` scrubbers are the stable boundary. The deployment runbook and
+bootstrap steps live in `docs/DEPLOYMENT.md`.

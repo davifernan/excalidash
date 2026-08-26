@@ -482,7 +482,7 @@ Backend base variables:
 - `ENABLE_PASSWORD_RESET` (`true` to enable)
 - `ENABLE_REFRESH_TOKEN_ROTATION` (`true`/`false`, default `true`)
 - `ENABLE_AUDIT_LOGGING` (`true`/`false`, default `false`)
-- `ERROR_TRACKER_DSN` (optional; a Sentry-compatible DSN such as Bugsink — empty means no SDK
+- `ERROR_TRACKER_DSN` (optional; a Sentry-compatible DSN such as GlitchTip — empty means no SDK
   initialization and no network delivery; see `docs/architecture/ERROR_TRACKER_DECISION.md`)
 - `ENFORCE_HTTPS_REDIRECT` (`true`/`false`, default `true`) — when `FRONTEND_URL` uses `https://`, the backend auto-redirects plain-HTTP requests; set to `false` when the outer gateway already enforces HTTPS to avoid redirect loops
 - `BOOTSTRAP_SETUP_CODE_TTL_MS` (default `900000`)
