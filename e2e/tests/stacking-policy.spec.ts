@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
 import { dropMarkdown, openEditor } from "./helpers/editor";
 
@@ -15,45 +15,6 @@ const overlapArea = (first: Box, second: Box) => {
   );
   return width * height;
 };
-
-const dropOnePagePdf = (page: Page) =>
-  page.evaluate(() => {
-    const objects = [
-      "<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-      "<< /Length 43 >>\nstream\nBT /F1 24 Tf 72 720 Td (NIL-607 PDF) Tj ET\nendstream",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    ];
-    let pdf = "%PDF-1.4\n";
-    const offsets = [0];
-    objects.forEach((object, index) => {
-      offsets.push(pdf.length);
-      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-    });
-    const xref = pdf.length;
-    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-    pdf += offsets
-      .slice(1)
-      .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
-      .join("");
-    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-
-    const target = document.querySelector<HTMLElement>(".excalidraw")?.closest("div[style]");
-    if (!target) throw new Error("Editor drop target missing");
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([pdf], "stacking-proof.pdf", { type: "application/pdf" }));
-    const rect = target.getBoundingClientRect();
-    target.dispatchEvent(
-      new DragEvent("drop", {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      }),
-    );
-  });
 
 test("semantic layers keep context menus, element content, frames, and dialogs together", async ({
   page,
@@ -108,28 +69,82 @@ test("semantic layers keep context menus, element content, frames, and dialogs t
     await page.getByTestId("comment-panel-close").click();
     await dropMarkdown(page, "# Markdown on top\n\nThe selected document must cover the PDF.");
     await expect(page.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
-    await dropOnePagePdf(page);
-    await expect(page.locator(".pdf-widget")).toHaveCount(1, { timeout: 30_000 });
+    // The shared browser jobs deliberately do not install Poppler; PDF decode
+    // belongs to backend risk coverage. Reuse a stored document id, switch its
+    // canvas element to the PDF kind, and stub only metadata/page bytes. This
+    // still mounts the real PdfWidget and Excalidraw embeddable container whose
+    // stacking contract this frontend test measures.
+    await dropMarkdown(page, "PDF page fixture", "stacking-proof-source.md");
+    await expect(page.locator(".text-document-widget")).toHaveCount(2, { timeout: 30_000 });
 
-    await page.evaluate(() => {
+    const widgetIds = await page.evaluate(() => {
+      const api = (window as any).__EXCALIDASH_TEST__;
+      const widgets = api
+        .getSceneElements()
+        .filter(
+          (element: any) =>
+            element.type === "embeddable" &&
+            element.customData?.excalidash?.widget?.kind === "markdown",
+        );
+      if (widgets.length !== 2) throw new Error("Expected two document widgets");
+      return {
+        markdownElementId: widgets[0].id,
+        pdfElementId: widgets[1].id,
+        pdfAssetId: widgets[1].customData.excalidash.widget.assetId,
+      };
+    });
+    await page.route(
+      `**/api/drawings/${drawing.id}/assets/${widgetIds.pdfAssetId}`,
+      async (route) =>
+        route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: widgetIds.pdfAssetId,
+            kind: "PDF",
+            name: "stacking-proof.pdf",
+            sizeBytes: 1024,
+            pageCount: 1,
+          }),
+        }),
+    );
+    await page.route(
+      `**/api/drawings/${drawing.id}/assets/${widgetIds.pdfAssetId}/pages/1**`,
+      async (route) =>
+        route.fulfill({
+          contentType: "image/svg+xml",
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="612" height="792"><rect width="612" height="792" fill="white"/><text x="72" y="100" font-size="36">NIL-607 PDF</text></svg>',
+        }),
+    );
+
+    await page.evaluate(({ markdownElementId, pdfElementId }) => {
       const api = (window as any).__EXCALIDASH_TEST__;
       const elements = api.getSceneElements();
-      const widgets = elements.filter((element: any) => element.type === "embeddable");
-      const markdown = widgets.find(
-        (element: any) => element.customData?.excalidash?.widget?.kind === "markdown",
-      );
-      const pdf = widgets.find(
-        (element: any) => element.customData?.excalidash?.widget?.kind === "pdf",
-      );
+      const markdown = elements.find((element: any) => element.id === markdownElementId);
+      const pdf = elements.find((element: any) => element.id === pdfElementId);
       if (!markdown || !pdf) throw new Error("Expected Markdown and PDF widgets");
       const shared = { x: 360, y: 100, width: 520, height: 560 };
       api.updateScene({
-        elements: elements.map((element: any) =>
-          element.id === markdown.id || element.id === pdf.id ? { ...element, ...shared } : element,
-        ),
+        elements: elements.map((element: any) => {
+          if (element.id === markdown.id) return { ...element, ...shared };
+          if (element.id !== pdf.id) return element;
+          return {
+            ...element,
+            ...shared,
+            customData: {
+              ...element.customData,
+              excalidash: {
+                ...element.customData.excalidash,
+                widget: { ...element.customData.excalidash.widget, kind: "pdf" },
+              },
+            },
+          };
+        }),
         appState: { selectedElementIds: { [markdown.id]: true } },
       });
-    });
+    }, widgetIds);
+    await expect(page.locator(".text-document-widget")).toHaveCount(1);
+    await expect(page.locator(".pdf-widget")).toHaveCount(1);
+    await expect(page.locator(".pdf-widget__page-image")).toBeVisible();
     await page.waitForTimeout(300);
 
     const markdownWidget = page.locator(".text-document-widget");
