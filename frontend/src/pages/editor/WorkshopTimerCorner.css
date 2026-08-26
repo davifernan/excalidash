@@ -9,7 +9,7 @@
   border-radius: var(--border-radius-lg, 0.5rem);
   /* Muted grey by default, matching the pill inside (WorkshopTimerWidget.css)
      -- only a running timer earns the main toolbar's white island (NIL-578).
-     The handle and reset icons are less relevant than the timer itself when
+     The handle and restart icons are less relevant than the timer itself when
      nothing is counting down, so their contrast drops with it. */
   background: var(--color-surface-low, var(--island-bg-color));
   box-shadow: none;
@@ -29,7 +29,7 @@
 }
 
 .workshop-timer-corner__handle,
-.workshop-timer-corner__reset {
+.workshop-timer-corner__restart {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -63,12 +63,12 @@
 }
 
 .workshop-timer-corner__handle:hover,
-.workshop-timer-corner__reset:hover {
+.workshop-timer-corner__restart:hover {
   background: var(--button-hover-bg);
 }
 
 .workshop-timer-corner__handle:focus-visible,
-.workshop-timer-corner__reset:focus-visible {
+.workshop-timer-corner__restart:focus-visible {
   outline: 2px solid var(--color-primary, #6965db);
   outline-offset: 1px;
 }
