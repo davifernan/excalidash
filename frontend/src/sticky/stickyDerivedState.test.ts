@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { canonicalizeStickyFontState } from "./stickyDerivedState";
+import { beforeAll, describe, expect, it } from "vitest";
+import { setCustomTextMetricsProvider } from "@excalidraw/excalidraw";
+import { canonicalizeStickyFontState, deriveStickyFontState } from "./stickyDerivedState";
+import { normaliseStickyNotes } from "./stickyNormalise";
 import { STICKY_REFERENCE_FONT_SIZE, createStickyNote } from "./stickyNote";
+
+beforeAll(() => {
+  setCustomTextMetricsProvider({
+    getLineWidth: (text: string, font: string) => text.length * (parseFloat(font) / 2),
+  });
+});
 
 const stickyScene = (fontSize: number) => {
   const note = createStickyNote(100, 100);
@@ -36,5 +44,59 @@ describe("sticky derived-state boundary", () => {
   it("returns the same scene when no projection needs removing", () => {
     const scene = stickyScene(STICKY_REFERENCE_FONT_SIZE);
     expect(canonicalizeStickyFontState(scene)).toBe(scene);
+  });
+
+  it("renders remote live-edit geometry from the sticky's remembered size", () => {
+    const note = createStickyNote(100, 100);
+    note.boundElements = [{ id: "sticky-label", type: "text" }];
+    const remoteNote = { ...note, width: 200, height: 640 };
+    const remoteLabel = {
+      id: "sticky-label",
+      type: "text",
+      x: remoteNote.x + 5,
+      y: remoteNote.y + 5,
+      width: 190,
+      height: 600,
+      angle: 0,
+      strokeColor: "#ff0000",
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      strokeWidth: 1,
+      strokeStyle: "solid",
+      roughness: 0,
+      opacity: 100,
+      seed: 3,
+      version: 7,
+      versionNonce: 11,
+      index: "a2",
+      isDeleted: false,
+      groupIds: [],
+      frameId: null,
+      roundness: null,
+      boundElements: null,
+      updated: 13,
+      link: null,
+      locked: false,
+      text: "a long remote edit ".repeat(20),
+      originalText: "a long remote edit ".repeat(20),
+      fontSize: STICKY_REFERENCE_FONT_SIZE,
+      fontFamily: 5,
+      textAlign: "center",
+      verticalAlign: "middle",
+      containerId: note.id,
+      lineHeight: 1.25,
+      autoResize: true,
+    };
+
+    const rendered = deriveStickyFontState([remoteNote, remoteLabel]);
+    expect(rendered[0]).toMatchObject({ width: 200, height: 200 });
+    expect(rendered[1]).toMatchObject({
+      version: remoteLabel.version,
+      versionNonce: remoteLabel.versionNonce,
+      updated: remoteLabel.updated,
+      strokeColor: "#422006",
+    });
+    expect(rendered[1].height).toBeLessThan(remoteLabel.height);
+    expect(normaliseStickyNotes(rendered)).toBeNull();
   });
 });

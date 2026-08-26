@@ -305,6 +305,79 @@ test.describe("sticky note font scaling (NIL-630)", () => {
     }
   });
 
+  test("a spectator keeps its sticky geometry while a collaborator types a space", async ({
+    browser,
+    page: writer,
+  }) => {
+    const spectatorContext = await browser.newContext();
+    try {
+      const spectator = await spectatorContext.newPage();
+      await Promise.all([openEditor(writer, drawingId), openEditor(spectator, drawingId)]);
+      await expect(writer.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
+      await expect(spectator.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
+
+      await placeNote(writer, { x: 400, y: 300 });
+      await writer.keyboard.type(textAt(100), { delay: 0 });
+      await writer.keyboard.press("Escape");
+      await settle(writer);
+
+      await expect
+        .poll(async () => (await labels(spectator))[0]?.originalText ?? null, { timeout: 15_000 })
+        .toBe(textAt(100));
+
+      const snapshot = () =>
+        spectator.evaluate(() => {
+          const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+          const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+          const label = elements.find((element: any) => element.containerId === note?.id);
+          return [note?.x, note?.y, note?.width, note?.height, label?.fontSize] as const;
+        });
+
+      await writer
+        .locator("canvas")
+        .last()
+        .dblclick({ position: { x: 400, y: 300 } });
+      await expect(writer.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+      const before = await snapshot();
+      const sampleFrames = spectator.evaluate(
+        () =>
+          new Promise<Array<readonly (number | undefined)[]>>((resolve) => {
+            const samples: Array<readonly (number | undefined)[]> = [];
+            const until = performance.now() + 1_000;
+            const sample = () => {
+              const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+              const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+              const label = elements.find((element: any) => element.containerId === note?.id);
+              samples.push([note?.x, note?.y, note?.width, note?.height, label?.fontSize]);
+              if (performance.now() < until) requestAnimationFrame(sample);
+              else resolve(samples);
+            };
+            requestAnimationFrame(sample);
+          }),
+      );
+      await writer.keyboard.press("End");
+      await writer.keyboard.press("Space");
+      const samples = await sampleFrames;
+      const after = await snapshot();
+
+      const states = samples.filter(
+        (sample, index) =>
+          index === 0 || sample.some((value, field) => value !== samples[index - 1][field]),
+      );
+      console.log(`NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, states, after })}`);
+      // The extra space correctly changes the derived font once. It must not
+      // make a spectator render Excalidraw's temporary live-edit box before
+      // returning to the remembered Sticky size.
+      expect(new Set(states.map((state) => JSON.stringify(state.slice(0, 4))))).toEqual(
+        new Set([JSON.stringify(before.slice(0, 4))]),
+      );
+      expect(states).toHaveLength(2);
+      expect(after).toEqual(states[1]);
+    } finally {
+      await spectatorContext.close();
+    }
+  });
+
   test("reload derives the visible font from canonical persisted state", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
