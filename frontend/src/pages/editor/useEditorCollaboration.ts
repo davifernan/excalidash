@@ -299,7 +299,8 @@ export const useEditorCollaboration = ({
     const unbindFollowMode = bindFollowMode({
       socket,
       drawingId,
-      api: excalidrawAPI.current,
+      collaboration,
+      viewport,
       container: editorContainerRef.current,
       onFollowersChange: setFollowers,
       onFollowInterrupted: (reason) => notify("info", getFollowInterruptionMessage(reason)),
