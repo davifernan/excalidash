@@ -51,8 +51,8 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   // the turn travels back the other way just as well.
   await activateWidget(guestPage);
   await guestPage.getByRole("button", { name: "Next page" }).click();
-  await expect(pageLabel(guestPage)).toContainText("Page 3 of", { timeout: 10000 });
-  await expect(pageLabel(hostPage)).toContainText("Page 3 of", { timeout: 10000 });
+  await expect(pageLabel(guestPage)).toHaveText("Page 3 of 3", { timeout: 10000 });
+  await expect(pageLabel(hostPage)).toHaveText("Page 3 of 3", { timeout: 10000 });
 
   // And the page the room is on outlives the tab that turned it: someone
   // arriving later is shown page 3, not page 1.
@@ -60,7 +60,7 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   const latecomerPage = await latecomer.newPage();
   await openEditor(latecomerPage, drawing.id);
   await activateWidget(latecomerPage);
-  await expect(pageLabel(latecomerPage)).toContainText("Page 3 of", { timeout: 30000 });
+  await expect(pageLabel(latecomerPage)).toHaveText("Page 3 of 3", { timeout: 30000 });
 
   await host.close();
   await guest.close();

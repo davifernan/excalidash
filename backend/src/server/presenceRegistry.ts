@@ -1,3 +1,9 @@
+import type {
+  PresenceIdentity,
+  PresenceKind,
+  SelectionPayload,
+} from "@excalidash/domain/collaboration";
+
 /**
  * Who is connected to which board, right now.
  *
@@ -6,7 +12,7 @@
  * place instead of two. Nothing here is persisted: presence is a fact about
  * open connections, and when the process restarts there is nothing to remember.
  */
-export type PresenceKind = "owner" | "member" | "guest";
+export type { PresenceKind } from "@excalidash/domain/collaboration";
 
 export type PresenceEntry = {
   presenceId: string;
@@ -168,4 +174,3 @@ export class PresenceRegistry {
     };
   }
 }
-import type { PresenceIdentity, SelectionPayload } from "@excalidash/domain/collaboration";

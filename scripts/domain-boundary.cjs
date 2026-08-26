@@ -54,14 +54,23 @@ const declarationOf = (node, sourceFile, file) => {
   let shape = null;
   let weight = 0;
   if (ts.isTypeAliasDeclaration(node)) {
-    shape = `type:${compact(node.type.getText(sourceFile))}`;
-    weight = ts.isUnionTypeNode(node.type) ? node.type.types.length : shape.length >= 40 ? 3 : 1;
+    const structuralKind = ts.isTypeLiteralNode(node.type)
+      ? "object"
+      : ts.isUnionTypeNode(node.type)
+        ? "union"
+        : "type";
+    shape = `${structuralKind}:${compact(node.type.getText(sourceFile))}`;
+    // A small object or two-branch result union is still a complete domain
+    // contract. Text length and branch count say nothing about whether copying
+    // that contract creates a second source of truth, so every structural type
+    // participates in shape matching. Simple reference aliases stay consumers.
+    weight = structuralKind === "type" ? 1 : 3;
   } else if (ts.isInterfaceDeclaration(node)) {
     shape = `object:${compact(node.members.map((member) => member.getText(sourceFile)).join(";"))}`;
-    weight = node.members.length;
+    weight = 3;
   } else if (ts.isEnumDeclaration(node)) {
     shape = `enum:${compact(node.members.map((member) => member.getText(sourceFile)).join(";"))}`;
-    weight = node.members.length;
+    weight = 3;
   } else if (ts.isVariableStatement(node)) {
     const declarations = node.declarationList.declarations;
     if (declarations.length !== 1 || !ts.isIdentifier(declarations[0].name)) return null;

@@ -48,11 +48,14 @@ export const collaborationEvents = {
 
 export const drawingIdSchema = z.string().trim().min(1).max(200);
 
+export const presenceKindSchema = z.enum(["owner", "member", "guest"]);
+export type PresenceKind = z.infer<typeof presenceKindSchema>;
 export const presenceIdentitySchema = z.object({
   presenceId: z.string().min(1),
   name: z.string(),
   initials: z.string().default(""),
   color: z.string(),
+  kind: presenceKindSchema.default("member"),
   isActive: z.boolean(),
 });
 export type PresenceIdentity = z.infer<typeof presenceIdentitySchema>;

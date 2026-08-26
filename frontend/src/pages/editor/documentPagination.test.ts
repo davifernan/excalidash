@@ -3,7 +3,7 @@ import {
   DOCUMENT_PAGE_CHAR_BUDGET,
   markdownBlocks,
   paginateDocumentSource,
-} from "./documentPagination";
+} from "@excalidash/domain/documents/pagination";
 
 describe("document source pagination", () => {
   it("never cuts a fenced code block at a page boundary", () => {
