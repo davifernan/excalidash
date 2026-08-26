@@ -2,8 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const packageRoot = path.join(frontendRoot, "node_modules", "@excalidraw", "excalidraw");
+const findPackageRoot = () => {
+  let directory = path.dirname(fileURLToPath(import.meta.resolve("@excalidraw/excalidraw")));
+  while (directory !== path.dirname(directory)) {
+    const manifest = path.join(directory, "package.json");
+    if (fs.existsSync(manifest)) {
+      const packageJson = JSON.parse(fs.readFileSync(manifest, "utf8"));
+      if (packageJson.name === "@excalidraw/excalidraw") return directory;
+    }
+    directory = path.dirname(directory);
+  }
+  throw new Error("[excalidraw-command-palette] Could not resolve the Excalidraw package root.");
+};
+const packageRoot = findPackageRoot();
 const packageJsonPath = path.join(packageRoot, "package.json");
 const expectedVersion = "0.18.1";
 const exportName = "ExcalidrawCommandPalette";

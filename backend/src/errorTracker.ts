@@ -1,12 +1,12 @@
 import * as Sentry from "@sentry/node";
 import type { ErrorEvent, StackFrame } from "@sentry/node";
+import { isSafeTelemetryToken } from "@excalidash/domain/shared";
 
 import { config } from "./config";
 import type { LogFields } from "./logger";
 
 const TRACKER_MESSAGE = "Backend error";
 const SAFE_TAG_KEYS = new Set(["requestId", "statusCode", "method", "code", "event"]);
-const SAFE_TOKEN = /^[A-Za-z0-9_.:-]{1,100}$/;
 const HTTP_METHOD = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)$/;
 
 let enabled = false;
@@ -15,7 +15,7 @@ const safeScalar = (key: string, value: unknown): string | number | boolean | un
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value !== "string") return undefined;
   if (key === "method") return HTTP_METHOD.test(value) ? value : undefined;
-  return SAFE_TOKEN.test(value) ? value : undefined;
+  return isSafeTelemetryToken(value) ? value : undefined;
 };
 
 const safeCodeFrame = (frame: StackFrame): StackFrame => {
@@ -23,7 +23,7 @@ const safeCodeFrame = (frame: StackFrame): StackFrame => {
   const filename = location ? `app:///${location[1]}/${location[2]}` : undefined;
   return {
     filename: filename && !/[?#]/.test(filename) ? filename : undefined,
-    function: frame.function && SAFE_TOKEN.test(frame.function) ? frame.function : undefined,
+    function: frame.function && isSafeTelemetryToken(frame.function) ? frame.function : undefined,
     lineno: frame.lineno,
     colno: frame.colno,
     in_app: frame.in_app,

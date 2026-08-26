@@ -1,4 +1,7 @@
-import { paginateDocumentSource } from "./documentPagination";
+import {
+  documentPaginationRequestSchema,
+  paginateDocumentSource,
+} from "@excalidash/domain/documents";
 import type {
   DocumentPaginationRequest,
   DocumentPaginationResponse,
@@ -7,7 +10,11 @@ import type {
 self.onmessage = ({ data }: MessageEvent<DocumentPaginationRequest>) => {
   let response: DocumentPaginationResponse;
   try {
-    response = { ok: true, pages: paginateDocumentSource(data.source, data.kind) };
+    const request = documentPaginationRequestSchema.parse(data);
+    response = {
+      ok: true,
+      pages: paginateDocumentSource(request.source, request.kind, request.budget),
+    };
   } catch (error) {
     response = {
       ok: false,

@@ -7,8 +7,8 @@ x-default-logging: &default-logging
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: excalidash-backend
     # A container without a memory limit can take the whole host with it. This
     # instance froze exactly that way: rendering a PDF spawned unbounded
@@ -110,15 +110,7 @@ services:
     logging: *default-logging
     healthcheck:
       # Use IPv4 loopback explicitly to avoid IPv6 localhost resolution issues.
-      test:
-        [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:80",
-        ]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80"]
       interval: 30s
       timeout: 10s
       retries: 3

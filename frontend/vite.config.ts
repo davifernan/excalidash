@@ -24,17 +24,24 @@ export default defineConfig(({ command }) => {
   const nodeEnv = process.env.NODE_ENV || (command === "build" ? "production" : "development");
   const devBackendTarget = process.env.VITE_DEV_BACKEND_URL?.trim() || "http://localhost:8000";
   const processEnvDefines = {
-    'process.env.IS_PREACT': JSON.stringify("false"),
-    'process.env.NODE_ENV': JSON.stringify(nodeEnv),
+    "process.env.IS_PREACT": JSON.stringify("false"),
+    "process.env.NODE_ENV": JSON.stringify(nodeEnv),
   };
 
   return {
     plugins: [react()],
+    resolve: {
+      // Vite consumes the workspace's TypeScript sources as ESM. The backend
+      // continues to load the compiled CommonJS export from dist.
+      alias: {
+        "@excalidash/domain": path.resolve(__dirname, "../packages/domain/src"),
+      },
+    },
     define: {
       ...processEnvDefines,
-      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
-      'import.meta.env.VITE_APP_BUILD_LABEL': JSON.stringify(buildLabel),
-      'import.meta.env.VITE_EXCALIDRAW_VERSION': JSON.stringify(readExcalidrawVersion()),
+      "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
+      "import.meta.env.VITE_APP_BUILD_LABEL": JSON.stringify(buildLabel),
+      "import.meta.env.VITE_EXCALIDRAW_VERSION": JSON.stringify(readExcalidrawVersion()),
     },
     optimizeDeps: {
       esbuildOptions: {

@@ -8,5 +8,6 @@
     "**/*.{js,jsx,ts,tsx,mjs,cjs,css}",
     "!node_modules/**",
     "!dist/**"
-  ]
+  ],
+  "ignoreDependencies": ["@excalidash/domain", "eslint", "happy-dom", "prettier"]
 }

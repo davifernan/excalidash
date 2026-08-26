@@ -1,10 +1,14 @@
 import type { Socket } from "socket.io-client";
+import {
+  collaborationEvents,
+  workshopTimerSnapshotSchema,
+  type WorkshopTimerAction,
+  type WorkshopTimerStatus,
+} from "@excalidash/domain/collaboration";
 
-const WORKSHOP_TIMER_EVENT = "workshop-timer-update";
-export const WORKSHOP_TIMER_COMMAND_EVENT = "workshop-timer-command";
-
-export type WorkshopTimerStatus = "idle" | "running" | "paused" | "finished";
-export type WorkshopTimerAction = "start" | "restart" | "pause" | "resume" | "stop" | "add-minute";
+const WORKSHOP_TIMER_EVENT = collaborationEvents.workshopTimerUpdate;
+export const WORKSHOP_TIMER_COMMAND_EVENT = collaborationEvents.workshopTimerCommand;
+export type { WorkshopTimerAction, WorkshopTimerStatus } from "@excalidash/domain/collaboration";
 
 export type SyncedWorkshopTimerSnapshot = {
   drawingId: string;
@@ -42,25 +46,15 @@ export const parseWorkshopTimerSnapshot = (
   drawingId: string,
   clientReceivedAt = Date.now(),
 ): SyncedWorkshopTimerSnapshot | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as Record<string, unknown>;
-  if (data.drawingId !== drawingId || !isFiniteTimestamp(data.serverNow)) return null;
-  if (
-    data.status !== "idle" &&
-    data.status !== "running" &&
-    data.status !== "paused" &&
-    data.status !== "finished"
-  ) {
-    return null;
-  }
+  const parsed = workshopTimerSnapshotSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const data = parsed.data;
+  if (data.drawingId !== drawingId) return null;
   const running = data.status === "running";
   if (running ? !isFiniteTimestamp(data.endsAt) : data.endsAt !== null) return null;
   if (!isFiniteTimestamp(data.remainingMs)) return null;
   const durationMs = data.durationMs;
-  if (
-    durationMs !== null &&
-    (typeof durationMs !== "number" || !Number.isInteger(durationMs) || durationMs <= 0)
-  ) {
+  if (durationMs !== null && (!Number.isInteger(durationMs) || durationMs <= 0)) {
     return null;
   }
   if (data.status !== "idle" && durationMs === null) return null;

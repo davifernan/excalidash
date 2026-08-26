@@ -1,4 +1,5 @@
 import { getInitialsFromName } from "./user";
+import { deriveGuestName, derivePresenceColor } from "@excalidash/domain/shared";
 
 export interface UserIdentity {
   id: string;
@@ -8,81 +9,6 @@ export interface UserIdentity {
 }
 
 const DEVICE_ID_KEY = "excalidash-device-id";
-
-const TRANSFORMERS = [
-  { name: "Optimus Prime", initials: "OP" },
-  { name: "Megatron", initials: "ME" },
-  { name: "Starscream", initials: "ST" },
-  { name: "Bumblebee", initials: "BB" },
-  { name: "Ultra Magnus", initials: "UM" },
-  { name: "Shockwave", initials: "SH" },
-  { name: "Soundwave", initials: "SW" },
-  { name: "Ironhide", initials: "IR" },
-  { name: "Ratchet", initials: "RA" },
-  { name: "Prowl", initials: "PR" },
-  { name: "Jazz", initials: "JA" },
-  { name: "Hot Rod", initials: "HR" },
-  { name: "Alpha Trion", initials: "AT" },
-  { name: "Wheeljack", initials: "WH" },
-  { name: "Sideswipe", initials: "SI" },
-  { name: "Sunstreaker", initials: "SU" },
-  { name: "Inferno", initials: "IN" },
-  { name: "Grapple", initials: "GR" },
-  { name: "Blaster", initials: "BL" },
-  { name: "Perceptor", initials: "PE" },
-  { name: "Trailbreaker", initials: "TR" },
-  { name: "Cosmos", initials: "CO" },
-  { name: "Warpath", initials: "WA" },
-  { name: "Powerglide", initials: "PO" },
-  { name: "Arcee", initials: "AR" },
-  { name: "Springer", initials: "SP" },
-  { name: "Kup", initials: "KU" },
-  { name: "Blurr", initials: "BU" },
-  { name: "Grimlock", initials: "GL" },
-  { name: "Swoop", initials: "WO" },
-  { name: "Skywarp", initials: "SK" },
-  { name: "Thundercracker", initials: "TH" },
-  { name: "Ramjet", initials: "AM" },
-  { name: "Cyclonus", initials: "CY" },
-  { name: "Scourge", initials: "SC" },
-  { name: "Galvatron", initials: "GA" },
-  { name: "Astrotrain", initials: "AS" },
-  { name: "Blitzwing", initials: "BZ" },
-  { name: "Rumble", initials: "RU" },
-  { name: "Frenzy", initials: "FR" },
-  { name: "Laserbeak", initials: "LA" },
-  { name: "Ravage", initials: "RV" },
-  { name: "Unicron", initials: "UN" },
-  { name: "Devastator", initials: "DE" },
-  { name: "Menasor", initials: "MN" },
-  { name: "Bruticus", initials: "BR" },
-  { name: "Motormaster", initials: "MO" },
-  { name: "Scrapper", initials: "CR" },
-  { name: "Mixmaster", initials: "MA" },
-  { name: "Bonecrusher", initials: "BO" },
-  { name: "Hook", initials: "HO" },
-  { name: "Vortex", initials: "VO" },
-  { name: "Swindle", initials: "WI" },
-];
-
-const COLORS = [
-  "#ef4444",
-  "#f97316",
-  "#f59e0b",
-  "#84cc16",
-  "#22c55e",
-  "#10b981",
-  "#14b8a6",
-  "#06b6d4",
-  "#0ea5e9",
-  "#3b82f6",
-  "#6366f1",
-  "#8b5cf6",
-  "#a855f7",
-  "#d946ef",
-  "#ec4899",
-  "#f43f5e",
-];
 
 const hashString = (input: string): number => {
   let hash = 0x811c9dc5;
@@ -183,14 +109,13 @@ export const getUserIdentity = (): UserIdentity => {
   // Deterministic guest identity derived from the device fingerprint.
   // This keeps the "guest name" stable and consistent even if excalidash-user-id
   // is cleared, and ensures initials always match the display name.
-  const hash = hashString(deviceId);
-  const transformer = TRANSFORMERS[hash % TRANSFORMERS.length];
-  const color = COLORS[Math.floor(hash / TRANSFORMERS.length) % COLORS.length];
+  const name = deriveGuestName(deviceId);
+  const color = derivePresenceColor(deviceId);
 
   const identity: UserIdentity = {
     id: deviceId,
-    name: transformer.name,
-    initials: getInitialsFromName(transformer.name),
+    name,
+    initials: getInitialsFromName(name),
     color,
   };
 

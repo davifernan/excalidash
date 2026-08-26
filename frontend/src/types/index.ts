@@ -1,11 +1,6 @@
-export interface DrawingMember {
-  subjectKey: string;
-  name: string;
-  initials: string;
-  color: string;
-  kind: "owner" | "member";
-  isSelf: boolean;
-}
+import type { CollectionShareRole, DrawingMember } from "@excalidash/domain/shared";
+
+export type { CollectionShareRole, DrawingMember } from "@excalidash/domain/shared";
 
 export interface DrawingSummary {
   id: string;
@@ -54,8 +49,6 @@ export interface Collection {
   /** Only sent for collections someone else shared with you. */
   ownerName?: string | null;
 }
-
-export type CollectionShareRole = "view" | "edit";
 
 export interface CollectionShareUser {
   id: string;

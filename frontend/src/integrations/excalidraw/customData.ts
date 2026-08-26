@@ -41,39 +41,26 @@
  * affecting Arrange or rendering hidden content.
  */
 
-export const NAMESPACE = "excalidash";
-export const SCHEMA_VERSION = 2;
+import {
+  EXCALIDASH_NAMESPACE as NAMESPACE,
+  EXCALIDASH_SCHEMA_VERSION as SCHEMA_VERSION,
+  stickyRecordSchema,
+  widgetRecordSchema,
+  type ExcalidashData,
+  type ExcalidashDataPatch,
+  type StickyRecord,
+  type WidgetKind,
+  type WidgetRecord,
+} from "@excalidash/domain/excalidraw";
 
-export type StickyRecord = {
-  readonly color: string;
-  readonly ink: string;
-  /**
-   * The size the note is meant to be, kept apart from the element's own
-   * width/height: Excalidraw grows a container to fit its label before this
-   * code sees the change, and without a remembered size each growth would
-   * become the new target and the note would creep downwards forever.
-   */
-  readonly width: number;
-  readonly height: number;
-  readonly fontSize: number;
-};
-
-export type WidgetKind = "pdf" | "markdown" | "text";
-
-export type WidgetRecord = {
-  readonly kind: WidgetKind;
-  readonly assetId: string;
-};
-
-export type ExcalidashData = {
-  readonly schemaVersion: typeof SCHEMA_VERSION;
-  readonly sticky?: StickyRecord;
-  readonly widget?: WidgetRecord;
-};
-
-export type ExcalidashDataPatch = {
-  readonly sticky?: StickyRecord | null;
-  readonly widget?: WidgetRecord | null;
+export {
+  NAMESPACE,
+  SCHEMA_VERSION,
+  type ExcalidashData,
+  type ExcalidashDataPatch,
+  type StickyRecord,
+  type WidgetKind,
+  type WidgetRecord,
 };
 
 type Bag = Record<string, unknown>;
@@ -81,33 +68,14 @@ type Bag = Record<string, unknown>;
 const isBag = (value: unknown): value is Bag =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const str = (value: unknown): string | null =>
-  typeof value === "string" && value.length > 0 ? value : null;
-
-const num = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const WIDGET_KINDS: readonly WidgetKind[] = ["pdf", "markdown", "text"];
-
 const parseSticky = (value: unknown): StickyRecord | undefined => {
-  if (!isBag(value)) return undefined;
-  const color = str(value.color);
-  const ink = str(value.ink);
-  const width = num(value.width);
-  const height = num(value.height);
-  const fontSize = num(value.fontSize);
-  if (color === null || ink === null || width === null || height === null || fontSize === null) {
-    return undefined;
-  }
-  return { color, ink, width, height, fontSize };
+  const parsed = stickyRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 };
 
 const parseWidget = (value: unknown): WidgetRecord | undefined => {
-  if (!isBag(value)) return undefined;
-  const kind = WIDGET_KINDS.find((candidate) => candidate === value.kind);
-  const assetId = str(value.assetId);
-  if (!kind || assetId === null) return undefined;
-  return { kind, assetId };
+  const parsed = widgetRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 };
 
 /**

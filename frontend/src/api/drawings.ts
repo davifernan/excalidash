@@ -1,4 +1,5 @@
 import type { Drawing, DrawingSummary } from "../types";
+import type { DrawingSortField, SortDirection } from "@excalidash/domain/shared";
 import { normalizePreviewSvg } from "../utils/previewSvg";
 import { api } from "./client";
 
@@ -51,8 +52,7 @@ export interface PaginatedDrawings<T> {
   offset?: number;
 }
 
-export type DrawingSortField = "name" | "createdAt" | "updatedAt";
-export type SortDirection = "asc" | "desc";
+export type { DrawingSortField, SortDirection } from "@excalidash/domain/shared";
 
 type DrawingQueryOptions = {
   includeData?: boolean;

@@ -13,30 +13,30 @@
  * nothing to tell it, the presenter keeps presenting to everyone else.
  */
 import type { Socket } from "socket.io-client";
+import {
+  collaborationEvents,
+  presenterNotesSchema,
+  presenterSnapshotSchema,
+  type CommandOutcome,
+  type PresenterNotes,
+  type PresenterSnapshot,
+} from "@excalidash/domain/collaboration";
 import type { ViewportCapability } from "../../integrations/excalidraw/capabilities";
 import type { SceneBounds } from "../../integrations/excalidraw/types";
 
-export const PRESENTER_COMMAND_EVENT = "presenter-command";
-export const PRESENTER_VIEWPORT_EVENT = "presenter-viewport";
-export const PRESENTER_STATE_EVENT = "presenter-state";
-export const PRESENTER_NOTES_EVENT = "presenter-notes";
-export const PRESENTER_NOTES_SET_EVENT = "presenter-notes-set";
-
-export type PresenterStatus = "idle" | "presenting";
-
-export type PresenterSnapshot = {
-  readonly drawingId: string;
-  readonly status: PresenterStatus;
-  readonly presenterPresenceId: string | null;
-  readonly presenterName: string | null;
-  readonly frameId: string | null;
-  readonly bounds: SceneBounds | null;
-  readonly revision: number;
-};
+export const PRESENTER_COMMAND_EVENT = collaborationEvents.presenterCommand;
+export const PRESENTER_VIEWPORT_EVENT = collaborationEvents.presenterViewport;
+export const PRESENTER_STATE_EVENT = collaborationEvents.presenterState;
+export const PRESENTER_NOTES_EVENT = collaborationEvents.presenterNotes;
+export const PRESENTER_NOTES_SET_EVENT = collaborationEvents.presenterNotesSet;
+export type {
+  PresenterNotes,
+  PresenterSnapshot,
+  PresenterStatus,
+} from "@excalidash/domain/collaboration";
 
 export type PresenterCommandError = { readonly code: string; readonly message: string };
-export type PresenterCommandOutcome =
-  { readonly ok: true } | { readonly ok: false; readonly error: PresenterCommandError };
+export type PresenterCommandOutcome = CommandOutcome;
 
 export const createIdlePresenterSnapshot = (drawingId: string): PresenterSnapshot => ({
   drawingId,
@@ -60,8 +60,9 @@ export const parsePresenterSnapshot = (
   value: unknown,
   drawingId: string,
 ): PresenterSnapshot | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as Record<string, unknown>;
+  const parsed = presenterSnapshotSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const data = parsed.data;
   if (data.drawingId !== drawingId) return null;
   if (data.status !== "idle" && data.status !== "presenting") return null;
   if (data.status === "idle") return createIdlePresenterSnapshot(drawingId);
@@ -79,14 +80,10 @@ export const parsePresenterSnapshot = (
   };
 };
 
-export type PresenterNotes = { readonly frameId: string | null; readonly text: string };
-
 const parsePresenterNotes = (value: unknown, drawingId: string): PresenterNotes | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as Record<string, unknown>;
-  if (data.drawingId !== drawingId || typeof data.text !== "string") return null;
-  if (data.frameId !== null && typeof data.frameId !== "string") return null;
-  return { frameId: (data.frameId as string | null) ?? null, text: data.text };
+  const parsed = presenterNotesSchema.safeParse(value);
+  if (!parsed.success || parsed.data.drawingId !== drawingId) return null;
+  return { frameId: parsed.data.frameId, text: parsed.data.text };
 };
 
 const emitWithAck = (

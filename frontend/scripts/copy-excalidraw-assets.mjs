@@ -9,13 +9,11 @@ const frontendRoot = path.resolve(__dirname, "..");
 // replaced by dist/prod and dist/dev.  Only the fonts sub-directory needs to be
 // copied to the public / dist output so that Excalidraw can load them at runtime
 // via window.EXCALIDRAW_ASSET_PATH (which is set to "/" in index.html).
-const EXCALIDRAW_DIST_DIR = path.join(
-  frontendRoot,
-  "node_modules",
-  "@excalidraw",
-  "excalidraw",
-  "dist"
-);
+// Resolve through Node instead of assuming a package-local node_modules. npm
+// workspaces may hoist Excalidraw to the repository root, while standalone
+// installs may still place it below frontend/.
+const excalidrawEntry = fileURLToPath(import.meta.resolve("@excalidraw/excalidraw"));
+const EXCALIDRAW_DIST_DIR = path.dirname(path.dirname(excalidrawEntry));
 
 // src relative to EXCALIDRAW_DIST_DIR  →  dest name inside the target root
 const ASSET_COPIES = [

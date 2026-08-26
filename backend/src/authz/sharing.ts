@@ -1,4 +1,11 @@
 import type { PrismaClient } from "../generated/client";
+import {
+  collectionShareRoleSchema,
+  drawingPermissionSchema,
+  type CollectionShareRole,
+  type DrawingAccess,
+  type DrawingPermission,
+} from "@excalidash/domain/shared";
 import crypto from "crypto";
 import { hashTokenForStorage } from "../auth/tokenSecurity";
 
@@ -18,8 +25,11 @@ import { hashTokenForStorage } from "../auth/tokenSecurity";
  *
  * Nothing in this PR grants it. `"view"` and `"edit"` keep their exact meaning.
  */
-export type DrawingPermission = "view" | "comment" | "edit";
-export type DrawingAccess = "none" | DrawingPermission | "owner";
+export type {
+  CollectionShareRole,
+  DrawingAccess,
+  DrawingPermission,
+} from "@excalidash/domain/shared";
 
 /**
  * One ranking for the whole contract.
@@ -55,8 +65,8 @@ export type DrawingPrincipal = {
 };
 
 export const normalizeDrawingPermission = (input: unknown): DrawingPermission | null => {
-  if (input === "view" || input === "comment" || input === "edit") return input;
-  return null;
+  const parsed = drawingPermissionSchema.safeParse(input);
+  return parsed.success ? parsed.data : null;
 };
 
 /**
@@ -71,11 +81,9 @@ export const normalizeDrawingPermission = (input: unknown): DrawingPermission | 
  * pointed at, in the same "isOwner" shape as NIL-487: two things sharing an
  * alphabet, one of them silently wider than its contract says.
  */
-export type CollectionShareRole = "view" | "edit";
-
 export const normalizeCollectionShareRole = (input: unknown): CollectionShareRole | null => {
-  if (input === "view" || input === "edit") return input;
-  return null;
+  const parsed = collectionShareRoleSchema.safeParse(input);
+  return parsed.success ? parsed.data : null;
 };
 
 export const buildShareLinkToken = (): string => crypto.randomBytes(24).toString("base64url");

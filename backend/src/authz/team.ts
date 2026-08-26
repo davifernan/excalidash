@@ -38,7 +38,7 @@ export const TEAM_ID = "default";
 
 export type TeamRole = "owner" | "member";
 
-export type TeamMember = {
+export type TeamAccountMember = {
   userId: string;
   name: string;
   email: string;
@@ -53,13 +53,13 @@ export const getTeam = async (db: AuthzDb): Promise<{ id: string; name: string }
   db.team.findUnique({ where: { id: TEAM_ID }, select: { id: true, name: true } });
 
 /** Every current member, owners first, then alphabetically by name. */
-export const listTeamMembers = async (db: AuthzDb): Promise<TeamMember[]> => {
+export const listTeamMembers = async (db: AuthzDb): Promise<TeamAccountMember[]> => {
   const users = await db.user.findMany({
     where: { isActive: true },
     select: { id: true, name: true, email: true, role: true },
     orderBy: { name: "asc" },
   });
-  const members = users.map((user): TeamMember => ({
+  const members = users.map((user): TeamAccountMember => ({
     userId: user.id,
     name: user.name,
     email: user.email,

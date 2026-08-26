@@ -1,4 +1,5 @@
 import { PrismaClient } from "../generated/client";
+import type { AuthUser } from "@excalidash/domain/shared";
 import { getEffectiveRegistrationEnabled } from "./accessPolicy";
 
 type AuthMode = "local" | "hybrid" | "oidc_enforced";
@@ -12,18 +13,7 @@ type PasswordPolicyPayload = {
   requireSymbol: boolean;
 };
 
-type AuthUser =
-  | {
-      id: string;
-      username?: string | null;
-      email: string;
-      name: string;
-      role?: string;
-      mustResetPassword?: boolean;
-      impersonatorId?: string;
-    }
-  | null
-  | undefined;
+type OptionalAuthUser = AuthUser | null | undefined;
 
 export const getAuthOnboardingStatus = async (
   prisma: PrismaClient,
@@ -104,7 +94,7 @@ export const buildAuthStatusPayload = ({
   passwordPolicy: PasswordPolicyPayload;
   /** True only when the server can actually deliver a reset link. */
   passwordResetEnabled: boolean;
-  user: AuthUser;
+  user: OptionalAuthUser;
 }) => {
   const onboardingRequired = authMode === "local" ? onboarding.needsChoice : false;
   const onboardingMode = authMode === "local" ? onboarding.mode : null;

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { UserCog } from "lucide-react";
 import { PasswordRequirements } from "../../components/PasswordRequirements";
-import type { PasswordPolicy } from "../../utils/passwordPolicy";
+import type { ResolvedPasswordPolicy } from "../../utils/passwordPolicy";
 import { generatePassword } from "../../utils/passwordPolicy";
 
 type CreateUserFormProps = {
@@ -16,7 +16,7 @@ type CreateUserFormProps = {
   sendInvite: boolean;
   mailEnabled: boolean;
   active: boolean;
-  passwordPolicy: PasswordPolicy;
+  passwordPolicy: ResolvedPasswordPolicy;
   onSubmit: (event: React.FormEvent) => void;
   onCancel: () => void;
   onEmailChange: (value: string) => void;

@@ -1,4 +1,8 @@
 import type { Socket } from "socket.io";
+import {
+  REMOTE_SELECTION_PAYLOAD_BYTES,
+  collaborationEvents,
+} from "@excalidash/domain/collaboration";
 import type { PresenceRegistry } from "./presenceRegistry";
 import { parseDrawingId } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
@@ -6,16 +10,16 @@ import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoom
 export const SELECTION_LIMITS = {
   // One transport budget accepts real imported ids without letting their format
   // silently decide how much of a selection survives.
-  payloadBytes: 256 * 1024,
+  payloadBytes: REMOTE_SELECTION_PAYLOAD_BYTES,
   eventsPerSecond: 40,
 } as const;
 
-export const SELECTION_SNAPSHOT_EVENT = "selection-snapshot";
+export const SELECTION_SNAPSHOT_EVENT = collaborationEvents.selectionSnapshot;
 
-export type SelectionPayload = RoomEventPayload &
+export type SelectionRoomPayload = RoomEventPayload &
   ({ selectedElementIds: string[] } | { allSelected: true });
 
-export const parseSelectionPayload = (value: unknown): SelectionPayload | null => {
+export const parseSelectionPayload = (value: unknown): SelectionRoomPayload | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const data = value as Record<string, unknown>;
   const drawingId = parseDrawingId(data.drawingId);
@@ -54,7 +58,7 @@ export const registerSelectionRoomEvent = ({
 }): void => {
   registerAuthorizedRoomEvent({
     socket,
-    event: "selection-update",
+    event: collaborationEvents.selectionUpdate,
     limit: SELECTION_LIMITS.eventsPerSecond,
     windowMs: 1_000,
     parse: parseSelectionPayload,
@@ -66,7 +70,7 @@ export const registerSelectionRoomEvent = ({
       if (!presences.setSelection(payload.drawingId, socket.id, selectedElementIds, allSelected)) {
         return;
       }
-      socket.to(roomName(payload.drawingId)).emit("selection-update", {
+      socket.to(roomName(payload.drawingId)).emit(collaborationEvents.selectionUpdate, {
         drawingId: payload.drawingId,
         presenceId: socket.id,
         ...(allSelected ? { allSelected: true } : { selectedElementIds }),

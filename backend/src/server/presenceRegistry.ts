@@ -1,3 +1,9 @@
+import type {
+  PresenceIdentity,
+  PresenceKind,
+  SelectionPayload,
+} from "@excalidash/domain/collaboration";
+
 /**
  * Who is connected to which board, right now.
  *
@@ -6,7 +12,7 @@
  * place instead of two. Nothing here is persisted: presence is a fact about
  * open connections, and when the process restarts there is nothing to remember.
  */
-export type PresenceKind = "owner" | "member" | "guest";
+export type { PresenceKind } from "@excalidash/domain/collaboration";
 
 export type PresenceEntry = {
   presenceId: string;
@@ -30,10 +36,7 @@ export type PresenceEntry = {
  * place that needs to match presence against a member list does it with a
  * scoped subject key instead (see authz/subjectKey).
  */
-export type PublicPresenceEntry = Omit<
-  PresenceEntry,
-  "accountId" | "selectedElementIds" | "allSelected"
->;
+export type PublicPresenceEntry = PresenceIdentity;
 
 export const toPublicPresence = ({
   accountId: _accountId,
@@ -42,9 +45,7 @@ export const toPublicPresence = ({
   ...rest
 }: PresenceEntry): PublicPresenceEntry => rest;
 
-export type SelectionSnapshotEntry = { presenceId: string } & (
-  { selectedElementIds: string[] } | { allSelected: true }
-);
+export type SelectionSnapshotEntry = { presenceId: string } & SelectionPayload;
 
 export type SelectionSnapshot = {
   drawingId: string;

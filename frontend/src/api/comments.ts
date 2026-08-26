@@ -1,50 +1,20 @@
 import { api } from "./client";
+import {
+  activityResponseSchema,
+  commentResponseSchema,
+  drawingActivityResponseSchema,
+  drawingCommentsResponseSchema,
+  inboxResponseSchema,
+  mentionCandidatesResponseSchema,
+  type ActivityEventDTO,
+  type CommentDTO,
+  type MentionCandidate,
+  type NotificationDTO,
+} from "@excalidash/domain/shared";
 
-export type CommentDTO = {
-  id: string;
-  drawingId: string;
-  rootId: string | null;
-  authorUserId: string;
-  authorName: string;
-  body: string | null;
-  elementId: string | null;
-  anchorX: number | null;
-  anchorY: number | null;
-  resolvedAt: string | null;
-  resolvedByUserId: string | null;
-  editedAt: string | null;
-  deletedAt: string | null;
-  mentionedUserIds: string[];
-  createdAt: string;
-  updatedAt: string;
-};
+export type { ActivityEventDTO, CommentDTO, NotificationDTO } from "@excalidash/domain/shared";
 
-export type MentionCandidate = { userId: string; name: string };
-
-export type ActivityEventDTO = {
-  id: string;
-  drawingId: string;
-  drawingName: string;
-  actorUserId: string;
-  actorName: string;
-  verb: string;
-  commentId: string | null;
-  /** The thread root id to deep-link to -- see backend activityFeed.ts. */
-  threadRootId: string | null;
-  elementId: string | null;
-  anchorX: number | null;
-  anchorY: number | null;
-  summary: string;
-  createdAt: string;
-};
-
-export type NotificationDTO = {
-  id: string;
-  kind: string;
-  readAt: string | null;
-  createdAt: string;
-  event: ActivityEventDTO;
-};
+export type { MentionCandidate } from "@excalidash/domain/shared";
 
 export const getDrawingComments = async (
   drawingId: string,
@@ -53,14 +23,14 @@ export const getDrawingComments = async (
   const response = await api.get(`/drawings/${drawingId}/comments`, {
     params: options?.includeResolved ? { includeResolved: "true" } : undefined,
   });
-  return response.data;
+  return drawingCommentsResponseSchema.parse(response.data);
 };
 
 export const getMentionCandidates = async (drawingId: string): Promise<MentionCandidate[]> => {
   const response = await api.get<{ candidates: MentionCandidate[] }>(
     `/drawings/${drawingId}/comments/mention-candidates`,
   );
-  return response.data.candidates;
+  return mentionCandidatesResponseSchema.parse(response.data).candidates;
 };
 
 export const createComment = async (
@@ -77,7 +47,7 @@ export const createComment = async (
     `/drawings/${drawingId}/comments`,
     params,
   );
-  return response.data.comment;
+  return commentResponseSchema.parse(response.data).comment;
 };
 
 export const editComment = async (
@@ -89,7 +59,7 @@ export const editComment = async (
     `/drawings/${drawingId}/comments/${commentId}`,
     { body },
   );
-  return response.data.comment;
+  return commentResponseSchema.parse(response.data).comment;
 };
 
 export const deleteComment = async (drawingId: string, commentId: string): Promise<void> => {
@@ -100,14 +70,14 @@ export const resolveComment = async (drawingId: string, commentId: string): Prom
   const response = await api.post<{ comment: CommentDTO }>(
     `/drawings/${drawingId}/comments/${commentId}/resolve`,
   );
-  return response.data.comment;
+  return commentResponseSchema.parse(response.data).comment;
 };
 
 export const reopenComment = async (drawingId: string, commentId: string): Promise<CommentDTO> => {
   const response = await api.post<{ comment: CommentDTO }>(
     `/drawings/${drawingId}/comments/${commentId}/reopen`,
   );
-  return response.data.comment;
+  return commentResponseSchema.parse(response.data).comment;
 };
 
 export const getInbox = async (options?: {
@@ -124,7 +94,7 @@ export const getInbox = async (options?: {
       ...(options?.before ? { before: options.before } : {}),
     },
   });
-  return response.data;
+  return inboxResponseSchema.parse(response.data);
 };
 
 export const markNotificationRead = async (notificationId: string): Promise<void> => {
@@ -145,7 +115,7 @@ export const getTeamActivity = async (options?: {
   const response = await api.get("/activity", {
     params: options?.before ? { before: options.before } : undefined,
   });
-  return response.data;
+  return activityResponseSchema.parse(response.data);
 };
 
 export const getDrawingActivity = async (
@@ -155,7 +125,7 @@ export const getDrawingActivity = async (
   const response = await api.get(`/drawings/${drawingId}/activity`, {
     params: options?.before ? { before: options.before } : undefined,
   });
-  return response.data;
+  return drawingActivityResponseSchema.parse(response.data);
 };
 
 export const recordDrawingVisit = async (drawingId: string): Promise<void> => {

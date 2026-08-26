@@ -1,4 +1,5 @@
 import type { Socket } from "socket.io";
+import { CURSOR_CHAT_MAX_LENGTH, collaborationEvents } from "@excalidash/domain/collaboration";
 import { parseDrawingId } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
 
@@ -17,11 +18,11 @@ import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoom
  */
 export const CURSOR_CHAT_LIMITS = {
   /** Long enough for a sentence, short enough that it cannot become an essay. */
-  textLength: 140,
+  textLength: CURSOR_CHAT_MAX_LENGTH,
   eventsPerSecond: 10,
 } as const;
 
-export const CURSOR_CHAT_EVENT = "cursor-chat";
+export const CURSOR_CHAT_EVENT = collaborationEvents.cursorChat;
 
 export type CursorChatPayload = RoomEventPayload & { text: string | null };
 

@@ -1,11 +1,8 @@
-export interface PasswordPolicyConfig {
-  minLength: number;
-  maxLength: number;
-  requireUppercase: boolean;
-  requireLowercase: boolean;
-  requireNumber: boolean;
-  requireSymbol: boolean;
-}
+import {
+  passwordPolicySchema,
+  type PasswordPolicy as PasswordPolicyConfig,
+} from "@excalidash/domain/shared";
+export type { PasswordPolicy as PasswordPolicyConfig } from "@excalidash/domain/shared";
 
 type EnvBooleanReader = (key: string, defaultValue: boolean) => boolean;
 type EnvNumberReader = (key: string, defaultValue: number) => number;
@@ -20,14 +17,14 @@ export const resolvePasswordPolicyConfig = (
     throw new Error("PASSWORD_MAX_LENGTH must be greater than or equal to PASSWORD_MIN_LENGTH");
   }
 
-  return {
+  return passwordPolicySchema.parse({
     minLength,
     maxLength,
     requireUppercase: getOptionalBoolean("PASSWORD_REQUIRE_UPPERCASE", true),
     requireLowercase: getOptionalBoolean("PASSWORD_REQUIRE_LOWERCASE", true),
     requireNumber: getOptionalBoolean("PASSWORD_REQUIRE_NUMBER", true),
     requireSymbol: getOptionalBoolean("PASSWORD_REQUIRE_SYMBOL", true),
-  };
+  });
 };
 
 export const buildPasswordPolicyMessage = (policy: PasswordPolicyConfig): string => {

@@ -1,38 +1,32 @@
 import type { Socket } from "socket.io-client";
+import {
+  collaborationEvents,
+  documentEditLockSnapshotSchema,
+  publicDocumentEditLockSchema,
+  type PublicDocumentEditLock as DocumentEditLock,
+} from "@excalidash/domain/collaboration";
 
-export const DOCUMENT_EDIT_LOCK_COMMAND_EVENT = "document-edit-lock-command";
-const DOCUMENT_EDIT_LOCK_EVENT = "document-edit-lock-update";
-const DOCUMENT_EDIT_LOCK_GRANTED_EVENT = "document-edit-lock-granted";
-
-export type DocumentEditLock = Readonly<{
-  assetId: string;
-  presenceId: string;
-  ownerName: string;
-}>;
+export const DOCUMENT_EDIT_LOCK_COMMAND_EVENT = collaborationEvents.documentEditLockCommand;
+const DOCUMENT_EDIT_LOCK_EVENT = collaborationEvents.documentEditLockUpdate;
+const DOCUMENT_EDIT_LOCK_GRANTED_EVENT = collaborationEvents.documentEditLockGranted;
+export type { PublicDocumentEditLock as DocumentEditLock } from "@excalidash/domain/collaboration";
 
 export type DocumentEditLocks = Readonly<Record<string, DocumentEditLock>>;
 export type DocumentEditResult =
   { ok: true; token: string } | { ok: false; error: { code: string; message: string } };
 
-type LockSnapshot = { drawingId: string; locks: DocumentEditLock[] };
-
 export const parseDocumentEditLocks = (
   value: unknown,
   drawingId: string,
 ): DocumentEditLocks | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const snapshot = value as Partial<LockSnapshot>;
-  if (snapshot.drawingId !== drawingId || !Array.isArray(snapshot.locks)) return null;
+  const parsed = documentEditLockSnapshotSchema.safeParse(value);
+  if (!parsed.success || parsed.data.drawingId !== drawingId) return null;
+  const snapshot = parsed.data;
   const locks: Record<string, DocumentEditLock> = {};
-  for (const lock of snapshot.locks) {
-    if (
-      !lock ||
-      typeof lock.assetId !== "string" ||
-      typeof lock.presenceId !== "string" ||
-      typeof lock.ownerName !== "string"
-    ) {
-      continue;
-    }
+  for (const value of snapshot.locks) {
+    const parsedLock = publicDocumentEditLockSchema.safeParse(value);
+    if (!parsedLock.success) continue;
+    const lock = parsedLock.data;
     locks[lock.assetId] = lock;
   }
   return locks;

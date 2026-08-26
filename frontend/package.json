@@ -9,14 +9,14 @@
   "scripts": {
     "prepare:excalidraw": "node scripts/expose-excalidraw-command-palette.mjs",
     "postinstall": "npm run prepare:excalidraw",
-    "predev": "npm run prepare:excalidraw",
+    "predev": "npm run build --workspace @excalidash/domain && npm run prepare:excalidraw",
     "dev": "node scripts/copy-excalidraw-assets.mjs --public && vite --port 6767",
-    "pretypecheck": "npm run prepare:excalidraw",
+    "pretypecheck": "npm run build --workspace @excalidash/domain && npm run prepare:excalidraw",
     "typecheck": "node ../scripts/notification-boundary.cjs && tsc -b",
     "build": "npm run typecheck && vite build && node scripts/copy-excalidraw-assets.mjs --dist",
     "lint": "eslint .",
     "preview": "vite preview",
-    "pretest": "npm run prepare:excalidraw",
+    "pretest": "npm run build --workspace @excalidash/domain && npm run prepare:excalidraw",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -25,6 +25,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
+    "@excalidash/domain": "file:../packages/domain",
     "@excalidraw/excalidraw": "0.18.1",
     "@sentry/react": "10.71.0",
     "@types/lodash": "^4.17.20",

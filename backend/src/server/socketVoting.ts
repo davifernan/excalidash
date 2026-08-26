@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import { collaborationEvents } from "@excalidash/domain/collaboration";
 import type { DrawingAccess } from "../authz/sharing";
 import { parseDrawingId } from "./socketProtocol";
 import { createRoomEventFeedback, type RoomEventAck } from "./socketRoomEvent";
@@ -9,9 +10,9 @@ import {
   type VotingSnapshot,
 } from "./votingRegistry";
 
-export const VOTING_COMMAND_EVENT = "voting-command";
-export const VOTING_CAST_EVENT = "voting-cast";
-export const VOTING_STATE_EVENT = "voting-state";
+export const VOTING_COMMAND_EVENT = collaborationEvents.votingCommand;
+export const VOTING_CAST_EVENT = collaborationEvents.votingCast;
+export const VOTING_STATE_EVENT = collaborationEvents.votingState;
 
 const DEFAULT_MAX_SELECTIONS = 1;
 const MAX_MAX_SELECTIONS = 12;

@@ -9,25 +9,18 @@
  * even by accident.
  */
 import type { Socket } from "socket.io-client";
+import {
+  collaborationEvents,
+  votingSnapshotSchema,
+  type VoteOption,
+  type VotingSnapshot,
+} from "@excalidash/domain/collaboration";
 import type { PresenterCommandError, PresenterCommandOutcome } from "./presenterMode";
 
-export const VOTING_COMMAND_EVENT = "voting-command";
-export const VOTING_CAST_EVENT = "voting-cast";
-export const VOTING_STATE_EVENT = "voting-state";
-
-export type VotingStatus = "idle" | "open" | "revealed";
-export type VoteOption = { readonly id: string; readonly label: string };
-
-export type VotingSnapshot = {
-  readonly drawingId: string;
-  readonly status: VotingStatus;
-  readonly roundId: string | null;
-  readonly prompt: string | null;
-  readonly options: readonly VoteOption[] | null;
-  readonly maxSelections: number | null;
-  readonly tally: Readonly<Record<string, number>> | null;
-  readonly participantCount: number | null;
-};
+export const VOTING_COMMAND_EVENT = collaborationEvents.votingCommand;
+export const VOTING_CAST_EVENT = collaborationEvents.votingCast;
+export const VOTING_STATE_EVENT = collaborationEvents.votingState;
+export type { VoteOption, VotingSnapshot, VotingStatus } from "@excalidash/domain/collaboration";
 
 const idleSnapshot = (drawingId: string): VotingSnapshot => ({
   drawingId,
@@ -66,8 +59,9 @@ const parseTally = (value: unknown): Readonly<Record<string, number>> | null => 
 };
 
 export const parseVotingSnapshot = (value: unknown, drawingId: string): VotingSnapshot | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as Record<string, unknown>;
+  const parsed = votingSnapshotSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const data = parsed.data;
   if (data.drawingId !== drawingId) return null;
   if (data.status === "idle") return idleSnapshot(drawingId);
   if (data.status !== "open" && data.status !== "revealed") return null;

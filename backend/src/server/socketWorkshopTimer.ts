@@ -1,9 +1,16 @@
 import type { Server, Socket } from "socket.io";
+import {
+  collaborationEvents,
+  workshopTimerActionSchema,
+  type WorkshopTimerAction,
+  type WorkshopTimerSnapshot,
+  type WorkshopTimerStatus,
+} from "@excalidash/domain/collaboration";
 import { parseDrawingId } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
 
-export const WORKSHOP_TIMER_EVENT = "workshop-timer-update";
-export const WORKSHOP_TIMER_COMMAND_EVENT = "workshop-timer-command";
+export const WORKSHOP_TIMER_EVENT = collaborationEvents.workshopTimerUpdate;
+export const WORKSHOP_TIMER_COMMAND_EVENT = collaborationEvents.workshopTimerCommand;
 const WORKSHOP_TIMER_LIMITS = {
   commandsPerMinute: 12,
   minDurationMs: 1_000,
@@ -11,15 +18,11 @@ const WORKSHOP_TIMER_LIMITS = {
   extensionMs: 60_000,
 } as const;
 
-export type WorkshopTimerStatus = "idle" | "running" | "paused" | "finished";
-export type WorkshopTimerSnapshot = {
-  drawingId: string;
-  status: WorkshopTimerStatus;
-  endsAt: number | null;
-  remainingMs: number;
-  durationMs: number | null;
-  serverNow: number;
-};
+export type {
+  WorkshopTimerAction,
+  WorkshopTimerSnapshot,
+  WorkshopTimerStatus,
+} from "@excalidash/domain/collaboration";
 
 type TimerState =
   | {
@@ -31,7 +34,6 @@ type TimerState =
   | { status: "paused"; remainingMs: number; durationMs: number }
   | { status: "finished"; durationMs: number };
 
-export type WorkshopTimerAction = "start" | "restart" | "pause" | "resume" | "stop" | "add-minute";
 export type WorkshopTimerCommand = RoomEventPayload & {
   action: WorkshopTimerAction;
   durationMs?: number;
@@ -44,7 +46,9 @@ const parseWorkshopTimerCommand = (value: unknown): WorkshopTimerCommand | null 
   const data = value as Record<string, unknown>;
   const drawingId = parseDrawingId(data.drawingId);
   if (!drawingId) return null;
-  if (data.action === "start") {
+  const action = workshopTimerActionSchema.safeParse(data.action);
+  if (!action.success) return null;
+  if (action.data === "start") {
     const durationMs = data.durationMs;
     if (
       typeof durationMs !== "number" ||
@@ -54,18 +58,9 @@ const parseWorkshopTimerCommand = (value: unknown): WorkshopTimerCommand | null 
     ) {
       return null;
     }
-    return { drawingId, action: "start", durationMs };
+    return { drawingId, action: action.data, durationMs };
   }
-  if (
-    data.action === "restart" ||
-    data.action === "pause" ||
-    data.action === "resume" ||
-    data.action === "stop" ||
-    data.action === "add-minute"
-  ) {
-    return { drawingId, action: data.action };
-  }
-  return null;
+  return { drawingId, action: action.data };
 };
 
 export const createWorkshopTimerManager = ({

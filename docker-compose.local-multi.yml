@@ -22,8 +22,8 @@ services:
 
   backend-basic:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - DATABASE_URL=file:/app/prisma/dev.db
       - PORT=8000
@@ -57,8 +57,8 @@ services:
 
   backend-oidc:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - DATABASE_URL=file:/app/prisma/dev.db
       - PORT=8000
@@ -101,8 +101,8 @@ services:
 
   backend-hybrid:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - DATABASE_URL=file:/app/prisma/dev.db
       - PORT=8000

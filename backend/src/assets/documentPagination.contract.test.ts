@@ -1,53 +1,56 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DocumentPaginationRequest } from "@excalidash/domain/documents";
 import { paginateDocumentSource as paginateOnServer } from "./documentPagination";
-import { paginateDocumentSource as paginateInBrowser } from "../../../frontend/src/pages/editor/documentPagination";
 
-const fixtures = [
-  { name: "empty text", kind: "TEXT" as const, source: "", budget: 20 },
-  {
-    name: "plain lines across a boundary",
-    kind: "TEXT" as const,
-    source: "one\ntwo\nthree\nfour\n",
-    budget: 9,
-  },
-  {
-    name: "markdown list",
-    kind: "MARKDOWN" as const,
-    source: "# Tasks\n\n- first item\n- second item\n- third item\n",
-    budget: 24,
-  },
-  {
-    name: "markdown table",
-    kind: "MARKDOWN" as const,
-    source: "| Name | Value |\n| --- | --- |\n| alpha | 1 |\n| beta | 2 |\n| gamma | 3 |\n",
-    budget: 42,
-  },
-  {
-    name: "fenced block kept atomic",
-    kind: "MARKDOWN" as const,
-    source: "Before\n\n```ts\nconst value = 1;\nconst next = 2;\n```\n\nAfter\n",
-    budget: 20,
-  },
-];
+type WorkerResponse = { ok: true; pages: string[] } | { ok: false; error: string };
 
-const productionDefaultFixture = {
-  kind: "TEXT" as const,
-  source: `${"a".repeat(10_000)}\n${"b".repeat(9_998)}\n`,
+const paginateThroughProductionWorker = async (
+  request: DocumentPaginationRequest,
+): Promise<WorkerResponse> => {
+  let response: WorkerResponse | undefined;
+  const workerScope = {
+    postMessage(value: WorkerResponse) {
+      response = value;
+    },
+  } as {
+    onmessage?: (event: MessageEvent<DocumentPaginationRequest>) => void;
+    postMessage(value: WorkerResponse): void;
+  };
+  vi.stubGlobal("self", workerScope);
+  vi.resetModules();
+
+  await import("../../../frontend/src/pages/editor/documentPagination.worker");
+  expect(
+    workerScope.onmessage,
+    "the browser production worker must install its handler",
+  ).toBeTypeOf("function");
+  workerScope.onmessage?.({ data: request } as MessageEvent<DocumentPaginationRequest>);
+  if (!response) throw new Error("The browser production worker did not post a response");
+  return response;
 };
 
-describe("document pagination package contract", () => {
-  it.each(fixtures)("keeps server and browser equal for $name", ({ kind, source, budget }) => {
-    expect(paginateOnServer(source, kind, budget)).toEqual(paginateInBrowser(source, kind, budget));
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
-  it("keeps server and browser equal at the production default budget", () => {
-    const { kind, source } = productionDefaultFixture;
-    const serverPages = paginateOnServer(source, kind);
-    const browserPages = paginateInBrowser(source, kind);
+describe("document pagination cross-runtime contract", () => {
+  it("gives 50,000 unbroken characters the same exact three pages on server and browser", async () => {
+    const source = "x".repeat(50_000);
+    const serverPages = paginateOnServer(source, "TEXT");
+    const browserResponse = await paginateThroughProductionWorker({ source, kind: "TEXT" });
 
-    expect(serverPages.length, "server and browser default-budget page counts").toBe(
-      browserPages.length,
+    expect(serverPages, "the backend production path must return exactly three pages").toHaveLength(
+      3,
     );
-    expect(serverPages).toEqual(browserPages);
+    expect(browserResponse.ok, "the browser production worker must accept the request").toBe(true);
+    if (!browserResponse.ok) throw new Error(browserResponse.error);
+    expect(
+      browserResponse.pages,
+      "the browser production worker must return the backend's exact page count",
+    ).toHaveLength(serverPages.length);
+    expect(
+      browserResponse.pages,
+      "the backend and browser production paths must return byte-identical pages",
+    ).toEqual(serverPages);
   });
 });

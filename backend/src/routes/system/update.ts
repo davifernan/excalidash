@@ -1,9 +1,13 @@
 import express from "express";
+import {
+  updateChannelSchema,
+  updateInfoSchema,
+  type UpdateChannel,
+  type UpdateInfo as UpdateResponse,
+} from "@excalidash/domain/shared";
 import { compareSemver, parseSemver } from "../../utils/semver";
 import type { SystemRouteDeps } from "./index";
 import { config } from "../../config";
-
-type UpdateChannel = "stable" | "prerelease";
 
 type GithubRelease = {
   tag_name?: string;
@@ -11,17 +15,6 @@ type GithubRelease = {
   prerelease?: boolean;
   draft?: boolean;
   published_at?: string;
-};
-
-type UpdateResponse = {
-  currentVersion: string | null;
-  channel: UpdateChannel;
-  outboundEnabled: boolean;
-  latestVersion: string | null;
-  latestUrl: string | null;
-  publishedAt: string | null;
-  isUpdateAvailable: boolean | null;
-  error?: string;
 };
 
 let UPDATE_CHECK_TTL_MS = 10 * 60 * 1000;
@@ -35,7 +28,8 @@ let cache: {
 
 const parseChannel = (raw: unknown): UpdateChannel => {
   const normalized = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-  return normalized === "prerelease" ? "prerelease" : "stable";
+  const parsed = updateChannelSchema.safeParse(normalized);
+  return parsed.success ? parsed.data : "stable";
 };
 
 const envOutboundEnabled = (): boolean => config.updateCheck.outboundEnabled;
@@ -187,11 +181,11 @@ export const registerUpdateRoutes = (app: express.Express, deps: SystemRouteDeps
 
       const isUpdateAvailable = computeIsUpdateAvailable(currentVersion, latest.latestVersion);
 
-      const payload: UpdateResponse = {
+      const payload: UpdateResponse = updateInfoSchema.parse({
         ...latest,
         currentVersion,
         isUpdateAvailable,
-      };
+      });
 
       res.status(200).json(payload);
     }),

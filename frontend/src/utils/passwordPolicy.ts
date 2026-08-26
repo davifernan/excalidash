@@ -1,26 +1,17 @@
-export type PasswordPolicy = {
-  minLength: number;
-  maxLength: number;
+import {
+  passwordPolicySchema,
+  type PasswordPolicy as PasswordPolicyResponse,
+} from "@excalidash/domain/shared";
+
+export type ResolvedPasswordPolicy = PasswordPolicyResponse & {
   requiresComplexity: boolean;
-  requireUppercase: boolean;
-  requireLowercase: boolean;
-  requireNumber: boolean;
-  requireSymbol: boolean;
   pattern?: RegExp;
   patternHtml?: string;
   requirementsText: string;
   validationMessage: string;
 };
 
-export type PasswordPolicyResponse = Pick<
-  PasswordPolicy,
-  | "minLength"
-  | "maxLength"
-  | "requireUppercase"
-  | "requireLowercase"
-  | "requireNumber"
-  | "requireSymbol"
->;
+export type { PasswordPolicy as PasswordPolicyResponse } from "@excalidash/domain/shared";
 
 export type PasswordRequirement = {
   id: "minLength" | "uppercase" | "lowercase" | "number" | "symbol";
@@ -83,14 +74,15 @@ const normalizePolicy = (
   const maxLength = Number(raw.maxLength);
   if (!Number.isFinite(minLength) || minLength <= 0) return null;
   if (!Number.isFinite(maxLength) || maxLength < minLength) return null;
-  return {
+  const parsed = passwordPolicySchema.safeParse({
     minLength,
     maxLength,
     requireUppercase: Boolean(raw.requireUppercase),
     requireLowercase: Boolean(raw.requireLowercase),
     requireNumber: Boolean(raw.requireNumber),
     requireSymbol: Boolean(raw.requireSymbol),
-  };
+  });
+  return parsed.success ? parsed.data : null;
 };
 
 const readCachedPolicy = (): PasswordPolicyResponse | null => {
@@ -117,7 +109,7 @@ export const cachePasswordPolicy = (
   }
 };
 
-export const getPasswordPolicy = (opts?: { strong?: boolean }): PasswordPolicy => {
+export const getPasswordPolicy = (opts?: { strong?: boolean }): ResolvedPasswordPolicy => {
   const strong = typeof opts?.strong === "boolean" ? opts.strong : true;
   const base = strong ? (readCachedPolicy() ?? DEFAULT_STRONG_POLICY) : DEFAULT_RELAXED_POLICY;
   const requiresComplexity =
@@ -136,7 +128,7 @@ export const getPasswordPolicy = (opts?: { strong?: boolean }): PasswordPolicy =
 
 export const getPasswordRequirements = (
   password: string,
-  policy: PasswordPolicy,
+  policy: ResolvedPasswordPolicy,
 ): PasswordRequirement[] => {
   const value = typeof password === "string" ? password : "";
   const requirements: PasswordRequirement[] = [
@@ -171,7 +163,10 @@ export const getPasswordRequirements = (
   return requirements;
 };
 
-export const validatePassword = (password: string, policy: PasswordPolicy): string | null => {
+export const validatePassword = (
+  password: string,
+  policy: ResolvedPasswordPolicy,
+): string | null => {
   if (typeof password !== "string") return policy.validationMessage;
   if (password.length < policy.minLength) return policy.validationMessage;
   if (password.length > policy.maxLength)
@@ -190,7 +185,7 @@ export const validatePassword = (password: string, policy: PasswordPolicy): stri
  * Every required character class is placed first and the result shuffled, so
  * the password is valid by construction rather than by retrying until it is.
  */
-export const generatePassword = (policy: PasswordPolicy): string => {
+export const generatePassword = (policy: ResolvedPasswordPolicy): string => {
   const LOWER = "abcdefghijkmnopqrstuvwxyz";
   const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   const DIGIT = "23456789";

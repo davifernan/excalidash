@@ -1,12 +1,12 @@
 import express from "express";
+import type { DrawingSortField as SortField, SortDirection } from "@excalidash/domain/shared";
 import { z } from "zod";
 import { Prisma, PrismaClient } from "../../generated/client";
 import type { CollaborationAccessController } from "../../server/collaborationAccess";
 import type { PresenceRegistry } from "../../server/presenceRegistry";
 import type { Server as SocketIoServer } from "socket.io";
 
-export type SortField = "name" | "createdAt" | "updatedAt";
-export type SortDirection = "asc" | "desc";
+export type { DrawingSortField as SortField, SortDirection } from "@excalidash/domain/shared";
 
 type BuildDrawingsCacheKey = (keyParts: {
   userId: string;

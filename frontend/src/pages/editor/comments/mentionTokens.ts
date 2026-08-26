@@ -4,9 +4,8 @@
  * backend/src/comments/mentions.ts for why a structured token beats
  * free-text `@name` matching.
  */
-const MENTION_TOKEN = /@\[([^\]\n]{1,120})\]\(([0-9a-fA-F-]{8,64})\)/g;
-
-export const mentionToken = (name: string, userId: string): string => `@[${name}](${userId})`;
+import { mentionTokenPattern as MENTION_TOKEN } from "@excalidash/domain/shared";
+export { mentionToken } from "@excalidash/domain/shared";
 
 export type MentionSegment =
   { kind: "text"; text: string } | { kind: "mention"; name: string; userId: string };

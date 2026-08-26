@@ -1,10 +1,10 @@
 import * as Sentry from "@sentry/react";
 import type { ErrorEvent, StackFrame } from "@sentry/react";
+import { isSafeTelemetryToken } from "@excalidash/domain/shared";
 
 import type { DiagnosticEvent } from "./integrations/excalidraw/capabilities";
 import { onDiagnostic } from "./integrations/excalidraw/compatibility/diagnostics";
 
-const SAFE_TOKEN = /^[A-Za-z0-9_.:-]{1,100}$/;
 const SAFE_TAG_KEYS = new Set(["source", "errorId", "seam", "code", "fallback", "packageVersion"]);
 const RENDER_CRASH = "Frontend render crash";
 const ADAPTER_FAILURE = "Excalidraw compatibility failure";
@@ -31,7 +31,7 @@ const safeCodeFrame = (frame: StackFrame): StackFrame => {
   const filename = location ? `app:///${location[1]}/${location[2]}` : undefined;
   return {
     filename: filename && !/[?#]/.test(filename) ? filename : undefined,
-    function: frame.function && SAFE_TOKEN.test(frame.function) ? frame.function : undefined,
+    function: frame.function && isSafeTelemetryToken(frame.function) ? frame.function : undefined,
     lineno: frame.lineno,
     colno: frame.colno,
     in_app: frame.in_app,
@@ -52,7 +52,7 @@ const safeTags = (tags: ErrorEvent["tags"]): ErrorEvent["tags"] => {
   for (const [key, value] of Object.entries(tags ?? {})) {
     if (!SAFE_TAG_KEYS.has(key)) continue;
     if (typeof value === "number" || typeof value === "boolean") result[key] = value;
-    if (typeof value === "string" && SAFE_TOKEN.test(value)) result[key] = value;
+    if (isSafeTelemetryToken(value)) result[key] = value;
   }
   return result;
 };
@@ -67,7 +67,7 @@ export const scrubFrontendEvent = (event: ErrorEvent): ErrorEvent => ({
   message: event.message === ADAPTER_FAILURE ? ADAPTER_FAILURE : undefined,
   fingerprint:
     event.message === ADAPTER_FAILURE && event.fingerprint
-      ? event.fingerprint.filter((part) => SAFE_TOKEN.test(part))
+      ? event.fingerprint.filter((part) => isSafeTelemetryToken(part))
       : undefined,
   exception: event.exception
     ? {

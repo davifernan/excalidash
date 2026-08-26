@@ -11,7 +11,7 @@
  * standing claim on the board simply gets no notification for them; it cannot
  * make the server believe otherwise.
  */
-const MENTION_TOKEN = /@\[([^\]\n]{1,120})\]\(([0-9a-fA-F-]{8,64})\)/g;
+import { mentionTokenPattern as MENTION_TOKEN } from "@excalidash/domain/shared";
 
 export const extractMentionedUserIds = (body: string): string[] => {
   const ids = new Set<string>();

@@ -7,7 +7,8 @@
  * moving this file leaves the widgets invisible to the server -- the board
  * renders, and every page command is refused as "not part of this board".
  *
- * Kept in step with frontend/src/integrations/excalidraw/customData.ts.
+ * The schema source of truth is packages/domain/src/excalidraw/customData.ts;
+ * this module contains only the server-side reader and writer behavior.
  *
  * `mindMap`/`mindMapProjection` (`mapId`/`parentId`/`orderKey`) are gone
  * (NIL-593, Schnitt 2): the frontend's own relationship layer for the v1
@@ -27,17 +28,15 @@
  * only preserves stored JSON and does not restore any Pin/Collapse behavior.
  */
 
-export const NAMESPACE = "excalidash";
-export const SCHEMA_VERSION = 2;
+import {
+  EXCALIDASH_NAMESPACE as NAMESPACE,
+  EXCALIDASH_SCHEMA_VERSION as SCHEMA_VERSION,
+  widgetRecordSchema,
+  type WidgetRecord,
+} from "@excalidash/domain/excalidraw";
 
-export type WidgetKind = "pdf" | "markdown" | "text";
-
-export type WidgetRecord = {
-  kind: WidgetKind;
-  assetId: string;
-};
-
-const WIDGET_KINDS = new Set<string>(["pdf", "markdown", "text"]);
+export { NAMESPACE, SCHEMA_VERSION };
+export type { WidgetKind, WidgetRecord } from "@excalidash/domain/excalidraw";
 
 const isBag = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -60,12 +59,8 @@ const readNamespace = (element: unknown): Record<string, unknown> | null => {
 export function readWidgetRecord(element: unknown): WidgetRecord | null {
   const own = readNamespace(element);
   if (!own) return null;
-  const widget = own.widget;
-  if (!isBag(widget)) return null;
-  const { kind, assetId } = widget;
-  if (typeof kind !== "string" || !WIDGET_KINDS.has(kind)) return null;
-  if (typeof assetId !== "string" || assetId.length === 0) return null;
-  return { kind: kind as WidgetKind, assetId };
+  const parsed = widgetRecordSchema.safeParse(own.widget);
+  return parsed.success ? parsed.data : null;
 }
 
 /** Replace only this application's widget reference, preserving foreign data. */

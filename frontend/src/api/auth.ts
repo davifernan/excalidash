@@ -1,4 +1,11 @@
-import { cachePasswordPolicy, type PasswordPolicyResponse } from "../utils/passwordPolicy";
+import { cachePasswordPolicy } from "../utils/passwordPolicy";
+import {
+  DEFAULT_API_KEY_SCOPES,
+  authStatusSchema,
+  authUserSchema,
+  type AuthStatus,
+  type AuthUser,
+} from "@excalidash/domain/shared";
 import { API_URL, api, axios } from "./client";
 import type { DrawingSortField, SortDirection } from "./drawings";
 
@@ -33,31 +40,9 @@ let csrfHeaderName = "x-csrf-token";
 let csrfTokenPromise: Promise<void> | null = null;
 let refreshPromise: Promise<void> | null = null;
 
-export interface AuthStatusResponse {
-  authEnabled?: boolean;
-  enabled?: boolean;
-  registrationEnabled?: boolean;
-  passwordResetEnabled?: boolean;
-  authMode?: "local" | "hybrid" | "oidc_enforced";
-  oidcEnabled?: boolean;
-  oidcEnforced?: boolean;
-  oidcProvider?: string;
-  oidcJitProvisioningEnabled?: boolean;
-  bootstrapRequired?: boolean;
-  authOnboardingRequired?: boolean;
-  authOnboardingMode?: "migration" | "fresh";
-  authOnboardingRecommended?: "enable" | null;
-  passwordPolicy?: PasswordPolicyResponse;
-}
+export type AuthStatusResponse = AuthStatus;
 
-export interface AuthUser {
-  id: string;
-  username?: string | null;
-  email: string;
-  name: string;
-  role?: string;
-  mustResetPassword?: boolean;
-}
+export type { AuthUser } from "@excalidash/domain/shared";
 
 export interface UserPreferences {
   theme?: "light" | "dark";
@@ -81,12 +66,7 @@ export interface CreateApiKeyResponse {
   token: string;
 }
 
-export const API_KEY_SCOPES = [
-  "drawings:read",
-  "drawings:write",
-  "collections:read",
-  "collections:write",
-] as const;
+export const API_KEY_SCOPES = DEFAULT_API_KEY_SCOPES;
 
 const fetchCsrfToken = async (): Promise<void> => {
   const response = await axios.get<{ token: string; header: string }>(`${API_URL}/csrf-token`, {
@@ -104,8 +84,9 @@ export const authStatus = async (): Promise<AuthStatusResponse> => {
   const response = await axios.get<AuthStatusResponse>(`${API_URL}/auth/status`, {
     withCredentials: true,
   });
-  cachePasswordPolicy(response.data.passwordPolicy);
-  return response.data;
+  const status = authStatusSchema.parse(response.data);
+  cachePasswordPolicy(status.passwordPolicy);
+  return status;
 };
 
 export const startOidcSignIn = (returnTo?: string): void => {
@@ -120,7 +101,7 @@ export const authMe = async (): Promise<{ user: AuthUser }> => {
   const response = await axios.get<{ user: AuthUser }>(`${API_URL}/auth/me`, {
     withCredentials: true,
   });
-  return response.data;
+  return { user: authUserSchema.parse(response.data.user) };
 };
 
 export const getUserPreferences = async (): Promise<UserPreferences> => {
@@ -156,7 +137,7 @@ export const authLogin = async (
     password,
     rememberMe,
   });
-  return response.data;
+  return { user: authUserSchema.parse(response.data.user) };
 };
 
 export const authRegister = async (
@@ -174,7 +155,7 @@ export const authRegister = async (
     payload.setupCode = setupCode.trim();
   }
   const response = await api.post<{ user: AuthUser }>("/auth/register", payload);
-  return response.data;
+  return { user: authUserSchema.parse(response.data.user) };
 };
 
 export const listApiKeys = async (): Promise<ApiKeyMetadata[]> => {

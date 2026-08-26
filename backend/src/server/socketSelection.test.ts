@@ -3,7 +3,11 @@ import { BOOTSTRAP_USER_ID } from "../auth/authMode";
 import { PresenceRegistry } from "./presenceRegistry";
 import { registerSocketHandlers } from "./socket";
 import { registerAuthorizedRoomEvent } from "./socketRoomEvent";
-import { parseSelectionPayload, SELECTION_LIMITS, type SelectionPayload } from "./socketSelection";
+import {
+  parseSelectionPayload,
+  SELECTION_LIMITS,
+  type SelectionRoomPayload,
+} from "./socketSelection";
 import { FakeIo, FakeSocket, room } from "../__tests__/socketTestDoubles";
 
 const validPayload = (selectedElementIds: unknown = ["element-1"]) => ({
@@ -41,7 +45,7 @@ describe("authorized room event seam", () => {
     const socket = new FakeSocket("socket-a", []);
     const requireAccess = vi.fn().mockResolvedValue(null);
     const handle = vi.fn();
-    registerAuthorizedRoomEvent<SelectionPayload>({
+    registerAuthorizedRoomEvent<SelectionRoomPayload>({
       socket: socket as any,
       event: "selection-update",
       limit: 1,

@@ -1,14 +1,10 @@
+import type { ElementUpdatePayload } from "@excalidash/domain/collaboration";
+
 export const LIVE_UPDATE_MAX_BYTES = 11 * 1024 * 1024;
 export const LIVE_UPDATE_MAX_FILES = 1_000;
 export const LIVE_UPDATE_MAX_FILE_DATA_URL_LENGTH = 10 * 1024 * 1024;
 
-export type ElementUpdatePayload = {
-  drawingId: string;
-  elements: readonly any[];
-  files?: Record<string, any>;
-  elementOrder?: string[];
-  elementOrderOmittedBytes?: number;
-};
+export type { ElementUpdatePayload } from "@excalidash/domain/collaboration";
 
 export type FilePayloadSplit =
   | { ok: true; payloads: ElementUpdatePayload[] }

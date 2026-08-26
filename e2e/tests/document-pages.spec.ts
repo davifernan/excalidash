@@ -51,8 +51,8 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   // the turn travels back the other way just as well.
   await activateWidget(guestPage);
   await guestPage.getByRole("button", { name: "Next page" }).click();
-  await expect(pageLabel(guestPage)).toContainText("Page 3 of", { timeout: 10000 });
-  await expect(pageLabel(hostPage)).toContainText("Page 3 of", { timeout: 10000 });
+  await expect(pageLabel(guestPage)).toHaveText("Page 3 of 3", { timeout: 10000 });
+  await expect(pageLabel(hostPage)).toHaveText("Page 3 of 3", { timeout: 10000 });
 
   // And the page the room is on outlives the tab that turned it: someone
   // arriving later is shown page 3, not page 1.
@@ -60,7 +60,7 @@ test("everyone in the room turns to the same page", async ({ browser, request })
   const latecomerPage = await latecomer.newPage();
   await openEditor(latecomerPage, drawing.id);
   await activateWidget(latecomerPage);
-  await expect(pageLabel(latecomerPage)).toContainText("Page 3 of", { timeout: 30000 });
+  await expect(pageLabel(latecomerPage)).toHaveText("Page 3 of 3", { timeout: 30000 });
 
   await host.close();
   await guest.close();
@@ -133,6 +133,21 @@ const finishResponsivenessProbe = (page: Page) =>
 const MAX_BLOCK_MS: Record<string, number> = { webkit: 1250 };
 const DEFAULT_MAX_BLOCK_MS = 500;
 
+/**
+ * A p95 timer gap is a useful guard against repeated medium stalls, but unlike
+ * the maximum it also moves when the whole browser process is descheduled.
+ * Six local runs under an 8-core host load of 7-10 showed two groups: ordinary
+ * trials around 20-40 ms and contended trials around 58-79 ms. The failing
+ * Two GitHub runner runs showed the same shape at 31.8/82.0/99.8 ms and then
+ * 90.3/112.4 ms while every median stayed at 10 ms and every maximum stayed
+ * below Chromium's 500 ms ceiling.
+ *
+ * 150 ms leaves 33% headroom above that measured runner tail without turning
+ * this into a no-op: repeated 160 ms stalls still fail below, and a single
+ * long block still fails independently against DEFAULT_MAX_BLOCK_MS.
+ */
+const MAX_P95_GAP_MS = 150;
+
 type ResponsivenessTrial = { samples: number; p95GapMs: number; maxGapMs: number };
 
 /**
@@ -174,7 +189,7 @@ const RESPONSIVENESS_TRIALS = 3;
 const RESPONSIVENESS_TRIALS_REQUIRED = 2;
 
 const trialIsUnderBudget = (trial: ResponsivenessTrial, maxBlockMs: number): boolean =>
-  trial.p95GapMs < 50 && trial.maxGapMs < maxBlockMs;
+  trial.p95GapMs < MAX_P95_GAP_MS && trial.maxGapMs < maxBlockMs;
 
 /**
  * Two of three trials under budget, not the first sample alone (NIL-592).
@@ -226,6 +241,15 @@ test.describe("responsiveness budget: two of three trials, not one absolute samp
       { samples: 40, p95GapMs: 12, maxGapMs: 480 },
       { samples: 41, p95GapMs: 13, maxGapMs: 540 },
       { samples: 39, p95GapMs: 11, maxGapMs: 515 },
+    ];
+    expect(passesResponsivenessBudget(trials, DEFAULT_MAX_BLOCK_MS)).toBe(false);
+  });
+
+  test("goes red on repeated 160 ms stalls even when no single block reaches 500 ms", () => {
+    const trials: ResponsivenessTrial[] = [
+      { samples: 40, p95GapMs: 160, maxGapMs: 450 },
+      { samples: 41, p95GapMs: 165, maxGapMs: 460 },
+      { samples: 39, p95GapMs: 170, maxGapMs: 470 },
     ];
     expect(passesResponsivenessBudget(trials, DEFAULT_MAX_BLOCK_MS)).toBe(false);
   });

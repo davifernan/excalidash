@@ -1,10 +1,10 @@
 import React from "react";
 import { CheckCircle2, Circle } from "lucide-react";
-import { getPasswordRequirements, type PasswordPolicy } from "../utils/passwordPolicy";
+import { getPasswordRequirements, type ResolvedPasswordPolicy } from "../utils/passwordPolicy";
 
 type Props = {
   password: string;
-  policy: PasswordPolicy;
+  policy: ResolvedPasswordPolicy;
   className?: string;
 };
 

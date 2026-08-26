@@ -1,22 +1,29 @@
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { bindCursorChat } from "../../../frontend/src/pages/editor/cursorChat";
 import { CURSOR_CHAT_LIMITS } from "./socketCursorChat";
 
-const FRONTEND_CURSOR_CHAT = path.resolve(
-  __dirname,
-  "../../../frontend/src/pages/editor/cursorChat.ts",
-);
-
 describe("cursor chat protocol contract", () => {
-  it("keeps the frontend input cap equal to the server-enforced cap", () => {
-    const source = fs.readFileSync(FRONTEND_CURSOR_CHAT, "utf8");
-    const declaration = source.match(/export const CURSOR_CHAT_MAX_LENGTH = (\d+);/);
+  it("keeps the frontend's emitted draft within the backend-enforced cap", () => {
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const controller = bindCursorChat({
+      drawingId: "drawing-1",
+      socket: {
+        emit: (event, payload) => emitted.push({ event, payload }),
+        on: () => undefined,
+        off: () => undefined,
+      },
+      onRemoteChange: () => undefined,
+      onDraftChange: () => undefined,
+    });
 
+    controller.open();
+    controller.type("x".repeat(CURSOR_CHAT_LIMITS.textLength + 20));
+    controller.dispose();
+
+    expect(emitted).toHaveLength(1);
     expect(
-      declaration,
-      "frontend cursor chat must keep an explicit protocol cap for this contract check",
-    ).not.toBeNull();
-    expect(Number(declaration?.[1])).toBe(CURSOR_CHAT_LIMITS.textLength);
+      (emitted[0].payload as { text: string }).text,
+      "the frontend-emitted text must equal the backend-enforced cursor-chat cap",
+    ).toHaveLength(CURSOR_CHAT_LIMITS.textLength);
   });
 });

@@ -1,0 +1,66 @@
+{
+  "name": "@excalidash/domain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "documents": [
+        "dist/documents/index.d.ts"
+      ],
+      "documents/pagination": [
+        "dist/documents/pagination.d.ts"
+      ],
+      "excalidraw": [
+        "dist/excalidraw/index.d.ts"
+      ],
+      "collaboration": [
+        "dist/collaboration/index.d.ts"
+      ],
+      "shared": [
+        "dist/shared/index.d.ts"
+      ]
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./documents": {
+      "types": "./dist/documents/index.d.ts",
+      "default": "./dist/documents/index.js"
+    },
+    "./documents/pagination": {
+      "types": "./dist/documents/pagination.d.ts",
+      "default": "./dist/documents/pagination.js"
+    },
+    "./excalidraw": {
+      "types": "./dist/excalidraw/index.d.ts",
+      "default": "./dist/excalidraw/index.js"
+    },
+    "./collaboration": {
+      "types": "./dist/collaboration/index.d.ts",
+      "default": "./dist/collaboration/index.js"
+    },
+    "./shared": {
+      "types": "./dist/shared/index.d.ts",
+      "default": "./dist/shared/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
