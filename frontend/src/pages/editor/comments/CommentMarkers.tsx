@@ -16,12 +16,27 @@ type Props = {
   onSelectThread: (rootId: string) => void;
 };
 
-type MarkerPosition = {
+export type MarkerPosition = {
   threadId: string;
   left: number;
   top: number;
   resolved: boolean;
   count: number;
+};
+
+/**
+ * Same-role precedence belongs to local paint order, not the global scale.
+ * Keeping the active marker last makes it win against every overlapping
+ * sibling without promoting it above unrelated element overlays or chrome.
+ */
+export const orderCommentMarkersForPaint = (
+  positions: readonly MarkerPosition[],
+  activeThreadId: string | null,
+): MarkerPosition[] => {
+  if (!activeThreadId) return [...positions];
+  const active = positions.find((position) => position.threadId === activeThreadId);
+  if (!active) return [...positions];
+  return [...positions.filter((position) => position.threadId !== activeThreadId), active];
 };
 
 /**
@@ -89,14 +104,13 @@ export const CommentMarkers: React.FC<Props> = ({
 
   return (
     <>
-      {positions.map((position) => (
+      {orderCommentMarkersForPaint(positions, activeThreadId).map((position) => (
         <button
           key={position.threadId}
           type="button"
           onClick={() => onSelectThread(position.threadId)}
           data-testid="comment-marker"
           data-thread-id={position.threadId}
-          data-active={position.threadId === activeThreadId || undefined}
           title={position.resolved ? "Resolved thread" : "Open thread"}
           aria-label={
             position.resolved

@@ -103,6 +103,11 @@ einzige Ort, der diesen internen Container kennt: Wird ein PDF-/Markdown-Element
 zieht die Grenze seinen Inhalt auf dieselbe benannte Ebene wie den Auswahlrahmen; beim
 Abwaehlen gehen beide wieder auf die normale Elementebene zurueck.
 
+Eine lokale Prioritaet zwischen Geschwistern derselben Rolle verbraucht keine weitere globale
+Ebene. Beispielsweise bleiben Kommentar-Marker gemeinsam auf `elementOverlay`; der aktive
+Marker wird innerhalb dieser Gruppe zuletzt gemalt. So gewinnt er gegen ueberlappende Marker,
+ohne ueber fremde Elementaufsaetze oder Canvas-Chrome befoerdert zu werden.
+
 ## Zielstruktur
 
 ```text
