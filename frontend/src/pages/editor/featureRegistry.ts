@@ -1,9 +1,9 @@
 import type { LucideIcon } from "lucide-react";
+import type { DrawingSummary } from "../../types";
 import type { ConnectionStatus } from "./useEditorCollaboration";
 import type { VotingStatus } from "./votingMode";
 
 export type EditorFeatureId = "workshop-timer" | "voting" | "comments";
-export type EditorFeatureAccessLevel = "none" | "view" | "comment" | "edit" | "owner";
 
 export type EditorFeatureTarget =
   | { readonly kind: "board" }
@@ -15,7 +15,7 @@ export type EditorFeatureTarget =
 
 export type EditorFeatureContext = {
   readonly boardId: string | null;
-  readonly accessLevel: EditorFeatureAccessLevel;
+  readonly accessLevel: NonNullable<DrawingSummary["accessLevel"]>;
   readonly canEdit: boolean;
   readonly canComment: boolean;
   readonly connectionStatus: ConnectionStatus;
