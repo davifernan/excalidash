@@ -78,21 +78,19 @@ export async function syncDrawingDocumentState(
   );
 
   const wantedElementIds = bindings.map((binding) => binding.elementId);
-  if (typeof prisma.documentPageView.findMany === "function") {
-    const beforeDelete = await prisma.documentPageView.findMany({
-      where: { drawingId },
-      select: { elementId: true },
+  const beforeDelete = await prisma.documentPageView.findMany({
+    where: { drawingId },
+    select: { elementId: true },
+  });
+  const toDelete = beforeDelete
+    .map((row: any) => row.elementId)
+    .filter((id: string) => !wantedElementIds.includes(id));
+  if (toDelete.length > 0) {
+    logger.warn("NIL-601 diagnostic: syncDrawingDocumentState is deleting document page rows", {
+      drawingId,
+      wantedElementIds,
+      deletingElementIds: toDelete,
     });
-    const toDelete = beforeDelete
-      .map((row: any) => row.elementId)
-      .filter((id: string) => !wantedElementIds.includes(id));
-    if (toDelete.length > 0) {
-      logger.warn("NIL-601 diagnostic: syncDrawingDocumentState is deleting document page rows", {
-        drawingId,
-        wantedElementIds,
-        deletingElementIds: toDelete,
-      });
-    }
   }
   await prisma.documentPageView.deleteMany({
     where: {

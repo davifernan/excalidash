@@ -118,7 +118,7 @@ export const createDocumentPageManager = ({
         where: { drawingId: payload.drawingId },
         select: { elementId: true, assetId: true },
       });
-      logger.error("NIL-601 diagnostic: document widget not found for page set", {
+      logger.warn("NIL-601 diagnostic: document widget not found for page set", {
         drawingId: payload.drawingId,
         soughtElementId: payload.elementId,
         existingRows: existing,
@@ -167,7 +167,7 @@ export const createDocumentPageManager = ({
           where: { drawingId: payload.drawingId },
           select: { elementId: true, assetId: true },
         });
-        logger.error("NIL-601 diagnostic: document widget vanished between lookup and update", {
+        logger.warn("NIL-601 diagnostic: document widget vanished between lookup and update", {
           drawingId: payload.drawingId,
           soughtElementId: payload.elementId,
           existingRows: existing,
