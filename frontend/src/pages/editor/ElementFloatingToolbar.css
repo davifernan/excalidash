@@ -1,7 +1,7 @@
 .element-floating-toolbar {
   position: absolute;
   box-sizing: border-box;
-  z-index: 6;
+  z-index: var(--excalidash-z-widget-controls);
   display: flex;
   max-width: calc(100% - 16px);
   min-height: 42px;

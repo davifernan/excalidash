@@ -20,6 +20,7 @@ vi.mock("@excalidraw/excalidraw", () => ({
 }));
 
 import { bindFollowMode, getFollowInterruptionMessage, parseFollowSceneBounds } from "./followMode";
+import { stacking } from "../../integrations/excalidraw/stacking";
 
 describe("getFollowInterruptionMessage", () => {
   it("names the mutual-follow and self-follow cases instead of a generic fallback", () => {
@@ -211,12 +212,13 @@ describe("follow viewport bounds", () => {
     const frame = container.querySelector<HTMLElement>('[data-follow-viewport="frame"]');
     const control = document.createElement("button");
     control.style.position = "absolute";
-    control.style.zIndex = "2";
+    control.style.zIndex = stacking.chrome;
     container.append(control);
     expect(frame?.style.width).toBe("500px");
     expect(frame?.style.height).toBe("500px");
     expect(frame?.style.boxShadow).toContain("9999px");
-    expect(Number(frame?.style.zIndex)).toBeLessThan(Number(control.style.zIndex));
+    expect(frame?.style.zIndex).toBe(stacking.elementOverlay);
+    expect(control.style.zIndex).toBe(stacking.chrome);
     expect(socket.emit).not.toHaveBeenCalledWith("viewport-bounds", expect.anything());
 
     resizeCallback();

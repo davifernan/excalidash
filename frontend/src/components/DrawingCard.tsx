@@ -178,7 +178,7 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
         )}
       >
         <div
-          className="absolute top-2.5 left-2.5 z-20 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity duration-200"
+          className="excalidash-z-element-overlay absolute top-2.5 left-2.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity duration-200"
           style={{ opacity: isSelected ? 1 : undefined }}
         >
           <button
@@ -200,7 +200,7 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
           </button>
         </div>
 
-        <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-1.5">
+        <div className="excalidash-z-element-overlay absolute top-2.5 right-2.5 flex items-center gap-1.5">
           {onToggleFavorite && (
             <button
               type="button"
@@ -266,7 +266,7 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
             </div>
           )}
           {(drawing.members?.totalCount ?? 0) > 1 || guestCount > 0 ? (
-            <div className="absolute bottom-2 left-2 z-20 flex items-center gap-1.5">
+            <div className="excalidash-z-element-overlay absolute bottom-2 left-2 flex items-center gap-1.5">
               <MemberStack
                 members={drawing.members?.items ?? []}
                 onlineKeys={onlineKeys}
@@ -285,7 +285,7 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
           ) : null}
         </button>
 
-        <div className="p-4 sm:p-5 bg-white dark:bg-neutral-900 rounded-b-2xl relative z-10 flex-1 flex flex-col justify-between">
+        <div className="excalidash-z-element-content p-4 sm:p-5 bg-white dark:bg-neutral-900 rounded-b-2xl relative flex-1 flex flex-col justify-between">
           <div>
             {isRenaming ? (
               <form

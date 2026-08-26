@@ -66,7 +66,7 @@ export const SharePeopleSection: React.FC<Props> = ({
         </div>
 
         {userResults.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-2 border-2 border-black dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.1)] overflow-hidden z-[200] animate-in fade-in slide-in-from-top-2">
+          <div className="excalidash-z-popup absolute top-full left-0 right-0 mt-2 border-2 border-black dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.1)] overflow-hidden animate-in fade-in slide-in-from-top-2">
             {userResults.map((candidate) => (
               <button
                 key={candidate.id}

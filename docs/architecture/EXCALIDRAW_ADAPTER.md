@@ -82,6 +82,32 @@ Sie duerfen nur in Adaptermodulen auftreten und werden an der Grenze normalisier
 Diese Zugriffe liegen ausschliesslich in `domBridge.ts` beziehungsweise einem klar benannten
 Untermodul. Jeder Zugriff braucht Capability Detection, Fallback und Browsertest.
 
+### Stacking policy
+
+Excalidraws CSS-Variablen sind die einzige globale Ebenenskala. Produktcode schreibt keine
+nackte `z-index`-Zahl, sondern waehlt in `integrations/excalidraw/stacking.{css,ts}` eine
+fachliche Rolle wie Elementinhalt, Elementaufsatz, Canvas-Chrome, Widget-Bedienung, Popup,
+Modal oder Meldung. Der Adapter bindet diese Rollen an die Tokens der installierten
+Excalidraw-Version; ausserhalb eines Editor-Mounts gelten dieselben Paketwerte als Fallback.
+
+Die schwebende Widget-Leiste steht nicht mehr im globalen Wettbewerb. Der Editor ist ein
+isolierter Stacking-Context. Sonners hoher `--zIndex-toast` liegt zusaetzlich innerhalb eines
+kleineren, isolierten Meldungs-Contexts; dadurch darf eine dauerhaft benoetigte
+Widget-Bedienung eine voruebergehende Meldung ueberragen, waehrend Kontextmenues und modale
+Dialoge weiterhin ueber beiden liegen. Die nackte Milliardenzahl ist damit weder noetig noch
+zulaessig.
+
+Excalidraw rendert den Rahmen eines Embeddables auf seiner SVG-/Interaktionsebene, dessen
+HTML-Inhalt aber in einem separaten DOM-Container. `ElementStackingBoundary.tsx` ist der
+einzige Ort, der diesen internen Container kennt: Wird ein PDF-/Markdown-Element ausgewaehlt,
+zieht die Grenze seinen Inhalt auf dieselbe benannte Ebene wie den Auswahlrahmen; beim
+Abwaehlen gehen beide wieder auf die normale Elementebene zurueck.
+
+Eine lokale Prioritaet zwischen Geschwistern derselben Rolle verbraucht keine weitere globale
+Ebene. Beispielsweise bleiben Kommentar-Marker gemeinsam auf `elementOverlay`; der aktive
+Marker wird innerhalb dieser Gruppe zuletzt gemalt. So gewinnt er gegen ueberlappende Marker,
+ohne ueber fremde Elementaufsaetze oder Canvas-Chrome befoerdert zu werden.
+
 ## Zielstruktur
 
 ```text
@@ -102,6 +128,9 @@ frontend/src/integrations/excalidraw/
 ├── customData.ts
 ├── geometry.ts
 ├── domBridge.ts
+├── stacking.css
+├── stacking.ts
+├── ElementStackingBoundary.tsx
 └── compatibility/
     ├── diagnostics.ts
     ├── contract.test.tsx

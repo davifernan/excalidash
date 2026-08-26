@@ -13,6 +13,7 @@
  */
 import React, { useEffect, useRef } from "react";
 import type { ViewportCapability } from "../integrations/excalidraw/capabilities";
+import { stacking } from "../integrations/excalidraw/stacking";
 import { STICKY_SIZE, type StickyColor } from "./stickyNote";
 
 /**
@@ -81,7 +82,7 @@ export const StickyPreview: React.FC<Props> = ({ containerRef, color, viewport }
         border: `1px solid ${color.edge}`,
         opacity: 0,
         pointerEvents: "none",
-        zIndex: 3,
+        zIndex: stacking.elementOverlay,
         willChange: "transform",
       }}
     />

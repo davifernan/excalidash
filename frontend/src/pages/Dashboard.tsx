@@ -202,7 +202,7 @@ export const Dashboard: React.FC = () => {
         <DragOverlayPortal>
           {" "}
           <div
-            className="fixed z-50 pointer-events-none border-2 border-black dark:border-neutral-500 bg-neutral-500/20 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]"
+            className="excalidash-z-anchored-overlay fixed pointer-events-none border-2 border-black dark:border-neutral-500 bg-neutral-500/20 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]"
             style={{
               left: selection.selectionBounds.left,
               top: selection.selectionBounds.top,

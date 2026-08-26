@@ -28,7 +28,7 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({ className = "", ..
         // Keep it out of the tab order between the two password fields:
         // reaching it by keyboard should not sit between them.
         tabIndex={-1}
-        className="absolute inset-y-0 right-0 z-20 flex items-center px-3 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        className="excalidash-z-element-overlay absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
       >
         {visible ? (
           <svg

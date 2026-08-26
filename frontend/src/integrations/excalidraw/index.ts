@@ -160,4 +160,6 @@ export const createExcalidrawAdapter = (host: AdapterHost): ExcalidrawAdapter =>
 };
 
 export type { ExcalidrawAdapter } from "./capabilities";
+export { ElementStackingBoundary } from "./ElementStackingBoundary";
+export { reverseElementStack, stacking } from "./stacking";
 export * from "./types";

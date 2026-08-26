@@ -1,0 +1,97 @@
+/*
+ * ExcaliDash stacking policy.
+ *
+ * Excalidraw owns the scale. The fallbacks are the values exported by the
+ * pinned package and only keep application-level dialogs usable outside an
+ * editor mount. Every product caller consumes one of the semantic
+ * --excalidash-z-* roles below; raw z-index numbers are forbidden elsewhere.
+ *
+ * Notifications need one extra boundary. Sonner's toaster deliberately keeps
+ * Excalidraw's very high --zIndex-toast inside an isolated notification
+ * context. Widget controls can therefore stay above a transient notification
+ * without escaping above popups or modal dialogs.
+ */
+:root,
+.excalidraw {
+  --excalidash-z-canvas: var(--zIndex-canvas, 1);
+  --excalidash-z-element-content: var(--zIndex-interactiveCanvas, 2);
+  --excalidash-z-element-overlay: var(--zIndex-svgLayer, 3);
+  --excalidash-z-chrome: var(--zIndex-layerUI, 4);
+  --excalidash-z-backdrop: var(--zIndex-eyeDropperBackdrop, 5);
+  --excalidash-z-preview: var(--zIndex-eyeDropperPreview, 6);
+  --excalidash-z-anchored-overlay: var(--zIndex-hyperlinkContainer, 7);
+  --excalidash-z-notification-context: calc(var(--zIndex-hyperlinkContainer, 7) + 1);
+  --excalidash-z-widget-controls: calc(var(--zIndex-hyperlinkContainer, 7) + 2);
+  --excalidash-z-modal: var(--zIndex-modal, 1000);
+  --excalidash-z-popup: var(--zIndex-popup, 1001);
+  --excalidash-z-notification: var(--zIndex-toast, 999999);
+}
+
+.excalidash-editor-stacking-root {
+  isolation: isolate;
+}
+
+.excalidash-notification-context {
+  position: absolute;
+  inset: 0;
+  z-index: var(--excalidash-z-notification-context);
+  isolation: isolate;
+  pointer-events: none;
+}
+
+.excalidash-notification-context [data-sonner-toaster] {
+  z-index: var(--excalidash-z-notification);
+}
+
+.excalidash-notification-context [data-sonner-toast] {
+  pointer-events: auto;
+}
+
+/* Named utilities for JSX outside CSS modules. */
+.excalidash-z-canvas {
+  z-index: var(--excalidash-z-canvas);
+}
+
+.excalidash-z-element-content {
+  z-index: var(--excalidash-z-element-content);
+}
+
+.excalidash-z-element-overlay {
+  z-index: var(--excalidash-z-element-overlay);
+}
+
+.excalidash-z-chrome {
+  z-index: var(--excalidash-z-chrome);
+}
+
+.excalidash-z-backdrop {
+  z-index: var(--excalidash-z-backdrop);
+}
+
+.excalidash-z-preview {
+  z-index: var(--excalidash-z-preview);
+}
+
+.excalidash-z-anchored-overlay {
+  z-index: var(--excalidash-z-anchored-overlay);
+}
+
+.excalidash-z-widget-controls {
+  z-index: var(--excalidash-z-widget-controls);
+}
+
+.excalidash-z-modal {
+  z-index: var(--excalidash-z-modal);
+}
+
+.excalidash-z-popup {
+  z-index: var(--excalidash-z-popup);
+}
+
+.excalidash-z-notification {
+  z-index: var(--excalidash-z-notification);
+}
+
+.excalidash-focus-z-element-content:focus {
+  z-index: var(--excalidash-z-element-content);
+}

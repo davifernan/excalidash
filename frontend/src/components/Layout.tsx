@@ -153,7 +153,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
           <div
             className={clsx(
-              "fixed inset-0 z-30 bg-neutral-900/20 backdrop-blur-sm transition-opacity duration-150",
+              "excalidash-z-backdrop fixed inset-0 bg-neutral-900/20 backdrop-blur-sm transition-opacity duration-150",
               isSidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none",
             )}
             onClick={() => setIsSidebarOpen(false)}
@@ -162,7 +162,7 @@ export const Layout: React.FC<LayoutProps> = ({
           <aside
             ref={sidebarRef}
             className={clsx(
-              "fixed inset-y-4 left-2 sm:left-4 z-40 bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)] overflow-hidden transition-transform duration-200",
+              "excalidash-z-chrome fixed inset-y-4 left-2 sm:left-4 bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)] overflow-hidden transition-transform duration-200",
               isSidebarOpen ? "translate-x-0" : "-translate-x-[110%]",
             )}
             style={{ width: `${sidebarWidth}px` }}
@@ -191,7 +191,7 @@ export const Layout: React.FC<LayoutProps> = ({
         <div className="flex gap-3 sm:gap-4 items-start h-full min-w-0">
           <aside
             ref={sidebarRef}
-            className="flex-shrink-0 h-full bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)] overflow-hidden z-20 transition-colors duration-200 relative"
+            className="excalidash-z-element-overlay flex-shrink-0 h-full bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)] overflow-hidden transition-colors duration-200 relative"
             style={{ width: `${sidebarWidth}px` }}
           >
             <Sidebar

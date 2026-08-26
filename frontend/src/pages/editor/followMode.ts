@@ -5,6 +5,7 @@ import {
   readViewport,
 } from "../../integrations/excalidraw/viewport";
 import type { Socket } from "socket.io-client";
+import { stacking } from "../../integrations/excalidraw/stacking";
 
 /** Four scene coordinates: minX, minY, maxX, maxY. */
 export type FollowSceneBounds = readonly [number, number, number, number];
@@ -134,7 +135,7 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
   Object.assign(frame.style, {
     position: "absolute",
     pointerEvents: "none",
-    zIndex: "1",
+    zIndex: stacking.elementOverlay,
     border: "2px solid rgba(79, 70, 229, 0.9)",
     boxShadow: "0 0 0 9999px rgba(15, 23, 42, 0.16)",
     boxSizing: "border-box",
@@ -146,7 +147,7 @@ const createViewportIndicator = (container: HTMLDivElement | null) => {
   Object.assign(warning.style, {
     position: "absolute",
     pointerEvents: "none",
-    zIndex: "1",
+    zIndex: stacking.elementOverlay,
     top: "12px",
     left: "50%",
     transform: "translateX(-50%)",

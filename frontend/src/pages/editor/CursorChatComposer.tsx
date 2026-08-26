@@ -8,6 +8,7 @@
  */
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { stacking } from "../../integrations/excalidraw/stacking";
 import { CURSOR_CHAT_MAX_LENGTH } from "./cursorChat";
 
 type CursorChatComposerProps = {
@@ -70,7 +71,7 @@ export const CursorChatComposer: React.FC<CursorChatComposerProps> = ({
         position: "absolute",
         top: 0,
         left: 0,
-        zIndex: 6,
+        zIndex: stacking.anchoredOverlay,
         display: "flex",
         alignItems: "center",
         gap: "0.35rem",

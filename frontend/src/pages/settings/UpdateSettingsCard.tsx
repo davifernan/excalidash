@@ -26,14 +26,14 @@ export const UpdateSettingsCard = ({
         <RefreshCw
           size={28}
           className={clsx(
-            "text-emerald-600 dark:text-emerald-400 relative z-10 sm:hidden",
+            "excalidash-z-element-content text-emerald-600 dark:text-emerald-400 relative sm:hidden",
             updateLoading && "animate-spin",
           )}
         />
         <RefreshCw
           size={32}
           className={clsx(
-            "text-emerald-600 dark:text-emerald-400 relative z-10 hidden sm:block",
+            "excalidash-z-element-content text-emerald-600 dark:text-emerald-400 relative hidden sm:block",
             updateLoading && "animate-spin",
           )}
         />

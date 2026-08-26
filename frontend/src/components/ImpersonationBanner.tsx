@@ -194,7 +194,7 @@ export const ImpersonationBanner: React.FC = () => {
   }
 
   return (
-    <div className="sticky top-0 z-[45] -mt-2 mb-6 rounded-xl border border-red-200 dark:border-red-800/50 bg-red-50/80 dark:bg-red-950/30 backdrop-blur-md px-3 py-2 shadow-sm transition-all duration-200">
+    <div className="excalidash-z-chrome sticky top-0 -mt-2 mb-6 rounded-xl border border-red-200 dark:border-red-800/50 bg-red-50/80 dark:bg-red-950/30 backdrop-blur-md px-3 py-2 shadow-sm transition-all duration-200">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-red-700 dark:text-red-400 flex-shrink-0">
