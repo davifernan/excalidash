@@ -36,18 +36,15 @@ describe("notification facade", () => {
     ["success", 4_000],
     ["info", 5_000],
     ["loading", Number.POSITIVE_INFINITY],
-  ] as const)(
-    "maps %s severity and its standard duration centrally",
-    (severity, duration) => {
-      notify(severity, "State changed", { key: "operation", detail: "42%" });
+  ] as const)("maps %s severity and its standard duration centrally", (severity, duration) => {
+    notify(severity, "State changed", { key: "operation", detail: "42%" });
 
-      expect(mocks[severity]).toHaveBeenCalledWith("State changed", {
-        description: "42%",
-        duration,
-        id: "operation",
-      });
-    },
-  );
+    expect(mocks[severity]).toHaveBeenCalledWith("State changed", {
+      description: "42%",
+      duration,
+      id: "operation",
+    });
+  });
 
   it("preserves Excalidraw's single-toast duration and close behavior as info", () => {
     notifyExcalidrawToast({ message: "Nothing selected", duration: 1_250, closable: true });
