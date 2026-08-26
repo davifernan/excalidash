@@ -1,5 +1,6 @@
 import { syncDrawingAssets } from "./assetService";
 import { readWidgetRecord } from "./customDataSchema";
+import { logger } from "../logger";
 
 export const DOCUMENT_WIDGET_LIMIT = 200;
 const DOCUMENT_WIDGET_ID = /^[\w-]{1,64}$/;
@@ -77,6 +78,20 @@ export async function syncDrawingDocumentState(
   );
 
   const wantedElementIds = bindings.map((binding) => binding.elementId);
+  const beforeDelete = await prisma.documentPageView.findMany({
+    where: { drawingId },
+    select: { elementId: true },
+  });
+  const toDelete = beforeDelete
+    .map((row: any) => row.elementId)
+    .filter((id: string) => !wantedElementIds.includes(id));
+  if (toDelete.length > 0) {
+    logger.warn("NIL-601 diagnostic: syncDrawingDocumentState is deleting document page rows", {
+      drawingId,
+      wantedElementIds,
+      deletingElementIds: toDelete,
+    });
+  }
   await prisma.documentPageView.deleteMany({
     where: {
       drawingId,

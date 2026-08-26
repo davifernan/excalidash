@@ -81,6 +81,11 @@ export const createDocumentPageManager = ({
       if (typeof drawing.elements === "string") {
         const elements = JSON.parse(drawing.elements);
         if (!Array.isArray(elements)) throw new Error("Drawing elements are not an array");
+        logger.warn("NIL-601 diagnostic: snapshot reconcile reading persisted elements", {
+          drawingId,
+          elementCount: elements.length,
+          embeddableCount: elements.filter((e: any) => e?.type === "embeddable").length,
+        });
         await syncDrawingDocumentState(tx, drawingId, elements);
       }
       if (!tx.documentPageView?.findMany) return [];
@@ -109,6 +114,15 @@ export const createDocumentPageManager = ({
       },
     });
     if (!widget) {
+      const existing = await prisma.documentPageView.findMany({
+        where: { drawingId: payload.drawingId },
+        select: { elementId: true, assetId: true },
+      });
+      logger.warn("NIL-601 diagnostic: document widget not found for page set", {
+        drawingId: payload.drawingId,
+        soughtElementId: payload.elementId,
+        existingRows: existing,
+      });
       return refusal("document-widget-not-found", "Document widget is not part of this board");
     }
     if (widget.asset.status !== "READY") {
@@ -149,6 +163,15 @@ export const createDocumentPageManager = ({
       });
     } catch (error: any) {
       if (error?.code === "P2025") {
+        const existing = await prisma.documentPageView.findMany({
+          where: { drawingId: payload.drawingId },
+          select: { elementId: true, assetId: true },
+        });
+        logger.warn("NIL-601 diagnostic: document widget vanished between lookup and update", {
+          drawingId: payload.drawingId,
+          soughtElementId: payload.elementId,
+          existingRows: existing,
+        });
         return refusal("document-widget-not-found", "Document widget is not part of this board");
       }
       throw error;
