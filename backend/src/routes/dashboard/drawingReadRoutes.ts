@@ -1,5 +1,6 @@
 import express from "express";
-import { canViewDrawing, getDrawingAccess } from "../../authz/sharing";
+import { canViewDrawing } from "../../authz/sharing";
+import { getDrawingCapabilities } from "../../authz/capabilities";
 import { isBoardCreator } from "../../authz/boards";
 import { toPublicTrashCollectionId } from "./trash";
 import type { DrawingRouteContext } from "./drawingRouteContext";
@@ -21,12 +22,13 @@ export const registerDrawingReadRoutes = (app: express.Express, context: Drawing
       const principal = await getRequestPrincipal(req);
 
       const { id } = req.params;
-      const access = await getDrawingAccess({
+      const decision = await getDrawingCapabilities({
         prisma,
         principal,
         drawingId: id,
         shareToken: getShareToken(req),
       });
+      const { access } = decision;
       if (!canViewDrawing(access)) {
         if (respondWithAuthErrorIfPresent(req, res)) return;
         if (!principal) {
@@ -108,6 +110,7 @@ export const registerDrawingReadRoutes = (app: express.Express, context: Drawing
         appState: parseJsonField(drawing.appState, {}),
         files: parseJsonField(drawing.files, {}),
         accessLevel: access,
+        capabilities: decision.capabilities,
       });
     }),
   );

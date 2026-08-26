@@ -61,6 +61,18 @@ describe("document routes", () => {
     await prisma.drawingSnapshot.deleteMany({});
     await prisma.drawing.deleteMany({});
     await prisma.user.deleteMany({});
+    await prisma.systemConfig.upsert({
+      where: { id: "default" },
+      update: {
+        guestUploadEnabled: false,
+        guestCommentVisibilityEnabled: true,
+      },
+      create: {
+        id: "default",
+        guestUploadEnabled: false,
+        guestCommentVisibilityEnabled: true,
+      },
+    });
 
     storageDir = await mkdtemp(join(tmpdir(), "assetroutes-"));
     owner = await createTestUser(prisma, "owner@example.com");
@@ -157,6 +169,41 @@ describe("document routes", () => {
       .post(`/drawings/${drawingId}/assets?name=${encodeURIComponent(name)}`)
       .set("Content-Type", type)
       .send(body as any);
+
+  it("gates an anonymous edit-link document upload on both instance and board policy", async () => {
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+    actAs = null;
+
+    const attempt = () =>
+      upload("# Guest notes\n", "text/markdown", "guest.md").set("x-share-token", token);
+
+    const bothOff = await attempt();
+    expect(bothOff.status).toBe(403);
+    expect(bothOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+
+    await prisma.drawing.update({ where: { id: drawingId }, data: { guestUploadEnabled: true } });
+    const instanceStillOff = await attempt();
+    expect(instanceStillOff.status).toBe(403);
+    expect(instanceStillOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: true },
+    });
+    const enabled = await attempt();
+    expect(enabled.status).toBe(201);
+    expect(enabled.body.kind).toBe("MARKDOWN");
+    const stored = await prisma.asset.findUnique({ where: { id: enabled.body.id } });
+    expect(stored?.uploadedByUserId).toBeNull();
+  });
 
   const attachMarkdownWidget = async (content = "# Original\n") => {
     const created = await createAsset(

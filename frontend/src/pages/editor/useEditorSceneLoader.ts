@@ -39,6 +39,8 @@ type SceneLoaderParams = {
     hasHydratedInitialScene: MutableRefObject<boolean>;
   };
   setAccessLevel: (accessLevel: AccessLevel) => void;
+  setCanUploadFiles: (allowed: boolean) => void;
+  setCanViewComments: (allowed: boolean) => void;
   setDrawingName: (name: string) => void;
   setCollectionId: (id: string | null) => void;
   setCollectionName: (name: string | null) => void;
@@ -68,6 +70,8 @@ export const useEditorSceneLoader = ({
   navigate,
   refs,
   setAccessLevel,
+  setCanUploadFiles,
+  setCanViewComments,
   setDrawingName,
   setCollectionId,
   setCollectionName,
@@ -102,6 +106,8 @@ export const useEditorSceneLoader = ({
     setIsSceneLoading(true);
     setLoadError(null);
     setInitialData(null);
+    setCanUploadFiles(false);
+    setCanViewComments(false);
 
     const loadData = async () => {
       if (!id) {
@@ -133,6 +139,8 @@ export const useEditorSceneLoader = ({
               // edit and share UI for someone with comment-only access.
               "view",
         );
+        setCanUploadFiles(data.capabilities?.uploadFiles === true);
+        setCanViewComments(data.capabilities?.viewComments === true);
         const elements = data.elements || [];
         const renderedElements = deriveStickyFontState(elements);
         const files = data.files || {};
@@ -229,6 +237,8 @@ export const useEditorSceneLoader = ({
     refs,
     resetRefs,
     setAccessLevel,
+    setCanUploadFiles,
+    setCanViewComments,
     setDrawingName,
     setCollectionId,
     setCollectionName,

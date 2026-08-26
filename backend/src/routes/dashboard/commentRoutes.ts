@@ -5,6 +5,8 @@ import {
   canViewDrawing,
   getDrawingAccess,
 } from "../../authz/sharing";
+import { getDrawingCapabilities } from "../../authz/capabilities";
+import { drawingCommentsRoomName } from "../../server/socketRoomNames";
 import {
   CommentDomainError,
   createComment,
@@ -72,24 +74,32 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
     }
   };
 
-  // Reading comments only requires view access -- the same bar as opening
-  // the board at all. Commenting itself is gated separately, per route,
-  // below.
+  // Comment visibility is independent of commenting. A link guest may be
+  // allowed to read without being allowed to write, or hidden from comments
+  // while the authenticated comment-write contract remains unchanged.
   app.get(
     "/drawings/:id/comments",
     optionalAuth,
     asyncHandler(async (req, res) => {
       const principal = await getRequestPrincipal(req);
       const { id } = req.params;
-      const access = await getDrawingAccess({
+      const decision = await getDrawingCapabilities({
         prisma,
         principal,
         drawingId: id,
         shareToken: getShareToken(req),
       });
+      const { access } = decision;
       if (!canViewDrawing(access)) {
         if (respondWithAuthErrorIfPresent(req, res)) return;
         return res.status(404).json({ error: "Drawing not found" });
+      }
+      if (!decision.capabilities.viewComments) {
+        return res.status(403).json({
+          error: "Guest comment visibility disabled",
+          code: "GUEST_COMMENT_VISIBILITY_DISABLED",
+          message: "Comments are not visible to guests on this board.",
+        });
       }
       const includeResolved = req.query.includeResolved === "true";
       const comments = await listComments({ prisma, drawingId: id, includeResolved });
@@ -159,7 +169,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           anchorX: req.body?.anchorX,
           anchorY: req.body?.anchorY,
         });
-        io.to(`drawing_${id}`).emit("comment-created", comment);
+        io.to(drawingCommentsRoomName(id)).emit("comment-created", comment);
         notifyRecipients(recipients, activityEventId);
         return res.status(201).json({ comment });
       } catch (error) {
@@ -201,7 +211,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           actorUserId: req.user.id,
           rawBody: req.body?.body,
         });
-        io.to(`drawing_${id}`).emit("comment-updated", comment);
+        io.to(drawingCommentsRoomName(id)).emit("comment-updated", comment);
         if (activityEventId) notifyRecipients(recipients, activityEventId);
         return res.json({ comment });
       } catch (error) {
@@ -244,7 +254,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           actorUserId: req.user.id,
           actorCanModerate: canEditDrawing(access),
         });
-        io.to(`drawing_${id}`).emit("comment-deleted", { id: commentId });
+        io.to(drawingCommentsRoomName(id)).emit("comment-deleted", { id: commentId });
         return res.json({ success: true });
       } catch (error) {
         if (handleDomainError(res, error)) return;
@@ -274,7 +284,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           rootId: commentId,
           actorUserId: req.user.id,
         });
-        io.to(`drawing_${id}`).emit("comment-updated", comment);
+        io.to(drawingCommentsRoomName(id)).emit("comment-updated", comment);
         if (activityEventId) notifyRecipients(recipients, activityEventId);
         return res.json({ comment });
       } catch (error) {
@@ -305,7 +315,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           rootId: commentId,
           actorUserId: req.user.id,
         });
-        io.to(`drawing_${id}`).emit("comment-updated", comment);
+        io.to(drawingCommentsRoomName(id)).emit("comment-updated", comment);
         if (activityEventId) notifyRecipients(recipients, activityEventId);
         return res.json({ comment });
       } catch (error) {

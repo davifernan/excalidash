@@ -61,6 +61,7 @@ describe("history preview persistence guard", () => {
       } as any;
       const { handleCanvasChange } = useEditorCanvasHandlers({
         canEdit: true,
+        canUploadFiles: true,
         debouncedSavePreview: vi.fn(),
         drawingId: "drawing-1",
         emitFilesDeltaIfNeeded: vi.fn(),

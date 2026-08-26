@@ -52,6 +52,22 @@ const makeSocket = () => {
 };
 
 describe("useComments", () => {
+  it("does not fetch comments or subscribe to comment events when visibility is disabled", async () => {
+    mocks.getDrawingComments.mockClear();
+    mocks.getMentionCandidates.mockClear();
+    const { socket } = makeSocket();
+    const socketRef: MutableRefObject<Socket | null> = { current: socket };
+
+    const { result } = renderHook(() =>
+      useComments({ drawingId: "d1", enabled: false, canComment: true, socketRef, isReady: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(mocks.getDrawingComments).not.toHaveBeenCalled();
+    expect(mocks.getMentionCandidates).not.toHaveBeenCalled();
+    expect(socket.on).not.toHaveBeenCalled();
+  });
+
   /**
    * RED PROBE evidence (see PR HANDOFF): the server emits "comment-created"
    * to the whole drawing room -- including the author's own socket -- before
@@ -77,7 +93,7 @@ describe("useComments", () => {
     const socketRef: MutableRefObject<Socket | null> = { current: socket };
 
     const { result } = renderHook(() =>
-      useComments({ drawingId: "d1", canComment: true, socketRef, isReady: true }),
+      useComments({ drawingId: "d1", enabled: true, canComment: true, socketRef, isReady: true }),
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -113,7 +129,7 @@ describe("useComments", () => {
     const socketRef: MutableRefObject<Socket | null> = { current: socket };
 
     const { result } = renderHook(() =>
-      useComments({ drawingId: "d1", canComment: true, socketRef, isReady: true }),
+      useComments({ drawingId: "d1", enabled: true, canComment: true, socketRef, isReady: true }),
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
 

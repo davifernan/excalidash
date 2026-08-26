@@ -2,7 +2,12 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { Prisma } from "../../generated/client";
 import { logger } from "../../logger";
-import { canEditDrawing, getDrawingAccess, isOwnerAccess } from "../../authz/sharing";
+import { canEditDrawing, isOwnerAccess } from "../../authz/sharing";
+import {
+  getDrawingCapabilities,
+  GUEST_UPLOAD_DENIED,
+  hasEmbeddedDrawingUpload,
+} from "../../authz/capabilities";
 import { rewritePreviewFileReferences } from "../../fileProcessing";
 import {
   getUserTrashCollectionId,
@@ -165,12 +170,13 @@ export const registerDrawingCreateUpdateRoutes = (
       const principal = await getRequestPrincipal(req);
 
       const { id } = req.params;
-      const access = await getDrawingAccess({
+      const decision = await getDrawingCapabilities({
         prisma,
         principal,
         drawingId: id,
         shareToken: getShareToken(req),
       });
+      const { access } = decision;
       if (!canEditDrawing(access)) {
         if (respondWithAuthErrorIfPresent(req, res)) return;
         return res.status(404).json({
@@ -204,6 +210,9 @@ export const registerDrawingCreateUpdateRoutes = (
         files?: Record<string, unknown>;
         version?: number;
       };
+      if (hasEmbeddedDrawingUpload(payload) && !decision.capabilities.uploadFiles) {
+        return res.status(403).json(GUEST_UPLOAD_DENIED);
+      }
       const ownerUserId = existingDrawing.userId;
       const trashCollectionId = getUserTrashCollectionId(ownerUserId);
       const isSceneUpdate =

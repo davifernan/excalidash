@@ -2,7 +2,7 @@ import React from "react";
 import { NotificationHost, notify } from "../../notifications";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { ElementStackingBoundary } from "../../integrations/excalidraw/ElementStackingBoundary";
-import { UIOptions } from "./shared";
+import { editorUiOptions } from "./shared";
 import { AssetWidget } from "./AssetWidget";
 import { getAssetWidgetData, validateEmbeddableLink } from "./pdfWidgetElements";
 import { EditorTopRight } from "./EditorTopRight";
@@ -39,6 +39,8 @@ type EditorViewProps = {
   id?: string;
   accessLevel: "none" | "view" | "comment" | "edit" | "owner";
   canEdit: boolean;
+  canUploadFiles: boolean;
+  canViewComments: boolean;
   drawingName: string;
   collectionId: string | null;
   collectionName: string | null;
@@ -110,6 +112,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
   id,
   accessLevel,
   canEdit,
+  canUploadFiles,
+  canViewComments,
   drawingName,
   collectionId,
   collectionName,
@@ -173,6 +177,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     id,
     accessLevel,
     canEdit,
+    canViewComments,
     mobile,
     drawingName,
     collectionId,
@@ -246,7 +251,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             onPointerUpdate={onPointerUpdate}
             onLibraryChange={onLibraryChange}
             excalidrawAPI={onSetExcalidrawAPI}
-            UIOptions={UIOptions}
+            UIOptions={editorUiOptions(canUploadFiles)}
             viewModeEnabled={!canEdit}
             // `isCollaborating` has two separate effects inside Excalidraw.
             // Its collaboration effect enables Excalidraw-owned Presence UI,
