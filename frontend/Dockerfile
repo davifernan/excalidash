@@ -9,6 +9,8 @@ COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/package.json
 COPY backend/package.json ./backend/package.json
 COPY packages/domain/package.json ./packages/domain/package.json
+# frontend's postinstall exposes the pinned Excalidraw command-palette seam.
+COPY frontend/scripts/expose-excalidraw-command-palette.mjs ./frontend/scripts/expose-excalidraw-command-palette.mjs
 
 RUN npm ci --workspace frontend --workspace @excalidash/domain --include-workspace-root && \
     npm cache clean --force
