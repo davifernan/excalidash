@@ -179,7 +179,13 @@ export function useStickyUpkeep({ canEdit, interaction, scene }: Options) {
         requestAnimationFrame(step);
       };
 
-      queueMicrotask(() => {
+      // A microtask here can recursively consume the event loop when two
+      // clients hold the same label editor: projecting the font publishes an
+      // Excalidraw change, the peer reconciles it, and both queue another
+      // projection before the browser can deliver the next key event. One
+      // animation-frame boundary keeps the derivation ahead of paint while
+      // guaranteeing input and remote reconciliation a chance to progress.
+      requestAnimationFrame(() => {
         queued.current = false;
         if (!alive.current) return;
 

@@ -378,7 +378,7 @@ describe("sticky consumers at the Excalidraw boundary", () => {
     error.mockRestore();
   });
 
-  it("watches editor closure through the interaction capability", async () => {
+  it("yields a frame before projecting an edit and then watches editor closure", async () => {
     const adapter = makeAdapter();
     const frames: FrameRequestCallback[] = [];
     const frame = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
@@ -397,7 +397,14 @@ describe("sticky consumers at the Excalidraw boundary", () => {
       result.current.onSceneChange([{}], { editingTextElement: { id: "label" } });
     });
     await act(async () => Promise.resolve());
+
+    // The projection must not run in a microtask: two clients editing the
+    // same label can otherwise keep feeding one another scene changes and
+    // starve the next keyboard event indefinitely.
+    expect(adapter.interaction.read).not.toHaveBeenCalled();
     act(() => frames.shift()?.(0));
+    expect(adapter.interaction.read).not.toHaveBeenCalled();
+    act(() => frames.shift()?.(16));
 
     expect(adapter.interaction.read).toHaveBeenCalled();
     frame.mockRestore();
@@ -429,6 +436,7 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     act(() => result.current.onSceneChange([resized], {}));
     await act(async () => Promise.resolve());
+    act(() => frames.shift()?.(16));
     expect(adapter.scene.apply).toHaveBeenCalledOnce();
     frame.mockRestore();
   });
@@ -442,6 +450,11 @@ describe("sticky consumers at the Excalidraw boundary", () => {
       seam: "scene.apply",
     });
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const frames: FrameRequestCallback[] = [];
+    const frame = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
     const { result } = renderHook(() =>
       useStickyUpkeep({
         canEdit: true,
@@ -452,12 +465,14 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     act(() => result.current.onSceneChange([note], {}));
     await act(async () => Promise.resolve());
+    act(() => frames.shift()?.(0));
 
     const logged = JSON.parse(error.mock.calls[0][0] as string);
     expect(logged).toMatchObject({
       message: "[Sticky] Failed to normalise notes",
       result: { ok: false, seam: "scene.apply" },
     });
+    frame.mockRestore();
     error.mockRestore();
   });
 });

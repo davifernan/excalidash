@@ -221,16 +221,19 @@ test.describe("sticky note font scaling (NIL-630)", () => {
 
   test("two browser contexts derive the same font size for the same content", async ({
     browser,
-    page: pageA,
   }) => {
-    await openEditor(pageA, drawingId);
-    const contextB = await browser.newContext({
-      storageState: await pageA.context().storageState(),
-    });
+    // Keep both collaborators symmetric. Reusing the test fixture's context
+    // and cloning its storage made one side inherit lifecycle/cookie state the
+    // other did not have; under a full shard that could join the room yet miss
+    // the authored label update. The established collaboration specs use two
+    // independent contexts for exactly this reason.
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
     try {
+      const pageA = await contextA.newPage();
       const pageB = await contextB.newPage();
 
-      await openEditor(pageB, drawingId);
+      await Promise.all([openEditor(pageA, drawingId), openEditor(pageB, drawingId)]);
       await Promise.all(
         [pageA, pageB].map((target) =>
           target.waitForFunction(
@@ -293,6 +296,7 @@ test.describe("sticky note font scaling (NIL-630)", () => {
       expect(await revisions(pageA)).toEqual(settledA);
       expect(await revisions(pageB)).toEqual(settledB);
     } finally {
+      await contextA.close();
       await contextB.close();
     }
   });
