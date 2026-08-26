@@ -1,4 +1,4 @@
-import { paginateDocumentSource } from "./documentPagination";
+import { paginateDocumentSource } from "@excalidash/domain/documents/pagination";
 import type {
   DocumentPaginationRequest,
   DocumentPaginationResponse,

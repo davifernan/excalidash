@@ -10,6 +10,9 @@
       "documents": [
         "dist/documents/index.d.ts"
       ],
+      "documents/pagination": [
+        "dist/documents/pagination.d.ts"
+      ],
       "excalidraw": [
         "dist/excalidraw/index.d.ts"
       ],
@@ -29,6 +32,10 @@
     "./documents": {
       "types": "./dist/documents/index.d.ts",
       "default": "./dist/documents/index.js"
+    },
+    "./documents/pagination": {
+      "types": "./dist/documents/pagination.d.ts",
+      "default": "./dist/documents/pagination.js"
     },
     "./excalidraw": {
       "types": "./dist/excalidraw/index.d.ts",
