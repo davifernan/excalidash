@@ -34,14 +34,18 @@ const prefixLines = (
   const nextLine = value.indexOf("\n", selectionEnd);
   const blockEnd = nextLine === -1 ? value.length : nextLine;
   const lines = value.slice(blockStart, blockEnd).split("\n");
-  const allPrefixed = lines.every((line) => removePattern.test(line));
   const formatted = lines
-    .map((line) => (allPrefixed ? line.replace(removePattern, "") : `${prefix}${line}`))
+    .map((line) =>
+      removePattern.test(line) ? line.replace(removePattern, "") : `${prefix}${line}`,
+    )
     .join("\n");
   const delta = formatted.length - (blockEnd - blockStart);
+  const firstLinePrefix = lines[0].match(removePattern)?.[0];
   return {
     value: `${value.slice(0, blockStart)}${formatted}${value.slice(blockEnd)}`,
-    selectionStart: allPrefixed ? blockStart : selectionStart + prefix.length,
+    selectionStart: firstLinePrefix
+      ? Math.max(blockStart, selectionStart - firstLinePrefix.length)
+      : selectionStart + prefix.length,
     selectionEnd: Math.max(blockStart, selectionEnd + delta),
   };
 };

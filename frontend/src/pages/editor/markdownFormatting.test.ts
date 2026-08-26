@@ -14,6 +14,22 @@ describe("Markdown formatting actions", () => {
     expect(applyMarkdownFormat("one\ntwo", 0, 7, "list").value).toBe("- one\n- two");
   });
 
+  it("toggles each mixed selected list line without duplicating its marker", () => {
+    expect(applyMarkdownFormat("- item1\nitem2", 0, 13, "list")).toEqual({
+      value: "item1\n- item2",
+      selectionStart: 0,
+      selectionEnd: 13,
+    });
+  });
+
+  it("toggles each mixed selected heading line without duplicating its marker", () => {
+    expect(applyMarkdownFormat("## first\nsecond", 0, 15, "heading")).toEqual({
+      value: "first\n## second",
+      selectionStart: 0,
+      selectionEnd: 15,
+    });
+  });
+
   it("turns selected words into a link and selects the URL", () => {
     expect(applyMarkdownFormat("Open docs", 5, 9, "link")).toEqual({
       value: "Open [docs](https://)",
