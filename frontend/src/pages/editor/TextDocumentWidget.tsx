@@ -1,5 +1,19 @@
-import { useDeferredValue, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Loader2, Pencil, Save, X } from "lucide-react";
+import { useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Bold,
+  ChevronLeft,
+  ChevronRight,
+  Code2,
+  Download,
+  Heading2,
+  Italic,
+  Link,
+  List,
+  Loader2,
+  Pencil,
+  Save,
+  X,
+} from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -18,6 +32,8 @@ import type { FloatingToolbarTarget } from "./floatingToolbarGeometry";
 import { EditableAssetName } from "./EditableAssetName";
 import type { DocumentEditLock, DocumentEditResult } from "./documentEditLocks";
 import type { DocumentAssetReplacement } from "./documentAssetReplacement";
+import type { DocumentEditDraft } from "./documentEditDrafts";
+import { applyMarkdownFormat, type MarkdownFormatAction } from "./markdownFormatting";
 import "./TextDocumentWidget.css";
 
 const markdownComponents: Components = {
@@ -47,8 +63,13 @@ type TextDocumentWidgetProps = {
   sharing: DocumentPageSharing;
   toolbar: FloatingToolbarTarget | null;
   editLock?: DocumentEditLock | null;
+  liveDraft?: DocumentEditDraft | null;
   onAcquireEditLock?: () => Promise<DocumentEditResult>;
   onReleaseEditLock?: (token: string) => void;
+  onBeginLiveDraft?: (token: string, content: string) => void;
+  onUpdateLiveDraft?: (content: string) => void;
+  onCancelLiveDraft?: () => void;
+  onEndLiveDraft?: () => void;
   onDocumentAssetReplacement?: (replacement: DocumentAssetReplacement) => Promise<boolean>;
 };
 
@@ -63,8 +84,13 @@ export const TextDocumentWidget = ({
   sharing,
   toolbar,
   editLock = null,
+  liveDraft = null,
   onAcquireEditLock,
   onReleaseEditLock,
+  onBeginLiveDraft,
+  onUpdateLiveDraft,
+  onCancelLiveDraft,
+  onEndLiveDraft,
   onDocumentAssetReplacement,
 }: TextDocumentWidgetProps) => {
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
@@ -76,14 +102,21 @@ export const TextDocumentWidget = ({
   const [editMessage, setEditMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
   const editTokenRef = useRef<string | null>(null);
   const releaseRef = useRef(onReleaseEditLock);
+  const cancelDraftRef = useRef(onCancelLiveDraft);
   releaseRef.current = onReleaseEditLock;
+  cancelDraftRef.current = onCancelLiveDraft;
   editTokenRef.current = editToken;
 
   useEffect(
     () => () => {
-      if (editTokenRef.current) releaseRef.current?.(editTokenRef.current);
+      if (editTokenRef.current) {
+        cancelDraftRef.current?.();
+        releaseRef.current?.(editTokenRef.current);
+      }
     },
     [assetId],
   );
@@ -133,6 +166,16 @@ export const TextDocumentWidget = ({
   // textarea's own commit -- typing latency is unaffected by construction,
   // not by tuning a debounce delay (NIL-583, precedent: NIL-551).
   const deferredDraft = useDeferredValue(draft);
+  const deferredLiveDraft = useDeferredValue(liveDraft?.content ?? null);
+
+  useLayoutEffect(() => {
+    const selection = pendingSelectionRef.current;
+    const editor = editorRef.current;
+    if (!selection || !editor) return;
+    pendingSelectionRef.current = null;
+    editor.focus();
+    editor.setSelectionRange(selection.start, selection.end);
+  }, [draft]);
 
   const pageCount = pages?.length ?? 0;
   const {
@@ -157,7 +200,10 @@ export const TextDocumentWidget = ({
   };
 
   const releaseEdit = () => {
-    if (editToken) onReleaseEditLock?.(editToken);
+    if (editToken) {
+      onCancelLiveDraft?.();
+      onReleaseEditLock?.(editToken);
+    }
     setEditToken(null);
     setEditing(false);
     setSaving(false);
@@ -175,6 +221,28 @@ export const TextDocumentWidget = ({
     setEditToken(result.token);
     setDraft(loaded.content);
     setEditing(true);
+    onBeginLiveDraft?.(result.token, loaded.content);
+  };
+
+  const updateDraft = (content: string) => {
+    setDraft(content);
+    onUpdateLiveDraft?.(content);
+  };
+
+  const formatDraft = (action: MarkdownFormatAction) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const formatted = applyMarkdownFormat(
+      draft,
+      editor.selectionStart,
+      editor.selectionEnd,
+      action,
+    );
+    pendingSelectionRef.current = {
+      start: formatted.selectionStart,
+      end: formatted.selectionEnd,
+    };
+    updateDraft(formatted.value);
   };
 
   const saveDraft = async () => {
@@ -190,6 +258,7 @@ export const TextDocumentWidget = ({
     }
     setSaving(true);
     setEditMessage(null);
+    let persisted = false;
     try {
       const replacement = await replaceMarkdownContent(
         drawingId,
@@ -199,6 +268,13 @@ export const TextDocumentWidget = ({
         loaded.asset.revision,
         editToken,
       );
+      persisted = true;
+      // The HTTP write atomically releases the server lock. End the local
+      // publisher before applying the replacement scene so an asset-id remount
+      // cannot run the unmount cleanup with a token that is already spent.
+      onEndLiveDraft?.();
+      editTokenRef.current = null;
+      setEditToken(null);
       const applied = await onDocumentAssetReplacement({
         drawingId,
         previousAssetId: assetId,
@@ -207,17 +283,22 @@ export const TextDocumentWidget = ({
         elements: replacement.elements,
       });
       if (!applied) {
+        setEditing(false);
         setEditMessage("Saved. Reload the board to show the new Markdown version.");
         return;
       }
       setLoaded({ asset: replacement, content: draft });
-      setEditToken(null);
       setEditing(false);
     } catch (saveError: any) {
-      setEditMessage(
-        saveError?.response?.data?.message ||
-          "The Markdown file could not be saved. Your draft is still open.",
-      );
+      if (persisted) {
+        setEditing(false);
+        setEditMessage("Saved. Reload the board to show the new Markdown version.");
+      } else {
+        setEditMessage(
+          saveError?.response?.data?.message ||
+            "The Markdown file could not be saved. Your draft is still open.",
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -236,14 +317,46 @@ export const TextDocumentWidget = ({
         {error ? <p className="text-document-widget__status">{error}</p> : null}
         {editing ? (
           <div className="text-document-widget__edit-split">
-            <textarea
-              className="text-document-widget__editor"
-              aria-label="Markdown source"
-              value={draft}
-              disabled={saving}
-              spellCheck
-              onChange={(event) => setDraft(event.target.value)}
-            />
+            <div className="text-document-widget__edit-source">
+              <div
+                className="text-document-widget__formatting"
+                role="toolbar"
+                aria-label="Markdown formatting"
+              >
+                {(
+                  [
+                    ["bold", "Bold", Bold],
+                    ["italic", "Italic", Italic],
+                    ["heading", "Heading", Heading2],
+                    ["list", "Bulleted list", List],
+                    ["link", "Link", Link],
+                    ["code", "Inline code", Code2],
+                  ] as const
+                ).map(([action, label, Icon]) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className="text-document-widget__format-button"
+                    aria-label={label}
+                    title={label}
+                    disabled={saving}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => formatDraft(action)}
+                  >
+                    <Icon size={15} />
+                  </button>
+                ))}
+              </div>
+              <textarea
+                ref={editorRef}
+                className="text-document-widget__editor"
+                aria-label="Markdown source"
+                value={draft}
+                disabled={saving}
+                spellCheck
+                onChange={(event) => updateDraft(event.target.value)}
+              />
+            </div>
             <span className="text-document-widget__edit-divider" aria-hidden="true" />
             {/*
              * Same ReactMarkdown + markdownComponents pipeline as the view-mode
@@ -267,7 +380,7 @@ export const TextDocumentWidget = ({
         {!editing && pages && loaded?.asset.kind === "MARKDOWN" ? (
           <div className="text-document-widget__markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {page}
+              {deferredLiveDraft ?? page}
             </ReactMarkdown>
           </div>
         ) : null}

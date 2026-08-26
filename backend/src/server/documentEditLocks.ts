@@ -10,6 +10,16 @@ export type DocumentEditLock = Readonly<{
 
 export type PublicDocumentEditLock = Omit<DocumentEditLock, "token" | "drawingId">;
 
+export type DocumentEditDraft = Readonly<{
+  drawingId: string;
+  assetId: string;
+  presenceId: string;
+  revision: number;
+  content: string;
+}>;
+
+export type PublicDocumentEditDraft = Omit<DocumentEditDraft, "drawingId">;
+
 const keyOf = (drawingId: string, assetId: string) => `${drawingId}\u0000${assetId}`;
 
 /**
@@ -23,6 +33,7 @@ const keyOf = (drawingId: string, assetId: string) => `${drawingId}\u0000${asset
  */
 export class DocumentEditLockRegistry {
   private readonly locks = new Map<string, DocumentEditLock>();
+  private readonly drafts = new Map<string, DocumentEditDraft>();
 
   acquire(
     input: Omit<DocumentEditLock, "token">,
@@ -54,13 +65,16 @@ export class DocumentEditLockRegistry {
     const lock = this.locks.get(key);
     if (!lock || lock.presenceId !== presenceId || (token && lock.token !== token)) return false;
     this.locks.delete(key);
+    this.drafts.delete(key);
     return true;
   }
 
   releaseToken(drawingId: string, assetId: string, token: string): DocumentEditLock | null {
     const lock = this.validate(drawingId, assetId, token);
     if (!lock) return null;
-    this.locks.delete(keyOf(drawingId, assetId));
+    const key = keyOf(drawingId, assetId);
+    this.locks.delete(key);
+    this.drafts.delete(key);
     return lock;
   }
 
@@ -69,6 +83,7 @@ export class DocumentEditLockRegistry {
     for (const [key, lock] of this.locks) {
       if (lock.presenceId !== presenceId) continue;
       this.locks.delete(key);
+      this.drafts.delete(key);
       affected.add(lock.drawingId);
     }
     return [...affected];
@@ -78,5 +93,57 @@ export class DocumentEditLockRegistry {
     return [...this.locks.values()]
       .filter((lock) => lock.drawingId === drawingId)
       .map(({ assetId, presenceId, ownerName }) => ({ assetId, presenceId, ownerName }));
+  }
+
+  applyDraftPatch({
+    drawingId,
+    assetId,
+    presenceId,
+    token,
+    revision,
+    start,
+    deleteCount,
+    text,
+    maxBytes,
+  }: {
+    drawingId: string;
+    assetId: string;
+    presenceId: string;
+    token: string;
+    revision: number;
+    start: number;
+    deleteCount: number;
+    text: string;
+    maxBytes: number;
+  }): DocumentEditDraft | null {
+    const lock = this.validate(drawingId, assetId, token);
+    if (!lock || lock.presenceId !== presenceId) return null;
+    const key = keyOf(drawingId, assetId);
+    const current = this.drafts.get(key);
+    if (revision !== (current?.revision ?? 0) + 1) return null;
+    const base = current?.content ?? "";
+    if (start > base.length || deleteCount > base.length - start) return null;
+    const content = `${base.slice(0, start)}${text}${base.slice(start + deleteCount)}`;
+    if (Buffer.byteLength(content, "utf8") > maxBytes) return null;
+    const next = { drawingId, assetId, presenceId, revision, content };
+    this.drafts.set(key, next);
+    return next;
+  }
+
+  clearDraft(drawingId: string, assetId: string, presenceId: string, token: string): boolean {
+    const lock = this.validate(drawingId, assetId, token);
+    if (!lock || lock.presenceId !== presenceId) return false;
+    return this.drafts.delete(keyOf(drawingId, assetId));
+  }
+
+  draftSnapshot(drawingId: string): PublicDocumentEditDraft[] {
+    return [...this.drafts.values()]
+      .filter((draft) => draft.drawingId === drawingId)
+      .map(({ assetId, presenceId, revision, content }) => ({
+        assetId,
+        presenceId,
+        revision,
+        content,
+      }));
   }
 }

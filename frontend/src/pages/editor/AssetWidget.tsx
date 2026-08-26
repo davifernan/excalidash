@@ -5,6 +5,7 @@ import type { DocumentPageSharing } from "./useSharedDocumentPage";
 import type { FloatingToolbarTarget } from "./floatingToolbarGeometry";
 import type { DocumentEditLock, DocumentEditResult } from "./documentEditLocks";
 import type { DocumentAssetReplacement } from "./documentAssetReplacement";
+import type { DocumentEditDraft } from "./documentEditDrafts";
 
 type AssetWidgetProps = {
   data: AssetWidgetData;
@@ -14,8 +15,13 @@ type AssetWidgetProps = {
   sharing: DocumentPageSharing;
   toolbar: FloatingToolbarTarget | null;
   editLock?: DocumentEditLock | null;
+  liveDraft?: DocumentEditDraft | null;
   onAcquireEditLock?: () => Promise<DocumentEditResult>;
   onReleaseEditLock?: (token: string) => void;
+  onBeginLiveDraft?: (token: string, content: string) => void;
+  onUpdateLiveDraft?: (content: string) => void;
+  onCancelLiveDraft?: () => void;
+  onEndLiveDraft?: () => void;
   onDocumentAssetReplacement?: (replacement: DocumentAssetReplacement) => Promise<boolean>;
 };
 
@@ -40,8 +46,13 @@ const widgets: Record<AssetWidgetKind, WidgetComponent> = {
     sharing,
     toolbar,
     editLock,
+    liveDraft,
     onAcquireEditLock,
     onReleaseEditLock,
+    onBeginLiveDraft,
+    onUpdateLiveDraft,
+    onCancelLiveDraft,
+    onEndLiveDraft,
     onDocumentAssetReplacement,
   }) => (
     <TextDocumentWidget
@@ -53,8 +64,13 @@ const widgets: Record<AssetWidgetKind, WidgetComponent> = {
       sharing={sharing}
       toolbar={toolbar}
       editLock={editLock}
+      liveDraft={liveDraft}
       onAcquireEditLock={onAcquireEditLock}
       onReleaseEditLock={onReleaseEditLock}
+      onBeginLiveDraft={onBeginLiveDraft}
+      onUpdateLiveDraft={onUpdateLiveDraft}
+      onCancelLiveDraft={onCancelLiveDraft}
+      onEndLiveDraft={onEndLiveDraft}
       onDocumentAssetReplacement={onDocumentAssetReplacement}
     />
   ),

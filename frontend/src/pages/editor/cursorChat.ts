@@ -1,3 +1,5 @@
+import { createTrailingPublisher } from "./trailingPublisher";
+
 /**
  * Cursor chat: press Enter, say one thing, let it go.
  *
@@ -25,8 +27,6 @@ export const CURSOR_CHAT_MAX_LENGTH = 140;
  * with a trailing edge means the last thing typed always arrives, which is the
  * only version that has to.
  */
-const CURSOR_CHAT_SEND_INTERVAL_MS = 150;
-
 export type CursorChatSocket = {
   emit: (event: string, payload: unknown) => void;
   on: (event: string, handler: (payload: any) => void) => void;
@@ -107,37 +107,8 @@ export const bindCursorChat = ({
   const remote = new Map<string, string>();
   let draft: string | null = null;
 
-  let sendTimer: ReturnType<typeof setTimeout> | null = null;
-  let queuedText: string | null = null;
-  let hasQueued = false;
-
   const emit = (text: string | null) => socket.emit(CURSOR_CHAT_EVENT, { drawingId, text });
-
-  const flush = () => {
-    sendTimer = null;
-    if (!hasQueued) return;
-    hasQueued = false;
-    emit(queuedText);
-    // Keep the window open: anything typed during it goes out on the next tick
-    // rather than immediately, which is what keeps us under the server's limit.
-    sendTimer = setTimeout(flush, CURSOR_CHAT_SEND_INTERVAL_MS);
-  };
-
-  /** Throttled, with a trailing edge, so the final state always lands. */
-  const send = (text: string | null) => {
-    queuedText = text;
-    hasQueued = true;
-    if (sendTimer === null) flush();
-  };
-
-  /** Closing cannot wait for a tick: the bubble has to leave other screens. */
-  const sendNow = (text: string | null) => {
-    hasQueued = false;
-    queuedText = text;
-    if (sendTimer !== null) clearTimeout(sendTimer);
-    sendTimer = null;
-    emit(text);
-  };
+  const publisher = createTrailingPublisher({ emit });
 
   const handleRemote = (payload: any) => {
     const presenceId = typeof payload?.presenceId === "string" ? payload.presenceId : null;
@@ -174,18 +145,17 @@ export const bindCursorChat = ({
     close: () => {
       if (draft === null) return;
       draft = null;
-      sendNow(null);
+      publisher.publishNow(null);
       onDraftChange(null);
     },
     type: (text: string) => {
       if (draft === null) return;
       draft = text.slice(0, CURSOR_CHAT_MAX_LENGTH);
-      send(draft.length ? draft : null);
+      publisher.publish(draft.length ? draft : null);
       onDraftChange(draft);
     },
     dispose: () => {
-      if (sendTimer !== null) clearTimeout(sendTimer);
-      sendTimer = null;
+      publisher.dispose();
       socket.off(CURSOR_CHAT_EVENT, handleRemote);
       remote.clear();
     },
