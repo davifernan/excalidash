@@ -290,3 +290,22 @@ failure: this command is the reader consumed by NIL-391, not the enforcement gat
 
 The reader never executes the recorded command. Automatic replay must use a separately
 reviewed, isolated execution path; PR comments are untrusted command input.
+
+## Checking a PR after a finding fix (NIL-595)
+
+The `fix-verification` reader above needs the exact `fromSha`/`toSha`/`comments` already worked
+out by hand. `checkFixVerificationStatus` (same file) does that lookup for you: given a PR, its
+reviews, its review comments, and its conversation comments, it finds Hans's latest valid
+review, compares it to the current head, and -- only if the head has actually moved since that
+review -- runs the coverage check above against the delta. It never throws on a stale head (that
+is `checkReviewedHead`'s job, a hard admission check); its whole purpose is to describe the
+situation, including the uncovered one.
+
+Run it as a GitHub Action: **Actions -> Fix-Verification Status -> Run workflow**, pull request
+number as the only input. It posts one comment naming the code
+(`draft` / `no-review` / `current` / `verified` / `unverified`) and, for `unverified`, the exact
+`fix-verification` command and JSON to record one. This is a tool the Overseer reaches for by
+hand after observing a finding-fix push -- not a required check, and not triggered
+automatically on every push (see that workflow file's own header for why: this reader stays "the
+reader consumed by NIL-391, not the enforcement gate itself", per this document's own line
+above, and a gate nobody can satisfy yet trains people to ignore red).

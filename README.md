@@ -16,8 +16,8 @@ A self-hosted dashboard and organizer for [Excalidraw](https://github.com/excali
 > history, transactional email for password resets, a graph layout operation,
 > login UX, an end-to-end test suite) into a canvas-first project space for a
 > small team: Team Home, comments/mentions/activity, a shared Team Library,
-> workshop/presentation mode, and a typed boundary in front of the Excalidraw
-> editor. See [FORK.md](FORK.md) and
+> workshop/presentation mode, mind maps, and a typed boundary in front of the
+> Excalidraw editor. See [FORK.md](FORK.md) and
 > [docs/product/PRODUCT_VISION.md](docs/product/PRODUCT_VISION.md) for the
 > current scope.
 >
@@ -119,7 +119,8 @@ Automatically retain recent drawing snapshots, preview past versions without sav
 
 Team Home shows recent/favorite boards, who's working where, and team activity. Boards carry
 comments with mentions and notifications, an inbox for what happened while you were away, a
-shared Team Library, and a presenter/workshop mode for frame-based walkthroughs. See
+shared Team Library, a presenter/workshop mode for frame-based walkthroughs, and mind maps that
+grow, reparent, and collapse on top of ordinary Excalidraw elements. See
 [docs/product/PRODUCT_VISION.md](docs/product/PRODUCT_VISION.md) for the full product thesis —
 this is the newest and fastest-moving part of the fork, so it doesn't have a stable screenshot
 set yet.

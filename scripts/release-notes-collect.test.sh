@@ -52,12 +52,20 @@ if ! grep -Fxq -- "- $EXPECTED_134" "$TMP_DIR/notes.md"; then
   exit 1
 fi
 for pr in 125 126 129 130; do
-  if ! grep -Eq "^SKIP  #${pr}: no usable User-Facing sentence" "$TMP_DIR/warnings.txt"; then
-    echo "FAIL: real PR #$pr has User-Facing: none but produced no visible SKIP warning"
+  # NIL-594: a real `User-Facing: none` is a calm NOTE, not a SUSPECT
+  # warning -- and none of these four intentional skips may appear in
+  # warnings.txt's SUSPECT lines at all.
+  if ! grep -Eq "^NOTE     #${pr}: User-Facing: none" "$TMP_DIR/warnings.txt"; then
+    echo "FAIL: real PR #$pr has User-Facing: none but produced no visible NOTE"
     exit 1
   fi
 done
-echo "PASS: two live runs agree, #134 is present, and real non-user-facing PRs emit SKIP warnings."
+if grep -q "^SUSPECT" "$TMP_DIR/warnings.txt"; then
+  echo "FAIL: this real range has no accidental User-Facing field -- SUSPECT should not appear at all"
+  cat "$TMP_DIR/warnings.txt"
+  exit 1
+fi
+echo "PASS: two live runs agree, #134 is present, real User-Facing: none PRs are calm NOTEs, and no SUSPECT fired."
 
 echo
 echo "=== RED: the same exact-history test against the unrepaired collector ==="
@@ -73,4 +81,4 @@ grep -E 'not ok|AssertionError|#134' "$TMP_DIR/red.out" | head -20 || true
 echo "CONFIRMED RED: the exact-history regression fails against unrepaired $UNREPAIRED_REF."
 
 echo
-echo "release-notes-collect.test.sh: PASS (real range, #134, visible SKIP, and unrepaired counterprobe proven)"
+echo "release-notes-collect.test.sh: PASS (real range, #134, calm NOTE skips, and unrepaired counterprobe proven)"

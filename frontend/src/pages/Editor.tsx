@@ -20,7 +20,7 @@ import { useEditorCanvasHandlers } from "./editor/useEditorCanvasHandlers";
 import { useStickyNotesFeature } from "../sticky";
 import { useMindMapFeature } from "../mindMap";
 import { mindMapLayoutRunCount } from "../mindMap/mindMapScene";
-import { useAmbientTreeDrag } from "../ambientTree/useAmbientTreeDrag";
+import { ambientTreeDragApplyCount, useAmbientTreeDrag } from "../ambientTree/useAmbientTreeDrag";
 import { useEditorCommands } from "./editor/useEditorCommands";
 import { useEditorElementTracking } from "./editor/useEditorElementTracking";
 import { useEditorBroadcast, type DeliveryState } from "./editor/useEditorBroadcast";
@@ -213,6 +213,7 @@ export const Editor: React.FC = () => {
       getDeliveryState: () => deliveryStateRef.current?.() ?? null,
       /** NIL-570: see `mindMapScene.ts`'s own comment on why this exists. */
       getMindMapLayoutRunCount: () => mindMapLayoutRunCount(),
+      getAmbientTreeDragApplyCount: () => ambientTreeDragApplyCount(),
       requestDocumentPage: (elementId: string, page: number) =>
         documentPageRequestRef.current?.(elementId, page) ??
         Promise.resolve({

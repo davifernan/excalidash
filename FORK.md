@@ -14,6 +14,10 @@ fork is being built toward. Roughly, on top of upstream's single-user dashboard,
 - **Workshops and presentations** — a frame navigator, presenter notes, a workshop timer and
   moderation actions, hidden voting
 - **A shared Team Library**, board archive/lifecycle, and deep links to a board/element/position
+- **Mind maps** — grow, reparent by drag, collapse/expand a branch, and pin nodes against
+  auto-layout, on top of ordinary Excalidraw elements rather than a separate element type; layout
+  only ever runs on an explicit action, never on a remote update — see
+  [docs/architecture/MIND_MAP.md](docs/architecture/MIND_MAP.md)
 - **A typed boundary in front of the Excalidraw editor** (`frontend/src/integrations/
   excalidraw/`) and a server-side authz boundary (`backend/src/authz/`), so an Excalidraw
   package upgrade or an ownership decision touches one seam instead of the whole app — see

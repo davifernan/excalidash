@@ -35,11 +35,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag to (re-)run, e.g. v0.7.0 (for recovering a failed/interrupted run)'
+        description: "Existing release tag to (re-)run, e.g. v0.7.0 (for recovering a failed/interrupted run)"
         required: true
 
 concurrency:
@@ -161,7 +161,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: Collect release notes from merged PRs' User-Facing lines
         id: notes
@@ -180,7 +180,7 @@ jobs:
             cat notes-body.md
             if [ -s notes-warnings.txt ]; then
               echo
-              echo "<details><summary>Skipped merges (no usable User-Facing line -- see warnings)</summary>"
+              echo "<details><summary>Skipped merges (User-Facing: none, or a suspect field -- see log)</summary>"
               echo
               echo '```'
               cat notes-warnings.txt
@@ -188,8 +188,14 @@ jobs:
               echo "</details>"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ -s notes-warnings.txt ]; then
-            echo "::warning::Some merged PRs in this range had no usable User-Facing line -- see the job summary for which ones. This is expected for PRs merged before NIL-507 and needs one-time manual backfill for those; anything else should be fixed at the source, not patched here."
+          # NIL-594: notes-warnings.txt mixes two severities -- NOTE lines are
+          # every `User-Facing: none` decision (expected, most releases have
+          # several, and firing a GitHub Actions ::warning:: for those is
+          # exactly the noise that let #150/NIL-580 hide unnoticed among seven
+          # ordinary ones). Only a SUSPECT line -- a field this run could not
+          # use and no one meant to skip -- is worth the annotation.
+          if grep -q '^SUSPECT' notes-warnings.txt; then
+            echo "::warning::Some merged PRs in this range have a suspect User-Facing line (missing, duplicated, or malformed -- see the job summary for which and why). This needs a source fix or a one-time manual backfill, not a re-run."
           fi
 
       - name: Set up Buildx

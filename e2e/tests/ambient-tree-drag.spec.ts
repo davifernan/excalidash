@@ -61,14 +61,49 @@ const dragShapeByBorder = async (
   await page.waitForTimeout(200);
 };
 
+/**
+ * Same as `dragShapeByBorder`, but paced with a real pause between each
+ * step wider than `broadcastChanges`' 100ms trailing throttle
+ * (`useEditorBroadcast.ts`), instead of Playwright's fast synthetic
+ * multi-step interpolation. Only the two-context Medium-finding test below
+ * needs this: a fast drag's own ticks all land inside one throttle window
+ * and go out as a single already-merged broadcast, which never exercises
+ * the collision (measured directly -- see PR #175's Medium-finding fix
+ * commit message for the tick-by-tick trace). Spacing them out lets each
+ * tick's own immediate send (still carrying only the natively-dragged
+ * shape, since this hook's own follow-up patch for its bound children
+ * lands in that same tick's *trailing*, not immediate, send -- see
+ * `useEditorBroadcast.ts`'s `broadcastChanges`) actually reach the other
+ * client on its own, matching what real network jitter does under load.
+ */
+const dragShapeByBorderSlowly = async (
+  page: Page,
+  shape: { x: number; y: number; width: number; height: number },
+  dx: number,
+  dy: number,
+) => {
+  const from = { x: shape.x + shape.width / 2, y: shape.y + 1 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  const steps = 6;
+  for (let i = 1; i <= steps; i += 1) {
+    await page.mouse.move(from.x + (dx * i) / steps, from.y + (dy * i) / steps);
+    await page.waitForTimeout(250);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+};
+
 const rectangles = async (page: Page) =>
   (await scene(page)).filter((element: any) => element.type === "rectangle");
 const arrows = async (page: Page) =>
   (await scene(page)).filter((element: any) => element.type === "arrow");
 
 const layoutRunCount = (page: Page) =>
-  page.evaluate(
-    () => (window as unknown as { __EXCALIDASH_TEST__: any }).__EXCALIDASH_TEST__?.getMindMapLayoutRunCount(),
+  page.evaluate(() =>
+    (
+      window as unknown as { __EXCALIDASH_TEST__: any }
+    ).__EXCALIDASH_TEST__?.getMindMapLayoutRunCount(),
   );
 
 test.describe("ambient tree drag", () => {
@@ -88,7 +123,10 @@ test.describe("ambient tree drag", () => {
   test("dragging a box takes along whatever it points to, recursively", async ({ page }) => {
     await openEditor(page, drawingId);
     await waitForCanvasReady(page);
-    await page.locator("canvas").last().click({ position: { x: 1100, y: 600 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 1100, y: 600 } });
 
     // Root(400,300) -> A(800,150) -> A1(1200,150); Root -> B(800,450).
     await drawRectangle(page, 400, 300);
@@ -109,7 +147,12 @@ test.describe("ambient tree drag", () => {
       (ar: any) => ar.startBinding?.elementId === a.id && ar.endBinding?.elementId === a1.id,
     )!;
 
-    await dragShapeByBorder(page, before.find((r: any) => r.id === root.id), 40, -30);
+    await dragShapeByBorder(
+      page,
+      before.find((r: any) => r.id === root.id),
+      40,
+      -30,
+    );
 
     const after = await rectangles(page);
     // The root's own delta comes from Excalidraw's native drag, which does
@@ -140,7 +183,9 @@ test.describe("ambient tree drag", () => {
      * UNCHANGED from before the drag -- copied here as `unchangedArrow`,
      * not `git checkout --`'d, per NIL-570's evidence rule.
      */
-    const internalArrowAfter = (await arrows(page)).find((ar: any) => ar.id === internalArrowBefore.id)!;
+    const internalArrowAfter = (await arrows(page)).find(
+      (ar: any) => ar.id === internalArrowBefore.id,
+    )!;
     const unchangedArrow = { x: internalArrowBefore.x, y: internalArrowBefore.y }; // the bug
     expect(unchangedArrow.x).not.toBeCloseTo(internalArrowAfter.x, -1);
     expect(internalArrowAfter.x - internalArrowBefore.x).toBeCloseTo(actualDx, -1);
@@ -150,7 +195,10 @@ test.describe("ambient tree drag", () => {
   test("dragging a middle node pulls only its own descendants", async ({ page }) => {
     await openEditor(page, drawingId);
     await waitForCanvasReady(page);
-    await page.locator("canvas").last().click({ position: { x: 1100, y: 600 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 1100, y: 600 } });
 
     await drawRectangle(page, 400, 300); // root
     await drawRectangle(page, 800, 150); // a
@@ -186,7 +234,10 @@ test.describe("ambient tree drag", () => {
   }) => {
     await openEditor(page, drawingId);
     await waitForCanvasReady(page);
-    await page.locator("canvas").last().click({ position: { x: 60, y: 650 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 60, y: 650 } });
 
     // Shifted clear of the left property panel (roughly x < 220 once a tool
     // is armed) and sized to stay within the 1280-wide viewport.
@@ -206,7 +257,12 @@ test.describe("ambient tree drag", () => {
     const before = await rectangles(page);
     const beforeById = new Map(before.map((r: any) => [r.id, { x: r.x, y: r.y }]));
 
-    await dragShapeByBorder(page, before.find((r: any) => r.id === decision.id), 80, 80);
+    await dragShapeByBorder(
+      page,
+      before.find((r: any) => r.id === decision.id),
+      80,
+      80,
+    );
 
     const after = await rectangles(page);
     // Everything except Decision itself is exactly where it started.
@@ -223,7 +279,10 @@ test.describe("ambient tree drag", () => {
   }) => {
     await openEditor(page, drawingId);
     await waitForCanvasReady(page);
-    await page.locator("canvas").last().click({ position: { x: 60, y: 650 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 60, y: 650 } });
 
     await drawRectangle(page, 300, 200); // a
     await drawRectangle(page, 700, 200); // b
@@ -237,7 +296,12 @@ test.describe("ambient tree drag", () => {
     const before = await rectangles(page);
     const beforeById = new Map(before.map((r: any) => [r.id, { x: r.x, y: r.y }]));
 
-    await dragShapeByBorder(page, before.find((r: any) => r.id === a.id), 90, 40);
+    await dragShapeByBorder(
+      page,
+      before.find((r: any) => r.id === a.id),
+      90,
+      40,
+    );
 
     const after = await rectangles(page);
     // B and C never moved -- only A (the directly dragged shape) did.
@@ -252,7 +316,10 @@ test.describe("ambient tree drag", () => {
   test("two arrows into the same box: neither claimed parent drags it", async ({ page }) => {
     await openEditor(page, drawingId);
     await waitForCanvasReady(page);
-    await page.locator("canvas").last().click({ position: { x: 60, y: 650 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 60, y: 650 } });
 
     await drawRectangle(page, 300, 150); // p1
     await drawRectangle(page, 300, 550); // p2
@@ -265,14 +332,24 @@ test.describe("ambient tree drag", () => {
     const before = await rectangles(page);
     const sharedBefore = before.find((r: any) => r.id === shared.id);
 
-    await dragShapeByBorder(page, before.find((r: any) => r.id === p1.id), 50, 0);
+    await dragShapeByBorder(
+      page,
+      before.find((r: any) => r.id === p1.id),
+      50,
+      0,
+    );
 
     let after = await rectangles(page);
     let sharedAfter = after.find((r: any) => r.id === shared.id);
     expect(sharedAfter.x).toBeCloseTo(sharedBefore.x, -1);
     expect(sharedAfter.y).toBeCloseTo(sharedBefore.y, -1);
 
-    await dragShapeByBorder(page, after.find((r: any) => r.id === p2.id), 0, 50);
+    await dragShapeByBorder(
+      page,
+      after.find((r: any) => r.id === p2.id),
+      0,
+      50,
+    );
 
     after = await rectangles(page);
     sharedAfter = after.find((r: any) => r.id === shared.id);
@@ -283,7 +360,10 @@ test.describe("ambient tree drag", () => {
   test("one drag of a node with a bound child, one Ctrl+Z, and both are back", async ({ page }) => {
     await openEditor(page, drawingId);
     await waitForCanvasReady(page);
-    await page.locator("canvas").last().click({ position: { x: 60, y: 650 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 60, y: 650 } });
 
     await drawRectangle(page, 400, 300);
     await drawRectangle(page, 800, 300);
@@ -313,10 +393,15 @@ test.describe("ambient tree drag", () => {
     expect(childRestored.y).toBeCloseTo(childBefore.y, -1);
   });
 
-  test("draws a real two-way bound arrow (startBinding/endBinding, boundElements)", async ({ page }) => {
+  test("draws a real two-way bound arrow (startBinding/endBinding, boundElements)", async ({
+    page,
+  }) => {
     await openEditor(page, drawingId);
     await waitForCanvasReady(page);
-    await page.locator("canvas").last().click({ position: { x: 60, y: 650 } });
+    await page
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 60, y: 650 } });
 
     await drawRectangle(page, 400, 300);
     await drawRectangle(page, 800, 300);
@@ -347,7 +432,10 @@ test.describe("ambient tree drag", () => {
     const pageA = await openEditor(await ctxA.newPage(), drawingId);
     const pageB = await openEditor(await ctxB.newPage(), drawingId);
     await waitForCanvasReady(pageA);
-    await pageA.locator("canvas").last().click({ position: { x: 60, y: 650 } });
+    await pageA
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 60, y: 650 } });
 
     await drawRectangle(pageA, 400, 300);
     await drawRectangle(pageA, 800, 300);
@@ -375,7 +463,8 @@ test.describe("ambient tree drag", () => {
     const achievedDx = parentAfterA.x - parentBefore.x;
     await pageB.waitForFunction(
       (expected) => {
-        const el = (window as any).__EXCALIDASH_TEST__?.getSceneElements()
+        const el = (window as any).__EXCALIDASH_TEST__
+          ?.getSceneElements()
           .find((e: any) => e.id === expected.id);
         return el && Math.round(el.x) === Math.round(expected.x);
       },
@@ -385,6 +474,97 @@ test.describe("ambient tree drag", () => {
 
     expect(await layoutRunCount(pageA)).toBe(baselineA);
     expect(await layoutRunCount(pageB)).toBe(baselineB);
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
+  /**
+   * PR #175 review, Medium finding: this hook's local-drag detection is
+   * "exactly one shape moved this tick and it is the sole local selection"
+   * -- a signal `onSceneChange` cannot tell apart from an incoming
+   * realtime-sync tick that happens to land on a shape this client already
+   * has selected by a plain click (no drag). Editor B selects the parent
+   * with a single click; editor A drags that same parent along with its
+   * bound child. Without the pointer-down guard in `useAmbientTreeDrag.ts`
+   * (see that file's own comment for why a collaboration-ref-based guard
+   * was tried first and measured not to work), B's own copy of this hook
+   * misreads A's incoming sync tick as its own local drag and re-applies
+   * the subtree translate itself. This needs two real browser contexts --
+   * a single page can never observe an incoming realtime-sync tick
+   * colliding with its own local selection.
+   *
+   * The assertion is on `getAmbientTreeDragApplyCount()`, not on B's final
+   * position for the child: a *smoothly incremental* drag's own delta (from
+   * B's own last correctly-synced baseline to the just-arrived one)
+   * happens to numerically equal the real delta A applied, so B's spurious
+   * local translate coincidentally converges to the same final numbers a
+   * correct implementation would show -- self-healing on THIS specific
+   * repro shape, even though the hook still wrongly ran. The apply count is
+   * unambiguous either way: B never natively drags anything in this test,
+   * so it must stay 0 regardless of what the numbers land on.
+   */
+  test("editor B merely selecting the dragged node never runs this hook from an incoming sync", async ({
+    browser,
+  }) => {
+    const ctxA = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const ctxB = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const pageA = await openEditor(await ctxA.newPage(), drawingId);
+    const pageB = await openEditor(await ctxB.newPage(), drawingId);
+    await waitForCanvasReady(pageA);
+    await pageA
+      .locator("canvas")
+      .last()
+      .click({ position: { x: 60, y: 650 } });
+
+    await drawRectangle(pageA, 400, 300);
+    await drawRectangle(pageA, 800, 300);
+    const [parent, child] = await rectangles(pageA);
+    await drawBoundArrow(pageA, parent, child);
+
+    await pageB.waitForFunction(
+      () => (window as any).__EXCALIDASH_TEST__?.getSceneElements().length >= 3,
+      { timeout: 15000 },
+    );
+
+    // B selects the parent with a plain click -- no drag of its own.
+    const parentOnB = (await rectangles(pageB)).find((r: any) => r.id === parent.id)!;
+    await pageB.mouse.click(parentOnB.x + parentOnB.width / 2, parentOnB.y + 1);
+    await pageB.waitForTimeout(150);
+
+    const applyCount = (page: Page) =>
+      page.evaluate(() =>
+        (
+          window as unknown as { __EXCALIDASH_TEST__: any }
+        ).__EXCALIDASH_TEST__?.getAmbientTreeDragApplyCount(),
+      );
+    const baselineB = await applyCount(pageB);
+
+    const before = await rectangles(pageA);
+    const parentBefore = before.find((r: any) => r.id === parent.id);
+    const childBefore = before.find((r: any) => r.id === child.id);
+
+    await dragShapeByBorderSlowly(pageA, parentBefore, 120, -60);
+
+    // Wait for whatever delta A's drag actually achieved to arrive on B
+    // (converging on the child's real position, per the class of wait
+    // already established by the convergence test above) before reading
+    // the apply count -- this proves B has fully processed every incoming
+    // sync tick this drag produced, not just the first one.
+    const parentAfterA = (await rectangles(pageA)).find((r: any) => r.id === parent.id)!;
+    const achievedDx = parentAfterA.x - parentBefore.x;
+    await pageB.waitForFunction(
+      (expected) => {
+        const el = (window as any).__EXCALIDASH_TEST__
+          ?.getSceneElements()
+          .find((e: any) => e.id === expected.id);
+        return el && Math.round(el.x) === Math.round(expected.x);
+      },
+      { id: child.id, x: childBefore.x + achievedDx },
+      { timeout: 15000 },
+    );
+
+    expect(await applyCount(pageB)).toBe(baselineB);
 
     await ctxA.close();
     await ctxB.close();
