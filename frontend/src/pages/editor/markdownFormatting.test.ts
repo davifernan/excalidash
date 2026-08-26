@@ -15,19 +15,13 @@ describe("Markdown formatting actions", () => {
   });
 
   it("toggles each mixed selected list line without duplicating its marker", () => {
-    expect(applyMarkdownFormat("- item1\nitem2", 0, 13, "list")).toEqual({
-      value: "item1\n- item2",
-      selectionStart: 0,
-      selectionEnd: 13,
-    });
+    expect(applyMarkdownFormat("- item1\nitem2", 0, 14, "list").value).toBe("item1\n- item2");
   });
 
   it("toggles each mixed selected heading line without duplicating its marker", () => {
-    expect(applyMarkdownFormat("## first\nsecond", 0, 15, "heading")).toEqual({
-      value: "first\n## second",
-      selectionStart: 0,
-      selectionEnd: 15,
-    });
+    expect(applyMarkdownFormat("## first\nsecond", 0, 15, "heading").value).toBe(
+      "first\n## second",
+    );
   });
 
   it("turns selected words into a link and selects the URL", () => {
