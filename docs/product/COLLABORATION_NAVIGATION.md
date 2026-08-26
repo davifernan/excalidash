@@ -6,6 +6,26 @@ Betroffene Verträge: `frontend/src/pages/editor/followMode.ts`, `inviteHere.ts`
 `socketCollaborators.ts`, `useEditorCollaboration.ts`,
 `backend/src/server/{socketFollow,socketPresence,socketInviteHere,presenceRegistry}.ts`
 
+## Verbindungszustand: nur der Stoerfall zeichnet Chrome
+
+Eine gesunde, beigetretene Socket-Verbindung erzeugt kein Status-Element. Der fruehere gruene
+"Connected"-Punkt war fast immer sichtbar und trug deshalb keine handlungsrelevante Information.
+Die Zustandsquelle in `useEditorCollaboration.ts` bleibt unveraendert; nur ihre Darstellung in
+`ConnectionStatusBadge.tsx` folgt jetzt diesen Regeln:
+
+- `connected`: kein Rahmen, kein Badge und kein entsprechendes DOM-Element.
+- `offline`: ein durchgehender roter 1-px-Rahmen um den gesamten Editor mit dem unten
+  angesetzten Badge **Disconnected**.
+- `reconnecting`: derselbe Rahmen mit **Reconnecting**, dessen Punkte sichtbar
+  `.` → `..` → `...` → `.` durchlaufen. Nach dem echten Room-Rejoin verschwindet der
+  gesamte Zustand wieder.
+
+Rahmen und Badge sind ausdruecklich `pointer-events: none`; sie duerfen weder Canvas noch Chrome
+an irgendeiner Viewport-Kante aus dem Hit-Testing verdraengen. Die durchgehende rote Rechteckform
+mit Text bezeichnet den Zustand der gesamten Verbindung. Damit ist sie absichtlich nicht mit
+NIL-590s kleinen, einzelnen Dreieckspfeilen in Kollaboratorfarbe zu verwechseln, die eine Person
+und eine Richtung am Rand bezeichnen.
+
 ## Warum dieses Dokument existiert
 
 Davis Beschwerde ("die Folgen-Funktion tut nichts") und die Anschlussbeobachtung ("dieser
