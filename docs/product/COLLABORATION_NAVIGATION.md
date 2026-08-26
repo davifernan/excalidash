@@ -55,7 +55,8 @@ heisst folgen eigentlich" anfaengt.
   ("You're already looking at this area."). Folgen startet trotzdem und der Accept zaehlt
   fuer den Einladenden.
 - Eine spaeter angenommene Einladung ersetzt das bisherige Follow-Ziel, genau wie der Wechsel
-  per Avatar. Beendet wird ueber Excalidraws sichtbaren Follow-Badge (siehe unten).
+  per Avatar. Beendet wird ueber Excalidraws sichtbaren Follow-Badge oder durch eine eigene
+  Kamerabewegung der folgenden Person (siehe unten).
 
 ### Warum daraus kein zweiter Follow-Modus entsteht
 

@@ -50,7 +50,7 @@ vi.hoisted(() => {
 });
 
 describe("follow correction with the real Excalidraw API", () => {
-  it("starts the same Excalidraw follow intent used by an avatar click", async () => {
+  it("starts and replaces the same Excalidraw follow intent used by avatar clicks", async () => {
     let api: any;
     const view = render(
       <div style={{ width: 900, height: 600 }}>
@@ -62,6 +62,16 @@ describe("follow correction with the real Excalidraw API", () => {
       </div>,
     );
     await waitFor(() => expect(api).toBeDefined());
+    await act(async () => {
+      api.updateScene({
+        appState: {
+          collaborators: new Map([
+            ["target-socket", { socketId: "target-socket", username: "Target" }],
+            ["newest-target", { socketId: "newest-target", username: "Newest" }],
+          ]),
+        },
+      });
+    });
 
     const socket = {
       emit: vi.fn(),
@@ -86,6 +96,24 @@ describe("follow correction with the real Excalidraw API", () => {
       }),
     );
     expect(api.getAppState().userToFollow?.socketId).toBe("target-socket");
+
+    await act(async () => cleanup.follow("newest-target"));
+    await waitFor(() => expect(api.getAppState().userToFollow?.socketId).toBe("newest-target"));
+    expect(socket.emit).toHaveBeenLastCalledWith("follow-user", {
+      drawingId: "drawing-1",
+      targetPresenceId: "newest-target",
+      action: "FOLLOW",
+    });
+    expect(socket.emit.mock.calls.filter(([event]) => event === "follow-user")).toEqual([
+      [
+        "follow-user",
+        { drawingId: "drawing-1", targetPresenceId: "target-socket", action: "FOLLOW" },
+      ],
+      [
+        "follow-user",
+        { drawingId: "drawing-1", targetPresenceId: "newest-target", action: "FOLLOW" },
+      ],
+    ]);
 
     cleanup();
     view.unmount();

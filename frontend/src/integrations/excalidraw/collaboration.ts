@@ -227,8 +227,15 @@ export const createCollaborationCapability = (
     follow(socketId) {
       const api = getApi();
       if (!api) return notReady("collaboration.follow");
+      const collaborator = socketId ? currentMap(api).get(String(socketId)) : null;
+      const username =
+        collaborator && typeof collaborator.username === "string"
+          ? collaborator.username
+          : undefined;
       api.updateScene({
-        appState: { userToFollow: socketId ? { socketId } : null },
+        appState: {
+          userToFollow: socketId ? { socketId, ...(username ? { username } : {}) } : null,
+        },
       });
       return ok(undefined);
     },

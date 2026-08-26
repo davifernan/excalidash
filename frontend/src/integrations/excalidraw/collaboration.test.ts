@@ -143,6 +143,14 @@ describe("the collaboration capability", () => {
     expect([...(written.appState.followedBy as Set<string>)]).toEqual(["s1", "s2"]);
   });
 
+  it("preserves the collaborator name in Excalidraw's native follow badge", () => {
+    const api = makeApi(new Map([["s1", { username: "Ada" }]]));
+    createCollaborationCapability(() => api).follow(id("s1"));
+    expect(api.updateScene).toHaveBeenCalledWith({
+      appState: { userToFollow: { socketId: "s1", username: "Ada" } },
+    });
+  });
+
   it("does not write at all for an empty patch list", () => {
     const api = makeApi();
     createCollaborationCapability(() => api).patchCollaborators([]);
