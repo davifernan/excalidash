@@ -55,6 +55,7 @@
  * protected case (dragging a decision point) and the acknowledged one
  * (dragging a plain chain link).
  */
+import type { ElementSummary } from "../integrations/excalidraw/types";
 
 export type ArrowEdge = {
   readonly arrowId: string;
@@ -69,6 +70,35 @@ export type ShapeBox = {
   readonly width: number;
   readonly height: number;
 };
+
+/**
+ * The three projections every consumer of this module's qualifying-
+ * children rule needs from a live `ElementSummary[]` (`nodeState.ts`,
+ * `../mindMap/mindMapScene.ts`'s `arrangeOps`, `useAmbientTreeDrag.ts`) --
+ * shared here (Hans finding, NIL-593 Schnitt 3 review) so the one
+ * "!isDeleted && type !== 'arrow'" filter and the one `ArrowEdge`/
+ * `ShapeBox` projection can't drift apart across three near-identical
+ * copies the way they had before this.
+ */
+export const shapesOf = (summaries: readonly ElementSummary[]): readonly ElementSummary[] =>
+  summaries.filter((element) => !element.isDeleted && element.type !== "arrow");
+
+export const edgesOf = (summaries: readonly ElementSummary[]): readonly ArrowEdge[] =>
+  summaries
+    .filter((element) => !element.isDeleted && element.type === "arrow")
+    .map((arrow) => ({
+      arrowId: arrow.id,
+      startId: arrow.startBinding?.elementId ?? null,
+      endId: arrow.endBinding?.elementId ?? null,
+    }));
+
+export const boxesById = (shapes: readonly ElementSummary[]): ReadonlyMap<string, ShapeBox> =>
+  new Map(
+    shapes.map((shape) => [
+      shape.id,
+      { id: shape.id, x: shape.x, y: shape.y, width: shape.width, height: shape.height },
+    ]),
+  );
 
 type Direction = "left" | "right" | "up" | "down";
 

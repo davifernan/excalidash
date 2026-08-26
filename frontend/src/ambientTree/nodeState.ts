@@ -61,31 +61,11 @@
  */
 import { readNodeState, withExcalidashData } from "../integrations/excalidraw/customData";
 import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
-import { ambientSubtreeIds, type ArrowEdge, type ShapeBox } from "./ambientTree";
+import { ambientSubtreeIds, boxesById, edgesOf, shapesOf } from "./ambientTree";
 
 const OPACITY_NUDGE = 1;
 const nudgeOpacity = (opacity: number, direction: 1 | -1): number =>
   Math.min(100, Math.max(0, opacity + direction * OPACITY_NUDGE));
-
-const shapesOf = (summaries: readonly ElementSummary[]): readonly ElementSummary[] =>
-  summaries.filter((element) => !element.isDeleted && element.type !== "arrow");
-
-const edgesOf = (summaries: readonly ElementSummary[]): readonly ArrowEdge[] =>
-  summaries
-    .filter((element) => !element.isDeleted && element.type === "arrow")
-    .map((arrow) => ({
-      arrowId: arrow.id,
-      startId: arrow.startBinding?.elementId ?? null,
-      endId: arrow.endBinding?.elementId ?? null,
-    }));
-
-const boxesById = (shapes: readonly ElementSummary[]): ReadonlyMap<string, ShapeBox> =>
-  new Map(
-    shapes.map((shape) => [
-      shape.id,
-      { id: shape.id, x: shape.x, y: shape.y, width: shape.width, height: shape.height },
-    ]),
-  );
 
 /** Every shape id in `summaries` whose hand-set position an "Arrange" run must not discard. */
 export function pinnedNodeIds(summaries: readonly ElementSummary[]): ReadonlySet<string> {

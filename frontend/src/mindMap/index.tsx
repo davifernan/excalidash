@@ -5,12 +5,25 @@
  * Two explicit commands survive the mode teardown: "Import mind map..."
  * (paste an outline, preview, write once) and "Arrange" (lay out the
  * ambient subtree rooted at the current selection, respecting pinned
- * nodes). Pin (`P`) and collapse (the floating toolbar) are ambient over
- * ANY shape (Schnitt 3, `../ambientTree/nodeState.ts` and its
- * `useAmbientPinKey`/`useAmbientNodeToolbar` hooks) -- they are wired in
- * here rather than in `Editor.tsx` directly only because this is already
- * the file that owns the mind-map overlay slot, not because they are a
- * "mind map" concept; nothing in `ambientTree/` has ever heard of one.
+ * nodes). Pin and collapse (Schnitt 3, `../ambientTree/nodeState.ts` and
+ * its `useAmbientNodeToolbar` hook) are ambient over ANY shape -- they are
+ * wired in here rather than in `Editor.tsx` directly only because this is
+ * already the file that owns the mind-map overlay slot, not because they
+ * are a "mind map" concept; nothing in `ambientTree/` has ever heard of
+ * one.
+ *
+ * Both live behind the SAME floating toolbar, with no keyboard shortcut
+ * of their own (Hans finding on this PR): a `P` key for Pin was v1's own
+ * choice, defensible there because v1's key handler only ever fired for
+ * an actual mind-map node, inside a mode someone had opted into. `P` is
+ * also Excalidraw's own native, unmodified shortcut for the freedraw
+ * tool -- ambient pin runs on every board, for every selection, all the
+ * time, so a keydown listener ahead of Excalidraw's own (this fork's
+ * chrome sits in a DOM ancestor of Excalidraw's root, so bubbling always
+ * reaches it first) would have silently eaten that native shortcut
+ * everywhere, not just inside a mind map. `useAmbientPinKey.ts` (deleted)
+ * had exactly this bug. The floating toolbar has no such collision: it
+ * only reacts to a click on its own button.
  */
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -24,11 +37,23 @@ import { useExcalidrawRoot } from "../pages/editor/useExcalidrawRoot";
 import { ElementFloatingToolbar } from "../pages/editor/ElementFloatingToolbar";
 import { AmbientNodeOverlay } from "../ambientTree/AmbientNodeOverlay";
 import { useAmbientNodeToolbar } from "../ambientTree/useAmbientNodeToolbar";
-import { useAmbientPinKey } from "../ambientTree/useAmbientPinKey";
 import { MindMapImportDialog } from "./MindMapImportDialog";
 import { useMindMapImport } from "./useMindMapImport";
 import { arrangeOps } from "./mindMapScene";
 import type { ParseResult } from "./outlineParser";
+
+const TOOLBAR_BUTTON_STYLE = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  height: "100%",
+  padding: "0 12px",
+  border: "none",
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  cursor: "pointer",
+};
 
 type Options = {
   containerRef: React.RefObject<HTMLElement>;
@@ -49,10 +74,10 @@ export function useMindMapFeature({
 }: Options) {
   const { isOpen, open, close, runImport } = useMindMapImport({ canEdit, scene, viewport });
   const excalidrawRoot = useExcalidrawRoot(containerRef);
-  useAmbientPinKey({ canEdit, containerRef, interaction, scene, selection });
   const {
     onSceneChange: onAmbientNodeToolbarSceneChange,
-    toolbarTarget: ambientToolbarTarget,
+    toolbar,
+    togglePin,
     toggleCollapse,
   } = useAmbientNodeToolbar({ canEdit, excalidrawRoot, interaction, scene, selection, viewport });
 
@@ -102,37 +127,39 @@ export function useMindMapFeature({
         viewport={viewport}
         onExpand={toggleCollapse}
       />
-      <ElementFloatingToolbar target={ambientToolbarTarget} label="Node actions">
-        <button
-          type="button"
-          data-testid="mind-map-collapse-button"
-          // Without this, clicking the button moves DOM focus off the
-          // canvas, and the very next Ctrl+Z silently fails to undo the
-          // collapse -- the same fix v1's own `mind-map-collapse.spec.ts`
-          // caught by a real browser run, not any unit test (jsdom never
-          // models focus-dependent history capture).
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            const selected = selection.read();
-            if (selected.ok && selected.value.selectedIds.length === 1) {
-              toggleCollapse(selected.value.selectedIds[0]);
-            }
-          }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            height: "100%",
-            padding: "0 12px",
-            border: "none",
-            background: "transparent",
-            color: "inherit",
-            font: "inherit",
-            cursor: "pointer",
-          }}
-        >
-          Collapse
-        </button>
+      <ElementFloatingToolbar target={toolbar?.target ?? null} label="Node actions">
+        {toolbar ? (
+          <>
+            <button
+              type="button"
+              data-testid="mind-map-pin-button"
+              // Same focus-preserving guard as Collapse below -- without
+              // it, the very next Ctrl+Z silently fails to undo the pin.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => togglePin(toolbar.nodeId)}
+              style={TOOLBAR_BUTTON_STYLE}
+            >
+              {toolbar.pinned ? "Unpin" : "Pin"}
+            </button>
+            {toolbar.canCollapse ? (
+              <button
+                type="button"
+                data-testid="mind-map-collapse-button"
+                // Without this, clicking the button moves DOM focus off
+                // the canvas, and the very next Ctrl+Z silently fails to
+                // undo the collapse -- the same fix v1's own
+                // `mind-map-collapse.spec.ts` caught by a real browser
+                // run, not any unit test (jsdom never models
+                // focus-dependent history capture).
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => toggleCollapse(toolbar.nodeId)}
+                style={TOOLBAR_BUTTON_STYLE}
+              >
+                Collapse
+              </button>
+            ) : null}
+          </>
+        ) : null}
       </ElementFloatingToolbar>
     </>
   );

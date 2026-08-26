@@ -109,7 +109,7 @@ import { useEffect, useRef } from "react";
 import { useTickDragDetection, type TrackedPosition } from "../hooks/useTickDragDetection";
 import type { SceneCapability, SelectionCapability } from "../integrations/excalidraw/capabilities";
 import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
-import { ambientSubtreeIds, type ArrowEdge, type ShapeBox } from "./ambientTree";
+import { ambientSubtreeIds, boxesById, edgesOf, shapesOf } from "./ambientTree";
 
 /**
  * Test-only counter, wired into `__EXCALIDASH_TEST__` the same way
@@ -174,9 +174,7 @@ export function useAmbientTreeDrag({ canEdit, scene, selection }: Options) {
       return;
     }
 
-    const shapes = summaries.value.filter(
-      (element) => !element.isDeleted && element.type !== "arrow",
-    );
+    const shapes = shapesOf(summaries.value);
     const positions: TrackedPosition[] = shapes.map((shape) => ({
       id: shape.id,
       x: shape.x,
@@ -197,21 +195,10 @@ export function useAmbientTreeDrag({ canEdit, scene, selection }: Options) {
     const dy = after.y - before.y;
     if (dx === 0 && dy === 0) return;
 
-    const boxesById = new Map<string, ShapeBox>(
-      shapes.map((shape) => [
-        shape.id,
-        { id: shape.id, x: shape.x, y: shape.y, width: shape.width, height: shape.height },
-      ]),
-    );
-    const edges: ArrowEdge[] = summaries.value
-      .filter((element) => !element.isDeleted && element.type === "arrow")
-      .map((arrow) => ({
-        arrowId: arrow.id,
-        startId: arrow.startBinding?.elementId ?? null,
-        endId: arrow.endBinding?.elementId ?? null,
-      }));
+    const boxes = boxesById(shapes);
+    const edges = edgesOf(summaries.value);
 
-    const subtreeIds = ambientSubtreeIds(activeId, edges, boxesById);
+    const subtreeIds = ambientSubtreeIds(activeId, edges, boxes);
     if (subtreeIds.size === 0) return;
 
     const labelByContainerId = new Map<string, ElementSummary>();
@@ -221,7 +208,7 @@ export function useAmbientTreeDrag({ canEdit, scene, selection }: Options) {
 
     const ops: SceneOp[] = [];
     for (const id of subtreeIds) {
-      const box = boxesById.get(id);
+      const box = boxes.get(id);
       if (!box) continue;
       ops.push({ kind: "patch", id: id as never, changes: { x: box.x + dx, y: box.y + dy } });
       const label = labelByContainerId.get(id);

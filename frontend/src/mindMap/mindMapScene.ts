@@ -15,9 +15,10 @@
 import type { ElementSummary, SceneOp } from "../integrations/excalidraw/types";
 import {
   ambientTreeRootedAt,
+  boxesById,
+  edgesOf,
+  shapesOf,
   type AmbientTreeNode,
-  type ArrowEdge,
-  type ShapeBox,
 } from "../ambientTree/ambientTree";
 import { pinnedNodeIds } from "../ambientTree/nodeState";
 import {
@@ -184,25 +185,14 @@ export function arrangeOps(
   summaries: readonly ElementSummary[],
   rootId: string,
 ): readonly SceneOp[] | null {
-  const shapes = summaries.filter((element) => !element.isDeleted && element.type !== "arrow");
+  const shapes = shapesOf(summaries);
   const rootSummary = shapes.find((shape) => shape.id === rootId);
   if (!rootSummary) return null;
 
-  const boxesById = new Map<string, ShapeBox>(
-    shapes.map((shape) => [
-      shape.id,
-      { id: shape.id, x: shape.x, y: shape.y, width: shape.width, height: shape.height },
-    ]),
-  );
-  const edges: ArrowEdge[] = summaries
-    .filter((element) => !element.isDeleted && element.type === "arrow")
-    .map((arrow) => ({
-      arrowId: arrow.id,
-      startId: arrow.startBinding?.elementId ?? null,
-      endId: arrow.endBinding?.elementId ?? null,
-    }));
+  const boxes = boxesById(shapes);
+  const edges = edgesOf(summaries);
 
-  const ambientRoot = ambientTreeRootedAt(rootId, edges, boxesById);
+  const ambientRoot = ambientTreeRootedAt(rootId, edges, boxes);
   if (!ambientRoot || ambientRoot.children.length === 0) return null;
 
   const map = ambientToLayoutTree(ambientRoot);
@@ -228,7 +218,7 @@ export function arrangeOps(
   // even the ones touching the root -- every edge inside the arranged
   // subtree needs its geometry recomputed explicitly via
   // `arrowGeometryBetween`.
-  const finalBoxById = new Map(boxesById);
+  const finalBoxById = new Map(boxes);
   for (const position of positions) {
     if (pinned.has(position.elementId)) continue; // keeps its own live box
     const box = finalBoxById.get(position.elementId);

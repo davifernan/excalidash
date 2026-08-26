@@ -72,6 +72,19 @@ const selectByBorder = async (page: Page, shape: { x: number; y: number; width: 
 const emptyCanvasClick = (page: Page) =>
   page.locator("canvas.excalidraw__canvas.interactive").click({ position: { x: 60, y: 650 } });
 
+/**
+ * Toggle pin via the floating toolbar -- never a keyboard shortcut (Hans
+ * finding on this PR): `P` is Excalidraw's own native, unmodified
+ * shortcut for the freedraw tool, and a keydown listener ambient over
+ * every selection on every board would have silently eaten it everywhere,
+ * not just inside an opted-into mind map the way v1's identical key
+ * choice was scoped to. See `nativeFreedrawShortcutStillWorks` below for
+ * the counter-proof that the native shortcut is untouched.
+ */
+const pinViaToolbar = async (page: Page) => {
+  await page.getByTestId("mind-map-pin-button").click({ timeout: 10000 });
+};
+
 test.describe("ambient pin and collapse (NIL-593, Schnitt 3)", () => {
   test("collapse on one client is visible on another, without a layout run on either", async ({
     browser,
@@ -136,7 +149,7 @@ test.describe("ambient pin and collapse (NIL-593, Schnitt 3)", () => {
       await drawBoundArrow(page, root, b);
 
       await selectByBorder(page, a);
-      await page.keyboard.press("p");
+      await pinViaToolbar(page);
       await expect
         .poll(async () => (await rawScene(page)).find((e: any) => e.id === a.id)?.customData)
         .toMatchObject({ excalidash: { nodeState: { pinned: true } } });
@@ -174,7 +187,7 @@ test.describe("ambient pin and collapse (NIL-593, Schnitt 3)", () => {
       await drawBoundArrow(page, root, child);
 
       await selectByBorder(page, root);
-      await page.keyboard.press("p");
+      await pinViaToolbar(page);
       await expect
         .poll(async () => (await rawScene(page)).find((e: any) => e.id === root.id)?.customData)
         .toMatchObject({ excalidash: { nodeState: { pinned: true } } });
@@ -227,7 +240,7 @@ test.describe("ambient pin and collapse (NIL-593, Schnitt 3)", () => {
       const [root] = (await rawScene(page)).filter((e: any) => e.type === "rectangle");
 
       await selectByBorder(page, root);
-      await page.keyboard.press("p");
+      await pinViaToolbar(page);
       await expect
         .poll(async () => (await rawScene(page)).find((e: any) => e.id === root.id)?.customData)
         .toMatchObject({ excalidash: { nodeState: { pinned: true } } });
@@ -359,7 +372,7 @@ test.describe("ambient pin and collapse (NIL-593, Schnitt 3)", () => {
       await drawBoundArrow(page, root, child);
 
       await selectByBorder(page, root);
-      await page.keyboard.press("p");
+      await pinViaToolbar(page);
       await expect
         .poll(async () => (await rawScene(page)).find((e: any) => e.id === root.id)?.customData)
         .toMatchObject({ excalidash: { nodeState: { pinned: true } } });
@@ -391,6 +404,60 @@ test.describe("ambient pin and collapse (NIL-593, Schnitt 3)", () => {
         expect(arrow.startBinding?.elementId).not.toBe(duplicate.id);
         expect(arrow.endBinding?.elementId).not.toBe(duplicate.id);
       }
+    } finally {
+      await deleteDrawing(request, drawing.id);
+    }
+  });
+
+  /**
+   * Hans finding on this PR: pin used to be a `P` keyboard shortcut, and
+   * `P` is Excalidraw's own native, unmodified shortcut for the freedraw
+   * tool. A test that only checks pinning still works would not have
+   * caught that bug -- it never exercised the native tool at all. This
+   * test does exactly what the finding's own repro describes: draw a
+   * rectangle (Excalidraw leaves it selected, exactly the state a stray
+   * keydown listener would see), press `P`, and check the freedraw tool
+   * actually armed -- not that some element got pinned.
+   */
+  test("pressing P after selecting a shape still arms Excalidraw's native freedraw tool (Hans finding)", async ({
+    page,
+    request,
+  }) => {
+    const drawing = await createDrawing(request, { name: `NIL593_NativeP_${Date.now()}` });
+    try {
+      await openEditor(page, drawing.id);
+      await waitForCanvasReady(page);
+      await emptyCanvasClick(page);
+      await drawRectangle(page, 400, 300);
+      const [root] = (await rawScene(page)).filter((e: any) => e.type === "rectangle");
+
+      // Excalidraw leaves a just-drawn shape selected -- the exact
+      // precondition the finding's own repro names.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __EXCALIDASH_TEST__: any }).__EXCALIDASH_TEST__.getAppState()
+                .selectedElementIds,
+          ),
+        )
+        .toMatchObject({ [root.id]: true });
+
+      await page.keyboard.press("p");
+
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __EXCALIDASH_TEST__: any }).__EXCALIDASH_TEST__.getAppState()
+                .activeTool,
+          ),
+        )
+        .toEqual({ type: "builtin", name: "freedraw" });
+
+      // And the shape itself was not pinned by the same keypress.
+      const afterP = (await rawScene(page)).find((e: any) => e.id === root.id);
+      expect(afterP.customData?.excalidash?.nodeState?.pinned).toBeUndefined();
     } finally {
       await deleteDrawing(request, drawing.id);
     }
