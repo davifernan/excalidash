@@ -279,6 +279,7 @@ module.exports = {
   STATUS_CONTEXT,
   ambiguousComment,
   classifyScreenshotEvidence,
+  commandJson,
   imageUrls,
   inspectPr,
   missingComment,

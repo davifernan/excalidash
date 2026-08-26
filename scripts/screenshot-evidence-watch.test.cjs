@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const {
   classifyScreenshotEvidence,
+  commandJson,
   imageUrls,
   inspectPr,
   primaryPackage,
@@ -59,6 +60,25 @@ test("recognizes full and collapsed Markdown image references", () => {
       ].join("\n"),
     ),
     ["https://example.test/light.png", "https://example.test/dark.webp"],
+  );
+});
+
+test("command failures retain the target and stderr without leaking comment bodies", () => {
+  assert.throws(
+    () =>
+      commandJson("node", [
+        "-e",
+        'process.stderr.write("HTTP 502 from GitHub"); process.exit(1)',
+        "repos/davifernan/excalidash/issues/192/comments",
+        "body=secret comment text",
+      ]),
+    (error) => {
+      assert.match(error.message, /repos\/davifernan\/excalidash\/issues\/192\/comments/);
+      assert.match(error.message, /HTTP 502 from GitHub/);
+      assert.match(error.message, /body=<redacted>/);
+      assert.doesNotMatch(error.message, /secret comment text/);
+      return true;
+    },
   );
 });
 
