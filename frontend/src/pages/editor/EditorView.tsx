@@ -285,8 +285,17 @@ export const EditorView: React.FC<EditorViewProps> = ({
                     canEdit={canEdit}
                     toolbar={toolbar}
                     editLock={documentEdits.locks[data.assetId] ?? null}
+                    liveDraft={documentEdits.drafts[data.assetId] ?? null}
                     onAcquireEditLock={() => documentEdits.acquire(data.assetId)}
                     onReleaseEditLock={(token) => documentEdits.release(data.assetId, token)}
+                    onBeginLiveDraft={(token, content) =>
+                      documentEdits.beginDraft(data.assetId, token, content)
+                    }
+                    onUpdateLiveDraft={(content) =>
+                      documentEdits.updateDraft(data.assetId, content)
+                    }
+                    onCancelLiveDraft={() => documentEdits.cancelDraft(data.assetId)}
+                    onEndLiveDraft={() => documentEdits.endDraft(data.assetId)}
                     onDocumentAssetReplacement={onDocumentAssetReplacement}
                     sharing={{
                       elementId: element.id,

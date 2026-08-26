@@ -77,6 +77,12 @@ import {
   DOCUMENT_EDIT_LOCK_EVENT,
   registerDocumentEditLockRoomEvent,
 } from "./socketDocumentEditLocks";
+import {
+  documentEditDraftSnapshot,
+  DOCUMENT_EDIT_DRAFT_EVENT,
+  DOCUMENT_EDIT_DRAFT_LIMITS,
+  registerDocumentEditDraftRoomEvent,
+} from "./socketDocumentEditDrafts";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -155,6 +161,10 @@ export const registerSocketHandlers = ({
 
   const allowSelection = createKeyedRateLimiter(SELECTION_LIMITS.eventsPerSecond * 4, 1_000);
   const allowCursorChat = createKeyedRateLimiter(CURSOR_CHAT_LIMITS.eventsPerSecond * 4, 1_000);
+  const allowDocumentEditDraft = createKeyedRateLimiter(
+    DOCUMENT_EDIT_DRAFT_LIMITS.eventsPerSecond * 4,
+    1_000,
+  );
   const shareTokenBySocket = new Map<string, string>();
   const workshopTimers = createWorkshopTimerManager({ io });
   const presenters = new PresenterRegistry();
@@ -404,6 +414,12 @@ export const registerSocketHandlers = ({
       getPresence,
       requireAccess,
     });
+    registerDocumentEditDraftRoomEvent({
+      socket,
+      locks: documentEditLocks,
+      requireAccess,
+      allow: () => allowDocumentEditDraft(actorKey()),
+    });
     inviteHereManager.registerHandlers(socket);
 
     socket.on("join-room", (data: unknown, ack?: (value: unknown) => void) => {
@@ -533,6 +549,10 @@ export const registerSocketHandlers = ({
         socket.emit(
           DOCUMENT_EDIT_LOCK_EVENT,
           documentEditLockSnapshot(documentEditLocks, drawingId),
+        );
+        socket.emit(
+          DOCUMENT_EDIT_DRAFT_EVENT,
+          documentEditDraftSnapshot(documentEditLocks, drawingId),
         );
         const drawingNameSnapshot = await loadDrawingNameSnapshot({ prisma, drawingId });
         if (!isCurrentJoin()) return;

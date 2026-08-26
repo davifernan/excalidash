@@ -167,6 +167,110 @@ describe("TextDocumentWidget", () => {
     expect(editor).toHaveValue("# Original\n\nThis is **bold**.");
   });
 
+  it("publishes the initial and changed draft, then explicitly rolls spectators back on cancel", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Saved");
+    const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
+    const beginLive = vi.fn();
+    const updateLive = vi.fn();
+    const cancelLive = vi.fn();
+    const release = vi.fn();
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+        onAcquireEditLock={acquire}
+        onReleaseEditLock={release}
+        onBeginLiveDraft={beginLive}
+        onUpdateLiveDraft={updateLive}
+        onCancelLiveDraft={cancelLive}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Markdown" }));
+    await screen.findByRole("textbox", { name: "Markdown source" });
+    expect(beginLive).toHaveBeenCalledWith("lock-token", "# Saved");
+    fireEvent.change(screen.getByRole("textbox", { name: "Markdown source" }), {
+      target: { value: "# Unsaved live" },
+    });
+    expect(updateLive).toHaveBeenCalledWith("# Unsaved live");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel Markdown editing" }));
+    expect(cancelLive).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledWith("lock-token");
+    expect(screen.getByRole("heading", { name: "Saved" })).toBeVisible();
+  });
+
+  it("renders a remote live draft for a locked spectator without replacing saved content", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("# Saved");
+    const { rerender } = render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+        editLock={{ assetId: "asset-1", presenceId: "writer", ownerName: "Alice" }}
+        liveDraft={{
+          assetId: "asset-1",
+          presenceId: "writer",
+          revision: 2,
+          content: "# Unsaved live",
+        }}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Unsaved live" })).toBeVisible();
+    rerender(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+    expect(await screen.findByRole("heading", { name: "Saved" })).toBeVisible();
+  });
+
+  it("keeps textarea focus while a formatting button changes the selection", async () => {
+    vi.mocked(getDocumentContent).mockResolvedValue("Make this bold");
+    const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        canEdit
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+        onAcquireEditLock={acquire}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Markdown" }));
+    const editor = (await screen.findByRole("textbox", {
+      name: "Markdown source",
+    })) as HTMLTextAreaElement;
+    editor.focus();
+    editor.setSelectionRange(5, 9);
+    const bold = screen.getByRole("button", { name: "Bold" });
+    fireEvent.pointerDown(bold);
+    fireEvent.click(bold);
+
+    await waitFor(() => expect(editor).toHaveValue("Make **this** bold"));
+    expect(document.activeElement).toBe(editor);
+    expect([editor.selectionStart, editor.selectionEnd]).toEqual([7, 11]);
+  });
+
   it("sanitizes the live edit preview exactly like the view-mode render (NIL-583)", async () => {
     vi.mocked(getDocumentContent).mockResolvedValue("# Original");
     const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
