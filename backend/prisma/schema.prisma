@@ -67,6 +67,8 @@ model SystemConfig {
   authEnabled                      Boolean   @default(false)
   authOnboardingCompleted          Boolean   @default(false)
   registrationEnabled              Boolean   @default(false)
+  guestUploadEnabled               Boolean   @default(false)
+  guestCommentVisibilityEnabled    Boolean   @default(true)
   oidcJitProvisioningEnabled       Boolean?
   authLoginRateLimitEnabled        Boolean   @default(true)
   authLoginRateLimitWindowMs       Int       @default(900000)
@@ -100,6 +102,8 @@ model Drawing {
   files           String              @default("{}")
   preview         String?
   version         Int                 @default(1)
+  guestUploadEnabled               Boolean             @default(false)
+  guestCommentVisibilityEnabled    Boolean             @default(true)
   /// Monotonic ordering marker for persisted name snapshots and broadcasts.
   nameRevision    Int                 @default(1)
   /// Who controls the board: shares it, moves it, deletes it, and carries its

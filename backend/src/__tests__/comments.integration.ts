@@ -6,6 +6,7 @@ import { StringValue } from "ms";
 import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { getTestPrisma, setupTestDb } from "./testUtils";
+import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
 
 describe("Comments, mentions, activity and inbox", () => {
   let prisma: PrismaClient;
@@ -160,6 +161,58 @@ describe("Comments, mentions, activity and inbox", () => {
     // A stranger cannot even read the thread -- 404, not 403.
     const listAsStranger = await strangerClient.get(`/drawings/${drawing.id}/comments`);
     expect(listAsStranger.status).toBe(404);
+  });
+
+  it("keeps guest comment visibility independent and lets the instance ceiling override a board", async () => {
+    const owner = await makeUser("owner-guest-comments@test.local", "Guest Comment Owner");
+    const drawing = await makeDrawing(owner.id, "Guest comment policy board");
+    const ownerClient = await clientFor(owner);
+    await ownerClient.post(`/drawings/${drawing.id}/comments`, { body: "Visible by policy" });
+
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId: drawing.id,
+        permission: "view",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+    const readAsGuest = () =>
+      request(app).get(`/drawings/${drawing.id}/comments`).set("x-share-token", token);
+
+    // Historical default: link viewers can read comments.
+    const historical = await readAsGuest();
+    expect(historical.status).toBe(200);
+    expect(historical.body.comments).toHaveLength(1);
+
+    await prisma.drawing.update({
+      where: { id: drawing.id },
+      data: { guestCommentVisibilityEnabled: false },
+    });
+    const boardOff = await readAsGuest();
+    expect(boardOff.status).toBe(403);
+    expect(boardOff.body.code).toBe("GUEST_COMMENT_VISIBILITY_DISABLED");
+
+    await prisma.drawing.update({
+      where: { id: drawing.id },
+      data: { guestCommentVisibilityEnabled: true },
+    });
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestCommentVisibilityEnabled: false },
+    });
+    expect((await readAsGuest()).status).toBe(403);
+    const ownerWrite = await ownerClient.post(`/drawings/${drawing.id}/comments`, {
+      body: "Comment writing is a separate capability",
+    });
+    expect(ownerWrite.status).toBe(201);
+
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestCommentVisibilityEnabled: true },
+    });
+    expect((await readAsGuest()).status).toBe(200);
   });
 
   it("only notifies a mention target who is actually a board member, never a stranger id the client supplied", async () => {

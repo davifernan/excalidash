@@ -486,6 +486,12 @@ describe("who the server decides someone is", () => {
       collection: { findFirst: async () => null, findMany: async () => [] },
       collectionShare: { findFirst: async () => null, findMany: async () => [] },
       drawingPermission: { findUnique: async () => null, findMany: async () => [] },
+      systemConfig: {
+        findUnique: async () => ({
+          guestUploadEnabled: false,
+          guestCommentVisibilityEnabled: true,
+        }),
+      },
     };
     registerSocketHandlers({
       io: io as any,
@@ -503,6 +509,96 @@ describe("who the server decides someone is", () => {
 
     expect(ack).toMatchObject({ ok: true, presence: { kind: "guest" } });
     expect(ack.presence.name).not.toBe("Account Name");
+  });
+
+  it("gates guest file deltas and the comment room with the same effective policies", async () => {
+    const io = new FakeIo();
+    const token = buildShareLinkToken();
+    let instanceUpload = false;
+    let boardUpload = false;
+    let instanceComments = true;
+    let boardComments = false;
+    const prisma = {
+      ...socketJoinSnapshotPrisma("owner-account-id"),
+      drawing: {
+        findUnique: async () => ({
+          userId: "owner-account-id",
+          collectionId: null,
+          name: "Guest policy board",
+          nameRevision: 1,
+          guestUploadEnabled: boardUpload,
+          guestCommentVisibilityEnabled: boardComments,
+        }),
+      },
+      drawingLinkShare: {
+        findFirst: async () => ({ permission: "edit", tokenHash: hashShareLinkToken(token) }),
+      },
+      systemConfig: {
+        findUnique: async () => ({
+          guestUploadEnabled: instanceUpload,
+          guestCommentVisibilityEnabled: instanceComments,
+        }),
+      },
+    };
+    registerSocketHandlers({
+      io: io as any,
+      prisma: prisma as any,
+      authModeService: { getAuthEnabled: async () => true } as any,
+      jwtSecret: "test-secret",
+    });
+
+    const blocked = await io.connect("guest-blocked");
+    expect(await joinAs(blocked, token)).toMatchObject({ ok: true });
+    expect(blocked.rooms.has("drawing_comments_drawing-1")).toBe(false);
+
+    const blockedAck = vi.fn();
+    await blocked.trigger(
+      "element-update",
+      {
+        drawingId: "drawing-1",
+        elements: [{ id: "guest-image" }],
+        files: { image: { id: "image", dataURL: "data:image/png;base64,bytes" } },
+      },
+      blockedAck,
+    );
+    expect(blockedAck).toHaveBeenCalledWith({
+      ok: false,
+      error: expect.objectContaining({ code: "guest-upload-disabled" }),
+    });
+    expect(io.emissions.some((item) => item.event === "element-update")).toBe(false);
+
+    boardUpload = true;
+    const boardOnlyAck = vi.fn();
+    await blocked.trigger(
+      "element-update",
+      { drawingId: "drawing-1", elements: [], files: { image: { id: "image" } } },
+      boardOnlyAck,
+    );
+    expect(boardOnlyAck).toHaveBeenCalledWith({
+      ok: false,
+      error: expect.objectContaining({ code: "guest-upload-disabled" }),
+    });
+
+    instanceUpload = true;
+    const enabledAck = vi.fn();
+    await blocked.trigger(
+      "element-update",
+      { drawingId: "drawing-1", elements: [], files: { image: { id: "image" } } },
+      enabledAck,
+    );
+    expect(enabledAck).toHaveBeenCalledWith({ ok: true });
+    expect(io.emissions.some((item) => item.event === "element-update")).toBe(true);
+
+    boardComments = true;
+    instanceComments = false;
+    const instanceBlocked = await io.connect("guest-instance-comments-off");
+    expect(await joinAs(instanceBlocked, token)).toMatchObject({ ok: true });
+    expect(instanceBlocked.rooms.has("drawing_comments_drawing-1")).toBe(false);
+
+    instanceComments = true;
+    const allowed = await io.connect("guest-comments-on");
+    expect(await joinAs(allowed, token)).toMatchObject({ ok: true });
+    expect(allowed.rooms.has("drawing_comments_drawing-1")).toBe(true);
   });
 
   it("shares activity, selection, and cursor-chat budgets across one account's sockets", async () => {

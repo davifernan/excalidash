@@ -19,6 +19,7 @@ type CoreRoomEventDeps = {
   /** Budgets shared across this person's connections; see socketRoomEvent. */
   allowCursorMove: () => boolean;
   allowElementUpdate: (drawingId: string, serializedBytes: number) => boolean;
+  authorizeFileDelta: (drawingId: string) => Promise<boolean>;
 };
 
 type ActivityPayload = RoomEventPayload & { isActive: boolean };
@@ -43,6 +44,7 @@ export const registerCoreRoomEvents = ({
   allowActivity,
   allowCursorMove,
   allowElementUpdate,
+  authorizeFileDelta,
 }: CoreRoomEventDeps): void => {
   registerAuthorizedRoomEvent({
     socket,
@@ -75,7 +77,20 @@ export const registerCoreRoomEvents = ({
     requireAccess,
     allowPayload: (payload) => allowElementUpdate(payload.drawingId, payload.serializedBytes),
     requireEdit: true,
-    handle: (payload) => {
+    handle: async (payload) => {
+      if (
+        payload.files &&
+        Object.keys(payload.files).length > 0 &&
+        !(await authorizeFileDelta(payload.drawingId))
+      ) {
+        return {
+          error: {
+            code: "guest-upload-disabled",
+            message:
+              "Guests cannot upload files to this board. Ask the board owner to enable guest uploads.",
+          },
+        };
+      }
       socket.to(roomName(payload.drawingId)).emit("element-update", {
         elements: payload.elements,
         files: payload.files,

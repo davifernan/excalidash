@@ -10,6 +10,7 @@ const UPLOAD_CONCURRENCY = 3;
 type UseEditorFileUploadsInput = {
   drawingId?: string;
   fileCapability: FileCapability;
+  enabled: boolean;
 };
 
 /**
@@ -34,7 +35,11 @@ type UseEditorFileUploadsInput = {
  * anything this uploader has not gotten to yet. This hook is a faster,
  * additive path to the same storage, not a replacement for the existing one.
  */
-export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFileUploadsInput) => {
+export const useEditorFileUploads = ({
+  drawingId,
+  fileCapability,
+  enabled,
+}: UseEditorFileUploadsInput) => {
   const confirmedRef = useRef<Set<FileId>>(new Set());
   const inFlightRef = useRef<Set<FileId>>(new Set());
 
@@ -57,7 +62,7 @@ export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFil
       }, FLUSH_INTERVAL_MS);
     };
     const flush = () => {
-      if (!drawingId) return;
+      if (!drawingId || !enabled) return;
 
       // Capture this board generation's sets. An upload that settles after
       // a board switch must not mutate the replacement board's bookkeeping.
@@ -106,7 +111,7 @@ export const useEditorFileUploads = ({ drawingId, fileCapability }: UseEditorFil
       if (timer) clearTimeout(timer);
       unsubscribe();
     };
-  }, [drawingId, fileCapability]);
+  }, [drawingId, enabled, fileCapability]);
 
   return {
     /** Whether this fileId's bytes are confirmed on the server -- an ack, not an attempt. */

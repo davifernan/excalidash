@@ -42,6 +42,10 @@ export interface Drawing extends DrawingSummary {
   elements: any[];
   appState: any;
   files: Record<string, any> | null;
+  capabilities: {
+    uploadFiles: boolean;
+    viewComments: boolean;
+  };
 }
 export interface Collection {
   id: string;

@@ -34,6 +34,7 @@ describe("editor canvas capability failures", () => {
     const { result } = renderHook(() =>
       useEditorCanvasHandlers({
         canEdit: true,
+        canUploadFiles: true,
         debouncedSavePreview: vi.fn(),
         drawingId: "drawing-1",
         emitFilesDeltaIfNeeded: vi.fn(),
@@ -86,6 +87,7 @@ describe("editor canvas capability failures", () => {
     const { result } = renderHook(() =>
       useEditorCanvasHandlers({
         canEdit: true,
+        canUploadFiles: true,
         debouncedSavePreview: vi.fn(),
         drawingId: "drawing-1",
         emitFilesDeltaIfNeeded: vi.fn(),

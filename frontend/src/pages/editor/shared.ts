@@ -318,6 +318,12 @@ export const UIOptions = {
   },
 } as const;
 
+/** Hide Excalidraw's image picker when this viewer cannot upload files. */
+export const editorUiOptions = (canUploadFiles: boolean) => ({
+  ...UIOptions,
+  tools: { image: canUploadFiles },
+});
+
 export { getInitialsFromName } from "../../utils/user";
 
 export const getColorFromString = (str: string): string => {

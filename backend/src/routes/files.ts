@@ -15,12 +15,8 @@
 import express from "express";
 import { PrismaClient } from "../generated/client";
 import { isS3Enabled, generatePresignedDownloadUrl } from "../s3";
-import {
-  canEditDrawing,
-  canViewDrawing,
-  getDrawingAccess,
-  shareLinkTokenFromRequest,
-} from "../authz/sharing";
+import { canViewDrawing, getDrawingAccess, shareLinkTokenFromRequest } from "../authz/sharing";
+import { getDrawingCapabilities, GUEST_UPLOAD_DENIED } from "../authz/capabilities";
 import { storeDrawingFile, AssetTooLargeError, QuotaExceededError } from "../assets/assetService";
 import { streamStoredFile } from "../assets/assetRoutes";
 import { resolveStoragePath } from "../assets/assetStorage";
@@ -99,20 +95,23 @@ export const registerFileRoutes = (app: express.Express, deps: FileRouteDeps): v
   // ------------------------------------------------------------------
   app.put(
     "/files/:drawingId/:fileId",
-    requireAuth,
+    optionalAuth,
     asyncHandler(async (req, res) => {
       const { drawingId, fileId } = req.params;
       if (!isValidIdSegment(drawingId) || !isValidIdSegment(fileId)) {
         return res.status(400).json({ error: "Invalid id segment" });
       }
 
-      const access = await getDrawingAccess({
+      const decision = await getDrawingCapabilities({
         prisma,
         principal: requestPrincipal(req),
         drawingId,
         shareToken: shareLinkTokenFromRequest(req),
       });
-      if (!canEditDrawing(access)) {
+      if (!decision.capabilities.uploadFiles) {
+        if (decision.isGuest && canViewDrawing(decision.access)) {
+          return res.status(403).json(GUEST_UPLOAD_DENIED);
+        }
         return res.status(404).json({ error: "Drawing not found" });
       }
 

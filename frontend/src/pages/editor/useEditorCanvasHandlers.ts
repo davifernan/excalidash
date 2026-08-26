@@ -51,6 +51,7 @@ type CanvasHandlerRefs = {
 
 type UseEditorCanvasHandlersParams = {
   canEdit: boolean;
+  canUploadFiles: boolean;
   debouncedSavePreview: (drawingId: string) => void;
   drawingId: string | undefined;
   emitFilesDeltaIfNeeded: (nextFiles: Record<string, any>) => boolean;
@@ -69,6 +70,7 @@ type UseEditorCanvasHandlersParams = {
 
 export const useEditorCanvasHandlers = ({
   canEdit,
+  canUploadFiles,
   debouncedSavePreview,
   drawingId,
   emitFilesDeltaIfNeeded,
@@ -181,6 +183,14 @@ export const useEditorCanvasHandlers = ({
   const handleCanvasDropCapture = useCallback(
     async (event: React.DragEvent<HTMLDivElement>) => {
       const allDroppedFiles = Array.from(event.dataTransfer?.files || []);
+      if (allDroppedFiles.length > 0 && !canUploadFiles) {
+        event.preventDefault();
+        event.stopPropagation();
+        toast.error(
+          "Guests cannot upload files to this board. Ask the board owner to enable guest uploads.",
+        );
+        return;
+      }
       const documentFiles = getDocumentDropFiles(allDroppedFiles);
       if (documentFiles) {
         event.preventDefault();
@@ -259,7 +269,16 @@ export const useEditorCanvasHandlers = ({
         toast.error("Failed to import dropped images");
       }
     },
-    [canEdit, drawingId, excalidrawAPIRef, fileCapability, latestElementsRef, scene, toScenePoint],
+    [
+      canEdit,
+      canUploadFiles,
+      drawingId,
+      excalidrawAPIRef,
+      fileCapability,
+      latestElementsRef,
+      scene,
+      toScenePoint,
+    ],
   );
 
   useEffect(() => {

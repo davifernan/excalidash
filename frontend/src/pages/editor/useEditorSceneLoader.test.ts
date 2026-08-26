@@ -39,6 +39,8 @@ const buildRefs = () => ({
 
 const loadScene = async (id: string | undefined, refs = buildRefs()) => {
   const setInitialData = vi.fn();
+  const setCanUploadFiles = vi.fn();
+  const setCanViewComments = vi.fn();
   renderHook(() =>
     useEditorSceneLoader({
       id,
@@ -47,6 +49,8 @@ const loadScene = async (id: string | undefined, refs = buildRefs()) => {
       navigate: vi.fn() as any,
       refs,
       setAccessLevel: vi.fn(),
+      setCanUploadFiles,
+      setCanViewComments,
       setDrawingName: vi.fn(),
       setCollectionId: vi.fn(),
       setCollectionName: vi.fn(),
@@ -58,7 +62,12 @@ const loadScene = async (id: string | undefined, refs = buildRefs()) => {
     }),
   );
   await waitFor(() => expect(setInitialData).toHaveBeenCalledWith(expect.objectContaining({})));
-  return { appState: setInitialData.mock.calls.at(-1)?.[0]?.appState, refs };
+  return {
+    appState: setInitialData.mock.calls.at(-1)?.[0]?.appState,
+    refs,
+    setCanUploadFiles,
+    setCanViewComments,
+  };
 };
 
 const storedDrawing = (appState: Record<string, any>) => ({
@@ -68,6 +77,7 @@ const storedDrawing = (appState: Record<string, any>) => ({
   files: {},
   appState,
   version: 1,
+  capabilities: { uploadFiles: true, viewComments: true },
 });
 
 describe("the appState a board opens with", () => {
@@ -105,6 +115,18 @@ describe("the appState a board opens with", () => {
 
     expect(refs.lastSyncedElementOrderSig.current).not.toBe("");
   });
+
+  it("uses the backend capabilities as the exact upload and comment UX gates", async () => {
+    vi.mocked(api.getDrawing).mockResolvedValue({
+      ...storedDrawing({}),
+      capabilities: { uploadFiles: false, viewComments: true },
+    });
+
+    const { setCanUploadFiles, setCanViewComments } = await loadScene("abc");
+
+    expect(setCanUploadFiles).toHaveBeenLastCalledWith(false);
+    expect(setCanViewComments).toHaveBeenLastCalledWith(true);
+  });
 });
 
 describe("workspace context loaded alongside the board (NIL-323/NIL-344)", () => {
@@ -128,6 +150,8 @@ describe("workspace context loaded alongside the board (NIL-323/NIL-344)", () =>
         navigate: vi.fn() as any,
         refs: buildRefs(),
         setAccessLevel: vi.fn(),
+        setCanUploadFiles: vi.fn(),
+        setCanViewComments: vi.fn(),
         setDrawingName: vi.fn(),
         setCollectionId,
         setCollectionName,
@@ -154,6 +178,8 @@ describe("workspace context loaded alongside the board (NIL-323/NIL-344)", () =>
         navigate: vi.fn() as any,
         refs: buildRefs(),
         setAccessLevel: vi.fn(),
+        setCanUploadFiles: vi.fn(),
+        setCanViewComments: vi.fn(),
         setDrawingName: vi.fn(),
         setCollectionId,
         setCollectionName,

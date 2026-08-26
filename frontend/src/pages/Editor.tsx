@@ -49,6 +49,8 @@ export const Editor: React.FC = () => {
   );
   const canEdit = accessLevel === "edit" || accessLevel === "owner";
   const canComment = canEdit || accessLevel === "comment";
+  const [canUploadFiles, setCanUploadFiles] = useState(false);
+  const [canViewComments, setCanViewComments] = useState(false);
   const [drawingName, setDrawingName] = useState("Drawing Editor");
   // Workspace context for the Canvas Shell chrome (NIL-323/NIL-344): which
   // collection this board sits in, gated server-side to the creator exactly
@@ -442,7 +444,7 @@ export const Editor: React.FC = () => {
     normalizeImageElementStatus,
     resolveSafeSnapshot,
   });
-  useEditorFileUploads({ drawingId: id, fileCapability: adapter.files });
+  useEditorFileUploads({ drawingId: id, fileCapability: adapter.files, enabled: canUploadFiles });
   const markSceneChangedSinceLoad = useCallback(() => {
     hasSceneChangesSinceLoadRef.current = true;
   }, []);
@@ -511,6 +513,8 @@ export const Editor: React.FC = () => {
     navigate,
     refs: sceneLoaderRefs,
     setAccessLevel,
+    setCanUploadFiles,
+    setCanViewComments,
     setDrawingName,
     setCollectionId,
     setCollectionName,
@@ -542,6 +546,7 @@ export const Editor: React.FC = () => {
   );
   const { handleCanvasChange, handleCanvasDropCapture } = useEditorCanvasHandlers({
     canEdit,
+    canUploadFiles,
     debouncedSavePreview,
     drawingId: id,
     emitFilesDeltaIfNeeded,
@@ -628,6 +633,7 @@ export const Editor: React.FC = () => {
       socketRef,
       isReady,
       accessLevel,
+      enabled: canViewComments,
       canComment,
       canModerate: canEdit,
       currentUserId: user?.id ?? null,
@@ -677,6 +683,8 @@ export const Editor: React.FC = () => {
         id={id}
         accessLevel={accessLevel}
         canEdit={canEdit}
+        canUploadFiles={canUploadFiles}
+        canViewComments={canViewComments}
         drawingName={drawingName}
         collectionId={collectionId}
         collectionName={collectionName}

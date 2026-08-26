@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { getTestPrisma, setupTestDb } from "./testUtils";
+import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
 
 describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
   const tinyPng = Buffer.from(
@@ -32,6 +33,9 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
   let csrfHeaderName: string;
   let csrfToken: string;
   let storageDir: string;
+  let anonymousAgent: any;
+  let anonymousCsrfHeaderName: string;
+  let anonymousCsrfToken: string;
 
   const signAccessToken = (user: { id: string; email: string }) => {
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
@@ -51,8 +55,19 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
 
     await prisma.systemConfig.upsert({
       where: { id: "default" },
-      update: { authEnabled: true, registrationEnabled: false },
-      create: { id: "default", authEnabled: true, registrationEnabled: false },
+      update: {
+        authEnabled: true,
+        registrationEnabled: false,
+        guestUploadEnabled: false,
+        guestCommentVisibilityEnabled: true,
+      },
+      create: {
+        id: "default",
+        authEnabled: true,
+        registrationEnabled: false,
+        guestUploadEnabled: false,
+        guestCommentVisibilityEnabled: true,
+      },
     });
 
     const passwordHash = await bcrypt.hash("password123", 10);
@@ -72,6 +87,10 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
     const csrfRes = await ownerAgent.get("/csrf-token").set("User-Agent", userAgent);
     csrfHeaderName = csrfRes.body.header;
     csrfToken = csrfRes.body.token;
+    anonymousAgent = request.agent(app);
+    const anonymousCsrf = await anonymousAgent.get("/csrf-token").set("User-Agent", userAgent);
+    anonymousCsrfHeaderName = anonymousCsrf.body.header;
+    anonymousCsrfToken = anonymousCsrf.body.token;
   }, 120000);
 
   afterAll(async () => {
@@ -129,6 +148,67 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
       .expect(200)
       .expect("Content-Type", /image\/png/);
     expect(downloaded.body).toEqual(tinyPng);
+  });
+
+  it("closes the data: URL scene-PUT bypass unless both guest-upload switches are enabled", async () => {
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({ name: "Guest data URL gate", elements: [], appState: {}, files: {} });
+    expect(created.status).toBe(200);
+
+    const drawingId = created.body.id as string;
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const attempt = () =>
+      anonymousAgent
+        .put(`/drawings/${drawingId}`)
+        .set("User-Agent", userAgent)
+        .set("x-share-token", token)
+        .set(anonymousCsrfHeaderName, anonymousCsrfToken)
+        .send({
+          version: created.body.version,
+          elements: [],
+          files: {
+            "guest-data-url": {
+              id: "guest-data-url",
+              mimeType: "image/png",
+              dataURL,
+            },
+          },
+        });
+
+    const bothOff = await attempt();
+    expect(bothOff.status).toBe(403);
+    expect(bothOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+    expect(
+      await prisma.drawingFile.findUnique({
+        where: { drawingId_fileId: { drawingId, fileId: "guest-data-url" } },
+      }),
+    ).toBeNull();
+
+    await prisma.drawing.update({ where: { id: drawingId }, data: { guestUploadEnabled: true } });
+    expect((await attempt()).status).toBe(403);
+
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: true },
+    });
+    const enabled = await attempt();
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.files["guest-data-url"].dataURL).toBe(
+      `/api/files/${drawingId}/guest-data-url`,
+    );
   });
 
   it("keeps an existing file when a later save's files payload does not repeat it", async () => {

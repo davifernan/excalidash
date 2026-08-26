@@ -17,6 +17,7 @@ const baseCtx: ChromeSlotContext = {
   id: "drawing-1",
   accessLevel: "owner",
   canEdit: true,
+  canViewComments: true,
   mobile: false,
   drawingName: "Untitled",
   collectionId: null,
@@ -157,10 +158,12 @@ describe("MAIN_MENU_ENTRIES", () => {
     expect(renderedIds(MAIN_MENU_ENTRIES, readOnly)).toContain("search-boards");
   });
 
-  it("shows comments for any real access level, hides it once access is none", () => {
+  it("shows comments only when the backend capability allows them", () => {
     const viewOnly: ChromeSlotContext = { ...baseCtx, accessLevel: "view", canEdit: false };
+    const hiddenByPolicy: ChromeSlotContext = { ...viewOnly, canViewComments: false };
     const noAccess: ChromeSlotContext = { ...baseCtx, accessLevel: "none", id: undefined };
     expect(renderedIds(MAIN_MENU_ENTRIES, viewOnly)).toContain("comments");
+    expect(renderedIds(MAIN_MENU_ENTRIES, hiddenByPolicy)).not.toContain("comments");
     expect(renderedIds(MAIN_MENU_ENTRIES, noAccess)).not.toContain("comments");
   });
 });

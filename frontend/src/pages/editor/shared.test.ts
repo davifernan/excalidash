@@ -9,8 +9,16 @@ import {
   isStaleNonRenderableSnapshot,
   resolveObjectsSnapMode,
   boardSettingsSignature,
+  editorUiOptions,
   shouldSaveBoardSettings,
 } from "./shared";
+
+describe("editor capability UI", () => {
+  it("hides Excalidraw's image picker when uploads are disabled", () => {
+    expect(editorUiOptions(false).tools.image).toBe(false);
+    expect(editorUiOptions(true).tools.image).toBe(true);
+  });
+});
 
 describe("editor/shared scene guards", () => {
   it("detects renderable elements", () => {

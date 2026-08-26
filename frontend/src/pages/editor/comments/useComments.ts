@@ -8,6 +8,7 @@ export type ThreadDraftAnchor = { elementId: string | null; x: number; y: number
 
 type UseCommentsInput = {
   drawingId?: string;
+  enabled: boolean;
   canComment: boolean;
   socketRef: MutableRefObject<Socket | null>;
   isReady: boolean;
@@ -46,15 +47,29 @@ const upsertComment = (prev: CommentDTO[], comment: CommentDTO): CommentDTO[] =>
     ? prev.map((c) => (c.id === comment.id ? comment : c))
     : [...prev, comment];
 
-export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCommentsInput) => {
+export const useComments = ({
+  drawingId,
+  enabled,
+  canComment,
+  socketRef,
+  isReady,
+}: UseCommentsInput) => {
   const [comments, setComments] = useState<CommentDTO[]>([]);
   const [candidates, setCandidates] = useState<MentionCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const drawingIdRef = useRef(drawingId);
   drawingIdRef.current = drawingId;
 
+  useEffect(() => {
+    setComments([]);
+    if (!enabled) {
+      setCandidates([]);
+      setLoading(false);
+    }
+  }, [drawingId, enabled]);
+
   const refresh = useCallback(async () => {
-    if (!drawingId) return;
+    if (!drawingId || !enabled) return;
     setLoading(true);
     try {
       const { comments: fetched } = await commentsApi.getDrawingComments(drawingId, {
@@ -64,15 +79,15 @@ export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCo
     } finally {
       setLoading(false);
     }
-  }, [drawingId]);
+  }, [drawingId, enabled]);
 
   useEffect(() => {
-    if (!drawingId) return;
+    if (!drawingId || !enabled) return;
     void refresh();
-  }, [drawingId, refresh]);
+  }, [drawingId, enabled, refresh]);
 
   useEffect(() => {
-    if (!drawingId || !canComment) {
+    if (!drawingId || !enabled || !canComment) {
       setCandidates([]);
       return;
     }
@@ -80,13 +95,13 @@ export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCo
       .getMentionCandidates(drawingId)
       .then(setCandidates)
       .catch(() => setCandidates([]));
-  }, [drawingId, canComment]);
+  }, [drawingId, enabled, canComment]);
 
   // Live updates from whoever else is on the board -- the same socket
   // connection the editor already holds for collaboration, not a second one.
   useEffect(() => {
     const socket = socketRef.current;
-    if (!socket || !isReady) return;
+    if (!socket || !isReady || !enabled) return;
     const onCreated = (comment: CommentDTO) => {
       if (comment.drawingId !== drawingIdRef.current) return;
       setComments((prev) => upsertComment(prev, comment));
@@ -109,7 +124,7 @@ export const useComments = ({ drawingId, canComment, socketRef, isReady }: UseCo
       socket.off("comment-updated", onUpdated);
       socket.off("comment-deleted", onDeleted);
     };
-  }, [socketRef, isReady, refresh]);
+  }, [socketRef, isReady, enabled, refresh]);
 
   const createThread = useCallback(
     async (body: string, anchor?: ThreadDraftAnchor | null) => {
