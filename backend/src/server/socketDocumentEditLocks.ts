@@ -6,6 +6,7 @@ import {
   type RoomEventPayload,
   type RoomEventResult,
 } from "./socketRoomEvent";
+import { logger } from "../logger";
 
 export const DOCUMENT_EDIT_LOCK_COMMAND_EVENT = "document-edit-lock-command";
 export const DOCUMENT_EDIT_LOCK_EVENT = "document-edit-lock-update";
@@ -96,6 +97,15 @@ export const registerDocumentEditLockRoomEvent = ({
         select: { elementId: true },
       });
       if (!widget) {
+        const existing = await prisma.documentPageView.findMany({
+          where: { drawingId: command.drawingId },
+          select: { elementId: true, assetId: true },
+        });
+        logger.warn("NIL-601 diagnostic: markdown edit lock refused, asset not on board", {
+          drawingId: command.drawingId,
+          soughtAssetId: command.assetId,
+          existingRows: existing,
+        });
         return {
           error: {
             code: "document-not-editable",
