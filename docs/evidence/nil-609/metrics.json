@@ -34,44 +34,38 @@
   },
   "buttonColors": {
     "selectedTool": {
-      "backgroundColor": "rgba(0, 0, 0, 0)",
-      "borderColor": "rgb(27, 27, 31)",
-      "color": "rgb(27, 27, 31)",
-      "fill": "rgb(0, 0, 0)",
-      "stroke": "none",
-      "strokeWidth": "1px"
+      "inputChecked": true,
+      "measuredNode": ".ToolIcon__icon",
+      "backgroundColor": "rgb(224, 223, 255)",
+      "borderColor": "rgb(229, 231, 235)",
+      "color": "rgb(3, 0, 100)"
     },
     "unselectedTool": {
+      "inputChecked": false,
+      "measuredNode": ".ToolIcon__icon",
       "backgroundColor": "rgba(0, 0, 0, 0)",
-      "borderColor": "rgb(27, 27, 31)",
-      "color": "rgb(27, 27, 31)",
-      "fill": "rgb(0, 0, 0)",
-      "stroke": "none",
-      "strokeWidth": "1px"
+      "borderColor": "rgb(229, 231, 235)",
+      "color": "rgb(27, 27, 31)"
+    },
+    "mainToolbarIsland": {
+      "backgroundColor": "rgb(255, 255, 255)",
+      "borderColor": "rgb(229, 231, 235)",
+      "color": "rgb(27, 27, 31)"
     },
     "hamburger": {
       "backgroundColor": "rgb(236, 236, 244)",
       "borderColor": "rgb(122, 122, 122)",
-      "color": "rgb(122, 122, 122)",
-      "fill": "rgb(0, 0, 0)",
-      "stroke": "none",
-      "strokeWidth": "1px"
+      "color": "rgb(122, 122, 122)"
     },
-    "share": {
-      "backgroundColor": "rgba(0, 0, 0, 0)",
-      "borderColor": "rgb(122, 122, 122)",
-      "color": "rgb(122, 122, 122)",
-      "fill": "rgb(0, 0, 0)",
-      "stroke": "none",
-      "strokeWidth": "1px"
+    "timer": {
+      "backgroundColor": "rgb(236, 236, 244)",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(27, 27, 31)"
     },
     "topRightWrapper": {
       "backgroundColor": "rgb(236, 236, 244)",
       "borderColor": "rgb(229, 231, 235)",
-      "color": "rgb(27, 27, 31)",
-      "fill": "rgb(0, 0, 0)",
-      "stroke": "none",
-      "strokeWidth": "1px"
+      "color": "rgb(27, 27, 31)"
     }
   },
   "canvasBackground": {
