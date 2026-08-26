@@ -108,16 +108,39 @@ describe("MAIN_MENU_ENTRIES", () => {
     expect(renderedIds(MAIN_MENU_ENTRIES, baseCtx)).toContain("version-history");
   });
 
-  it("hides Share unless the viewer owns the drawing", () => {
-    const editor: ChromeSlotContext = { ...baseCtx, accessLevel: "edit" };
-    expect(renderedIds(MAIN_MENU_ENTRIES, editor)).not.toContain("share");
-    expect(renderedIds(MAIN_MENU_ENTRIES, baseCtx)).toContain("share");
+  it("keeps Share and invite-everyone-here out of the desktop menu because the header owns both actions", () => {
+    const withPeer: ChromeSlotContext = { ...baseCtx, peers: [{ id: "p1" } as any] };
+    for (const ctx of [baseCtx, withPeer]) {
+      expect(renderedIds(MAIN_MENU_ENTRIES, ctx)).not.toContain("share");
+      expect(renderedIds(MAIN_MENU_ENTRIES, ctx)).not.toContain("invite-everyone-here");
+    }
   });
 
-  it("hides invite-everyone-here when nobody else is on the board", () => {
-    expect(renderedIds(MAIN_MENU_ENTRIES, baseCtx)).not.toContain("invite-everyone-here");
-    const withPeer: ChromeSlotContext = { ...baseCtx, peers: [{ id: "p1" } as any] };
-    expect(renderedIds(MAIN_MENU_ENTRIES, withPeer)).toContain("invite-everyone-here");
+  it("keeps both actions in the mobile menu where the desktop header does not render", () => {
+    const mobileOwner: ChromeSlotContext = {
+      ...baseCtx,
+      mobile: true,
+      peers: [{ id: "p1" } as any],
+    };
+    const ids = renderedIds(MAIN_MENU_ENTRIES, mobileOwner);
+    expect(ids).toContain("share");
+    expect(ids).toContain("invite-everyone-here");
+
+    const mobileEditorAlone: ChromeSlotContext = {
+      ...baseCtx,
+      mobile: true,
+      accessLevel: "edit",
+    };
+    const aloneIds = renderedIds(MAIN_MENU_ENTRIES, mobileEditorAlone);
+    expect(aloneIds).not.toContain("share");
+    expect(aloneIds).not.toContain("invite-everyone-here");
+    expect(aloneIds).not.toContain("mobile-collaboration-separator");
+  });
+
+  it("passes through Excalidraw's command palette and canvas search entries", () => {
+    const ids = renderedIds(MAIN_MENU_ENTRIES, baseCtx);
+    expect(ids).toContain("command-palette");
+    expect(ids).toContain("search-menu");
   });
 
   it("always renders the board name, editable or not", () => {

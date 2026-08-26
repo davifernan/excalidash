@@ -64,14 +64,24 @@ describe("EditorTopRight zone divider (NIL-579)", () => {
     render(<EditorTopRight isMobile={false} followerNotice={null} ctx={baseCtx} />);
     expect(screen.queryByTestId("editor-zone-divider")).toBeNull();
     expect(screen.queryByTestId("editor-invite")).toBeNull();
-    expect(screen.getByTestId("editor-share")).toBeInTheDocument();
+    expect(screen.getByTestId("editor-share")).toHaveAttribute(
+      "aria-describedby",
+      "editor-share-tooltip",
+    );
+    expect(document.getElementById("editor-share-tooltip")).toHaveTextContent("Share");
   });
 
   it("renders the divider once a peer makes the presence zone non-empty", () => {
     const withPeer: ChromeSlotContext = { ...baseCtx, peers: [{ id: "p1" } as any] };
     render(<EditorTopRight isMobile={false} followerNotice={null} ctx={withPeer} />);
     expect(screen.getByTestId("editor-zone-divider")).toBeInTheDocument();
-    expect(screen.getByTestId("editor-invite")).toBeInTheDocument();
+    expect(screen.getByTestId("editor-invite")).toHaveAttribute(
+      "aria-describedby",
+      "editor-invite-tooltip",
+    );
+    expect(document.getElementById("editor-invite-tooltip")).toHaveTextContent(
+      "Invite everyone here",
+    );
   });
 
   it("renders nothing at all on mobile, divider included", () => {

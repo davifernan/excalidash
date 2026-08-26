@@ -1,86 +1,44 @@
 /*
- * Positioned beside the hamburger menu, not inside the top-right header-
- * control group: that group has a documented factual width limit
- * (chromeSlots.tsx, HeaderControlSlotEntry's own comment) where a third icon
- * pushes Excalidraw's own collaborator-avatar list into a collapsed "+N"
- * badge. An absolutely-positioned overlay here never enters that flex row at
- * all, so it cannot trigger the same collapse -- the reason this is an
- * overlay widget (ui.overlayRoot(), like WorkshopTimerCorner) rather than a
- * HeaderControlSlotEntry.
+ * A continuous rectangular warning is deliberately unlike NIL-590's small,
+ * muted triangular presence arrows. The one-pixel line marks the viewport as
+ * a whole; the attached text names a connection failure, never a person.
  */
-.connection-status-badge {
+.connection-status-frame {
   position: absolute;
-  top: 12px;
-  left: 64px;
-  z-index: var(--excalidash-z-chrome);
+  inset: 0;
+  /* NIL-607's semantic scale: stay above the canvas but below collaborator
+     presence, which owns --excalidash-z-element-overlay. */
+  z-index: var(--excalidash-z-element-content);
+  box-sizing: border-box;
+  border: 1px solid #dc2626;
+  pointer-events: none;
+}
+
+.connection-status-frame__badge {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
   display: flex;
+  min-width: 96px;
+  height: 24px;
   align-items: center;
-  gap: 6px;
-  height: 2rem;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: transparent;
-  pointer-events: var(--ui-pointerEvents);
-  cursor: default;
-}
-
-.connection-status-badge:hover,
-.connection-status-badge:focus-within {
-  background: var(--color-surface-low, var(--island-bg-color));
-  box-shadow: var(--shadow-island);
-}
-
-.connection-status-badge__dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  /* Colour is the fact, not decoration -- see this widget's own file
-     comment. Fixed hex rather than a semantic CSS var: the three meanings
-     (live / trying / no network) need to stay visually distinct in both
-     themes, and Excalidraw's own colour tokens are not guaranteed to keep
-     three-way separation the way a literal green/amber/red does. */
-  background: #22c55e;
-  transition: background-color 0.2s ease;
-}
-
-/* A steady dot for "connected" reads as calm on purpose; a rhythmic pulse
-   is reserved for the state that is actually still in motion. */
-.connection-status-badge[data-status="reconnecting"] .connection-status-badge__dot {
-  background: #f59e0b;
-  animation: connection-status-badge-pulse 1.4s ease-in-out infinite;
-}
-
-.connection-status-badge[data-status="offline"] .connection-status-badge__dot {
-  background: #ef4444;
-}
-
-@keyframes connection-status-badge-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-.connection-status-badge__label {
-  display: none;
-  color: var(--icon-fill-color, #1f2937);
+  justify-content: center;
+  padding: 0 10px;
+  transform: translateX(-50%);
+  border-radius: 6px 6px 0 0;
+  background: #dc2626;
+  color: #fff;
   font-family: system-ui, sans-serif;
   font-size: 12px;
+  font-weight: 600;
   line-height: 1;
+  pointer-events: none;
   white-space: nowrap;
 }
 
-.connection-status-badge:hover .connection-status-badge__label,
-.connection-status-badge:focus-within .connection-status-badge__label {
-  display: inline;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .connection-status-badge[data-status="reconnecting"] .connection-status-badge__dot {
-    animation: none;
-  }
+.connection-status-frame__dots {
+  display: inline-block;
+  width: 1.5em;
+  margin-left: 1px;
+  text-align: left;
 }

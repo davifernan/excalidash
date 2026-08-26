@@ -7,11 +7,16 @@
     "node": ">=24"
   },
   "scripts": {
+    "prepare:excalidraw": "node scripts/expose-excalidraw-command-palette.mjs",
+    "postinstall": "npm run prepare:excalidraw",
+    "predev": "npm run prepare:excalidraw",
     "dev": "node scripts/copy-excalidraw-assets.mjs --public && vite --port 6767",
+    "pretypecheck": "npm run prepare:excalidraw",
     "typecheck": "node ../scripts/notification-boundary.cjs && tsc -b",
     "build": "npm run typecheck && vite build && node scripts/copy-excalidraw-assets.mjs --dist",
     "lint": "eslint .",
     "preview": "vite preview",
+    "pretest": "npm run prepare:excalidraw",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

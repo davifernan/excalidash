@@ -8,6 +8,7 @@ const setup = (limit = 1, windowMs = 1_000, access = true) => {
   const emit = vi.fn();
   const disconnect = vi.fn();
   const socket = {
+    id: "socket-1",
     on: (event: string, handler: (...args: any[]) => any) => handlers.set(event, handler),
     emit,
     disconnect,
@@ -133,6 +134,7 @@ describe("authorized room event feedback", () => {
         level: "error",
         message: "Room event failed",
         event: "test-event",
+        socketId: "socket-1",
         error: expect.objectContaining({ message: "database offline" }),
       }),
     );

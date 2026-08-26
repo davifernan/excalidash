@@ -19,8 +19,11 @@
  * of operational settings where a silent gap is a real outage risk rather
  * than a style choice --
  *
- *   - `logging` (driver + max-size + max-file), the exact gap this ticket
- *     found: unbounded logs fill the disk.
+ *   - `logging` (driver + max-size + max-file + compress), the exact gap
+ *     this ticket found: unbounded logs fill the disk. `compress` joined
+ *     the checked set in NIL-619 -- a host file that picks up a bigger
+ *     `max-file` but drops `compress` on the way is the same class of
+ *     silent regression, not a shape this check should shrug at.
  *   - `mem_limit` / `memswap_limit`, because their comment explains they
  *     exist to stop a runaway container from dragging the whole host into
  *     swap -- a value silently reverting to "unset" is the same class of
@@ -87,7 +90,17 @@ function extractAnchors(yamlText) {
   return anchors;
 }
 
-/** Extracts the resolved `logging:` block (driver/max-size/max-file) for one service. */
+/**
+ * Extracts the resolved `logging:` block (driver/max-size/max-file/compress)
+ * for one service.
+ *
+ * `compress` is optional in Docker's own json-file driver -- omitting it
+ * means "false". Treating it that way here (rather than requiring the key
+ * to be present) is what lets this catch the actual failure mode: a host
+ * file that carries the new `max-file` but drops `compress` on the way is a
+ * real, silent regression (NIL-619 review finding), not a shape this parser
+ * should shrug at as "couldn't tell."
+ */
 function extractLogging(serviceBlockText, anchors) {
   const refMatch = serviceBlockText.match(/^ {4}logging:\s*\*(\S+)\s*$/m);
   let body;
@@ -104,8 +117,9 @@ function extractLogging(serviceBlockText, anchors) {
   const driver = body.match(/driver:\s*(\S+)/)?.[1];
   const maxSize = body.match(/max-size:\s*"?([^"\n]+)"?/)?.[1]?.trim();
   const maxFile = body.match(/max-file:\s*"?([^"\n]+)"?/)?.[1]?.trim();
+  const compress = body.match(/compress:\s*"?([^"\n]+)"?/)?.[1]?.trim() ?? "false";
   if (!driver || !maxSize || !maxFile) return null;
-  return { driver, maxSize, maxFile };
+  return { driver, maxSize, maxFile, compress };
 }
 
 function extractKeyValues(serviceBlockText) {
@@ -190,7 +204,8 @@ function checkDrift({ deploymentPath, canonicalText, canonicalLabel }) {
       } else if (
         deploymentLogging.driver !== canonicalLogging.driver ||
         deploymentLogging.maxSize !== canonicalLogging.maxSize ||
-        deploymentLogging.maxFile !== canonicalLogging.maxFile
+        deploymentLogging.maxFile !== canonicalLogging.maxFile ||
+        deploymentLogging.compress !== canonicalLogging.compress
       ) {
         findings.push(
           `service "${name}": logging mismatch -- deployment has ${JSON.stringify(deploymentLogging)}, ` +
