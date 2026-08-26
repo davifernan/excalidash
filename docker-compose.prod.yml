@@ -12,11 +12,33 @@
 # EXCALIDASH_IMAGE_TAG must be a verified release or sha-<commit> tag in .env.
 # Compose refuses to start without it so an upgrade cannot silently move both
 # images to `latest`. See FORK.md for the upgrade and rollback procedure.
+# NIL-619: measured on the running production containers (26.08.2026, a quiet
+# period) -- backend wrote ~8 KB/day of structured JSON (info/warn/error;
+# per-request debug lines are off by default in production), frontend wrote
+# ~500 KB/day, almost entirely nginx access-log lines from the container
+# healthcheck polling /index.html every 30s, not real traffic. At `max-size:
+# 10m, max-file: 3` (30 MB/container) that quiet-day backend rate alone would
+# already outlast a week; the actual failure mode NIL-601 hit was a rare
+# diagnostic warn firing once and being gone by the next rotation, not steady
+# volume exceeding 30 MB. `max-file: 20` raises the cap to 200 MB/container --
+# roughly 1000x the measured quiet-day backend rate per week, a deliberately
+# large margin against days busier than this snapshot -- for a bounded cost of
+# at most 600 MB across the three containers sharing this anchor, on a machine
+# with 194 GB free disk. `compress: true` gzips every rotated (non-active)
+# file; measured on the same snapshot, JSON log lines shrank ~3.4x and nginx's
+# repetitive access-log lines ~11x, stretching the effective window further at
+# zero extra memory (compression runs in dockerd's existing log-rotation path,
+# not a new process). No separate collector (Loki/Vector) was considered
+# further than that: this machine was already at 7.2/8 GB swap used during
+# the same measurement window, so adding a memory-resident daemon next to
+# production for a workload this small would trade a real, scarce resource
+# for a benefit these numbers don't ask for.
 x-default-logging: &default-logging
   driver: json-file
   options:
     max-size: "10m"
-    max-file: "3"
+    max-file: "20"
+    compress: "true"
 
 services:
   backend:

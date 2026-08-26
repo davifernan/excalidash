@@ -84,4 +84,68 @@ describe("logger", () => {
 
     expect(lastLine(stderr)).toMatchObject({ level: "warn", message: "careful" });
   });
+
+  describe("NIL-619: redaction before the line is written durably", () => {
+    it("redacts a field literally named token/secret/password/authorization/cookie/apikey/jwt", () => {
+      config.logLevel = "info";
+      logger.info("auth event", {
+        token: "abc.def.ghi",
+        secret: "s3cr3t",
+        password: "hunter2",
+        authorization: "Bearer abc",
+        cookie: "session=xyz",
+        apiKey: "key-123",
+        jwt: "abc.def.ghi",
+        drawingId: "d1",
+      });
+
+      const line = lastLine(stdout);
+      expect(line.token).toBe("[redacted]");
+      expect(line.secret).toBe("[redacted]");
+      expect(line.password).toBe("[redacted]");
+      expect(line.authorization).toBe("[redacted]");
+      expect(line.cookie).toBe("[redacted]");
+      expect(line.apiKey).toBe("[redacted]");
+      expect(line.jwt).toBe("[redacted]");
+      // A field with no name collision keeps its real value.
+      expect(line.drawingId).toBe("d1");
+    });
+
+    it("redacts email and userEmail -- an address is a durably-retained record, not a rotating one", () => {
+      config.logLevel = "info";
+      logger.info("invitation failed", {
+        email: "davi@example.com",
+        userEmail: "guest@example.com",
+      });
+
+      const line = lastLine(stdout);
+      expect(line.email).toBe("[redacted]");
+      expect(line.userEmail).toBe("[redacted]");
+    });
+
+    it("redacts a nested/compound key name (resetToken, refreshTokenId) the same way", () => {
+      config.logLevel = "info";
+      logger.info("token issued", { resetToken: "abc", refreshTokenId: "id-1" });
+
+      const line = lastLine(stdout);
+      expect(line.resetToken).toBe("[redacted]");
+      expect(line.refreshTokenId).toBe("[redacted]");
+    });
+
+    it("does not redact an unrelated field, and leaves fields with no match untouched entirely", () => {
+      config.logLevel = "info";
+      logger.info("drawing saved", { drawingId: "d1", elementCount: 3 });
+
+      const line = lastLine(stdout);
+      expect(line.drawingId).toBe("d1");
+      expect(line.elementCount).toBe(3);
+    });
+
+    it("still redacts at error level, where reportBackendError also runs", () => {
+      config.logLevel = "info";
+      logger.error("invitation failed", { email: "davi@example.com" });
+
+      expect(lastLine(stderr).email).toBe("[redacted]");
+    });
+  });
 });
