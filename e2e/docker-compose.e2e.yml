@@ -14,8 +14,8 @@ services:
   # Backend API server
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
     environment:
       # Use an absolute sqlite path so Prisma CLI + the running app always point
       # at the same DB file (avoids schema being applied to a different relative path).
