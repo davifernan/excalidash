@@ -17,11 +17,15 @@
  * loss for a completely unrelated reason. A badge is non-destructive: it
  * reads state, never writes appearance.
  *
- * Purely a rendering layer, exactly `MindMapDropHighlight.tsx`'s and
- * `MindMapCollapseOverlay.tsx`'s own shape: every mask and badge is
- * computed fresh from the live scene and viewport on each render, nothing
- * here is an Excalidraw element or gets written back to the scene, and
- * collapsing an element never touches the elements it hides (see
+ * A PURE renderer of `useAmbientOverlayState.ts`'s own computed render data
+ * (NIL-598) -- it no longer reads the scene or viewport itself. That used
+ * to seem safe ("computed fresh from the live scene on each render", same
+ * shape as `MindMapDropHighlight.tsx`), but "each render" only happens if
+ * something actually re-renders the owning component, which is not
+ * guaranteed on a client that never locally changes selection (see
+ * `useAmbientOverlayState.ts`'s own header for the measured bug and the
+ * fix). Nothing here is an Excalidraw element or gets written back to the
+ * scene, and collapsing an element never touches the elements it hides (see
  * `collapsedHiddenIds` in `nodeState.ts`).
  *
  * Known limitation, unchanged from v1: the mask's `pointerEvents: "none"`
@@ -32,73 +36,55 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { Pin } from "lucide-react";
-import type { SceneCapability, ViewportCapability } from "../integrations/excalidraw/capabilities";
-import { elementViewportBounds } from "../pages/editor/floatingToolbarGeometry";
-import { collapsedHiddenIds, collapsedNodeIds, pinnedNodeIds } from "./nodeState";
+import type { AmbientOverlayState } from "./useAmbientOverlayState";
 
 const BADGE_COLOR = "#868e96"; // same token as ambient edges (`IMPORT_COLORS.edgeStroke`)
 const PIN_COLOR = "#f76707"; // same open-color orange-7 v1 used for its pinned stroke
 
 type Props = {
   container: HTMLElement | null;
-  scene: Pick<SceneCapability, "summaries">;
-  viewport: Pick<ViewportCapability, "read">;
+  state: AmbientOverlayState;
   onExpand: (nodeId: string) => void;
 };
 
-export const AmbientNodeOverlay: React.FC<Props> = ({ container, scene, viewport, onExpand }) => {
+export const AmbientNodeOverlay: React.FC<Props> = ({ container, state, onExpand }) => {
   if (!container) return null;
 
-  const summaries = scene.summaries();
-  const viewportState = viewport.read();
-  if (!summaries.ok || !viewportState.ok) return null;
-
-  const byId = new Map(summaries.value.map((element) => [element.id, element] as const));
-  const hostRect = container.getBoundingClientRect();
   const nodes: React.ReactNode[] = [];
 
-  const collapsedIds = collapsedNodeIds(summaries.value);
-  for (const nodeId of collapsedIds) {
-    const hidden = collapsedHiddenIds(summaries.value, nodeId);
-    const nodeSummary = byId.get(nodeId as never);
-    if (!hidden || !nodeSummary) continue; // stale flag on a leaf, or the node itself is gone
-
-    for (const hiddenId of hidden.ids) {
-      const element = byId.get(hiddenId as never);
-      if (!element) continue;
-      const bounds = elementViewportBounds(element, viewportState.value);
-      nodes.push(
-        <div
-          key={`ambient-collapse-mask-${hiddenId}`}
-          data-testid="mind-map-collapse-mask"
-          aria-hidden
-          style={{
-            position: "absolute",
-            left: bounds.left - hostRect.left,
-            top: bounds.top - hostRect.top,
-            width: bounds.right - bounds.left,
-            height: bounds.bottom - bounds.top,
-            background: "var(--island-bg-color, #fff)",
-            pointerEvents: "none",
-            zIndex: 2,
-          }}
-        />,
-      );
-    }
-
-    const nodeBounds = elementViewportBounds(nodeSummary, viewportState.value);
+  for (const mask of state.masks) {
     nodes.push(
-      <button
-        key={`ambient-collapse-badge-${nodeId}`}
-        type="button"
-        data-testid="mind-map-collapse-badge"
-        data-node-id={nodeId}
-        aria-label={`Expand ${hidden.nodeCount} hidden node${hidden.nodeCount === 1 ? "" : "s"}`}
-        onClick={() => onExpand(nodeId)}
+      <div
+        key={`ambient-collapse-mask-${mask.id}`}
+        data-testid="mind-map-collapse-mask"
+        aria-hidden
         style={{
           position: "absolute",
-          left: nodeBounds.right - hostRect.left - 20,
-          top: nodeBounds.bottom - hostRect.top - 14,
+          left: mask.left,
+          top: mask.top,
+          width: mask.width,
+          height: mask.height,
+          background: "var(--island-bg-color, #fff)",
+          pointerEvents: "none",
+          zIndex: 2,
+        }}
+      />,
+    );
+  }
+
+  for (const badge of state.collapseBadges) {
+    nodes.push(
+      <button
+        key={`ambient-collapse-badge-${badge.nodeId}`}
+        type="button"
+        data-testid="mind-map-collapse-badge"
+        data-node-id={badge.nodeId}
+        aria-label={`Expand ${badge.nodeCount} hidden node${badge.nodeCount === 1 ? "" : "s"}`}
+        onClick={() => onExpand(badge.nodeId)}
+        style={{
+          position: "absolute",
+          left: badge.left,
+          top: badge.top,
           minWidth: 24,
           height: 24,
           padding: "0 6px",
@@ -115,24 +101,21 @@ export const AmbientNodeOverlay: React.FC<Props> = ({ container, scene, viewport
           zIndex: 4,
         }}
       >
-        {hidden.nodeCount}
+        {badge.nodeCount}
       </button>,
     );
   }
 
-  for (const nodeId of pinnedNodeIds(summaries.value)) {
-    const nodeSummary = byId.get(nodeId as never);
-    if (!nodeSummary) continue;
-    const bounds = elementViewportBounds(nodeSummary, viewportState.value);
+  for (const pin of state.pinBadges) {
     nodes.push(
       <div
-        key={`ambient-pin-badge-${nodeId}`}
+        key={`ambient-pin-badge-${pin.nodeId}`}
         data-testid="mind-map-pin-badge"
         aria-hidden
         style={{
           position: "absolute",
-          left: bounds.left - hostRect.left - 8,
-          top: bounds.top - hostRect.top - 8,
+          left: pin.left,
+          top: pin.top,
           width: 20,
           height: 20,
           borderRadius: "50%",

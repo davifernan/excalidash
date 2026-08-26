@@ -37,6 +37,7 @@ import { useExcalidrawRoot } from "../pages/editor/useExcalidrawRoot";
 import { ElementFloatingToolbar } from "../pages/editor/ElementFloatingToolbar";
 import { AmbientNodeOverlay } from "../ambientTree/AmbientNodeOverlay";
 import { useAmbientNodeToolbar } from "../ambientTree/useAmbientNodeToolbar";
+import { useAmbientOverlayState } from "../ambientTree/useAmbientOverlayState";
 import { MindMapImportDialog } from "./MindMapImportDialog";
 import { useMindMapImport } from "./useMindMapImport";
 import { arrangeOps } from "./mindMapScene";
@@ -80,6 +81,14 @@ export function useMindMapFeature({
     togglePin,
     toggleCollapse,
   } = useAmbientNodeToolbar({ canEdit, excalidrawRoot, interaction, scene, selection, viewport });
+  // Separate from the toolbar hook above on purpose (NIL-598): the toolbar
+  // only ever needs to redraw for what the LOCAL selection is doing, but
+  // masks/badges must redraw for what ANY collaborator's collapse/pin just
+  // did, whether or not it changed this client's own selection -- see
+  // `useAmbientOverlayState.ts`'s own header for the measured bug this
+  // fixes.
+  const { state: overlayState, onSceneChange: onAmbientOverlaySceneChange } =
+    useAmbientOverlayState({ container: excalidrawRoot, scene, viewport });
 
   const onOpenMindMapImport = useCallback(() => open(), [open]);
 
@@ -123,8 +132,7 @@ export function useMindMapFeature({
       <MindMapImportDialog isOpen={isOpen} onClose={close} onImport={handleImport} />
       <AmbientNodeOverlay
         container={excalidrawRoot}
-        scene={scene}
-        viewport={viewport}
+        state={overlayState}
         onExpand={toggleCollapse}
       />
       <ElementFloatingToolbar target={toolbar?.target ?? null} label="Node actions">
@@ -164,5 +172,15 @@ export function useMindMapFeature({
     </>
   );
 
-  return { mindMapOverlay, onArrangeMindMap, onOpenMindMapImport, onAmbientNodeToolbarSceneChange };
+  const onMindMapSceneChange = useCallback(() => {
+    onAmbientNodeToolbarSceneChange();
+    onAmbientOverlaySceneChange();
+  }, [onAmbientNodeToolbarSceneChange, onAmbientOverlaySceneChange]);
+
+  return {
+    mindMapOverlay,
+    onArrangeMindMap,
+    onOpenMindMapImport,
+    onAmbientNodeToolbarSceneChange: onMindMapSceneChange,
+  };
 }
