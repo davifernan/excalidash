@@ -39,13 +39,38 @@ const readCssSeamInventory = () => {
 };
 
 const CSS_SEAM_INVENTORY = readCssSeamInventory();
-const normalizeSelector = (selector) => selector.replace(/["']/g, '"');
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const isCssIdentifierCharacter = (value) => /[A-Za-z0-9_-]/.test(value ?? "");
 
-const isInventoriedCssSelector = (relative, matchedSelector) =>
+/**
+ * Is this exact regex hit inside a complete inventoried CSS selector?
+ *
+ * The earlier `selector.includes(hit)` compared only a class-name prefix, so
+ * `.help-icon-badge` inherited the licence for `.help-icon`. CSS permits `-`
+ * inside an identifier, hence a word boundary is insufficient here. We instead
+ * find each full inventoried selector in the stylesheet, require identifier
+ * boundaries around that selector, and then require the guard's own hit to lie
+ * inside that exact occurrence.
+ */
+const isInventoriedCssSelector = (relative, contents, matchedSelector, matchIndex) =>
   relative.endsWith(".css") &&
-  CSS_SEAM_INVENTORY.some((selector) =>
-    normalizeSelector(selector).includes(normalizeSelector(matchedSelector)),
-  );
+  CSS_SEAM_INVENTORY.some((selector) => {
+    const re = new RegExp(escapeRegex(selector), "g");
+    for (const inventoryMatch of contents.matchAll(re)) {
+      const start = inventoryMatch.index;
+      const end = start + inventoryMatch[0].length;
+      if (
+        isCssIdentifierCharacter(contents[start - 1]) ||
+        isCssIdentifierCharacter(contents[end]) ||
+        matchIndex < start ||
+        matchIndex + matchedSelector.length > end
+      ) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  });
 
 /**
  * Files that still import the package directly.
@@ -307,6 +332,10 @@ const walk = (dir, out = []) => {
 
 const rel = (file) => path.relative(root, file).split(path.sep).join("/");
 
+/** CSS comments document a seam but do not themselves target the editor. */
+const withoutCssComments = (contents) =>
+  contents.replace(/\/\*[\s\S]*?\*\//g, (comment) => " ".repeat(comment.length));
+
 const RULES = [
   {
     id: "package-import",
@@ -321,9 +350,9 @@ const RULES = [
     id: "dom-internal",
     patterns: DOM_INTERNAL_PATTERNS.map((re) => ({ name: "internal selector", re })),
     exceptions: DOM_INTERNAL_EXCEPTIONS,
-    allow: (relative, matchedSelector) =>
+    allow: (relative, matchedSelector, contents, matchIndex) =>
       relative === DOM_BRIDGE.split(path.sep).join("/") ||
-      isInventoriedCssSelector(relative, matchedSelector),
+      isInventoriedCssSelector(relative, contents, matchedSelector, matchIndex),
     message: "names an Excalidraw-internal class. Those belong in domBridge.ts.",
   },
   {
@@ -371,14 +400,19 @@ const main = () => {
 
     for (const rule of RULES) {
       for (const hit of rule.patterns) {
-        const match = contents.match(hit.re);
-        if (!match) continue;
-        if (rule.allow(relative, match[0])) continue;
-        if (rule.exceptions.has(relative)) {
-          usedExceptions.get(rule.id).add(relative);
-          continue;
+        const scanned =
+          rule.id === "dom-internal" && relative.endsWith(".css")
+            ? withoutCssComments(contents)
+            : contents;
+        const flags = hit.re.flags.includes("g") ? hit.re.flags : `${hit.re.flags}g`;
+        for (const match of scanned.matchAll(new RegExp(hit.re.source, flags))) {
+          if (rule.allow(relative, match[0], scanned, match.index)) continue;
+          if (rule.exceptions.has(relative)) {
+            usedExceptions.get(rule.id).add(relative);
+            continue;
+          }
+          violations.push(`${relative}: ${rule.message} (${hit.name})`);
         }
-        violations.push(`${relative}: ${rule.message} (${hit.name})`);
       }
     }
   }

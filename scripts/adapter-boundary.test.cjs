@@ -155,6 +155,26 @@ const probes = [
     "export const probe = (api: { getAppState: () => unknown }) => api.getAppState();\n",
   ],
   [
+    "CSS selector that only shares the help-icon prefix with inventory",
+    "cssHelpIconPrefix.css",
+    ".help-icon-badge { top: 0; }\n",
+  ],
+  [
+    "CSS selector that only shares the sidebar-trigger prefix with inventory",
+    "cssSidebarTriggerPrefix.css",
+    ".sidebar-trigger--secondary { display: none; }\n",
+  ],
+  [
+    "CSS selector that only shares the main-menu-trigger prefix with inventory",
+    "cssMainMenuTriggerPrefix.css",
+    ".main-menu-trigger--experimental { color: red; }\n",
+  ],
+  [
+    "CSS selector that only shares the Island prefix with inventory",
+    "cssIslandPrefix.css",
+    ".Island--dragging { opacity: .5; }\n",
+  ],
+  [
     "direct customData write",
     "customDataWrite.ts",
     "export const probe = (element: { customData?: unknown }) => ({\n  ...element,\n  customData: { excalidash: { schemaVersion: 2 } },\n});\n",
