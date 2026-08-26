@@ -1,6 +1,6 @@
 import { beginCanvasDrag } from "../integrations/excalidraw/domBridge";
 import type { InteractionCapability } from "../integrations/excalidraw/capabilities";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 
 /**
  * Dragging an arrow out of a note.
@@ -117,7 +117,7 @@ export function beginArrowDrag(
   const { setActiveTool } = interaction;
   const armed = setActiveTool({ type: "builtin", name: "arrow" });
   if (!armed.ok) {
-    toast.error("Couldn't start the arrow. Please try again.");
+    notify("error", "Couldn't start the arrow. Please try again.");
     return;
   }
   void beginCanvasDrag(container, origin);

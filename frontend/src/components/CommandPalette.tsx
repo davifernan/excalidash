@@ -12,7 +12,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 import * as api from "../api";
 import type { DrawingSummary } from "../types";
 import { useDebounce } from "../hooks/useDebounce";
@@ -182,7 +182,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
             { error: err },
             { notify: false },
           );
-          toast.error("Couldn't create a new board. Try again.");
+          notify("error", "Couldn't create a new board. Try again.");
         } finally {
           setIsCreatingBoard(false);
         }
@@ -210,7 +210,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
         { error: err },
         { notify: false },
       );
-      toast.error("Couldn't create the collection. Try again.");
+      notify("error", "Couldn't create the collection. Try again.");
     } finally {
       setIsCreatingCollection(false);
     }

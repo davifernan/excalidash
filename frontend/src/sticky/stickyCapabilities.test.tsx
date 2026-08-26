@@ -1,7 +1,7 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+const { notification } = vi.hoisted(() => ({ notification: vi.fn() }));
 
 vi.mock("../integrations/excalidraw/domBridge", () => ({
   beginCanvasDrag: vi.fn(),
@@ -14,9 +14,7 @@ vi.mock("../integrations/excalidraw/domBridge", () => ({
   }),
 }));
 
-vi.mock("sonner", () => ({
-  toast: { error: toastError },
-}));
+vi.mock("../notifications", () => ({ notify: notification }));
 
 import { StickyHandles } from "./StickyHandles";
 import { StickyPalette } from "./StickyPalette";
@@ -241,7 +239,8 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     act(() => result.current.arm());
 
-    expect(toastError).toHaveBeenCalledWith(
+    expect(notification).toHaveBeenCalledWith(
+      "error",
       "Couldn't change the sticky-note tool. Please try again.",
     );
     expect(result.current.armed).toBe(false);
@@ -323,7 +322,10 @@ describe("sticky consumers at the Excalidraw boundary", () => {
       pointerType: "mouse",
     });
 
-    expect(toastError).toHaveBeenCalledWith("Couldn't start the arrow. Please try again.");
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Couldn't start the arrow. Please try again.",
+    );
   });
 
   it("checks placed-label editing through the interaction capability", () => {

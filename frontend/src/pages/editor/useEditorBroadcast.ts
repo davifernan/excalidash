@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import { splitFilesIntoUpdatePayloads, type ElementUpdatePayload } from "./elementUpdateDelivery";
 import { boardSettingsSignature, getFilesDelta, shouldSaveBoardSettings } from "./shared";
 import type { FileCapability } from "../../integrations/excalidraw/capabilities";
@@ -214,7 +214,7 @@ export const useEditorBroadcast = ({
           attemptSettled = true;
           if (transportError || response?.error?.code === "rate-limited") {
             const message = response?.error?.message;
-            if (typeof message === "string") toast.error(message);
+            if (typeof message === "string") notify("error", message);
             sceneRetryTimeoutRef.current = window.setTimeout(() => {
               sceneRetryTimeoutRef.current = null;
               sendCurrent();
@@ -223,14 +223,14 @@ export const useEditorBroadcast = ({
           }
           if (!response?.ok) {
             const message = response?.error?.message;
-            if (typeof message === "string") toast.error(message);
+            if (typeof message === "string") notify("error", message);
             finish(false);
             return;
           }
 
           packet.acknowledge();
           const warning = response.warning?.message;
-          if (typeof warning === "string") toast.error(warning);
+          if (typeof warning === "string") notify("error", warning);
           packetIndex += 1;
           sendCurrent();
         };
@@ -360,7 +360,7 @@ export const useEditorBroadcast = ({
 
       if (transportError || response?.error?.code === "rate-limited") {
         const message = response?.error?.message;
-        if (typeof message === "string") toast.error(message);
+        if (typeof message === "string") notify("error", message);
         for (const fileId of attemptFileIds) {
           const state = fileDeliveryStatesRef.current.get(fileId);
           if (!state) continue;
@@ -379,7 +379,7 @@ export const useEditorBroadcast = ({
       }
       if (!response?.ok) {
         const message = response?.error?.message;
-        if (typeof message === "string") toast.error(message);
+        if (typeof message === "string") notify("error", message);
         for (const fileId of attemptFileIds) {
           const state = fileDeliveryStatesRef.current.get(fileId);
           if (!state) continue;
@@ -402,7 +402,7 @@ export const useEditorBroadcast = ({
       };
       acknowledgedFileIdsRef.current = [...acknowledgedFileIdsRef.current, ...attemptFileIds];
       const warning = response.warning?.message;
-      if (typeof warning === "string") toast.error(warning);
+      if (typeof warning === "string") notify("error", warning);
       for (const fileId of attemptFileIds) {
         const state = fileDeliveryStatesRef.current.get(fileId);
         if (!state) continue;
@@ -546,7 +546,7 @@ export const useEditorBroadcast = ({
     (nextDrawingId: string | undefined) => {
       if (rejectedFilesDrawingIdRef.current === nextDrawingId) return;
       for (const notice of rejectedFileNoticesRef.current.values()) {
-        toast.error(oversizedImageFallbackNotice(notice.payloadBytes));
+        notify("error", oversizedImageFallbackNotice(notice.payloadBytes));
       }
       rejectedFileAttemptsRef.current.clear();
       rejectedFileNoticesRef.current.clear();
@@ -567,7 +567,7 @@ export const useEditorBroadcast = ({
       if (!nextFiles) {
         const fileState = files.read();
         if (!fileState.ok) {
-          toast.error("Live collaboration could not read editor files.");
+          notify("error", "Live collaboration could not read editor files.");
           return false;
         }
         nextFiles = fileState.value;
@@ -631,7 +631,7 @@ export const useEditorBroadcast = ({
       for (const [fileId, notice] of rejectedFileNoticesRef.current) {
         const message = oversizedImageNotice(fileId, notice.payloadBytes, normalizedElements);
         if (!message) continue;
-        toast.error(message);
+        notify("error", message);
         rejectedFileNoticesRef.current.delete(fileId);
       }
 

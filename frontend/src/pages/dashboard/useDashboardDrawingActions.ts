@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from "react";
 import type { NavigateFunction } from "react-router-dom";
 import * as api from "../../api";
 import type { Collection, DrawingSummary } from "../../types";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import { log } from "../../logging";
 
 type UseDashboardDrawingActionsParams = {
@@ -91,19 +91,19 @@ export const useDashboardDrawingActions = ({
     }
     isCreatingDrawingRef.current = true;
     setIsCreatingDrawing(true);
-    const toastId = "create-drawing";
-    toast.loading("Creating drawing...", { id: toastId });
+    const notificationKey = "create-drawing";
+    notify("loading", "Creating drawing...", { key: notificationKey });
     try {
       const targetCollectionId = selectedCollectionId === undefined ? null : selectedCollectionId;
       const { id } = await api.createDrawing("Untitled Drawing", targetCollectionId);
-      toast.success("Drawing created. Opening editor...", { id: toastId });
+      notify("success", "Drawing created. Opening editor...", { key: notificationKey });
       navigate(`/editor/${id}`);
     } catch (err) {
       log.error("Failed to create drawing", { error: err }, { notify: false });
       const message =
         "Couldn't create a drawing. The server did not complete the request. Check your connection and try again.";
       handleViewerActionError(message);
-      toast.error(message, { id: toastId });
+      notify("error", message, { key: notificationKey });
     } finally {
       isCreatingDrawingRef.current = false;
       setIsCreatingDrawing(false);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Download, Loader2, Trash2, Upload, Users } from "lucide-react";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 import * as api from "../api";
 import type { TeamLibraryItem } from "../api";
 import { Layout } from "../components/Layout";
@@ -72,7 +72,7 @@ export const TeamLibrary: React.FC = () => {
         setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
       } catch (err) {
         log.error("Failed to update visibility", { error: err }, { notify: false });
-        toast.error("Couldn't change visibility. Try again.");
+        notify("error", "Couldn't change visibility. Try again.");
       }
     });
 
@@ -83,7 +83,7 @@ export const TeamLibrary: React.FC = () => {
         setItems((prev) => prev.filter((row) => row.id !== item.id));
       } catch (err) {
         log.error("Failed to delete library item", { error: err }, { notify: false });
-        toast.error("Couldn't delete this item. Try again.");
+        notify("error", "Couldn't delete this item. Try again.");
       }
     });
 
@@ -103,7 +103,7 @@ export const TeamLibrary: React.FC = () => {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       log.error("Failed to export Team Library", { error: err }, { notify: false });
-      toast.error("Couldn't export the library. Try again.");
+      notify("error", "Couldn't export the library. Try again.");
     }
   };
 
@@ -113,11 +113,11 @@ export const TeamLibrary: React.FC = () => {
       const text = await file.text();
       const parsed = JSON.parse(text);
       const result = await api.importLibraryItems(parsed);
-      toast.success(`Imported ${result.imported} item${result.imported === 1 ? "" : "s"}`);
+      notify("success", `Imported ${result.imported} item${result.imported === 1 ? "" : "s"}`);
       load();
     } catch (err) {
       log.error("Failed to import library file", { error: err }, { notify: false });
-      toast.error("Couldn't import this file. Is it a valid .excalidrawlib file?");
+      notify("error", "Couldn't import this file. Is it a valid .excalidrawlib file?");
     } finally {
       setIsImporting(false);
     }

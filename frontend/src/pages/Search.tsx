@@ -8,7 +8,7 @@ import {
   RotateCcw,
   Search as SearchIcon,
 } from "lucide-react";
-import { toast } from "sonner";
+import { notify } from "../notifications";
 import * as api from "../api";
 import { Layout } from "../components/Layout";
 import { DataFailureNotice } from "../components/DataFailureNotice";
@@ -126,11 +126,11 @@ export const SearchPage: React.FC = () => {
     setRestoringIds((prev) => new Set(prev).add(id));
     try {
       await api.restoreDrawing(id);
-      toast.success("Board restored");
+      notify("success", "Board restored");
       retry();
     } catch (err) {
       log.error("Failed to restore drawing", { error: err }, { notify: false });
-      toast.error("Couldn't restore this board. Try again.");
+      notify("error", "Couldn't restore this board. Try again.");
     } finally {
       setRestoringIds((prev) => {
         const next = new Set(prev);
@@ -143,11 +143,11 @@ export const SearchPage: React.FC = () => {
   const handleArchive = async (id: string) => {
     try {
       await api.archiveDrawing(id);
-      toast.success("Board archived");
+      notify("success", "Board archived");
       retry();
     } catch (err) {
       log.error("Failed to archive drawing", { error: err }, { notify: false });
-      toast.error("Couldn't archive this board. Try again.");
+      notify("error", "Couldn't archive this board. Try again.");
     }
   };
 
