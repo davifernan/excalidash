@@ -112,6 +112,72 @@ test("connection failures frame the viewport without intercepting any edge", asy
       });
     }, edgePoints);
 
+    // Put the second collaborator directly below the first viewport. NIL-590
+    // clamps that direction to a bottom-centre presence marker -- the exact
+    // place occupied by the connection badge and the collision Hans found.
+    await second.locator("canvas.excalidraw__canvas.interactive").hover({
+      position: { x: 640, y: 360 },
+    });
+    const moved = await first.evaluate(() =>
+      (window as any).__EXCALIDASH_TEST__.showViewportBounds([0, -1000, 1280, -280]),
+    );
+    expect(moved.ok).toBe(true);
+    const presenceMarker = first.getByTestId("offscreen-presence-marker");
+    await expect(presenceMarker).toBeVisible({ timeout: 10_000 });
+
+    // The browser's genuine offline signal changes the product state while
+    // leaving the live peer in place long enough to prove simultaneous
+    // stacking. We drop the transports below for the full reconnect cycle.
+    await Promise.all(
+      [first, second].map((page) =>
+        page.evaluate(() => window.dispatchEvent(new Event("offline"))),
+      ),
+    );
+    await expect(frame(first)).toHaveAttribute("data-status", "offline");
+    await expect(badge(first)).toHaveText("Disconnected");
+
+    const presenceCollision = await first.evaluate(() => {
+      const frameElement = document.querySelector<HTMLElement>(
+        "[data-testid='connection-status-frame']",
+      );
+      const badgeElement = document.querySelector<HTMLElement>(
+        "[data-testid='connection-status-badge']",
+      );
+      const presenceElement = document.querySelector<HTMLElement>(
+        "[data-testid='offscreen-presence']",
+      );
+      const markerElement = document.querySelector<HTMLElement>(
+        "[data-testid='offscreen-presence-marker']",
+      );
+      if (!frameElement || !badgeElement || !presenceElement || !markerElement) {
+        throw new Error("Missing connection/presence collision elements");
+      }
+      const badgeRect = badgeElement.getBoundingClientRect();
+      const markerRect = markerElement.getBoundingClientRect();
+      const overlapWidth = Math.max(
+        0,
+        Math.min(badgeRect.right, markerRect.right) - Math.max(badgeRect.left, markerRect.left),
+      );
+      const overlapHeight = Math.max(
+        0,
+        Math.min(badgeRect.bottom, markerRect.bottom) - Math.max(badgeRect.top, markerRect.top),
+      );
+      return {
+        frameZIndex: Number(getComputedStyle(frameElement).zIndex),
+        presenceZIndex: Number(getComputedStyle(presenceElement).zIndex),
+        overlapArea: overlapWidth * overlapHeight,
+        badgeRect: badgeRect.toJSON(),
+        markerRect: markerRect.toJSON(),
+      };
+    });
+    expect(presenceCollision.overlapArea).toBeGreaterThan(0);
+    expect(Number.isFinite(presenceCollision.frameZIndex)).toBe(true);
+    expect(presenceCollision.presenceZIndex).toBeGreaterThan(presenceCollision.frameZIndex);
+    await testInfo.attach("disconnected-frame-with-visible-presence-arrow", {
+      body: await first.screenshot(),
+      contentType: "image/png",
+    });
+
     await Promise.all([firstContext.setOffline(true), secondContext.setOffline(true)]);
     await expect(frame(first)).toHaveAttribute("data-status", "offline");
     await expect(badge(first)).toHaveText("Disconnected");
@@ -242,7 +308,15 @@ test("connection failures frame the viewport without intercepting any edge", asy
 
     console.log(
       "[connection-frame-evidence]",
-      JSON.stringify({ geometry, underlying, clicks, dotSamples, firstStatuses, secondStatuses }),
+      JSON.stringify({
+        geometry,
+        presenceCollision,
+        underlying,
+        clicks,
+        dotSamples,
+        firstStatuses,
+        secondStatuses,
+      }),
     );
   } finally {
     await Promise.all([firstContext.close(), secondContext.close()]);

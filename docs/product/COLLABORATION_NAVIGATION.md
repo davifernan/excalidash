@@ -24,7 +24,9 @@ Rahmen und Badge sind ausdruecklich `pointer-events: none`; sie duerfen weder Ca
 an irgendeiner Viewport-Kante aus dem Hit-Testing verdraengen. Die durchgehende rote Rechteckform
 mit Text bezeichnet den Zustand der gesamten Verbindung. Damit ist sie absichtlich nicht mit
 NIL-590s kleinen, einzelnen Dreieckspfeilen in Kollaboratorfarbe zu verwechseln, die eine Person
-und eine Richtung am Rand bezeichnen.
+und eine Richtung am Rand bezeichnen. Der Rahmen belegt deshalb NIL-607s semantische Rolle
+`element-content`; die Praesenzpfeile liegen auf `element-overlay` und bleiben auch dort sichtbar,
+wo ein Pfeil das undurchsichtige Badge ueberlappt.
 
 ## Warum dieses Dokument existiert
 

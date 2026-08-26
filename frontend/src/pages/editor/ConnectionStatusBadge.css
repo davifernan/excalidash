@@ -6,6 +6,8 @@
 .connection-status-frame {
   position: absolute;
   inset: 0;
+  /* NIL-607's semantic scale: stay above the canvas but below collaborator
+     presence, which owns --excalidash-z-element-overlay. */
   z-index: var(--excalidash-z-element-content);
   box-sizing: border-box;
   border: 1px solid #dc2626;
