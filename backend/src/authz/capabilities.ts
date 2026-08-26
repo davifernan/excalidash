@@ -130,6 +130,20 @@ export const hasEmbeddedFileUpload = (files: unknown): boolean => {
   });
 };
 
+/** Whether a persisted SVG preview carries inline image bytes. */
+export const hasEmbeddedPreviewUpload = (preview: unknown): boolean => {
+  if (typeof preview !== "string") return false;
+  return /<image\b[^>]*\s(?:href|xlink:href)\s*=\s*(?:"\s*data:image\/|'\s*data:image\/)/i.test(
+    preview,
+  );
+};
+
+/** Every drawing-update carrier that can persist newly supplied image bytes. */
+export const hasEmbeddedDrawingUpload = (payload: {
+  files?: unknown;
+  preview?: unknown;
+}): boolean => hasEmbeddedFileUpload(payload.files) || hasEmbeddedPreviewUpload(payload.preview);
+
 export const GUEST_UPLOAD_DENIED = {
   error: "Guest upload disabled",
   code: "GUEST_UPLOAD_DISABLED",

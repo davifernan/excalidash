@@ -6,7 +6,7 @@ import { canEditDrawing, isOwnerAccess } from "../../authz/sharing";
 import {
   getDrawingCapabilities,
   GUEST_UPLOAD_DENIED,
-  hasEmbeddedFileUpload,
+  hasEmbeddedDrawingUpload,
 } from "../../authz/capabilities";
 import { rewritePreviewFileReferences } from "../../fileProcessing";
 import {
@@ -209,7 +209,7 @@ export const registerDrawingCreateUpdateRoutes = (
         files?: Record<string, unknown>;
         version?: number;
       };
-      if (hasEmbeddedFileUpload(payload.files) && !decision.capabilities.uploadFiles) {
+      if (hasEmbeddedDrawingUpload(payload) && !decision.capabilities.uploadFiles) {
         return res.status(403).json(GUEST_UPLOAD_DENIED);
       }
       const ownerUserId = existingDrawing.userId;

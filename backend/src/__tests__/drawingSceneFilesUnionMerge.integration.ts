@@ -211,6 +211,69 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
     );
   });
 
+  it("closes the preview-only data: URL bypass unless both guest-upload switches are enabled", async () => {
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: false },
+    });
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({ name: "Guest preview data URL gate", elements: [], appState: {}, files: {} });
+    expect(created.status).toBe(200);
+
+    const drawingId = created.body.id as string;
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const preview = `<svg xmlns="http://www.w3.org/2000/svg"><image href="${dataURL}" /></svg>`;
+    const attempt = () =>
+      anonymousAgent
+        .put(`/drawings/${drawingId}`)
+        .set("User-Agent", userAgent)
+        .set("x-share-token", token)
+        .set(anonymousCsrfHeaderName, anonymousCsrfToken)
+        .send({ preview });
+
+    const bothOff = await attempt();
+    expect(bothOff.status).toBe(403);
+    expect(bothOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+    expect(
+      (await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).preview,
+    ).toBeNull();
+
+    await prisma.drawing.update({
+      where: { id: drawingId },
+      data: { guestUploadEnabled: true },
+    });
+    const instanceStillOff = await attempt();
+    expect(instanceStillOff.status).toBe(403);
+    expect(instanceStillOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+    expect(
+      (await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).preview,
+    ).toBeNull();
+
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: true },
+    });
+    const enabled = await attempt();
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.preview).toContain(dataURL);
+    expect(
+      (await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).preview,
+    ).toContain(dataURL);
+  });
+
   it("keeps an existing file when a later save's files payload does not repeat it", async () => {
     const created = await ownerAgent
       .post("/drawings")
