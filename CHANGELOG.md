@@ -20,16 +20,10 @@ Release tags follow `vX.Y.Z` -- see
 ## v0.12.0 -- 2026-08-26
 
 ### Added
-
-- none -- repo governance document only, no product code.
 - Dragging a box now takes along whatever it points to via a connecting arrow, on any board -- no tool needed.
 - Pin (P) and collapse (the floating "Collapse" toolbar) work on any node with children now, not just an imported mind-map tree -- no tool, no mode to switch into first. A pinned node's position survives the next "Arrange" run; a collapsed node's descendants hide behind a badge that expands them again.
 
 ### Fixed
-
-- none -- test-only change to an e2e performance regression check.
-- none -- release-tooling change, not a product change.
-- none -- e2e test-only change, no product code touched.
 - Fixes an intermittent bug where a collapsed subtree's count badge sometimes never appeared for a collaborator who only received the collapse over the socket, even though the collapse itself synced correctly.
 
 ### Changed

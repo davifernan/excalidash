@@ -137,6 +137,18 @@ test("classifyUserFacing: User-Facing: none is a decision, not a suspect case", 
   assert.equal(classified.sentence, null);
 });
 
+test("classifyUserFacing: legacy User-Facing: none -- reason is a decision, not release-note prose", () => {
+  const body = "User-Facing: none -- release-tooling change, not a product change.";
+  const classified = classifyUserFacing(body);
+  assert.equal(
+    classified.status,
+    USER_FACING_STATUS.NONE,
+    "legacy `none -- <reason>` must be skipped instead of being published as a release-note bullet",
+  );
+  assert.equal(classified.sentence, null);
+  assert.equal(extractUserFacingSentence(body), null);
+});
+
 test("classifyUserFacing: a missing line is a suspect case with its own reason", () => {
   const classified = classifyUserFacing("no such line at all");
   assert.equal(classified.status, USER_FACING_STATUS.MISSING);
