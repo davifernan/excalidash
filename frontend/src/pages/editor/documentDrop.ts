@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import { isAxiosError, uploadDocumentAsset, type UploadDocumentKind } from "../../api";
 import type { SceneCapability } from "../../integrations/excalidraw/capabilities";
 import type { ElementId, NewElement } from "../../integrations/excalidraw/types";
@@ -93,13 +93,13 @@ export const addDroppedDocumentWidgets = async ({
   for (const [index, file] of files.entries()) {
     const kind = documentKindForFile(file);
     if (!kind) continue;
-    const toastId = `document-upload-${Date.now()}-${index}`;
-    toast.loading(`Uploading ${file.name}...`, { id: toastId, description: "0%" });
+    const notificationKey = `document-upload-${Date.now()}-${index}`;
+    notify("loading", `Uploading ${file.name}...`, { key: notificationKey, detail: "0%" });
     try {
       const asset = await uploadDocumentAsset(drawingId, file, kind, (progress) => {
-        toast.loading(`Uploading ${file.name}...`, {
-          id: toastId,
-          description: `${progress}%`,
+        notify("loading", `Uploading ${file.name}...`, {
+          key: notificationKey,
+          detail: `${progress}%`,
         });
       });
       elements.push(
@@ -112,9 +112,9 @@ export const addDroppedDocumentWidgets = async ({
           }),
         ),
       );
-      toast.success(`${file.name} added`, { id: toastId });
+      notify("success", `${file.name} added`, { key: notificationKey });
     } catch (error) {
-      toast.error(getDocumentUploadErrorMessage(error, kind), { id: toastId });
+      notify("error", getDocumentUploadErrorMessage(error, kind), { key: notificationKey });
     }
   }
 

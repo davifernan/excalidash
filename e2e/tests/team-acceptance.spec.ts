@@ -456,7 +456,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
           [host, guestA, guestB].map((page) =>
             page.evaluate(() => {
               const button = document.querySelector<HTMLButtonElement>(
-                '.text-document-widget__button[aria-label="Next page"]',
+                '.element-floating-toolbar__button[aria-label="Next page"]',
               );
               if (!button?.isConnected || button.disabled) {
                 throw new Error("Could not release a connected, enabled Next page button");

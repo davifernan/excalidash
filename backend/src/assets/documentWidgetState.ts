@@ -17,6 +17,7 @@ export class InvalidDocumentWidgetStateError extends Error {
 }
 
 export type DocumentWidgetBinding = { elementId: string; assetId: string };
+export type DocumentWidgetStateOptions = { correlationId?: string };
 
 /** Extract validated document-widget bindings from client-authored scene data. */
 export function documentWidgetBindings(elements: unknown): DocumentWidgetBinding[] {
@@ -69,6 +70,7 @@ export async function syncDrawingDocumentState(
   prisma: any,
   drawingId: string,
   elements: unknown,
+  options: DocumentWidgetStateOptions = {},
 ): Promise<{ activated: string[]; detached: string[]; widgets: number }> {
   const bindings = documentWidgetBindings(elements);
   const assets = await syncDrawingAssets(
@@ -88,6 +90,7 @@ export async function syncDrawingDocumentState(
   if (toDelete.length > 0) {
     logger.warn("NIL-601 diagnostic: syncDrawingDocumentState is deleting document page rows", {
       drawingId,
+      correlationId: options.correlationId,
       wantedElementIds,
       deletingElementIds: toDelete,
     });

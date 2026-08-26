@@ -181,6 +181,27 @@ Review focus: <what an independent reviewer should attack>
 
 - Generate the impact manifest from `git diff base...head` with
   `node scripts/delivery-v2.cjs impact`. Labels are hints; the actual diff wins every conflict.
+- **Bildnachweise gehoeren an den PR, nicht ins Ticket. Am Ticket steht ein Kommentar, der auf
+  den PR verweist. Screenshots kommen nie nach `main`.** Wenn ein Multica-Ticket das Label
+  `screenshot needed` traegt, werden seine Bilder append-only auf dem dauerhaften Branch
+  `evidence` unter einem paketbezogenen Pfad abgelegt, im PR per
+  `raw.githubusercontent.com`-URL eingebunden und der PR erhaelt das GitHub-Label `screenshot`.
+  Der Ticket-Kommentar enthaelt nur den PR-Link, keinen Bild-Anhang.
+- Die dauerhafte Branch-Ausnahmeliste fuer jeden lokalen oder Remote-Aufraeumlauf ist
+  `main`, `nilo/live`, `evidence`. `evidence` darf weder geloescht noch force-gepusht werden;
+  das GitHub-Ruleset `evidence-retention` erzwingt beides serverseitig. Ein Aufraeumwerkzeug
+  muss trotzdem alle drei Namen vor jeder Mutation explizit herausfiltern, damit Schutz nicht
+  erst als fehlgeschlagener Loeschversuch sichtbar wird.
+- `scripts/screenshot-evidence-watch.cjs` verknuepft die beiden Label-Seiten: Nur wenn das echte
+  Multica-Ticket `screenshot needed` traegt, der PR nicht mehr Draft ist und PR-Text plus alle
+  PR-Kommentare sicher **keinen** Bildverweis enthalten, setzt er den roten Status
+  `Screenshot Evidence`. Eine unbekannte Bildablage, ein nicht eindeutig lesbarer
+  Package-Vertrag oder ein nicht erreichbarer Dienst ist kein bewiesenes Fehlen: der Waechter
+  meldet den Fall ohne roten Status. Ein verifizierter Raw-Link von `evidence` wird gruen und
+  setzt bei Bedarf das PR-Label `screenshot`. Nach Integration installiert
+  `sudo ops/install-screenshot-evidence-watch.sh` den eigenstaendigen Drei-Minuten-Timer aus
+  dem aktuellen Control-Worktree; der allgemeine Pipeline-Sentinel muss dafuer nicht aktiviert
+  werden.
 - A visible frontend product delta requires final-head browser inspection and screenshot
   attachments on the package. Record scenario, viewport, and expected result for each image.
 - A test-only frontend delta runs its relevant tests and records exactly
@@ -461,7 +482,7 @@ Backend base variables:
 - `ENABLE_PASSWORD_RESET` (`true` to enable)
 - `ENABLE_REFRESH_TOKEN_ROTATION` (`true`/`false`, default `true`)
 - `ENABLE_AUDIT_LOGGING` (`true`/`false`, default `false`)
-- `ERROR_TRACKER_DSN` (optional; a Sentry-compatible DSN such as Bugsink — empty means no SDK
+- `ERROR_TRACKER_DSN` (optional; a Sentry-compatible DSN such as GlitchTip — empty means no SDK
   initialization and no network delivery; see `docs/architecture/ERROR_TRACKER_DECISION.md`)
 - `ENFORCE_HTTPS_REDIRECT` (`true`/`false`, default `true`) — when `FRONTEND_URL` uses `https://`, the backend auto-redirects plain-HTTP requests; set to `false` when the outer gateway already enforces HTTPS to avoid redirect loops
 - `BOOTSTRAP_SETUP_CODE_TTL_MS` (default `900000`)

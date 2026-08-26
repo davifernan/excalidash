@@ -55,16 +55,12 @@ test.describe("the note tool in the toolbar", () => {
       .click({ position: { x: 700, y: 500 } });
     await page.keyboard.press("n");
     await page.waitForFunction(
-      () =>
-        (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.customType ===
-        "sticky",
+      () => (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.customType === "sticky",
     );
 
     await page.keyboard.press("n");
     await page.waitForFunction(
-      () =>
-        (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.type ===
-        "selection",
+      () => (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.type === "selection",
     );
   });
 
@@ -134,6 +130,151 @@ test.describe("dragging an arrow out of a note", () => {
     await expect(page.getByTestId("sticky-handle-bottom")).toBeVisible();
   });
 
+  test("previews a child, then creates and edits it with one click", async ({ page }) => {
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+    await handle.hover();
+    await expect(page.getByTestId("sticky-child-preview")).toBeVisible();
+
+    await handle.click();
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+    await page.keyboard.type("Child note");
+    await page.keyboard.press("Escape");
+    await settle(page);
+
+    const created = await scene(page);
+    const createdNotes = created.filter((element: any) => element.sticky);
+    const arrow = created.find((element: any) => element.type === "arrow");
+    expect(createdNotes).toHaveLength(2);
+    expect(arrow?.startBinding?.elementId).toBe(createdNotes[0].id);
+    expect(arrow?.endBinding?.elementId).toBe(createdNotes[1].id);
+
+    const childY = createdNotes[1].y;
+    await page.mouse.move(400, 300);
+    await page.mouse.down();
+    await page.mouse.move(400, 420, { steps: 12 });
+    await page.mouse.up();
+    await settle(page);
+    const movedNotes = (await notes(page)).sort((a: any, b: any) => a.x - b.x);
+    expect(movedNotes[1].y).toBeGreaterThan(childY + 100);
+  });
+
+  test("treats a 150ms stationary press as a click, not a drag", async ({ page }) => {
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+    expect(await notes(page)).toHaveLength(2);
+    expect((await scene(page)).filter((element: any) => element.type === "arrow")).toHaveLength(1);
+  });
+
+  test("coalesces two same-frame clicks on one handle", async ({ page }) => {
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+    await handle.evaluate((element) => {
+      const dispatchClick = (pointerId: number) => {
+        element.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            pointerId,
+            pointerType: "mouse",
+            button: 0,
+            buttons: 1,
+            clientX: 505,
+            clientY: 300,
+          }),
+        );
+        window.dispatchEvent(
+          new PointerEvent("pointerup", {
+            bubbles: true,
+            pointerId,
+            pointerType: "mouse",
+            button: 0,
+            buttons: 0,
+            clientX: 505,
+            clientY: 300,
+          }),
+        );
+      };
+      dispatchClick(41);
+      dispatchClick(42);
+    });
+
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+    await settle(page);
+    expect(await notes(page)).toHaveLength(2);
+    expect((await scene(page)).filter((element: any) => element.type === "arrow")).toHaveLength(1);
+  });
+
+  test("undoes a click-created note and arrow as one gesture", async ({ page }) => {
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    await page.getByTestId("sticky-handle-right").click();
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+    await page.locator("canvas.excalidraw__canvas.interactive").click({
+      position: { x: 900, y: 500 },
+    });
+    await page.keyboard.press("Escape");
+    await settle(page);
+    await page.keyboard.press("Control+z");
+    await settle(page);
+
+    expect(await notes(page)).toHaveLength(1);
+    expect((await scene(page)).filter((element: any) => element.type === "arrow")).toHaveLength(0);
+  });
+
+  test("keeps handle diameter fixed on screen across zoom levels", async ({ page }) => {
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    const widths: number[] = [];
+    for (const zoom of [0.5, 1, 2]) {
+      await page.evaluate((value) => {
+        const api = (window as any).__EXCALIDASH_TEST__;
+        api.updateScene({ appState: { zoom: { value } } });
+      }, zoom);
+      await page.waitForTimeout(250);
+      await page.evaluate(() => {
+        const api = (window as any).__EXCALIDASH_TEST__;
+        const note = api
+          .getSceneElements()
+          .find((element: any) => element.customData?.excalidash?.sticky);
+        api.updateScene({ appState: { selectedElementIds: { [note.id]: true } } });
+      });
+      await page.waitForTimeout(250);
+      const handle = page.getByTestId("sticky-handle-right");
+      await expect(handle).toBeVisible();
+      widths.push((await handle.boundingBox())!.width);
+    }
+
+    expect(widths).toEqual([9, 9, 9]);
+  });
+
   test("hides them again once the pointer leaves and nothing is selected", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
@@ -200,6 +341,8 @@ test.describe("dragging an arrow out of a note", () => {
     await page.mouse.down();
     // A person takes longer than a frame between pressing and moving; the tool
     // switch needs that frame.
+    await page.waitForTimeout(120);
+    await page.mouse.move(box.x + box.width / 2 + 8, box.y + box.height / 2);
     await page.waitForTimeout(120);
     await page.mouse.move(650, 300, { steps: 12 });
     await page.mouse.move(800, 300, { steps: 8 });

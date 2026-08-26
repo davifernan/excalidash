@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Layout } from "../components/Layout";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../api";
-import { Toaster } from "sonner";
 import { getPasswordPolicy, validatePassword } from "../utils/passwordPolicy";
 import { AccessControlCard } from "./admin/AccessControlCard";
 import { AdminHeader, AdminStatusMessages } from "./admin/AdminShell";
@@ -509,7 +508,6 @@ export const Admin: React.FC = () => {
         onCopyPassword={(result) => navigator.clipboard?.writeText(result.tempPassword)}
         onClosePassword={() => setResetPasswordResult(null)}
       />{" "}
-      <Toaster position="bottom-center" />{" "}
     </Layout>
   );
 };

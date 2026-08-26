@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from "react";
 import type { NavigateFunction } from "react-router-dom";
 import type { MutableRefObject } from "react";
-import { toast } from "sonner";
 import { deriveStickyFontState } from "../../sticky/stickyDerivedState";
+import { notify } from "../../notifications";
 import * as api from "../../api";
 import { getPersistedAppState, hasRenderableElements, resolveObjectsSnapMode } from "./shared";
 import { computeElementOrderSig } from "./useEditorElementTracking";
@@ -199,7 +199,7 @@ export const useEditorSceneLoader = ({
             return;
           }
         }
-        toast.error(message);
+        notify("error", message);
         refs.latestElements.current = [];
         refs.initialSceneElements.current = [];
         refs.latestFiles.current = {};

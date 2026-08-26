@@ -7,18 +7,9 @@ import type { UiCapability } from "../../integrations/excalidraw/capabilities";
 const updateLibrary = vi.fn();
 vi.mock("../../api", () => ({ updateLibrary: (...args: unknown[]) => updateLibrary(...args) }));
 
-const errorToast = vi.fn();
-const successToast = vi.fn();
-vi.mock("sonner", () => ({
-  toast: {
-    error: (...a: unknown[]) => errorToast(...a),
-    success: (...a: unknown[]) => successToast(...a),
-    // loading and info have to exist: without them the hook throws a TypeError
-    // that the outer catch turns into an error toast -- and the refusal test
-    // then passes for a reason that has nothing to do with the refusal.
-    loading: vi.fn(),
-    info: vi.fn(),
-  },
+const notification = vi.fn();
+vi.mock("../../notifications", () => ({
+  notify: (...args: unknown[]) => notification(...args),
 }));
 
 const uiWith = (result: unknown) =>
@@ -52,8 +43,12 @@ describe("importing a library from the URL", () => {
       }),
     );
 
-    await waitFor(() => expect(errorToast).toHaveBeenCalled());
-    expect(successToast).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(notification).toHaveBeenCalledWith("error", expect.any(String), {
+        key: "library-import",
+      }),
+    );
+    expect(notification.mock.calls.some(([severity]) => severity === "success")).toBe(false);
     expect(updateLibrary).not.toHaveBeenCalled();
   });
 
@@ -66,7 +61,11 @@ describe("importing a library from the URL", () => {
       }),
     );
 
-    await waitFor(() => expect(successToast).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(notification).toHaveBeenCalledWith("success", expect.any(String), {
+        key: "library-import",
+      }),
+    );
     expect(updateLibrary).toHaveBeenCalledWith([{ id: "one" }]);
   });
 });

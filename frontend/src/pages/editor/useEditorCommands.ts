@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { FormEvent, MutableRefObject } from "react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import { notify } from "../../notifications";
 import * as api from "../../api";
 import { exportFromEditor } from "../../utils/exportUtils";
 import type {
@@ -113,7 +113,7 @@ export const useEditorCommands = ({
         refs.latestFiles.current = files;
         await enqueueSceneSave(drawingId, safeElements, appState, files);
         refs.savePreview.current(drawingId, safeElements, appState, files);
-        toast.success("Saved changes to server");
+        notify("success", "Saved changes to server");
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -174,7 +174,10 @@ export const useEditorCommands = ({
         const files = readFiles();
         refs.latestFiles.current = files;
         if (refs.suspiciousBlankLoad.current && !hasRenderableElements(safeElements)) {
-          toast.warning("Blank scene detected on load. Skipping save to protect existing data.");
+          notify(
+            "warning",
+            "Blank scene detected on load. Skipping save to protect existing data.",
+          );
           shouldNavigate = true;
         } else {
           await Promise.all([
@@ -188,7 +191,7 @@ export const useEditorCommands = ({
       }
     } catch (err) {
       log.error("Failed to save on back navigation", { error: err }, { notify: false });
-      toast.error("Failed to save changes. Please retry before leaving.");
+      notify("error", "Failed to save changes. Please retry before leaving.");
     } finally {
       setIsSavingOnLeave(false);
     }
@@ -213,10 +216,10 @@ export const useEditorCommands = ({
       const appState = readBoardSettings();
       const files = readFiles();
       await exportFromEditor(drawingId, drawingName, elements, appState, files);
-      toast.success("Drawing exported");
+      notify("success", "Drawing exported");
     } catch (error) {
       log.error("Failed to export drawing", { error }, { notify: false });
-      toast.error("Export cancelled because one or more drawing images could not be bundled.");
+      notify("error", "Export cancelled because one or more drawing images could not be bundled.");
     }
   }, [drawingId, drawingName, readBoardSettings, readFiles, refs]);
 

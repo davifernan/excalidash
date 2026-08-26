@@ -133,7 +133,7 @@ describe("PdfWidget", () => {
     );
 
     expect(await screen.findByRole("toolbar", { name: "PDF controls" })).toBeInTheDocument();
-    expect(container.querySelector(".pdf-widget__controls")).toBeNull();
+    expect(container.querySelector(".element-floating-toolbar__row")).toBeNull();
 
     rerender(
       <PdfWidget
@@ -190,13 +190,17 @@ describe("PdfWidget", () => {
 
     // The controls portal onto `toolbar.host` (document.body here), not into
     // the render container -- see the "portals controls" test above.
-    const controls = document.body.querySelector(".pdf-widget__controls");
+    const controls = document.body.querySelector(".element-floating-toolbar__row");
     const children = controls ? Array.from(controls.children) : [];
     const nameIndex = children.findIndex((child) =>
       child.matches(".editable-asset-name__button, .editable-asset-name__label"),
     );
-    const dividerIndex = children.findIndex((child) => child.matches(".pdf-widget__divider"));
-    const actionsIndex = children.findIndex((child) => child.matches(".pdf-widget__actions"));
+    const dividerIndex = children.findIndex((child) =>
+      child.matches(".element-floating-toolbar__divider"),
+    );
+    const actionsIndex = children.findIndex((child) =>
+      child.matches(".element-floating-toolbar__actions"),
+    );
 
     // The pencil sits in the identity group in the DOM; only the divider
     // between it and the content-action group states that they are two
@@ -207,7 +211,7 @@ describe("PdfWidget", () => {
     expect(actionsIndex).toBe(2);
     expect(
       controls
-        ?.querySelector(".pdf-widget__actions")
+        ?.querySelector(".element-floating-toolbar__actions")
         ?.contains(screen.getByRole("link", { name: "Download original PDF" })),
     ).toBe(true);
   });

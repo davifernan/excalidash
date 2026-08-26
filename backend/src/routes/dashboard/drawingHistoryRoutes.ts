@@ -4,6 +4,7 @@ import { decodeSnapshotField, encodeSnapshotField } from "../../snapshots/snapsh
 import { captureSnapshotAssets } from "../../assets/assetService";
 import { referencedAssetIds, syncDrawingDocumentState } from "../../assets/documentWidgetState";
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
+import { requestIdOf } from "../../middleware/requestId";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
 export const registerDrawingHistoryRoutes = (
@@ -161,7 +162,9 @@ export const registerDrawingHistoryRoutes = (
             update: { state: "ACTIVE", expiresAt: null },
           });
         }
-        await syncDrawingDocumentState(tx, id, parseJsonField(restoredElements, []));
+        await syncDrawingDocumentState(tx, id, parseJsonField(restoredElements, []), {
+          correlationId: requestIdOf(req),
+        });
 
         const restored = await tx.drawing.update({
           where: { id },

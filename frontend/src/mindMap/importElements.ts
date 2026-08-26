@@ -14,6 +14,7 @@
  * bindings this file constructs.
  */
 import { buildElements } from "../integrations/excalidraw/elements";
+import { createBoundArrow, mergeArrowBinding } from "../integrations/excalidraw/boundArrow";
 import type { BoundElementRef } from "../integrations/excalidraw/types";
 import { MIND_MAP_LAYOUT_V1 } from "./layout";
 
@@ -152,53 +153,18 @@ const computeGeometry = (
 };
 
 const arrowElementBetween = (id: string, parentBox: NodeBox, childBox: NodeBox): any => {
-  const [, , arrow] = buildElements(
-    [
-      {
-        id: parentBox.id,
-        type: "rectangle",
-        x: parentBox.x,
-        y: parentBox.y,
-        width: parentBox.width,
-        height: parentBox.height,
-      },
-      {
-        id: childBox.id,
-        type: "rectangle",
-        x: childBox.x,
-        y: childBox.y,
-        width: childBox.width,
-        height: childBox.height,
-      },
-      {
-        id,
-        type: "arrow",
-        x: 0,
-        y: 0,
-        points: [
-          [0, 0],
-          [1, 1],
-        ],
-        strokeColor: IMPORT_COLORS.edgeStroke,
-        strokeWidth: 1.5,
-        roughness: 0,
-        start: { id: parentBox.id },
-        end: { id: childBox.id },
-      },
-    ] as any,
-    { regenerateIds: false },
-  ) as any[];
-
   const geometry = computeGeometry(parentBox, childBox);
-  return {
-    ...arrow,
-    index: null,
-    x: geometry.x,
-    y: geometry.y,
-    points: geometry.points,
-    width: Math.abs(geometry.points[1][0]),
-    height: Math.abs(geometry.points[1][1]),
-  };
+  return createBoundArrow(
+    id,
+    parentBox,
+    childBox,
+    { x: geometry.x, y: geometry.y },
+    {
+      x: geometry.x + geometry.points[1][0],
+      y: geometry.y + geometry.points[1][1],
+    },
+    { strokeColor: IMPORT_COLORS.edgeStroke, strokeWidth: 1.5 },
+  );
 };
 
 /**
@@ -210,7 +176,9 @@ export function mergeEdgeBinding(
   current: readonly BoundElementRef[] | null,
   add: readonly BoundElementRef[],
 ): readonly BoundElementRef[] {
-  const kept = current ?? [];
-  const keptIds = new Set(kept.map((ref) => ref.id));
-  return [...kept, ...add.filter((ref) => !keptIds.has(ref.id))];
+  return add.reduce(
+    (bindings, ref) =>
+      ref.type === "arrow" ? mergeArrowBinding(bindings, ref.id) : [...bindings, ref],
+    current ?? [],
+  );
 }

@@ -43,6 +43,30 @@ export const INTERNAL_SELECTORS = {
   interactiveCanvas: "canvas.excalidraw__canvas.interactive",
 } as const;
 
+/**
+ * CSS selectors through which ExcaliDash deliberately restyles Excalidraw's
+ * own markup.
+ *
+ * They are separate from INTERNAL_SELECTORS because no TypeScript capability
+ * queries them. They are no less of a seam, though: a renamed class can make a
+ * carefully chosen visual correction disappear just as surely as it can break
+ * a DOM bridge lookup. Keep every foreign CSS target here so the compatibility
+ * canary can mount the real editor and so adapter-boundary.cjs can reject a
+ * new, un-inventoried stylesheet reach into Excalidraw.
+ */
+export const INTERNAL_CSS_SELECTORS = {
+  topRight: ".layer-ui__wrapper__top-right",
+  collaboratorWrapper: ".UserList__wrapper",
+  collaboratorList: ".UserList",
+  libraryTrigger: ".sidebar-trigger.default-sidebar-trigger",
+  mainMenuTrigger: ".main-menu-trigger.dropdown-menu-button",
+  helpIcon: ".help-icon",
+  extraToolsLaser: '[data-testid="toolbar-laser"]',
+  collaborationLaserIsland:
+    '.App-toolbar-container > .Island:not(.App-toolbar):has([data-testid="toolbar-LaserPointer"])',
+  widgetHyperlink: '.excalidraw-hyperlinkContainer:has(a[href^="excalidash://"])',
+} as const;
+
 // Unlike INTERNAL_SELECTORS these may legitimately be absent in a healthy
 // editor, so the compatibility canary must not report their absence as a seam
 // failure. The shape-actions panel exists only while a selected element has
@@ -298,6 +322,38 @@ export const beginCanvasDrag = async (
     }),
   );
   return ok(undefined);
+};
+
+/**
+ * Continue a synthetic canvas drag after its delayed pointerdown.
+ *
+ * The sticky handle must first distinguish a click from a drag, so the real
+ * pointer can move (or even be released) during the frame in which the editor
+ * arms its tool. Replaying that latest state belongs beside the synthetic
+ * pointerdown above: both are the same unsupported DOM seam.
+ */
+export const dispatchCanvasDragPointer = (
+  type: "pointermove" | "pointerup" | "pointercancel",
+  pointer: {
+    clientX: number;
+    clientY: number;
+    pointerId: number;
+    pointerType?: string;
+  },
+): void => {
+  const released = type !== "pointermove";
+  window.dispatchEvent(
+    new PointerEvent(type, {
+      bubbles: true,
+      clientX: pointer.clientX,
+      clientY: pointer.clientY,
+      pointerId: pointer.pointerId,
+      pointerType: pointer.pointerType || "mouse",
+      button: 0,
+      buttons: released ? 0 : 1,
+      isPrimary: true,
+    }),
+  );
 };
 
 /**

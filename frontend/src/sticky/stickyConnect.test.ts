@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { HANDLE_OUTSET, HANDLE_SIDES, handlePoint, noteAt, startPoint } from "./stickyConnect";
+import { describe, expect, it, vi } from "vitest";
+import {
+  CHILD_GAP,
+  HANDLE_OUTSET,
+  HANDLE_SIDES,
+  childPosition,
+  createConnectedChild,
+  handlePoint,
+  noteAt,
+  startPoint,
+} from "./stickyConnect";
 import { createStickyNote, isStickyNote } from "./stickyNote";
 
 const note = { x: 100, y: 200, width: 200, height: 200 };
@@ -75,5 +84,64 @@ describe("finding the note under the pointer", () => {
   it("counts the edge as inside, which is where the points are", () => {
     expect(noteAt([a], isStickyNote, a.x, a.y)?.id).toBe("a");
     expect(noteAt([a], isStickyNote, a.x + a.width, a.y + a.height)?.id).toBe("a");
+  });
+});
+
+describe("placing a connected child", () => {
+  const parent = {
+    ...createStickyNote(200, 300),
+    id: "parent",
+    isDeleted: false,
+    angle: 0,
+    frameId: null,
+    containerId: null,
+    link: null,
+    name: null,
+    boundElements: null,
+    startBinding: null,
+    endBinding: null,
+  } as any;
+
+  it("uses the selected direction and advances past an occupied slot", () => {
+    const first = childPosition(parent, "right", [parent]);
+    expect(first).toEqual({ x: 200 + 200 + CHILD_GAP, y: 300 });
+
+    const occupied = {
+      ...parent,
+      id: "occupied",
+      x: first.x - 100,
+      y: first.y - 100,
+    };
+    expect(childPosition(parent, "right", [parent, occupied])).toEqual({
+      x: first.x + 200 + CHILD_GAP,
+      y: 300,
+    });
+  });
+
+  it("inserts note and native bound arrow in one eventually-captured update", async () => {
+    const applySettled = vi.fn(async () => ({ ok: true as const, value: undefined }));
+    const beginTextEditing = vi.fn(async () => ({ ok: true as const, value: undefined }));
+
+    await createConnectedChild(
+      parent,
+      "right",
+      {
+        summaries: () => ({ ok: true as const, value: [parent] }),
+        applySettled,
+      },
+      { beginTextEditing },
+    );
+
+    expect(applySettled).toHaveBeenCalledOnce();
+    const [ops, options] = applySettled.mock.calls[0];
+    expect(options).toEqual({ capture: "eventually" });
+    expect(ops[0].kind).toBe("insert");
+    const [child] = ops[0].elements;
+    const [arrow] = ops[1].elements;
+    expect(child.customData?.excalidash?.sticky).toBeTruthy();
+    expect(arrow.startBinding?.elementId).toBe(parent.id);
+    expect(arrow.endBinding?.elementId).toBe(child.id);
+    expect(ops.at(-1)).toEqual({ kind: "select", ids: [child.id] });
+    expect(beginTextEditing).toHaveBeenCalledWith(child.id);
   });
 });

@@ -68,7 +68,10 @@ export const createDocumentPageManager = ({
   prisma: any;
   resolvePageCount?: (assetId: string) => Promise<number | null>;
 }) => {
-  const snapshot = async (drawingId: string): Promise<DocumentPageSnapshot> => {
+  const snapshot = async (
+    drawingId: string,
+    correlationId?: string,
+  ): Promise<DocumentPageSnapshot> => {
     const reconcile = async (tx: any) => {
       const drawing = await tx.drawing.findUnique({
         where: { id: drawingId },
@@ -83,10 +86,11 @@ export const createDocumentPageManager = ({
         if (!Array.isArray(elements)) throw new Error("Drawing elements are not an array");
         logger.warn("NIL-601 diagnostic: snapshot reconcile reading persisted elements", {
           drawingId,
+          correlationId,
           elementCount: elements.length,
           embeddableCount: elements.filter((e: any) => e?.type === "embeddable").length,
         });
-        await syncDrawingDocumentState(tx, drawingId, elements);
+        await syncDrawingDocumentState(tx, drawingId, elements, { correlationId });
       }
       if (!tx.documentPageView?.findMany) return [];
       return tx.documentPageView.findMany({
@@ -102,7 +106,10 @@ export const createDocumentPageManager = ({
     return { drawingId, pages: rows };
   };
 
-  const set = async (payload: DocumentPageCommand): Promise<RoomEventResult> => {
+  const set = async (
+    payload: DocumentPageCommand,
+    correlationId?: string,
+  ): Promise<RoomEventResult> => {
     const widget = await prisma.documentPageView.findUnique({
       where: {
         drawingId_elementId: { drawingId: payload.drawingId, elementId: payload.elementId },
@@ -120,6 +127,7 @@ export const createDocumentPageManager = ({
       });
       logger.warn("NIL-601 diagnostic: document widget not found for page set", {
         drawingId: payload.drawingId,
+        correlationId,
         soughtElementId: payload.elementId,
         existingRows: existing,
       });
@@ -169,6 +177,7 @@ export const createDocumentPageManager = ({
         });
         logger.warn("NIL-601 diagnostic: document widget vanished between lookup and update", {
           drawingId: payload.drawingId,
+          correlationId,
           soughtElementId: payload.elementId,
           existingRows: existing,
         });
@@ -208,6 +217,6 @@ export const registerDocumentPageRoomEvent = ({
     // takes the same right as changing anything else on the board. A visitor
     // who may only look still pages through the document on their own screen.
     requireEdit: true,
-    handle: pages.set,
+    handle: (payload) => pages.set(payload, socket.id),
   });
 };

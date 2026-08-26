@@ -53,68 +53,11 @@
   text-align: center;
 }
 
-.pdf-widget__controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px;
-  color: inherit;
-}
-
 /*
- * Identity (filename) and content actions (page nav, download) read as one
- * group when they only have the uniform inter-button gap between them -- the
- * pencil then reads as "renames this row" instead of "edits the document"
- * (NIL-582). The divider plus the wider 10px gap above (vs. 5px within
- * .pdf-widget__actions) states that these are two different kinds of thing.
+ * NIL-629: the toolbar row/divider/actions/button/page-number classes moved
+ * to `ElementFloatingToolbar.css` as `.element-floating-toolbar__*` --
+ * shared with TextDocumentWidget.tsx now instead of duplicated per widget.
  */
-.pdf-widget__divider {
-  flex: 0 0 auto;
-  align-self: stretch;
-  width: 1px;
-  margin: 4px 0;
-  background: var(--default-border-color, rgb(0 0 0 / 10%));
-}
-
-.pdf-widget__actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.pdf-widget__button {
-  display: inline-flex;
-  flex: 0 0 30px;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.pdf-widget__button:hover:not(:disabled) {
-  background: rgb(99 102 241 / 14%);
-}
-
-.pdf-widget__button:disabled {
-  cursor: default;
-  opacity: 0.35;
-}
-
-.pdf-widget__page-number {
-  flex: 0 0 76px;
-  min-width: 76px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 @container (max-width: 220px) {
   .pdf-widget__page {

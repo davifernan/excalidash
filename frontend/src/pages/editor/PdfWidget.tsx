@@ -127,7 +127,7 @@ export const PdfWidget = ({
       </div>
       {asset ? (
         <ElementFloatingToolbar target={toolbar} label="PDF controls" compactWhenCrowded>
-          <div className="pdf-widget__controls">
+          <div className="element-floating-toolbar__row">
             <EditableAssetName
               name={asset.name}
               canEdit={canEdit}
@@ -136,23 +136,23 @@ export const PdfWidget = ({
                 setAsset((current) => (current ? { ...current, name: renamed.name } : current));
               }}
             />
-            <span className="pdf-widget__divider" aria-hidden="true" />
-            <div className="pdf-widget__actions">
+            <span className="element-floating-toolbar__divider" aria-hidden="true" />
+            <div className="element-floating-toolbar__actions">
               <button
                 type="button"
-                className="pdf-widget__button"
+                className="element-floating-toolbar__button"
                 aria-label="Previous page"
                 disabled={pending || requestedPage <= 1}
                 onClick={() => turnPage(-1)}
               >
                 <ChevronLeft size={18} />
               </button>
-              <span className="pdf-widget__page-number">
+              <span className="element-floating-toolbar__page-number">
                 Page {requestedPage} of {asset.pageCount}
               </span>
               <button
                 type="button"
-                className="pdf-widget__button"
+                className="element-floating-toolbar__button"
                 aria-label="Next page"
                 disabled={pending || requestedPage >= asset.pageCount}
                 onClick={() => turnPage(1)}
@@ -160,7 +160,7 @@ export const PdfWidget = ({
                 <ChevronRight size={18} />
               </button>
               <a
-                className="pdf-widget__button"
+                className="element-floating-toolbar__button"
                 href={getPdfOriginalUrl(drawingId, assetId)}
                 download={asset.name}
                 aria-label="Download original PDF"

@@ -34,7 +34,13 @@ const { SRC: REAL_SRC, LEGACY_SCAN_ROOTS } = require("./adapter-boundary.cjs");
  */
 const root = createSandbox(
   repoRoot,
-  [...new Set([path.relative(repoRoot, REAL_SRC).split(path.sep).join("/"), ...LEGACY_SCAN_ROOTS, "scripts/adapter-boundary.cjs"])],
+  [
+    ...new Set([
+      path.relative(repoRoot, REAL_SRC).split(path.sep).join("/"),
+      ...LEGACY_SCAN_ROOTS,
+      "scripts/adapter-boundary.cjs",
+    ]),
+  ],
   "adapter-boundary-sandbox-",
 );
 const CHECK = path.join(root, "scripts", "adapter-boundary.cjs");
@@ -115,6 +121,7 @@ const probes = [
     "domSelector.ts",
     'export const probe = (el: HTMLElement) => el.querySelector(".App-toolbar");\n',
   ],
+  ["un-inventoried CSS selector", "cssSelector.css", ".App-menu { display: none; }\n"],
   [
     "synthetic keyboard event",
     "syntheticEvent.ts",
@@ -146,6 +153,31 @@ const probes = [
     "raw imperative API call",
     "rawApiCall.ts",
     "export const probe = (api: { getAppState: () => unknown }) => api.getAppState();\n",
+  ],
+  [
+    "CSS selector that only shares the help-icon prefix with inventory",
+    "cssHelpIconPrefix.css",
+    ".help-icon-badge { top: 0; }\n",
+  ],
+  [
+    "CSS selector that only shares the sidebar-trigger prefix with inventory",
+    "cssSidebarTriggerPrefix.css",
+    ".sidebar-trigger--secondary { display: none; }\n",
+  ],
+  [
+    "CSS selector that only shares the main-menu-trigger prefix with inventory",
+    "cssMainMenuTriggerPrefix.css",
+    ".main-menu-trigger--experimental { color: red; }\n",
+  ],
+  [
+    "CSS selector that only shares the Island prefix with inventory",
+    "cssIslandPrefix.css",
+    ".Island--dragging { opacity: .5; }\n",
+  ],
+  [
+    "CSS pseudo-selector derived from an inventoried selector",
+    "cssHelpIconPseudo.css",
+    ".help-icon:hover { opacity: .5; }\n",
   ],
   [
     "direct customData write",
@@ -232,7 +264,7 @@ const assertCapabilityCallsAccepted = () => {
   assertAccepted(
     "a capability call the raw-API rule must not treat as the raw handle",
     "capabilityReceiverNames.ts",
-    'export const probe = (adapter: any) => {\n  adapter.interaction.onPointerDown();\n};\n',
+    "export const probe = (adapter: any) => {\n  adapter.interaction.onPointerDown();\n};\n",
   );
 };
 
@@ -366,7 +398,9 @@ const assertNoExceptionsRemain = () => {
 
   // The assertion above only means something if it fails on a populated list.
   const populated = [{ id: "raw-api-call", exceptions: new Set(["frontend/src/x.ts"]) }];
-  const wouldList = populated.flatMap((rule) => [...rule.exceptions].map((f) => `${rule.id}: ${f}`));
+  const wouldList = populated.flatMap((rule) =>
+    [...rule.exceptions].map((f) => `${rule.id}: ${f}`),
+  );
   if (wouldList.length === 0) {
     throw new Error("The empty-list probe cannot tell an exception from none.");
   }

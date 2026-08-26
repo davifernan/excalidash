@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -103,6 +103,26 @@ describe("authoritative document widget state", () => {
 
     await syncDrawingDocumentState(prisma, drawingId, []);
     expect(await prisma.documentPageView.count({ where: { drawingId } })).toBe(0);
+  });
+
+  it("keeps the triggering HTTP request correlation ID on a reconciliation diagnostic", async () => {
+    const { asset } = await upload("doc");
+    await syncDrawingDocumentState(prisma, drawingId, [widget("widget-1", asset.id)]);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await syncDrawingDocumentState(prisma, drawingId, [], { correlationId: "request-622" });
+
+      const line = stderr.mock.calls
+        .map(([value]) => JSON.parse(value as string))
+        .find(
+          (value) =>
+            value.message ===
+            "NIL-601 diagnostic: syncDrawingDocumentState is deleting document page rows",
+        );
+      expect(line).toMatchObject({ drawingId, correlationId: "request-622" });
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it("serializes concurrent page turns with real database revisions", async () => {

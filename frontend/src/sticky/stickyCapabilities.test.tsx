@@ -1,10 +1,11 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+const { notification } = vi.hoisted(() => ({ notification: vi.fn() }));
 
 vi.mock("../integrations/excalidraw/domBridge", () => ({
-  beginCanvasDrag: vi.fn(),
+  beginCanvasDrag: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+  dispatchCanvasDragPointer: vi.fn(),
   findFloatingToolbarObstacleElements: vi.fn(() => []),
   findToastStackElement: vi.fn(() => null),
   observeStructure: vi.fn(() => () => {}),
@@ -14,9 +15,7 @@ vi.mock("../integrations/excalidraw/domBridge", () => ({
   }),
 }));
 
-vi.mock("sonner", () => ({
-  toast: { error: toastError },
-}));
+vi.mock("../notifications", () => ({ notify: notification }));
 
 import { StickyHandles } from "./StickyHandles";
 import { StickyPalette } from "./StickyPalette";
@@ -57,6 +56,7 @@ const makeAdapter = (note = createStickyNote(200, 200)) => {
       onPointerDown: vi.fn().mockReturnValue(vi.fn()),
       read: vi.fn().mockReturnValue({ ok: true, value: interactionState }),
       setActiveTool: vi.fn().mockReturnValue({ ok: true, value: undefined }),
+      setActiveToolSettled: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
       subscribe: vi.fn().mockReturnValue(vi.fn()),
     },
     viewport: {
@@ -241,7 +241,8 @@ describe("sticky consumers at the Excalidraw boundary", () => {
 
     act(() => result.current.arm());
 
-    expect(toastError).toHaveBeenCalledWith(
+    expect(notification).toHaveBeenCalledWith(
+      "error",
       "Couldn't change the sticky-note tool. Please try again.",
     );
     expect(result.current.armed).toBe(false);
@@ -323,7 +324,10 @@ describe("sticky consumers at the Excalidraw boundary", () => {
       pointerType: "mouse",
     });
 
-    expect(toastError).toHaveBeenCalledWith("Couldn't start the arrow. Please try again.");
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Couldn't start the arrow. Please try again.",
+    );
   });
 
   it("checks placed-label editing through the interaction capability", () => {

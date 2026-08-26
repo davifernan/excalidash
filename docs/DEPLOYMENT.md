@@ -2,53 +2,79 @@
 
 This page contains the advanced deployment, authentication, OIDC, offline, backup, and operational notes that were previously in the main README.
 
-## Optional self-hosted error tracking (Bugsink)
+## Optional self-hosted error tracking (GlitchTip)
 
 Error tracking is opt-in twice. The `observability` Compose profile starts a
-persistent Bugsink 2.5.0 service; the separate `ERROR_TRACKER_DSN` value enables
-delivery from the backend and browser. Starting ordinary ExcaliDash without the
-profile does not start Bugsink, and leaving the DSN empty initializes no SDK and
-sends nothing even if Bugsink is running.
+persistent GlitchTip 6.2.6 service plus Postgres 17.11; the separate
+`ERROR_TRACKER_DSN` value enables delivery from the backend and browser. Starting
+ordinary ExcaliDash without the profile starts neither service, and leaving the
+DSN empty initializes no SDK and sends nothing even if GlitchTip is running.
 
-1. Set these values in the same `.env` used by Compose. Generate the secret with
-   `openssl rand -base64 50`; use a password you have not used elsewhere.
+There is deliberately no Redis or Valkey service. GlitchTip documents Valkey as
+optional: an empty `VALKEY_URL` makes it use Postgres for the task queue, cache
+and sessions. Compose sets that empty value explicitly and runs GlitchTip's
+supported `all_in_one` role so the web process embeds the background worker.
+Logs, uptime checks, MCP and DuckDB archival are disabled because this profile's
+job is error ingestion, not those additional products.
+
+1. Set these values in the same `.env` used by Compose. Generate
+   `GLITCHTIP_SECRET_KEY` and `GLITCHTIP_DB_PASSWORD` separately with
+   `openssl rand -hex 32`. A hex database password is intentional: it is safe
+   inside the Postgres connection URL without extra percent-encoding.
 
    ```dotenv
-   BUGSINK_PORT=8088
-   BUGSINK_BASE_URL=https://bugsink.example.com
-   BUGSINK_SECRET_KEY=<at-least-50-random-characters>
-   BUGSINK_CREATE_SUPERUSER=admin@example.com:<strong-password>
-   BUGSINK_BEHIND_HTTPS_PROXY=True
+   GLITCHTIP_PORT=8088
+   GLITCHTIP_DOMAIN=https://glitchtip.example.com
+   GLITCHTIP_ALLOWED_HOSTS=glitchtip.example.com
+   GLITCHTIP_CSRF_TRUSTED_ORIGINS=https://glitchtip.example.com
+   GLITCHTIP_SECRET_KEY=<64-hex-characters>
+   GLITCHTIP_DB_NAME=glitchtip
+   GLITCHTIP_DB_USER=glitchtip
+   GLITCHTIP_DB_PASSWORD=<64-hex-characters>
+   GLITCHTIP_RETENTION_DAYS=90
+   GLITCHTIP_EMAIL_URL=consolemail://
+   GLITCHTIP_DEFAULT_FROM_EMAIL=glitchtip@example.com
+   GLITCHTIP_ADMIN_EMAIL=admin@example.com
+   GLITCHTIP_ADMIN_PASSWORD=<a-unique-strong-password>
    ERROR_TRACKER_DSN=
    ```
 
-2. Start the profile and wait for Bugsink to become healthy.
+   Configure a real SMTP URL instead of `consolemail://` if GlitchTip should
+   deliver password-reset or alert mail. Console mail writes messages to the
+   bounded container log and is suitable when mail features are not used.
+
+2. Start GlitchTip. Compose waits for Postgres to become healthy before the
+   all-in-one process migrates and starts.
 
    ```bash
    docker compose --env-file .env -f docker-compose.prod.yml \
-     --profile observability up -d
-   docker compose --env-file .env -f docker-compose.prod.yml ps bugsink
+     --profile observability up -d glitchtip
+   docker compose --env-file .env -f docker-compose.prod.yml \
+     ps glitchtip glitchtip-postgres
    ```
 
-3. Create the initial team/project idempotently and print its DSN. Bugsink has
-   no `CREATE_PROJECT` setting; this helper executes its Django ORM inside the
-   running container instead.
+3. Create the admin, organization, team and project idempotently and print the
+   Sentry-compatible DSN. The helper resets the named admin's password to
+   `GLITCHTIP_ADMIN_PASSWORD` on every run; it does not pass that password to
+   the long-running GlitchTip container.
 
    ```bash
-   BUGSINK_COMPOSE_FILE=docker-compose.prod.yml BUGSINK_ENV_FILE=.env \
-     ./scripts/bugsink-bootstrap.sh
+   GLITCHTIP_COMPOSE_FILE=docker-compose.prod.yml GLITCHTIP_ENV_FILE=.env \
+     ./scripts/glitchtip-bootstrap.sh
    ```
 
 4. Copy the printed `dsn=` value to `ERROR_TRACKER_DSN` in `.env`, then recreate
-   `backend` and `frontend`. A Bugsink DSN is an ingest credential, not an API
+   `backend` and `frontend`. A GlitchTip DSN is an ingest credential, not an API
    token; do not reuse the admin password or an API token here.
 
    ```bash
    docker compose --env-file .env -f docker-compose.prod.yml up -d backend frontend
    ```
 
-`BUGSINK_BASE_URL` must be an HTTPS address reachable both from the backend
-container and from users' browsers. A loopback DSN is suitable for source-based
+`GLITCHTIP_DOMAIN` must be an HTTPS address reachable both from the backend
+container and from users' browsers. Put its hostname in
+`GLITCHTIP_ALLOWED_HOSTS` and its full origin in
+`GLITCHTIP_CSRF_TRUSTED_ORIGINS`. A loopback DSN is suitable for source-based
 local tests, but not for the published-image Compose deployment: inside the
 backend container, `localhost` is the backend itself.
 
@@ -59,8 +85,23 @@ keys and stored paths stay only in local logs; React component stacks and
 original render-error messages stay local as well. Adapter diagnostics send
 only their existing `seam`, `code`, `fallback` and package-version shape.
 
-Back up the `bugsink-data` volume with the same care as the ExcaliDash backend
-volume: it holds the issue database and the generated project ingest key.
+The profile has a hard 512 MiB aggregate memory ceiling with no swap: 320 MiB
+for GlitchTip and 192 MiB for Postgres. Measured on 26.08.2026, a fresh database
+migration peaked at 140.3 MiB + 51.4 MiB; a paced run of 12 accepted backend
+events peaked at 172.6 MiB + 63.3 MiB. Both containers completed without OOM or
+restart. Those are small-instance measurements, not a high-throughput capacity
+claim; sustained traffic beyond this use case needs a fresh load measurement.
+
+Back up Postgres with `pg_dump` and keep the `glitchtip-uploads` volume with the
+dump if source maps or other files are uploaded. Do not rely on copying a live
+Postgres volume as the only backup.
+
+There is no automatic Bugsink event migration. After upgrading the Compose
+definition, the old `bugsink-data` volume remains detached and recoverable but
+new events go only to GlitchTip. Nothing in the old event history was judged
+worth a bespoke cross-product migration for this instance. Keep the detached
+volume through the acceptance window; remove it only after Davi explicitly
+decides the rollback/history window has ended.
 
 ## Advanced
 

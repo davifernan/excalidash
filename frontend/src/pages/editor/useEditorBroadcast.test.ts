@@ -1,12 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MutableRefObject } from "react";
-import { toast } from "sonner";
 import { useEditorBroadcast } from "./useEditorBroadcast";
 import { boardSettingsSignature } from "./shared";
 import { computeElementOrderSig } from "./useEditorElementTracking";
 
 const ref = <T>(value: T) => ({ current: value }) as MutableRefObject<T>;
+const notification = vi.hoisted(() => vi.fn());
+vi.mock("../../notifications", () => ({ notify: notification }));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -14,7 +15,7 @@ afterEach(() => {
 
 describe("editor broadcast delivery tracking", () => {
   it("reports a file capability failure instead of treating missing files as an empty read", () => {
-    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+    notification.mockClear();
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
@@ -40,7 +41,10 @@ describe("editor broadcast delivery tracking", () => {
 
     act(() => result.current.broadcastChanges([]));
 
-    expect(error).toHaveBeenCalledWith("Live collaboration could not read editor files.");
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Live collaboration could not read editor files.",
+    );
   });
 
   it("does not mark element versions or ordering as sent until the server acknowledges them", () => {
@@ -127,7 +131,7 @@ describe("editor broadcast delivery tracking", () => {
   });
 
   it("keeps unrelated changes flowing after rejecting an oversized file without marking it sent", () => {
-    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+    notification.mockClear();
     const acknowledgements: Array<(value: any) => void> = [];
     const emit = vi.fn((_event: string, _payload: unknown, ack?: (value: any) => void) => {
       if (ack) acknowledgements.push(ack);
@@ -173,14 +177,15 @@ describe("editor broadcast delivery tracking", () => {
     act(() => expect(result.current.broadcastFiles(files)).toBe(false));
     expect(lastSyncedFilesRef.current).toEqual({});
     expect(emit).not.toHaveBeenCalled();
-    expect(error).not.toHaveBeenCalled();
+    expect(notification).not.toHaveBeenCalled();
 
     act(() => result.current.broadcastChanges([rejectedImage, unrelatedElement], files));
 
-    expect(error).toHaveBeenCalledWith(
+    expect(notification).toHaveBeenCalledWith(
+      "error",
       "Image near canvas position (124, 388) is too large for live collaboration (10.0 MB).",
     );
-    expect(error.mock.calls.flat().join(" ")).not.toContain("oversized");
+    expect(notification.mock.calls.flat().join(" ")).not.toContain("oversized");
 
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit.mock.calls[0][1]).toMatchObject({
@@ -957,7 +962,7 @@ describe("getDeliveryState", () => {
   });
 
   it("reports a pending oversized image when the board changes before its element appears", () => {
-    const error = vi.spyOn(toast, "error").mockImplementation(() => "toast-id");
+    notification.mockClear();
     const files = {
       oversized: {
         id: "oversized",
@@ -977,13 +982,14 @@ describe("getDeliveryState", () => {
     );
 
     act(() => result.current.broadcastFiles(files));
-    expect(error).not.toHaveBeenCalled();
+    expect(notification).not.toHaveBeenCalled();
 
     rerender({ drawingId: "drawing-2" });
 
-    expect(error).toHaveBeenCalledWith(
+    expect(notification).toHaveBeenCalledWith(
+      "error",
       "An image from the previous board is too large for live collaboration (12.0 MB).",
     );
-    expect(error.mock.calls.flat().join(" ")).not.toContain("oversized");
+    expect(notification.mock.calls.flat().join(" ")).not.toContain("oversized");
   });
 });

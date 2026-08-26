@@ -1,13 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-const { navigate, toast } = vi.hoisted(() => ({
+const { navigate, notification } = vi.hoisted(() => ({
   navigate: vi.fn(),
-  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+  notification: vi.fn(),
 }));
 
 vi.mock("react-router-dom", () => ({ useNavigate: () => navigate }));
-vi.mock("sonner", () => ({ toast }));
+vi.mock("../../notifications", () => ({ notify: notification }));
 
 import { useEditorCommands } from "./useEditorCommands";
 
@@ -81,7 +81,8 @@ describe("editor command capability failures", () => {
 
     await act(() => result.current.handleBackClick());
 
-    expect(toast.error).toHaveBeenCalledWith(
+    expect(notification).toHaveBeenCalledWith(
+      "error",
       "Failed to save changes. Please retry before leaving.",
     );
     expect(enqueueSceneSave).not.toHaveBeenCalled();

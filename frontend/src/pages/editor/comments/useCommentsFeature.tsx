@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import type { Socket } from "socket.io-client";
-import { toast } from "sonner";
+import { notify } from "../../../notifications";
 import * as commentsApi from "../../../api/comments";
 import type { ExcalidrawAdapter } from "../../../integrations/excalidraw/capabilities";
 import type { ElementId } from "../../../integrations/excalidraw/types";
@@ -44,7 +44,7 @@ export const useCommentsFeature = ({
   const comments = useComments({ drawingId, canComment, socketRef, isReady });
   const reportCapabilityFailure = useCallback((seam: string) => {
     log.warn("[Comments] capability failed", { seam });
-    toast.error("Could not read the canvas for this comment.");
+    notify("error", "Could not read the canvas for this comment.");
   }, []);
   const placement = useCommentPlacement({
     interaction: adapter.interaction,

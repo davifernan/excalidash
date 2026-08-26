@@ -12,9 +12,7 @@ vi.mock("../../api", () => ({
   deleteCollection: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({
-  toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn() },
-}));
+vi.mock("../../notifications", () => ({ notify: vi.fn(() => "notification-id") }));
 
 const initialCollections: Collection[] = [
   { id: "one", name: "Original", createdAt: 1, isOwner: true },

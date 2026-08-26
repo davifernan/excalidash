@@ -10,6 +10,7 @@ import type {
   InteractionCapability,
   SceneCapability,
   SelectionCapability,
+  UiCapability,
   ViewportCapability,
 } from "../integrations/excalidraw/capabilities";
 import { StickyHandles } from "./StickyHandles";
@@ -29,6 +30,7 @@ type Options = {
   isDragging: () => boolean;
   scene: SceneCapability;
   selection: SelectionCapability;
+  ui: UiCapability;
   viewport: ViewportCapability;
   /** The editor's own change handler, which still has to run. */
   onCanvasChange: (elements: readonly any[], appState: any, files?: Record<string, any>) => void;
@@ -43,6 +45,7 @@ export function useStickyNotesFeature({
   onCanvasChange,
   scene,
   selection,
+  ui,
   viewport,
 }: Options) {
   // The editor hands its API over after the first render, so anything that
@@ -95,6 +98,7 @@ export function useStickyNotesFeature({
         isDragging={isDragging}
         scene={scene}
         selection={selection}
+        ui={ui}
         viewport={viewport}
       />
     </>
