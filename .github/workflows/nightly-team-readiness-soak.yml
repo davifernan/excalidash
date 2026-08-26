@@ -81,13 +81,12 @@ jobs:
   part_1:
     name: Soak part 1/4
     uses: ./.github/workflows/_soak-part.yml
-    timeout-minutes: 150
     with:
       part: 1
-      context_count: ${{ env.CONTEXT_COUNT }}
-      part_duration_minutes: ${{ env.PART_DURATION_MINUTES }}
-      cycle_ms: ${{ env.CYCLE_MS }}
-      engines: ${{ env.ENGINES }}
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
       restore_from_part: 0
       skip_teardown: true
 
@@ -95,13 +94,12 @@ jobs:
     name: Soak part 2/4
     needs: part_1
     uses: ./.github/workflows/_soak-part.yml
-    timeout-minutes: 150
     with:
       part: 2
-      context_count: ${{ env.CONTEXT_COUNT }}
-      part_duration_minutes: ${{ env.PART_DURATION_MINUTES }}
-      cycle_ms: ${{ env.CYCLE_MS }}
-      engines: ${{ env.ENGINES }}
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
       restore_from_part: 1
       board_id: ${{ needs.part_1.outputs.board_id }}
       skip_teardown: true
@@ -110,13 +108,12 @@ jobs:
     name: Soak part 3/4
     needs: part_2
     uses: ./.github/workflows/_soak-part.yml
-    timeout-minutes: 150
     with:
       part: 3
-      context_count: ${{ env.CONTEXT_COUNT }}
-      part_duration_minutes: ${{ env.PART_DURATION_MINUTES }}
-      cycle_ms: ${{ env.CYCLE_MS }}
-      engines: ${{ env.ENGINES }}
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
       restore_from_part: 2
       board_id: ${{ needs.part_1.outputs.board_id }}
       skip_teardown: true
@@ -125,13 +122,12 @@ jobs:
     name: Soak part 4/4
     needs: part_3
     uses: ./.github/workflows/_soak-part.yml
-    timeout-minutes: 150
     with:
       part: 4
-      context_count: ${{ env.CONTEXT_COUNT }}
-      part_duration_minutes: ${{ env.PART_DURATION_MINUTES }}
-      cycle_ms: ${{ env.CYCLE_MS }}
-      engines: ${{ env.ENGINES }}
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
       restore_from_part: 3
       board_id: ${{ needs.part_1.outputs.board_id }}
       skip_teardown: false
