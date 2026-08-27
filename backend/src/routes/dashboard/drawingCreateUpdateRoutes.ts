@@ -397,7 +397,7 @@ export const registerDrawingCreateUpdateRoutes = (
         if (error instanceof StaleDrawingAssetReferenceError) {
           // This is normally a replacement/save race. Keep it queryable without
           // promoting expected client rebase work to error tracking.
-          logger.debug("Stale document asset reference during scene save", {
+          logger.warn("Stale document asset reference during scene save", {
             drawingId: id,
             requestId: requestIdOf(req),
             assetIds: error.assetIds,
