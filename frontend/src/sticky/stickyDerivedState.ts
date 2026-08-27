@@ -22,7 +22,10 @@ import { fitTextToNote } from "./stickyFit";
  * made observers see the note jump on every edit update. Keep the entire
  * presentation derived here, without touching revisions or sending it back.
  */
-export function deriveStickyFontState(elements: readonly any[]): readonly any[] {
+export function deriveStickyFontState(
+  elements: readonly any[],
+  protectedIds: ReadonlySet<string> = new Set(),
+): readonly any[] {
   const byId = new Map(elements.map((element) => [element.id, element]));
   const projected = new Map<string, any>();
 
@@ -31,15 +34,21 @@ export function deriveStickyFontState(elements: readonly any[]): readonly any[] 
     const data = stickyDataOf(note);
     if (!data) continue;
 
+    if (protectedIds.has(note.id)) continue;
+    const bound = note.boundElements?.find((element: any) => element?.type === "text");
+    const label = bound && typeof bound.id === "string" ? byId.get(bound.id) : null;
+    if (!label || label.isDeleted) continue;
+
+    // A remote projection must not rewrite the note or label this editor is
+    // currently holding. `heldElementIds()` includes the persisted label for
+    // text editing, even though Excalidraw's draft has a temporary id.
+    if (protectedIds.has(label.id)) continue;
+
     const renderedNote =
       note.width === data.width && note.height === data.height
         ? note
         : { ...note, width: data.width, height: data.height };
     if (renderedNote !== note) projected.set(note.id, renderedNote);
-
-    const bound = note.boundElements?.find((element: any) => element?.type === "text");
-    const label = bound && typeof bound.id === "string" ? byId.get(bound.id) : null;
-    if (!label || label.isDeleted) continue;
 
     const fit = fitTextToNote(renderedNote, label);
     if (!fit) continue;

@@ -99,4 +99,27 @@ describe("sticky derived-state boundary", () => {
     expect(rendered[1].height).toBeLessThan(remoteLabel.height);
     expect(normaliseStickyNotes(rendered)).toBeNull();
   });
+
+  it("does not project a Sticky whose local label is being edited", () => {
+    const note = createStickyNote(100, 100);
+    const remoteNote = {
+      ...note,
+      width: 640,
+      height: 480,
+      boundElements: [{ id: "label", type: "text" }],
+    };
+    const remoteLabel = {
+      id: "label",
+      type: "text",
+      containerId: remoteNote.id,
+      text: "locally typing",
+      originalText: "locally typing",
+      width: 640,
+      height: 480,
+    };
+
+    const rendered = deriveStickyFontState([remoteNote, remoteLabel], new Set([remoteLabel.id]));
+
+    expect(rendered).toEqual([remoteNote, remoteLabel]);
+  });
 });
