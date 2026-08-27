@@ -190,6 +190,34 @@ describe("useEditorPersistence", () => {
     expect(getFilesDelta(refs.lastSyncedFiles.current, editorFiles)).toEqual({
       image: editorFiles.image,
     });
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Changes could not be saved. Your work is still open.",
+      expect.objectContaining({ detail: expect.stringContaining("Retry before reloading") }),
+    );
+  });
+
+  it("drains a queued scene snapshot before an asset replacement can begin", async () => {
+    vi.mocked(compressExcalidrawFiles).mockResolvedValue({
+      files: {},
+      changed: false,
+      changedIds: [],
+    });
+    vi.mocked(api.updateDrawing).mockResolvedValue({ version: 2 } as any);
+    const refs = createRefs({});
+    const { result } = renderPersistence(refs);
+
+    act(() => {
+      result.current.debouncedSave("drawing", [{ id: "widget", type: "embeddable" }], {}, {});
+    });
+    await act(async () => {
+      await result.current.flushPendingSceneSave();
+    });
+
+    expect(api.updateDrawing).toHaveBeenCalledWith(
+      "drawing",
+      expect.objectContaining({ elements: [{ id: "widget", type: "embeddable" }] }),
+    );
   });
 
   it("makes a guest-upload rejection explicit while leaving the editor state open", async () => {

@@ -16,7 +16,7 @@ import {
   toPublicTrashCollectionId,
 } from "./trash";
 import { encodeSnapshotField } from "../../snapshots/snapshotCodec";
-import { captureSnapshotAssets } from "../../assets/assetService";
+import { captureSnapshotAssets, StaleDrawingAssetReferenceError } from "../../assets/assetService";
 import {
   InvalidDocumentWidgetStateError,
   syncDrawingDocumentState,
@@ -392,6 +392,13 @@ export const registerDrawingCreateUpdateRoutes = (
             error: "Invalid document widgets",
             code: error.code,
             message: error.message,
+          });
+        }
+        if (error instanceof StaleDrawingAssetReferenceError) {
+          return res.status(409).json({
+            error: "Conflict",
+            code: error.code,
+            message: "The document changed while this scene was being saved.",
           });
         }
         if (

@@ -443,6 +443,7 @@ export const Editor: React.FC = () => {
     debouncedSaveLibrary,
     debouncedSavePreview,
     enqueueSceneSave,
+    flushPendingSceneSave,
     saveDataRef,
     savePreviewRef,
   } = useEditorPersistence({
@@ -454,6 +455,9 @@ export const Editor: React.FC = () => {
     normalizeImageElementStatus: normalizeSceneForTransport,
     resolveSafeSnapshot,
   });
+  const prepareDocumentAssetReplacement = useCallback(async () => {
+    await flushPendingSceneSave();
+  }, [flushPendingSceneSave]);
   useEditorFileUploads({ drawingId: id, fileCapability: adapter.files, enabled: canUploadFiles });
   const markSceneChangedSinceLoad = useCallback(() => {
     hasSceneChangesSinceLoadRef.current = true;
@@ -720,6 +724,7 @@ export const Editor: React.FC = () => {
         workshopTimer={workshopTimer}
         documentPages={documentPages}
         documentEdits={documentEdits}
+        onBeforeDocumentAssetReplacement={prepareDocumentAssetReplacement}
         onDocumentAssetReplacement={handleDocumentAssetReplacement}
         presenting={{ ...presenting, canTakeover: accessLevel === "owner" }}
         frames={frames}

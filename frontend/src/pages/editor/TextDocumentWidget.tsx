@@ -70,6 +70,7 @@ type TextDocumentWidgetProps = {
   onUpdateLiveDraft?: (content: string) => void;
   onCancelLiveDraft?: () => void;
   onEndLiveDraft?: () => void;
+  onBeforeDocumentAssetReplacement?: () => Promise<void>;
   onDocumentAssetReplacement?: (replacement: DocumentAssetReplacement) => Promise<boolean>;
 };
 
@@ -91,6 +92,7 @@ export const TextDocumentWidget = ({
   onUpdateLiveDraft,
   onCancelLiveDraft,
   onEndLiveDraft,
+  onBeforeDocumentAssetReplacement,
   onDocumentAssetReplacement,
 }: TextDocumentWidgetProps) => {
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
@@ -260,6 +262,9 @@ export const TextDocumentWidget = ({
     setEditMessage(null);
     let persisted = false;
     try {
+      // A queued scene snapshot may still name the old immutable Asset. It
+      // must finish before the server atomically replaces that Asset id.
+      await onBeforeDocumentAssetReplacement?.();
       const replacement = await replaceMarkdownContent(
         drawingId,
         assetId,

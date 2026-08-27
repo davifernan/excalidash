@@ -59,6 +59,7 @@ type EditorViewProps = {
   workshopTimer: WorkshopTimerController;
   documentPages: DocumentPageController;
   documentEdits: DocumentEditController;
+  onBeforeDocumentAssetReplacement: () => Promise<void>;
   onDocumentAssetReplacement: (replacement: DocumentAssetReplacement) => Promise<boolean>;
   inviteHere: InviteHereUiState;
   presenting: PresentationUiState;
@@ -132,6 +133,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   workshopTimer,
   documentPages,
   documentEdits,
+  onBeforeDocumentAssetReplacement,
   onDocumentAssetReplacement,
   inviteHere,
   presenting,
@@ -301,6 +303,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                     }
                     onCancelLiveDraft={() => documentEdits.cancelDraft(data.assetId)}
                     onEndLiveDraft={() => documentEdits.endDraft(data.assetId)}
+                    onBeforeDocumentAssetReplacement={onBeforeDocumentAssetReplacement}
                     onDocumentAssetReplacement={onDocumentAssetReplacement}
                     sharing={{
                       elementId: element.id,

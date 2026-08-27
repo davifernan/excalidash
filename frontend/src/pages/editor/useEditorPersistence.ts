@@ -328,7 +328,9 @@ export const useEditorPersistence = ({
         throw err;
       }
       log.error("Failed to save drawing", { error: err }, { notify: false });
-      notify("error", "Failed to save changes");
+      notify("error", "Changes could not be saved. Your work is still open.", {
+        detail: "Retry before reloading or leaving this board.",
+      });
       throw err;
     }
   };
@@ -440,6 +442,16 @@ export const useEditorPersistence = ({
   );
   refs.debouncedSave.current = debouncedSave;
 
+  /**
+   * A document-asset replacement changes a scene reference atomically on the
+   * server. Drain any older scene snapshot first: otherwise a debounced save
+   * can run after the replacement and name the asset id that no longer exists.
+   */
+  const flushPendingSceneSave = useCallback(async () => {
+    debouncedSave.flush();
+    await refs.saveQueue.current;
+  }, [debouncedSave, refs]);
+
   const debouncedSavePreview = useCallback(
     debounce((drawingId: string) => {
       if (!savePreviewRef.current || !drawingId) return;
@@ -550,6 +562,7 @@ export const useEditorPersistence = ({
     debouncedSaveLibrary,
     debouncedSavePreview,
     enqueueSceneSave,
+    flushPendingSceneSave,
     saveDataRef,
     savePreviewRef,
   };
