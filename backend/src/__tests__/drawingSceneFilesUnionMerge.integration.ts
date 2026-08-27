@@ -404,4 +404,38 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
     expect(res.status).toBe(200);
     expect(res.body.files["file-a"].dataURL).toBe("/api/files/y/file-a");
   });
+
+  it("returns a conflict, not a server error, for a stale Markdown asset reference", async () => {
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({ name: "Stale Markdown reference", elements: [], appState: {}, files: {} });
+
+    const response = await put(created.body.id, {
+      version: created.body.version,
+      elements: [
+        {
+          id: "stale-markdown-widget",
+          type: "embeddable",
+          link: "excalidash://asset-widget",
+          customData: {
+            excalidash: {
+              schemaVersion: 2,
+              widget: { kind: "markdown", assetId: "replaced-asset-id" },
+            },
+          },
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      code: "STALE_DOCUMENT_ASSET_REFERENCE",
+      error: "Conflict",
+    });
+  });
 });
