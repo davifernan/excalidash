@@ -184,6 +184,11 @@ test.describe("dragging an arrow out of a note", () => {
     await page.mouse.up();
     await settle(page);
     const movedNotes = (await notes(page)).sort((a: any, b: any) => a.x - b.x);
+    // NIL-665: this assertion is flaky under WebKit (measured 2/6 local repeats landing right at
+    // the threshold, e.g. 300 or 270 against `> 300`) -- a synthetic-drag timing issue in this
+    // pre-existing vertical-drag check, unrelated to NIL-646/NIL-647 or CHILD_GAP (this note is
+    // created to the *right* of its parent; CHILD_GAP only affects that horizontal offset, and
+    // the same failure reproduced on main before this PR's CHILD_GAP change existed at all).
     expect(movedNotes[1].y).toBeGreaterThan(childY + 100);
   });
 
@@ -290,6 +295,13 @@ test.describe("dragging an arrow out of a note", () => {
       // NIL-640: WebKit records the parent note late, at the END of the later child text
       // edit, and folds both changes together; Undo consequently targets the parent entry.
       // A Chromium/WebKit History dump proved this, and captureUpdate: IMMEDIATELY does not fix it.
+      //
+      // Re-checked for PR #227 (NIL-646/NIL-647), since main's Cross-Engine CI now runs each
+      // engine in its own job (NIL-652) and WebKit no longer shares a runner with the other
+      // engines. If this were a CI-timeout artifact of the old combined job, the extra headroom
+      // would let it pass. It didn't: this genuinely failed in 6/6 local WebKit repeats, in the
+      // CI run for main's NIL-652 commit, and in this PR's own CI run. The marking stays; the
+      // underlying History-ordering race is unrelated to CI scheduling.
       test.fail();
     }
     await openEditor(page, drawingId);
