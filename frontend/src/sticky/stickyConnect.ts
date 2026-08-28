@@ -59,8 +59,16 @@ export const HANDLE_OUTSET = 6;
 /** Screen-space motion that distinguishes a click from an intentional drag. */
 export const HANDLE_DRAG_THRESHOLD_PX = 6;
 
-/** Clear board-space between a parent and the child made from its handle. */
-export const CHILD_GAP = 48;
+/**
+ * Clear board-space between a parent and the child made from its handle.
+ *
+ * NIL-647: Davi found the default gap too tight ("haette gern mehr
+ * Abstand"). This is the one place that distance is defined -- `previewChild`
+ * (the ghost shown on hover) and `childPosition` (the slot the real child
+ * lands in, including its own occupied-slot search) both derive from it, so
+ * changing the number here is the whole fix; nothing else hardcodes a gap.
+ */
+export const CHILD_GAP = 96;
 
 export function startPoint(element: any, side: HandleSide): { x: number; y: number } {
   const point = handlePoint(element, side);
