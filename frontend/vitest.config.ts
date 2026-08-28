@@ -25,6 +25,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@excalidash/domain": path.resolve(__dirname, "../packages/domain/src"),
     },
   },
 });

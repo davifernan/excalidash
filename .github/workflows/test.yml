@@ -409,11 +409,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
-            package-lock.json
 
       - name: Install package dependencies
         run: |
-          npm ci
           npm ci
 
       - name: Check backend dead code
@@ -450,7 +448,6 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            package-lock.json
             package-lock.json
             e2e/package-lock.json
       
@@ -612,7 +609,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
-            package-lock.json
             e2e/package-lock.json
       
       - name: Install backend dependencies
@@ -770,7 +766,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
-            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
@@ -926,7 +921,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
-            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
@@ -1071,7 +1065,6 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            package-lock.json
             package-lock.json
             e2e/package-lock.json
 
