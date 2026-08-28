@@ -1273,7 +1273,16 @@ jobs:
         run: |
           echo "Waiting for the built frontend/backend..."
           for i in {1..60}; do
-            if curl -s http://localhost:16767/api/health > /dev/null; then
+            # `-f`, not just `-s`: nginx answers immediately once it's up,
+            # with a 502 for as long as the backend behind it is still
+            # migrating/generating its Prisma client. Plain `curl -s`
+            # returns exit 0 for that 502 too (curl only fails on a
+            # transport error, not an HTTP error status), so without `-f`
+            # this loop broke on attempt 1 every time -- caught in CI on
+            # NIL-649's own PR (run 33195824353): "Built image is ready!"
+            # printed immediately, then the strict check right after it
+            # failed because the backend genuinely wasn't ready yet.
+            if curl -sf http://localhost:16767/api/health > /dev/null; then
               echo "Built image is ready!"
               break
             fi

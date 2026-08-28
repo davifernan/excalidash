@@ -17,7 +17,15 @@ services:
     # The smoke job talks to the frontend on its own host port so it can
     # never collide with the production containers this same host runs on
     # ports 8000/6767 outside of CI.
-    ports:
+    #
+    # `!override`, not a plain list -- Compose merges list-type keys like
+    # `ports` by concatenating them, not replacing them, so a plain list
+    # here left the merged config publishing BOTH 6767 (from
+    # docker-compose.yml) AND 16767, defeating the whole point of moving
+    # this job off the production port (caught by review on NIL-649's own
+    # PR: `docker compose ... config` showed two `ports` entries for the
+    # frontend service).
+    ports: !override
       - "16767:80"
 
   backend:
