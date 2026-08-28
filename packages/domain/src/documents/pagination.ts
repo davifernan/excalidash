@@ -1,3 +1,5 @@
+import type { DocumentKind } from "./contract";
+
 export const DOCUMENT_PAGE_CHAR_BUDGET = 20_000;
 
 /**
@@ -336,7 +338,7 @@ const paginatePlainText = (source: string, budget: number) =>
 
 export const paginateDocumentSource = (
   source: string,
-  kind: "MARKDOWN" | "TEXT",
+  kind: DocumentKind,
   budget = DOCUMENT_PAGE_CHAR_BUDGET,
 ) => {
   if (source.length === 0) return [""];

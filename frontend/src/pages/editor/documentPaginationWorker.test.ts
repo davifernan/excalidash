@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { paginateDocumentOffThread } from "./documentPaginationWorker";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  paginateDocumentOffThread,
+  type DocumentPaginationRequest,
+  type DocumentPaginationResponse,
+} from "./documentPaginationWorker";
 
 class FakeWorker {
   static instances: FakeWorker[] = [];
@@ -22,6 +26,34 @@ describe("document pagination worker client", () => {
     FakeWorker.instances = [];
     vi.stubGlobal("Worker", FakeWorker);
   });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["TEXT", "MARKDOWN"] as const)(
+    "runs the production Worker handler for 50,000 uninterrupted %s characters",
+    async (kind) => {
+      const postMessage = vi.fn<(response: DocumentPaginationResponse) => void>();
+      const workerScope: {
+        onmessage?: (event: MessageEvent<DocumentPaginationRequest>) => void;
+        postMessage: typeof postMessage;
+      } = { postMessage };
+      vi.stubGlobal("self", workerScope);
+      vi.resetModules();
+
+      await import("./documentPagination.worker");
+      workerScope.onmessage?.(
+        new MessageEvent("message", { data: { source: "x".repeat(50_000), kind } }),
+      );
+
+      expect(postMessage).toHaveBeenCalledOnce();
+      expect(postMessage.mock.calls[0][0]).toMatchObject({ ok: true });
+      const response = postMessage.mock.calls[0][0];
+      if (!response.ok) throw new Error(response.error);
+      expect(response.pages).toHaveLength(3);
+    },
+  );
 
   it("posts source to a module worker and releases it after the result", async () => {
     const result = paginateDocumentOffThread("one\ntwo", "TEXT");

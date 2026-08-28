@@ -1,53 +1,62 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { paginateDocumentSource as paginateOnServer } from "./documentPagination";
-import { paginateDocumentSource as paginateInBrowser } from "../../../frontend/src/pages/editor/documentPagination";
+import type {
+  DocumentPaginationRequest,
+  DocumentPaginationResponse,
+} from "../../../frontend/src/pages/editor/documentPaginationWorker";
 
-const fixtures = [
-  { name: "empty text", kind: "TEXT" as const, source: "", budget: 20 },
-  {
-    name: "plain lines across a boundary",
-    kind: "TEXT" as const,
-    source: "one\ntwo\nthree\nfour\n",
-    budget: 9,
-  },
-  {
-    name: "markdown list",
-    kind: "MARKDOWN" as const,
-    source: "# Tasks\n\n- first item\n- second item\n- third item\n",
-    budget: 24,
-  },
-  {
-    name: "markdown table",
-    kind: "MARKDOWN" as const,
-    source: "| Name | Value |\n| --- | --- |\n| alpha | 1 |\n| beta | 2 |\n| gamma | 3 |\n",
-    budget: 42,
-  },
-  {
-    name: "fenced block kept atomic",
-    kind: "MARKDOWN" as const,
-    source: "Before\n\n```ts\nconst value = 1;\nconst next = 2;\n```\n\nAfter\n",
-    budget: 20,
-  },
-];
+const uninterruptedSource = "x".repeat(50_000);
 
-const productionDefaultFixture = {
-  kind: "TEXT" as const,
-  source: `${"a".repeat(10_000)}\n${"b".repeat(9_998)}\n`,
+const runProductionWorker = async (request: DocumentPaginationRequest) => {
+  const postMessage = vi.fn<(response: DocumentPaginationResponse) => void>();
+  const workerScope: {
+    onmessage?: (event: MessageEvent<DocumentPaginationRequest>) => void;
+    postMessage: typeof postMessage;
+  } = { postMessage };
+  vi.stubGlobal("self", workerScope);
+  vi.resetModules();
+
+  const workerModule = process.env.DOCUMENT_PAGINATION_WORKER_MODULE
+    ? pathToFileURL(resolve(process.cwd(), process.env.DOCUMENT_PAGINATION_WORKER_MODULE)).href
+    : new URL("../../../frontend/src/pages/editor/documentPagination.worker.ts", import.meta.url)
+        .href;
+  await import(workerModule);
+  expect(
+    workerScope.onmessage,
+    "the production Worker must install its message handler",
+  ).toBeTypeOf("function");
+  workerScope.onmessage?.(new MessageEvent("message", { data: request }));
+
+  expect(
+    postMessage,
+    "the production Worker must answer the pagination request",
+  ).toHaveBeenCalledOnce();
+  const response = postMessage.mock.calls[0][0];
+  expect(response.ok, "the production Worker must accept a valid pagination request").toBe(true);
+  if (!response.ok) throw new Error(response.error);
+  return response.pages;
 };
 
-describe("document pagination package contract", () => {
-  it.each(fixtures)("keeps server and browser equal for $name", ({ kind, source, budget }) => {
-    expect(paginateOnServer(source, kind, budget)).toEqual(paginateInBrowser(source, kind, budget));
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
 
-  it("keeps server and browser equal at the production default budget", () => {
-    const { kind, source } = productionDefaultFixture;
-    const serverPages = paginateOnServer(source, kind);
-    const browserPages = paginateInBrowser(source, kind);
+describe("document pagination cross-runtime contract", () => {
+  it.each(["TEXT", "MARKDOWN"] as const)(
+    "returns byte-identical three-page output through the real backend and Worker for 50,000 uninterrupted %s",
+    async (kind) => {
+      const backendPages = paginateOnServer(uninterruptedSource, kind);
+      const workerPages = await runProductionWorker({ source: uninterruptedSource, kind });
 
-    expect(serverPages.length, "server and browser default-budget page counts").toBe(
-      browserPages.length,
-    );
-    expect(serverPages).toEqual(browserPages);
-  });
+      expect(backendPages, "the real backend must produce exactly three pages").toHaveLength(3);
+      expect(workerPages, "the real Worker must produce exactly three pages").toHaveLength(3);
+      expect(workerPages, "backend and Worker pages must be byte-identical").toEqual(backendPages);
+      expect(workerPages.join(""), "pagination must preserve every source byte").toBe(
+        uninterruptedSource,
+      );
+    },
+  );
 });

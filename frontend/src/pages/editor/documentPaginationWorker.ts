@@ -1,7 +1,6 @@
-export type DocumentPaginationRequest = {
-  source: string;
-  kind: "MARKDOWN" | "TEXT";
-};
+import type { DocumentPaginationRequest } from "@excalidash/domain/documents";
+
+export type { DocumentPaginationRequest } from "@excalidash/domain/documents";
 
 export type DocumentPaginationResponse =
   { ok: true; pages: string[] } | { ok: false; error: string };
