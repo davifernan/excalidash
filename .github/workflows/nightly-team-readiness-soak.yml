@@ -69,6 +69,16 @@ concurrency:
   group: nightly-team-readiness-soak
   cancel-in-progress: false
 
+# The summary job needs both: `contents: write` for the evidence-branch PUT
+# in soak-nightly-aggregate.cjs (appends this run's raw numbers), `issues:
+# write` for soak-nightly-notify.cjs's tracking-issue comment/create. Without
+# this the default token can be read-only depending on repo settings, and a
+# 403 on the evidence PUT used to be swallowed silently (fixed separately in
+# soak-nightly-aggregate.cjs -- see its own comment on that PUT).
+permissions:
+  contents: write
+  issues: write
+
 env:
   CONTEXT_COUNT: ${{ github.event.inputs.context_count || '10' }}
   PART_DURATION_MINUTES: ${{ github.event.inputs.part_duration_minutes || '115' }}

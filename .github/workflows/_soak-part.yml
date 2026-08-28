@@ -41,6 +41,12 @@ on:
         description: "The shared board id this part ran against -- only meaningful from part 1."
         value: ${{ jobs.run.outputs.board_id }}
 
+# This job never calls the GitHub API -- checkout is all it needs.
+# Read-only, and explicit rather than left to whatever the calling
+# workflow/repo default happens to be.
+permissions:
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest

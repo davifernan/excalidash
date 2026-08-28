@@ -13,7 +13,9 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const RESULTS_DIR = "/tmp/soak-results";
+// Overridable so soak-evidence-write.test.cjs can point this at a temp dir
+// instead of the real /tmp/soak-results the workflow always uses.
+const RESULTS_DIR = process.env.SOAK_RESULTS_DIR || "/tmp/soak-results";
 const EVIDENCE_PATH = "soak-nightly/team-readiness-log.ndjson";
 
 function sameProfile(a, b) {
@@ -192,6 +194,16 @@ function main() {
     ...(existingSha ? { sha: existingSha } : {}),
   };
   fs.writeFileSync("/tmp/soak-evidence-put-body.json", JSON.stringify(body));
+  // Hans-Friedrich finding on #223: this PUT is the entire point of the
+  // nightly run -- NIL-639 asks for a durable, growing record, not a
+  // pass/fail. A 403 (missing `contents: write`, see this workflow's
+  // permissions: block) or any other failure here used to be swallowed --
+  // logged, never surfaced -- so the step stayed green while the evidence
+  // log silently never grew. It must fail the step instead: caught here
+  // only to finish writing summary.md for the next step (the tracking-issue
+  // comment still needs to fire even on a failed write), then re-raised
+  // after that so the process exits non-zero.
+  let evidenceWriteError = null;
   try {
     gh([
       "api",
@@ -203,6 +215,7 @@ function main() {
     ]);
     console.log("soak-nightly-aggregate: appended this run to evidence branch log");
   } catch (err) {
+    evidenceWriteError = err;
     console.error(`soak-nightly-aggregate: failed to write evidence log: ${err.message}`);
   }
 
@@ -221,6 +234,15 @@ function main() {
   fs.mkdirSync(RESULTS_DIR, { recursive: true });
   fs.writeFileSync(path.join(RESULTS_DIR, "summary.md"), summaryMd);
   console.log(summaryMd);
+
+  if (evidenceWriteError) {
+    console.error(
+      "soak-nightly-aggregate: exiting non-zero -- the evidence-branch write failed, " +
+        "see the error above. summary.md and the tracking-issue comment still went out, " +
+        "but this run's raw numbers were NOT durably recorded.",
+    );
+    process.exitCode = 1;
+  }
 }
 
 if (require.main === module) main();
