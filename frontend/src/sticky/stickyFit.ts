@@ -67,6 +67,24 @@ function layoutAt(container: any, text: any, fontSize: number): StickyFit | null
     ...text,
     fontSize,
     text: text.originalText ?? text.text ?? "",
+    // `restoreElements` grows an autoResize label to fit its text but never
+    // shrinks it below whatever width/height it is handed -- so feeding it
+    // the label's own last-rendered box let a stale, larger-than-needed
+    // render answer for the exact same content depending on what the label
+    // happened to look like a moment before (measured: an empty label
+    // returned fontSize 57 fresh and 55.53 once it had briefly been 23x71
+    // wide, for byte-identical input). A 1px starting box is the smallest no
+    // prior render can beat -- exactly 0 is dropped as an invalid element by
+    // the restore step -- so every call grows up from (effectively) nothing
+    // to the text's own natural size, and the answer depends only on `text`
+    // and `fontSize`.
+    //
+    // The position this yields from `restore()` is not used below -- see why
+    // at the return statement.
+    width: 1,
+    height: 1,
+    x: container.x,
+    y: container.y,
   };
 
   const restored = restore([container, probe], {
@@ -81,8 +99,22 @@ function layoutAt(container: any, text: any, fontSize: number): StickyFit | null
     text: laidOut.text,
     width: laidOut.width,
     height: laidOut.height,
-    x: laidOut.x,
-    y: laidOut.y,
+    // Centred on the container directly, not `laidOut.x`/`laidOut.y`.
+    //
+    // For a bound label, Excalidraw's own `getAdjustedDimensions` treats the
+    // two axes differently: horizontally it recentres the new width on the
+    // probe's *current* centre (so a `container.x` probe answers off by
+    // `width / 2`), but vertically -- for a bound, centre-aligned label --
+    // only its "south" side is ever counted as moving, so the *y* it derives
+    // never recentres at all; it stays anchored to whatever `y` the probe
+    // started with, no matter how much the label's height changes. There is
+    // no single starting position that makes both of those correct at once
+    // (measured: seeding the probe at the container's own centre fixed `x`
+    // exactly but left `y` 35px off-centre on a 71px-tall single line).
+    // Deriving both directly from the container's real box and the label's
+    // now-known width/height sidesteps that mismatch instead of chasing it.
+    x: container.x + (container.width - laidOut.width) / 2,
+    y: container.y + (container.height - laidOut.height) / 2,
     fits: true,
   };
 }

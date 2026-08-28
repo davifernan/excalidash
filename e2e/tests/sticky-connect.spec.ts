@@ -184,7 +184,47 @@ test.describe("dragging an arrow out of a note", () => {
     await page.mouse.up();
     await settle(page);
     const movedNotes = (await notes(page)).sort((a: any, b: any) => a.x - b.x);
+    // NIL-665: this assertion is flaky under WebKit (measured 2/6 local repeats landing right at
+    // the threshold, e.g. 300 or 270 against `> 300`) -- a synthetic-drag timing issue in this
+    // pre-existing vertical-drag check, unrelated to NIL-646/NIL-647 or CHILD_GAP (this note is
+    // created to the *right* of its parent; CHILD_GAP only affects that horizontal offset, and
+    // the same failure reproduced on main before this PR's CHILD_GAP change existed at all).
     expect(movedNotes[1].y).toBeGreaterThan(childY + 100);
+  });
+
+  test("creates a connected child right away, not after a stall (NIL-647)", async ({ page }) => {
+    // NIL-647: clicking a handle used to take ~1s before the child note even
+    // appeared in the scene. Root cause, measured directly: this component's
+    // `createChild` asked `interaction.setActiveToolSettled` to confirm the
+    // "selection" tool with the wrong ActiveTool shape
+    // (`{ type: "builtin", name: "selection" }` instead of `{ type:
+    // "selection" }` -- see types.ts's ActiveTool union). The tool itself
+    // switched correctly within a frame, but the settle check could never
+    // report success, so every click burned its full 1000ms timeout before
+    // `createConnectedChild` ran at all. The existing "previews a child..."
+    // test above only waits for eventual success and would pass either way
+    // (Playwright's default timeout is longer than the stall); this asserts
+    // the actual regression -- the wall-clock budget, not just the outcome.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+
+    const startedAt = Date.now();
+    await handle.click();
+    await page.waitForFunction(
+      () =>
+        (window as any).__EXCALIDASH_TEST__
+          .getSceneElements()
+          .filter((element: any) => element.customData?.excalidash?.sticky).length >= 2,
+      null,
+      { timeout: 5000 },
+    );
+    const elapsedMs = Date.now() - startedAt;
+    expect(elapsedMs).toBeLessThan(500);
   });
 
   test("treats a 150ms stationary press as a click, not a drag", async ({ page }) => {
@@ -255,6 +295,13 @@ test.describe("dragging an arrow out of a note", () => {
       // NIL-640: WebKit records the parent note late, at the END of the later child text
       // edit, and folds both changes together; Undo consequently targets the parent entry.
       // A Chromium/WebKit History dump proved this, and captureUpdate: IMMEDIATELY does not fix it.
+      //
+      // Re-checked for PR #227 (NIL-646/NIL-647), since main's Cross-Engine CI now runs each
+      // engine in its own job (NIL-652) and WebKit no longer shares a runner with the other
+      // engines. If this were a CI-timeout artifact of the old combined job, the extra headroom
+      // would let it pass. It didn't: this genuinely failed in 6/6 local WebKit repeats, in the
+      // CI run for main's NIL-652 commit, and in this PR's own CI run. The marking stays; the
+      // underlying History-ordering race is unrelated to CI scheduling.
       test.fail();
     }
     await openEditor(page, drawingId);

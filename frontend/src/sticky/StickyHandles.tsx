@@ -321,7 +321,17 @@ export const StickyHandles: React.FC<Props> = ({
               if (creatingChildren.current.has(creationKey)) return;
               creatingChildren.current.add(creationKey);
               void (async () => {
-                await interaction.setActiveToolSettled({ type: "builtin", name: "selection" });
+                // NIL-647: `{ type: "selection" }` is its own ActiveTool
+                // variant (types.ts), not a "builtin" tool named "selection"
+                // -- Excalidraw's own raw tool type for it really is
+                // "selection", never "builtin". The wrong shape here used to
+                // make `setActiveToolSettled`'s equality check impossible to
+                // satisfy (`sameTool` compares `.type` first, and "selection"
+                // never equals "builtin"), so this always burned its full
+                // 1000ms settle timeout -- measured as a ~1050ms wait before
+                // the child note appeared at all -- even though the tool
+                // itself had already switched within a frame.
+                await interaction.setActiveToolSettled({ type: "selection" });
                 await createConnectedChild(parent, dot.side, scene, ui);
               })().finally(() => {
                 creatingChildren.current.delete(creationKey);
