@@ -194,3 +194,34 @@ echo "PASS: an empty exclusion removed nothing."
 
 echo
 echo "release-check-runs.test.sh: PASS (green fix verified, red bug reproduced, exclusion proven in both directions, all against the real API)"
+
+# --- NIL-654: only the newest run per name counts -------------------------
+#
+# Both directions, against real commits with real re-run history -- not
+# fixtures. A gate that hides superseded failures must still block on a check
+# whose LATEST attempt is red, otherwise it is an weakening, not a fix.
+#
+# GREEN direction: 86c37e634cb8564ce2c73400f49cf9d1fadd7ee5 has
+# `request-review` failing at 06:18 (an incomplete ready gate in the PR body)
+# and succeeding at 06:36. GitHub's own merge gate treats it as green; so must
+# this one.
+#
+# RED direction: 6358840e765a59e12171261d430775fcd788a6d8 has `E2E Shard 2`
+# succeeding at 01:39 and FAILING at 05:44. The newest attempt is red, so the
+# gate must still refuse.
+GREEN_SHA="86c37e634cb8564ce2c73400f49cf9d1fadd7ee5"
+RED_SHA="6358840e765a59e12171261d430775fcd788a6d8"
+
+superseded_failure_is_ignored="$("$ROOT/scripts/release-check-runs.sh" "$REPO" "$GREEN_SHA" | jq -r '.failed')"
+if [ "$superseded_failure_is_ignored" != "0" ]; then
+  echo "FAIL: a superseded failure still counted on $GREEN_SHA (failed=$superseded_failure_is_ignored)" >&2
+  exit 1
+fi
+echo "ok: superseded failure ignored on ${GREEN_SHA:0:8} (failed=0)"
+
+latest_failure_still_blocks="$("$ROOT/scripts/release-check-runs.sh" "$REPO" "$RED_SHA" | jq -r '.failed')"
+if [ "$latest_failure_still_blocks" = "0" ]; then
+  echo "FAIL: a check whose newest run is red did NOT block on $RED_SHA" >&2
+  exit 1
+fi
+echo "ok: newest-run failure still blocks on ${RED_SHA:0:8} (failed=$latest_failure_still_blocks)"

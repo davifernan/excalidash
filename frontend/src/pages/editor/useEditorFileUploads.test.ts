@@ -39,13 +39,37 @@ afterEach(() => {
 });
 
 describe("useEditorFileUploads", () => {
+  it("does not start background uploads when the server capability is disabled", async () => {
+    const fileCapability = makeFileCapability({
+      "file-1": { mimeType: "image/png", dataURL: "data:image/png;base64,aaaa" },
+    });
+    renderHook(() =>
+      useEditorFileUploads({
+        drawingId: "d1",
+        fileCapability: fileCapability as any,
+        enabled: false,
+      }),
+    );
+
+    act(() => fireFilesAdded());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
   it("uploads a newly-added embedded file after the flush interval, not immediately", async () => {
     const fileCapability = makeFileCapability({
       "file-1": { mimeType: "image/png", dataURL: "data:image/png;base64,aaaa" },
     });
     mockUpload.mockResolvedValue(undefined);
     renderHook(() =>
-      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+      useEditorFileUploads({
+        drawingId: "d1",
+        fileCapability: fileCapability as any,
+        enabled: true,
+      }),
     );
 
     act(() => fireFilesAdded());
@@ -70,7 +94,11 @@ describe("useEditorFileUploads", () => {
     mockUpload.mockResolvedValue(undefined);
     const { rerender } = renderHook(
       ({ fileCapability }) =>
-        useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+        useEditorFileUploads({
+          drawingId: "d1",
+          fileCapability: fileCapability as any,
+          enabled: true,
+        }),
       { initialProps: { fileCapability: firstCapability } },
     );
 
@@ -95,7 +123,11 @@ describe("useEditorFileUploads", () => {
     let resolveUpload!: () => void;
     mockUpload.mockReturnValue(new Promise<void>((resolve) => (resolveUpload = resolve)));
     const { result } = renderHook(() =>
-      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+      useEditorFileUploads({
+        drawingId: "d1",
+        fileCapability: fileCapability as any,
+        enabled: true,
+      }),
     );
 
     act(() => fireFilesAdded());
@@ -119,7 +151,11 @@ describe("useEditorFileUploads", () => {
     });
     mockUpload.mockRejectedValueOnce(new Error("network error")).mockResolvedValueOnce(undefined);
     const { result } = renderHook(() =>
-      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+      useEditorFileUploads({
+        drawingId: "d1",
+        fileCapability: fileCapability as any,
+        enabled: true,
+      }),
     );
 
     act(() => fireFilesAdded());
@@ -142,7 +178,11 @@ describe("useEditorFileUploads", () => {
       "file-1": { mimeType: "image/png", dataURL: "/api/files/d1/file-1" },
     });
     renderHook(() =>
-      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+      useEditorFileUploads({
+        drawingId: "d1",
+        fileCapability: fileCapability as any,
+        enabled: true,
+      }),
     );
 
     act(() => fireFilesAdded());
@@ -161,7 +201,11 @@ describe("useEditorFileUploads", () => {
     });
     mockUpload.mockImplementation(() => new Promise(() => {})); // never resolves
     renderHook(() =>
-      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+      useEditorFileUploads({
+        drawingId: "d1",
+        fileCapability: fileCapability as any,
+        enabled: true,
+      }),
     );
 
     act(() => fireFilesAdded());
@@ -180,7 +224,11 @@ describe("useEditorFileUploads", () => {
     const fileCapability = makeFileCapability(files);
     mockUpload.mockImplementation(() => new Promise(() => {})); // never resolves -- stays in flight
     renderHook(() =>
-      useEditorFileUploads({ drawingId: "d1", fileCapability: fileCapability as any }),
+      useEditorFileUploads({
+        drawingId: "d1",
+        fileCapability: fileCapability as any,
+        enabled: true,
+      }),
     );
 
     act(() => fireFilesAdded());

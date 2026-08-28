@@ -92,6 +92,7 @@ describe("TextDocumentWidget", () => {
     });
     const acquire = vi.fn(async () => ({ ok: true as const, token: "lock-token" }));
     const release = vi.fn();
+    const drainPendingSceneSave = vi.fn(async () => {});
     const applyReplacement = vi.fn(() => true);
     render(
       <TextDocumentWidget
@@ -104,6 +105,7 @@ describe("TextDocumentWidget", () => {
         toolbar={toolbar}
         onAcquireEditLock={acquire}
         onReleaseEditLock={release}
+        onBeforeDocumentAssetReplacement={drainPendingSceneSave}
         onDocumentAssetReplacement={applyReplacement}
       />,
     );
@@ -124,6 +126,7 @@ describe("TextDocumentWidget", () => {
         "lock-token",
       ),
     );
+    expect(drainPendingSceneSave).toHaveBeenCalledBefore(replaceMarkdownContent);
     expect(applyReplacement).toHaveBeenCalledWith({
       drawingId: "drawing-1",
       previousAssetId: "asset-1",

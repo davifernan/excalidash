@@ -18,6 +18,7 @@ type UseCommentsFeatureInput = {
   socketRef: MutableRefObject<Socket | null>;
   isReady: boolean;
   accessLevel: "none" | "view" | "comment" | "edit" | "owner";
+  enabled: boolean;
   canComment: boolean;
   canModerate: boolean;
   currentUserId: string | null;
@@ -32,6 +33,7 @@ export const useCommentsFeature = ({
   socketRef,
   isReady,
   accessLevel,
+  enabled,
   canComment,
   canModerate,
   currentUserId,
@@ -41,7 +43,7 @@ export const useCommentsFeature = ({
   const [isOpen, setIsOpen] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
-  const comments = useComments({ drawingId, canComment, socketRef, isReady });
+  const comments = useComments({ drawingId, enabled, canComment, socketRef, isReady });
   const reportCapabilityFailure = useCallback((seam: string) => {
     log.warn("[Comments] capability failed", { seam });
     notify("error", "Could not read the canvas for this comment.");
@@ -53,6 +55,15 @@ export const useCommentsFeature = ({
     onCapabilityFailure: reportCapabilityFailure,
   });
 
+  useEffect(() => {
+    if (!enabled) {
+      setIsOpen(false);
+      setActiveThreadId(null);
+      placement.cancelPlacing();
+      placement.clearDraftAnchor();
+    }
+  }, [enabled, placement.cancelPlacing, placement.clearDraftAnchor]);
+
   // A live pointer down while placing arms this component regardless of
   // whether the panel is open, so "pin a point" can be started from a
   // collapsed panel too.
@@ -62,9 +73,9 @@ export const useCommentsFeature = ({
 
   // Record the visit once per mount, for "since you were last here".
   useEffect(() => {
-    if (!drawingId || accessLevel === "none") return;
+    if (!drawingId || !enabled || accessLevel === "none") return;
     void commentsApi.recordDrawingVisit(drawingId);
-  }, [drawingId, accessLevel]);
+  }, [drawingId, enabled, accessLevel]);
 
   // Resolve a `?thread=` deep link once its target actually shows up in the
   // loaded thread list: open the panel, select it, and get it on screen. If
@@ -73,6 +84,7 @@ export const useCommentsFeature = ({
   // instead of an error: the board itself still opened correctly.
   const resolvedDeepLink = useRef<string | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     if (!deepLinkThreadId || resolvedDeepLink.current === deepLinkThreadId) return;
     const thread = comments.threads.find((t) => t.root.id === deepLinkThreadId);
     if (!thread) return;
@@ -98,11 +110,14 @@ export const useCommentsFeature = ({
     // A thread with neither a live element nor an anchor point (element
     // deleted, no point ever stored) still opens in the panel above -- just
     // without a viewport jump. That is the anchor-survival decision.
-  }, [deepLinkThreadId, comments.threads, adapter]);
+  }, [deepLinkThreadId, comments.threads, adapter, enabled]);
 
-  const toggleOpen = useCallback(() => setIsOpen((v) => !v), []);
+  const toggleOpen = useCallback(() => {
+    if (enabled) setIsOpen((v) => !v);
+  }, [enabled]);
 
   const overlay = useMemo(() => {
+    if (!enabled) return null;
     const rootResult = adapter.ui.overlayRoot();
     if (!rootResult.ok) return null;
     return createPortal(
@@ -146,6 +161,7 @@ export const useCommentsFeature = ({
     );
   }, [
     adapter,
+    enabled,
     comments,
     isOpen,
     placement,

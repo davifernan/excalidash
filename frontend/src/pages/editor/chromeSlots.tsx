@@ -136,6 +136,7 @@ export type ChromeSlotContext = {
   id?: string;
   accessLevel: "none" | "view" | "comment" | "edit" | "owner";
   canEdit: boolean;
+  canViewComments: boolean;
   mobile: boolean;
   drawingName: string;
   /** Which collection this board sits in, or null (unorganized, or hidden -- see "Growing the context" above). */
@@ -352,7 +353,7 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
     // path (menu or overlay, not the header control slot) for an entry that
     // cannot fit there; this is that case on desktop too, not only mobile.
     render: (ctx) =>
-      ctx.accessLevel !== "none" && ctx.id ? (
+      ctx.canViewComments && ctx.accessLevel !== "none" && ctx.id ? (
         <MainMenu.Item onSelect={ctx.onToggleComments} icon={<MessageSquare size={16} />}>
           <CommentsMenuEntry ctx={ctx} />
         </MainMenu.Item>

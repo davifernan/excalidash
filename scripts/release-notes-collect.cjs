@@ -132,7 +132,11 @@ function classifyUserFacing(body) {
     };
   }
   const trimmed = values[0].trim();
-  if (trimmed === USER_FACING_NONE) {
+  // Before NIL-599, some PRs wrote `none -- <reason>` instead of the
+  // contract's exact `none`. The reason is not release-note prose: it still
+  // declares that no user-facing change exists, so historical collection must
+  // skip it rather than publish the raw explanation under a user-facing group.
+  if (trimmed === USER_FACING_NONE || /^none\s+--(?:\s|$)/.test(trimmed)) {
     return { status: USER_FACING_STATUS.NONE, sentence: null, reason: null };
   }
   if (trimmed.length === 0) {

@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { getTestPrisma, setupTestDb } from "./testUtils";
+import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
 
 describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
   const tinyPng = Buffer.from(
@@ -32,6 +33,9 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
   let csrfHeaderName: string;
   let csrfToken: string;
   let storageDir: string;
+  let anonymousAgent: any;
+  let anonymousCsrfHeaderName: string;
+  let anonymousCsrfToken: string;
 
   const signAccessToken = (user: { id: string; email: string }) => {
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
@@ -51,8 +55,19 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
 
     await prisma.systemConfig.upsert({
       where: { id: "default" },
-      update: { authEnabled: true, registrationEnabled: false },
-      create: { id: "default", authEnabled: true, registrationEnabled: false },
+      update: {
+        authEnabled: true,
+        registrationEnabled: false,
+        guestUploadEnabled: false,
+        guestCommentVisibilityEnabled: true,
+      },
+      create: {
+        id: "default",
+        authEnabled: true,
+        registrationEnabled: false,
+        guestUploadEnabled: false,
+        guestCommentVisibilityEnabled: true,
+      },
     });
 
     const passwordHash = await bcrypt.hash("password123", 10);
@@ -72,6 +87,10 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
     const csrfRes = await ownerAgent.get("/csrf-token").set("User-Agent", userAgent);
     csrfHeaderName = csrfRes.body.header;
     csrfToken = csrfRes.body.token;
+    anonymousAgent = request.agent(app);
+    const anonymousCsrf = await anonymousAgent.get("/csrf-token").set("User-Agent", userAgent);
+    anonymousCsrfHeaderName = anonymousCsrf.body.header;
+    anonymousCsrfToken = anonymousCsrf.body.token;
   }, 120000);
 
   afterAll(async () => {
@@ -129,6 +148,176 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
       .expect(200)
       .expect("Content-Type", /image\/png/);
     expect(downloaded.body).toEqual(tinyPng);
+  });
+
+  it("closes the data: URL scene-PUT bypass unless both guest-upload switches are enabled", async () => {
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({ name: "Guest data URL gate", elements: [], appState: {}, files: {} });
+    expect(created.status).toBe(200);
+
+    const drawingId = created.body.id as string;
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const attempt = () =>
+      anonymousAgent
+        .put(`/drawings/${drawingId}`)
+        .set("User-Agent", userAgent)
+        .set("x-share-token", token)
+        .set(anonymousCsrfHeaderName, anonymousCsrfToken)
+        .send({
+          version: created.body.version,
+          elements: [],
+          files: {
+            "guest-data-url": {
+              id: "guest-data-url",
+              mimeType: "image/png",
+              dataURL,
+            },
+          },
+        });
+
+    const bothOff = await attempt();
+    expect(bothOff.status).toBe(403);
+    expect(bothOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+    expect(
+      await prisma.drawingFile.findUnique({
+        where: { drawingId_fileId: { drawingId, fileId: "guest-data-url" } },
+      }),
+    ).toBeNull();
+
+    await prisma.drawing.update({ where: { id: drawingId }, data: { guestUploadEnabled: true } });
+    expect((await attempt()).status).toBe(403);
+
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: true },
+    });
+    const enabled = await attempt();
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.files["guest-data-url"].dataURL).toBe(
+      `/api/files/${drawingId}/guest-data-url`,
+    );
+  });
+
+  it("closes the preview-only data: URL bypass unless both guest-upload switches are enabled", async () => {
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: false },
+    });
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({ name: "Guest preview data URL gate", elements: [], appState: {}, files: {} });
+    expect(created.status).toBe(200);
+
+    const drawingId = created.body.id as string;
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const preview = `<svg xmlns="http://www.w3.org/2000/svg"><image href="${dataURL}" /></svg>`;
+    const attempt = () =>
+      anonymousAgent
+        .put(`/drawings/${drawingId}`)
+        .set("User-Agent", userAgent)
+        .set("x-share-token", token)
+        .set(anonymousCsrfHeaderName, anonymousCsrfToken)
+        .send({ preview });
+
+    const bothOff = await attempt();
+    expect(bothOff.status).toBe(403);
+    expect(bothOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+    expect(
+      (await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).preview,
+    ).toBeNull();
+
+    await prisma.drawing.update({
+      where: { id: drawingId },
+      data: { guestUploadEnabled: true },
+    });
+    const instanceStillOff = await attempt();
+    expect(instanceStillOff.status).toBe(403);
+    expect(instanceStillOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+    expect(
+      (await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).preview,
+    ).toBeNull();
+
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: true },
+    });
+    const enabled = await attempt();
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.preview).toContain(dataURL);
+    expect(
+      (await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).preview,
+    ).toContain(dataURL);
+  });
+
+  it("lets a guest save scene text beside an already-persisted inline preview", async () => {
+    const dataURL = `data:image/png;base64,${tinyPng.toString("base64")}`;
+    const preview = `<svg xmlns="http://www.w3.org/2000/svg"><image href="${dataURL}" /></svg>`;
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({
+        name: "Legacy inline preview",
+        elements: [],
+        appState: {},
+        files: {},
+        preview,
+      });
+    expect(created.status).toBe(200);
+
+    const drawingId = created.body.id as string;
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+
+    const saved = await anonymousAgent
+      .put(`/drawings/${drawingId}`)
+      .set("User-Agent", userAgent)
+      .set("x-share-token", token)
+      .set(anonymousCsrfHeaderName, anonymousCsrfToken)
+      .send({
+        version: created.body.version,
+        elements: [{ id: "guest-text", type: "text", text: "Keep this text" }],
+        appState: {},
+        preview,
+      });
+
+    expect(saved.status).toBe(200);
+    expect(saved.body.elements).toEqual([
+      expect.objectContaining({ id: "guest-text", text: "Keep this text" }),
+    ]);
   });
 
   it("keeps an existing file when a later save's files payload does not repeat it", async () => {
@@ -214,5 +403,39 @@ describe("Scene file union-merge on PUT /drawings/:id (NIL-381)", () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.files["file-a"].dataURL).toBe("/api/files/y/file-a");
+  });
+
+  it("returns a conflict, not a server error, for a stale Markdown asset reference", async () => {
+    const created = await ownerAgent
+      .post("/drawings")
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(csrfHeaderName, csrfToken)
+      .send({ name: "Stale Markdown reference", elements: [], appState: {}, files: {} });
+
+    const response = await put(created.body.id, {
+      version: created.body.version,
+      elements: [
+        {
+          id: "stale-markdown-widget",
+          type: "embeddable",
+          link: "excalidash://asset-widget",
+          customData: {
+            excalidash: {
+              schemaVersion: 2,
+              widget: { kind: "markdown", assetId: "replaced-asset-id" },
+            },
+          },
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      code: "STALE_DOCUMENT_ASSET_REFERENCE",
+      error: "Conflict",
+    });
   });
 });

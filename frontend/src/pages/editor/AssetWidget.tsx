@@ -22,6 +22,7 @@ type AssetWidgetProps = {
   onUpdateLiveDraft?: (content: string) => void;
   onCancelLiveDraft?: () => void;
   onEndLiveDraft?: () => void;
+  onBeforeDocumentAssetReplacement?: () => Promise<void>;
   onDocumentAssetReplacement?: (replacement: DocumentAssetReplacement) => Promise<boolean>;
 };
 
@@ -53,6 +54,7 @@ const widgets: Record<AssetWidgetKind, WidgetComponent> = {
     onUpdateLiveDraft,
     onCancelLiveDraft,
     onEndLiveDraft,
+    onBeforeDocumentAssetReplacement,
     onDocumentAssetReplacement,
   }) => (
     <TextDocumentWidget
@@ -71,6 +73,7 @@ const widgets: Record<AssetWidgetKind, WidgetComponent> = {
       onUpdateLiveDraft={onUpdateLiveDraft}
       onCancelLiveDraft={onCancelLiveDraft}
       onEndLiveDraft={onEndLiveDraft}
+      onBeforeDocumentAssetReplacement={onBeforeDocumentAssetReplacement}
       onDocumentAssetReplacement={onDocumentAssetReplacement}
     />
   ),

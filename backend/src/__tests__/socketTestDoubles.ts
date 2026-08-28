@@ -148,6 +148,14 @@ export const socketJoinSnapshotPrisma = (userId = "socket-test-owner") => ({
       collectionId: null,
       name: "Socket test board",
       nameRevision: 0,
+      guestUploadEnabled: false,
+      guestCommentVisibilityEnabled: true,
+    }),
+  },
+  systemConfig: {
+    findUnique: async () => ({
+      guestUploadEnabled: false,
+      guestCommentVisibilityEnabled: true,
     }),
   },
   documentPageView: { findMany: async () => [] },

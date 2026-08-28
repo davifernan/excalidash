@@ -17,6 +17,7 @@ import {
   getDrawingAccess,
   shareLinkTokenFromRequest,
 } from "../authz/sharing";
+import { getDrawingCapabilities, GUEST_UPLOAD_DENIED } from "../authz/capabilities";
 import { resolveStoragePath } from "./assetStorage";
 import { logger } from "../logger";
 import type { StoredFile } from "./assetStorage";
@@ -252,7 +253,7 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
   // memory or writing it twice.
   app.post(
     "/drawings/:drawingId/assets",
-    deps.requireAuth,
+    deps.optionalAuth,
     asyncHandler(async (req: Request, res: Response) => {
       const { drawingId } = req.params;
       if (!ID.test(drawingId)) return res.status(404).json({ error: "Drawing not found" });
@@ -261,14 +262,18 @@ export function registerAssetRoutes(deps: AssetRouteDeps): void {
         where: { id: drawingId },
         select: { userId: true },
       });
-      const access = await getDrawingAccess({
+      const decision = await getDrawingCapabilities({
         prisma: deps.prisma,
         principal: principalOf(req),
         drawingId,
         shareToken: shareLinkTokenFromRequest(req),
       });
+      const { access } = decision;
       if (!drawing || !canViewDrawing(access)) {
         return res.status(404).json({ error: "Drawing not found" });
+      }
+      if (decision.isGuest && canEditDrawing(access) && !decision.capabilities.uploadFiles) {
+        return res.status(403).json(GUEST_UPLOAD_DENIED);
       }
       if (!canEditDrawing(access)) {
         return res.status(403).json({

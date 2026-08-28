@@ -14,6 +14,7 @@ import { join } from "node:path";
 import type { PrismaClient } from "../generated/client";
 import { getTestPrisma, setupTestDb, cleanupTestDb, createTestUser } from "../__tests__/testUtils";
 import { registerFileRoutes } from "./files";
+import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
 
 describe("board image file routes (NIL-381)", () => {
   let prisma: PrismaClient;
@@ -44,6 +45,15 @@ describe("board image file routes (NIL-381)", () => {
     await prisma.drawingPermission.deleteMany({});
     await prisma.drawing.deleteMany({});
     await prisma.user.deleteMany({});
+    await prisma.systemConfig.upsert({
+      where: { id: "default" },
+      update: { guestUploadEnabled: false, guestCommentVisibilityEnabled: true },
+      create: {
+        id: "default",
+        guestUploadEnabled: false,
+        guestCommentVisibilityEnabled: true,
+      },
+    });
 
     storageDir = await mkdtemp(join(tmpdir(), "filesroutes-"));
     owner = await createTestUser(prisma, "file-owner@example.com");
@@ -91,6 +101,40 @@ describe("board image file routes (NIL-381)", () => {
   });
 
   const png = Buffer.from("fake-png-bytes-1");
+
+  it("gates an anonymous edit-link image PUT on both instance and board policy", async () => {
+    const token = buildShareLinkToken();
+    await prisma.drawingLinkShare.create({
+      data: {
+        drawingId,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(token),
+        createdByUserId: owner.id,
+      },
+    });
+    actAs = null;
+    const attempt = () =>
+      request(app)
+        .put(`/files/${drawingId}/guest-image`)
+        .set("x-share-token", token)
+        .set("Content-Type", "image/png")
+        .send(png);
+
+    const bothOff = await attempt();
+    expect(bothOff.status).toBe(403);
+    expect(bothOff.body.code).toBe("GUEST_UPLOAD_DISABLED");
+
+    await prisma.drawing.update({ where: { id: drawingId }, data: { guestUploadEnabled: true } });
+    expect((await attempt()).status).toBe(403);
+
+    await prisma.systemConfig.update({
+      where: { id: "default" },
+      data: { guestUploadEnabled: true },
+    });
+    const enabled = await attempt();
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.fileId).toBe("guest-image");
+  });
 
   it("uploads an image and serves it back byte-identical", async () => {
     const put = await request(app)

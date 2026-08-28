@@ -2,7 +2,12 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { Prisma } from "../../generated/client";
 import { logger } from "../../logger";
-import { canEditDrawing, getDrawingAccess, isOwnerAccess } from "../../authz/sharing";
+import { canEditDrawing, isOwnerAccess } from "../../authz/sharing";
+import {
+  getDrawingCapabilities,
+  GUEST_UPLOAD_DENIED,
+  hasEmbeddedDrawingUpload,
+} from "../../authz/capabilities";
 import { rewritePreviewFileReferences } from "../../fileProcessing";
 import {
   getUserTrashCollectionId,
@@ -11,7 +16,7 @@ import {
   toPublicTrashCollectionId,
 } from "./trash";
 import { encodeSnapshotField } from "../../snapshots/snapshotCodec";
-import { captureSnapshotAssets } from "../../assets/assetService";
+import { captureSnapshotAssets, StaleDrawingAssetReferenceError } from "../../assets/assetService";
 import {
   InvalidDocumentWidgetStateError,
   syncDrawingDocumentState,
@@ -165,12 +170,13 @@ export const registerDrawingCreateUpdateRoutes = (
       const principal = await getRequestPrincipal(req);
 
       const { id } = req.params;
-      const access = await getDrawingAccess({
+      const decision = await getDrawingCapabilities({
         prisma,
         principal,
         drawingId: id,
         shareToken: getShareToken(req),
       });
+      const { access } = decision;
       if (!canEditDrawing(access)) {
         if (respondWithAuthErrorIfPresent(req, res)) return;
         return res.status(404).json({
@@ -204,6 +210,15 @@ export const registerDrawingCreateUpdateRoutes = (
         files?: Record<string, unknown>;
         version?: number;
       };
+      if (
+        hasEmbeddedDrawingUpload(payload, {
+          files: parseJsonField(existingDrawing.files, {}),
+          preview: existingDrawing.preview,
+        }) &&
+        !decision.capabilities.uploadFiles
+      ) {
+        return res.status(403).json(GUEST_UPLOAD_DENIED);
+      }
       const ownerUserId = existingDrawing.userId;
       const trashCollectionId = getUserTrashCollectionId(ownerUserId);
       const isSceneUpdate =
@@ -377,6 +392,20 @@ export const registerDrawingCreateUpdateRoutes = (
             error: "Invalid document widgets",
             code: error.code,
             message: error.message,
+          });
+        }
+        if (error instanceof StaleDrawingAssetReferenceError) {
+          // This is normally a replacement/save race. Keep it queryable without
+          // promoting expected client rebase work to error tracking.
+          logger.warn("Stale document asset reference during scene save", {
+            drawingId: id,
+            requestId: requestIdOf(req),
+            assetIds: error.assetIds,
+          });
+          return res.status(409).json({
+            error: "Conflict",
+            code: error.code,
+            message: "The document changed while this scene was being saved.",
           });
         }
         if (

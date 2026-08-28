@@ -305,6 +305,96 @@ test.describe("sticky note font scaling (NIL-630)", () => {
     }
   });
 
+  test("a spectator keeps its sticky geometry while a collaborator types a space", async ({
+    browser,
+    page: writer,
+  }) => {
+    const spectatorContext = await browser.newContext();
+    try {
+      const spectator = await spectatorContext.newPage();
+      await Promise.all([openEditor(writer, drawingId), openEditor(spectator, drawingId)]);
+      await expect(writer.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
+      await expect(spectator.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
+
+      await placeNote(writer, { x: 400, y: 300 });
+      await writer.keyboard.type(textAt(100), { delay: 0 });
+      await writer.keyboard.press("Escape");
+      await settle(writer);
+
+      await expect
+        .poll(async () => (await labels(spectator))[0]?.originalText ?? null, { timeout: 15_000 })
+        .toBe(textAt(100));
+
+      const snapshot = () =>
+        spectator.evaluate(() => {
+          const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+          const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+          const label = elements.find((element: any) => element.containerId === note?.id);
+          return [note?.x, note?.y, note?.width, note?.height, label?.fontSize] as const;
+        });
+
+      await writer
+        .locator("canvas")
+        .last()
+        .dblclick({ position: { x: 400, y: 300 } });
+      await expect(writer.locator("textarea.excalidraw-wysiwyg")).toBeVisible();
+      const before = await snapshot();
+      await writer.keyboard.press("End");
+      await writer.keyboard.press("Space");
+      const expectedText = `${textAt(100)} `;
+      await expect
+        .poll(
+          () =>
+            spectator.evaluate(() => {
+              const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+              return elements.find((element: any) => element.containerId)?.originalText ?? null;
+            }),
+          { timeout: 15_000 },
+        )
+        .toBe(expectedText);
+      const samples = await spectator.evaluate(
+        (initial) =>
+          new Promise<Array<readonly (number | undefined)[]>>((resolve) => {
+            const frames: Array<readonly (number | undefined)[]> = [initial];
+            const until = performance.now() + 1_000;
+            const sample = () => {
+              const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+              const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+              const label = elements.find((element: any) => element.containerId === note?.id);
+              frames.push([note?.x, note?.y, note?.width, note?.height, label?.fontSize]);
+              if (performance.now() < until) requestAnimationFrame(sample);
+              else resolve(frames);
+            };
+            requestAnimationFrame(sample);
+          }),
+        before,
+      );
+      const after = await snapshot();
+      const states = samples.filter(
+        (sample, index) =>
+          index === 0 || sample.some((value, field) => value !== samples[index - 1][field]),
+      );
+
+      const allowedGeometries = new Set([
+        JSON.stringify(before.slice(0, 4)),
+        JSON.stringify(after.slice(0, 4)),
+      ]);
+      const unexpectedGeometry = states.find(
+        (state) => !allowedGeometries.has(JSON.stringify(state.slice(0, 4))),
+      );
+      console.log(
+        `NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, states, after, unexpectedGeometry })}`,
+      );
+      // Start only after the peer received the Space, then watch every frame
+      // for a second. The Font projection can arrive in a separate harmless
+      // frame, but no sampled note geometry may be other than the starting
+      // or settled geometry; that would be the visible text-edit box flicker.
+      expect(unexpectedGeometry).toBeUndefined();
+    } finally {
+      await spectatorContext.close();
+    }
+  });
+
   test("reload derives the visible font from canonical persisted state", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });

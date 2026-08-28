@@ -57,15 +57,33 @@ const rowWithAnUnknownColumn = {
 const buildApp = ({ grantee, row }: { grantee?: string; row?: unknown } = {}) => {
   const prisma: any = {
     user: { findUnique: vi.fn().mockResolvedValue({ isActive: true }) },
-    drawing: { findUnique: vi.fn().mockResolvedValue(row ?? rowWithAnUnknownColumn) },
+    drawing: {
+      findUnique: vi.fn().mockResolvedValue(row ?? rowWithAnUnknownColumn),
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: (row as any)?.id ?? rowWithAnUnknownColumn.id,
+          userId: (row as any)?.userId ?? rowWithAnUnknownColumn.userId,
+          collectionId: (row as any)?.collectionId ?? rowWithAnUnknownColumn.collectionId,
+        },
+      ]),
+    },
     drawingPermission: {
       findUnique: vi.fn(async ({ where }: any) =>
         where?.drawingId_granteeUserId?.granteeUserId === grantee ? { permission: "view" } : null,
       ),
+      findMany: vi
+        .fn()
+        .mockResolvedValue(grantee ? [{ drawingId: "drawing-1", permission: "view" }] : []),
     },
     drawingLinkShare: { findFirst: vi.fn().mockResolvedValue(null) },
-    collection: { findFirst: vi.fn().mockResolvedValue(null) },
-    collectionShare: { findFirst: vi.fn().mockResolvedValue(null) },
+    collection: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    collectionShare: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   };
   const app = express();
   registerDrawingReadRoutes(app, {
@@ -105,6 +123,7 @@ describe("drawing read projection", () => {
       [
         "accessLevel",
         "appState",
+        "capabilities",
         "collectionId",
         "collectionName",
         "createdAt",
@@ -119,6 +138,7 @@ describe("drawing read projection", () => {
         "version",
       ].sort(),
     );
+    expect(owner.payload.capabilities).toEqual({ uploadFiles: true, viewComments: true });
   });
 
   it("gates collectionName behind the same creator check as collectionId (NIL-344)", async () => {

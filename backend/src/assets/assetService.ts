@@ -44,6 +44,18 @@ export class QuotaExceededError extends Error {
   }
 }
 
+/** A scene was composed against a document reference that this board has since replaced. */
+export class StaleDrawingAssetReferenceError extends Error {
+  code = "STALE_DOCUMENT_ASSET_REFERENCE" as const;
+  assetIds: readonly string[];
+
+  constructor(message: string, assetIds: readonly string[]) {
+    super(message);
+    this.name = "StaleDrawingAssetReferenceError";
+    this.assetIds = assetIds;
+  }
+}
+
 type Deps = {
   prisma: any;
   storageDir: string;
@@ -404,9 +416,10 @@ export async function syncDrawingAssets(
 
   const unknown = wanted.filter((id) => !known.has(id));
   if (unknown.length) {
-    throw new Error(
+    throw new StaleDrawingAssetReferenceError(
       `This board does not have ${unknown.length === 1 ? "a document" : "documents"} ` +
         `with id ${unknown.map((id) => `"${id}"`).join(", ")}. Upload the file to this board first.`,
+      unknown,
     );
   }
 

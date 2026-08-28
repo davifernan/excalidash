@@ -8,6 +8,7 @@ export type HydratedDrawingData = {
   elements: any[];
   appState: any;
   files: Record<string, any>;
+  capabilities: Drawing["capabilities"];
 };
 
 const normalizeImageElementsForPreview = (
@@ -66,6 +67,7 @@ export const useDrawingPreview = (
           elements: fullDrawing.elements || [],
           appState: fullDrawing.appState || {},
           files: fullDrawing.files || {},
+          capabilities: fullDrawing.capabilities,
         };
         setFullData(payload);
         fullDataPromiseRef.current = null;
@@ -135,6 +137,7 @@ export const useDrawingPreview = (
       elements: data.elements || [],
       appState: data.appState || {},
       files: data.files || {},
+      capabilities: data.capabilities,
     };
   }, [drawing, ensureFullData]);
 

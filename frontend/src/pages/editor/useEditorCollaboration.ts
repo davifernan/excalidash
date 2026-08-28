@@ -447,7 +447,7 @@ export const useEditorCollaboration = ({
           }
         }
         const renderedElements = mergedElements
-          ? deriveStickyFontState(mergedElements)
+          ? deriveStickyFontState(mergedElements, protectedIds)
           : mergedElements;
         let sceneApplied = true;
         if (filesAdded && mergedElements && sceneUpdate && "elements" in sceneUpdate) {

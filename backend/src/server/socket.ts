@@ -9,6 +9,7 @@ import {
   parseShareLinkToken,
   type DrawingPrincipal,
 } from "../authz/sharing";
+import { getDrawingCapabilities } from "../authz/capabilities";
 import { createSocketAuthenticator } from "./socketAuth";
 import {
   createCollaborationAccessController,
@@ -83,6 +84,7 @@ import {
   DOCUMENT_EDIT_DRAFT_LIMITS,
   registerDocumentEditDraftRoomEvent,
 } from "./socketDocumentEditDrafts";
+import { drawingCommentsRoomName } from "./socketRoomNames";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -233,7 +235,12 @@ export const registerSocketHandlers = ({
       presenters.clear(drawingId);
       voting.clear(drawingId);
     }
-    if (leaveSocketRoom) await socket.leave(roomName(drawingId));
+    if (leaveSocketRoom) {
+      await Promise.all([
+        socket.leave(roomName(drawingId)),
+        socket.leave(drawingCommentsRoomName(drawingId)),
+      ]);
+    }
     emitPresence(drawingId);
     lockDrawings.forEach(emitDocumentEditLocks);
   };
@@ -246,6 +253,25 @@ export const registerSocketHandlers = ({
       isUserActive: (userId) => activeAccounts.get(userId),
       shareToken: shareToken === undefined ? shareTokenBySocket.get(socketId) : shareToken,
     });
+
+  const getCapabilities = (socketId: string, drawingId: string, shareToken?: string | null) =>
+    getDrawingCapabilities({
+      prisma,
+      principal: principals.get(socketId) || null,
+      drawingId,
+      isUserActive: (userId) => activeAccounts.get(userId),
+      shareToken: shareToken === undefined ? shareTokenBySocket.get(socketId) : shareToken,
+    });
+
+  const syncCommentRoom = async (
+    socket: Socket,
+    drawingId: string,
+    viewComments: boolean,
+  ): Promise<void> => {
+    const commentsRoom = drawingCommentsRoomName(drawingId);
+    if (viewComments) await socket.join(commentsRoom);
+    else await socket.leave(commentsRoom);
+  };
 
   const apiKeyHasScope = (socketId: string, scope: string) => {
     const apiKey = principals.get(socketId)?.apiKey;
@@ -392,6 +418,10 @@ export const registerSocketHandlers = ({
           allowAnonymousActorElementBytes(key, serializedBytes)
         );
       },
+      authorizeFileDelta: async (drawingId) => {
+        const decision = await getCapabilities(socket.id, drawingId);
+        return decision.capabilities.uploadFiles;
+      },
     });
     registerSelectionRoomEvent({
       socket,
@@ -463,7 +493,8 @@ export const registerSocketHandlers = ({
           });
           return;
         }
-        const access = await getAccess(socket.id, drawingId, shareToken);
+        const decision = await getCapabilities(socket.id, drawingId, shareToken);
+        const { access } = decision;
         if (!isCurrentJoin()) return;
         if (!canSocketView(socket.id, access)) {
           socket.emit("error", { message: "You do not have access to this drawing" });
@@ -522,8 +553,10 @@ export const registerSocketHandlers = ({
           name = deriveGuestName(socket.id);
         }
         await socket.join(roomName(drawingId));
+        await syncCommentRoom(socket, drawingId, decision.capabilities.viewComments);
         if (!isCurrentJoin()) {
           await socket.leave(roomName(drawingId));
+          await socket.leave(drawingCommentsRoomName(drawingId));
           return;
         }
         const presence: PresenceEntry = {
@@ -624,7 +657,8 @@ export const registerSocketHandlers = ({
         const drawingId = drawingBySocket.get(socket.id);
         if (!drawingId) return;
         followManager.invalidateAccess(socket.id);
-        const access = await getAccess(socket.id, drawingId);
+        const decision = await getCapabilities(socket.id, drawingId);
+        const { access } = decision;
         if (
           !canSocketView(socket.id, access) &&
           connectedSockets.get(socket.id) === socket &&
@@ -634,6 +668,13 @@ export const registerSocketHandlers = ({
           socket.emit("error", {
             message: "You do not have access to this drawing",
           });
+          return;
+        }
+        if (
+          connectedSockets.get(socket.id) === socket &&
+          drawingBySocket.get(socket.id) === drawingId
+        ) {
+          await syncCommentRoom(socket, drawingId, decision.capabilities.viewComments);
         }
       }),
     );

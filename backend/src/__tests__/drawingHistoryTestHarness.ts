@@ -70,8 +70,8 @@ export function buildApp(options: { userId?: string } = {}) {
       findUnique: vi.fn().mockResolvedValue(null),
     },
     drawingLinkShare: { findMany: vi.fn().mockResolvedValue([]) },
-    collection: { findFirst: vi.fn() },
-    collectionShare: { findFirst: vi.fn() },
+    collection: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+    collectionShare: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
   };
   prisma.$transaction = vi.fn(async (callback: (tx: any) => unknown) => callback(prisma));
   const emit = vi.fn();

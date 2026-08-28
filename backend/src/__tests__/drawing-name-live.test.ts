@@ -36,7 +36,11 @@ describe("live drawing name updates", () => {
   it("does not publish a name a read-only user was forbidden to save", async () => {
     const { app, prisma, io, drawingUpdateSchema } = buildApp({ userId: "viewer-1" });
     prisma.drawing.findUnique.mockResolvedValue(mockDrawing);
+    prisma.drawing.findMany.mockResolvedValue([mockDrawing]);
     prisma.drawingPermission.findUnique.mockResolvedValue({ permission: "view" });
+    prisma.drawingPermission.findMany.mockResolvedValue([
+      { drawingId: MOCK_DRAWING_ID, permission: "view" },
+    ]);
     drawingUpdateSchema.safeParse.mockReturnValue({
       success: true,
       data: { name: renamedDrawing.name },

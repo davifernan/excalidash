@@ -5,6 +5,8 @@ import { compressExcalidrawFiles } from "../../utils/imageCompression";
 import { getFilesDelta } from "./shared";
 import { useEditorPersistence } from "./useEditorPersistence";
 
+const { notification } = vi.hoisted(() => ({ notification: vi.fn() }));
+
 vi.mock("../../api", () => ({
   getDrawing: vi.fn(),
   updateDrawing: vi.fn(),
@@ -15,6 +17,8 @@ vi.mock("../../api", () => ({
 vi.mock("../../utils/imageCompression", () => ({
   compressExcalidrawFiles: vi.fn(),
 }));
+
+vi.mock("../../notifications", () => ({ notify: notification }));
 
 vi.mock("@excalidraw/excalidraw", () => ({
   // integrations/excalidraw/elements imports the whole utility surface, so a
@@ -186,6 +190,67 @@ describe("useEditorPersistence", () => {
     expect(getFilesDelta(refs.lastSyncedFiles.current, editorFiles)).toEqual({
       image: editorFiles.image,
     });
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Changes could not be saved. Your work is still open.",
+      expect.objectContaining({ detail: expect.stringContaining("Retry before reloading") }),
+    );
+  });
+
+  it("drains a queued scene snapshot before an asset replacement can begin", async () => {
+    vi.mocked(compressExcalidrawFiles).mockResolvedValue({
+      files: {},
+      changed: false,
+      changedIds: [],
+    });
+    vi.mocked(api.updateDrawing).mockResolvedValue({ version: 2 } as any);
+    const refs = createRefs({});
+    const { result } = renderPersistence(refs);
+
+    act(() => {
+      result.current.debouncedSave("drawing", [{ id: "widget", type: "embeddable" }], {}, {});
+    });
+    await act(async () => {
+      await result.current.flushPendingSceneSave();
+    });
+
+    expect(api.updateDrawing).toHaveBeenCalledWith(
+      "drawing",
+      expect.objectContaining({ elements: [{ id: "widget", type: "embeddable" }] }),
+    );
+  });
+
+  it("makes a guest-upload rejection explicit while leaving the editor state open", async () => {
+    const rejection = {
+      response: { status: 403, data: { code: "GUEST_UPLOAD_DISABLED" } },
+    };
+    vi.mocked(compressExcalidrawFiles).mockResolvedValue({
+      files: {},
+      changed: false,
+      changedIds: [],
+    });
+    vi.mocked(api.isAxiosError).mockImplementation((error) => error === rejection);
+    vi.mocked(api.updateDrawing).mockRejectedValueOnce(rejection);
+    const refs = createRefs({});
+    const { result } = renderPersistence(refs);
+
+    await act(async () => {
+      await expect(
+        result.current.saveDataRef.current?.(
+          "drawing",
+          [{ id: "unsaved-text", type: "text", text: "Keep this text" }],
+          {},
+          {},
+        ),
+      ).rejects.toBe(rejection);
+    });
+
+    expect(refs.lastPersistedElements.current).toEqual([]);
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Changes were not saved because this board does not allow guest uploads.",
+      expect.objectContaining({ detail: expect.stringContaining("Your changes are still open") }),
+    );
   });
 
   it("does not compress or persist files whose image was deleted", async () => {

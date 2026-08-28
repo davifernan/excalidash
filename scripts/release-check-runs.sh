@@ -57,15 +57,31 @@ EXCLUDE_JSON="$(printf '%s' "${EXCLUDE_RUN_IDS:-}" \
   | jq -R '"/runs/" + . + "/"' \
   | jq -sc '.')"
 
+# Only the NEWEST run per check name counts.
+#
+# GitHub keeps every attempt on a commit, and a re-run adds a run rather than
+# replacing the failed one. Counting all of them means a single transient
+# failure poisons a SHA forever: on 27.08.2026 `request-review` failed at
+# 06:18 (an incomplete ready gate in the PR body) and succeeded at 06:36, and
+# this gate still reported `failed: 1` -- so `v0.13.0` could not be tagged at
+# a commit GitHub's own merge gate considered green. A push to `main` also
+# starts a second check set on the same SHA, so the run count grows on its own.
+#
+# `group_by(.name)` then the run with the highest `started_at` is the same
+# semantics branch protection uses: the latest attempt decides. A check whose
+# latest attempt is red still blocks -- this hides superseded runs, never red
+# ones.
 gh api "$URL" --paginate --slurp | jq --argjson exclude "$EXCLUDE_JSON" '
   ([.[].check_runs[]] | map(select(
       (.details_url // "") as $u
       | ($exclude | map(. as $frag | $u | contains($frag)) | any) | not
-   ))) as $runs
+   ))
+  ) as $runs
+  | ($runs | group_by(.name) | map(max_by(.started_at // ""))) as $latest
   | {
       total: ($runs | length),
-      incomplete: ([$runs[] | select(.status != "completed")] | length),
-      failed: ([$runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral"))] | length),
-      failed_names: [$runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")) | .name]
+      incomplete: ([$latest[] | select(.status != "completed")] | length),
+      failed: ([$latest[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral"))] | length),
+      failed_names: [$latest[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")) | .name]
     }
 '
