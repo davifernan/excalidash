@@ -39,6 +39,7 @@ type EditorViewProps = {
   id?: string;
   accessLevel: "none" | "view" | "comment" | "edit" | "owner";
   canEdit: boolean;
+  canComment: boolean;
   canUploadFiles: boolean;
   canViewComments: boolean;
   drawingName: string;
@@ -113,6 +114,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   id,
   accessLevel,
   canEdit,
+  canComment,
   canUploadFiles,
   canViewComments,
   drawingName,
@@ -349,8 +351,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
           <WorkshopTimerCorner
             container={excalidrawRoot}
             drawingId={id}
+            boardId={id ?? null}
+            accessLevel={accessLevel}
             canEdit={canEdit}
+            canComment={canComment}
+            connectionStatus={connectionStatus}
+            votingStatus={voting.snapshot.status}
             timer={workshopTimer}
+            onStartVote={voting.openCompose}
+            onOpenComments={onToggleComments}
           />
           <ConnectionStatusBadge container={excalidrawRoot} status={connectionStatus} />
           <PresentationOverlay container={excalidrawRoot} frames={frames} presenting={presenting} />

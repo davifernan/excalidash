@@ -158,5 +158,14 @@ export const userPreferencesSchema = z
     theme: z.enum(["light", "dark"]).optional(),
     dashboardSortField: z.enum(["name", "createdAt", "updatedAt"]).optional(),
     dashboardSortDirection: z.enum(["asc", "desc"]).optional(),
+    /**
+     * Which editor feature-registry entries this viewer keeps in the
+     * bottom-right feature toolbar (NIL-655). Ids are validated as opaque
+     * strings, not against the frontend's `EditorFeatureId` union -- the
+     * frontend already drops an id it no longer recognizes, so this schema
+     * does not need to change in lockstep with the registry every time a
+     * feature is added or removed.
+     */
+    toolbarFeatureIds: z.array(z.string().min(1).max(64)).max(32).optional(),
   })
   .strict();

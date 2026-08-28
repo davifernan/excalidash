@@ -711,6 +711,7 @@ export const Editor: React.FC = () => {
         id={id}
         accessLevel={accessLevel}
         canEdit={canEdit}
+        canComment={canComment}
         canUploadFiles={canUploadFiles}
         canViewComments={canViewComments}
         drawingName={drawingName}
