@@ -67,7 +67,7 @@ describe("reading the current native arrow defaults", () => {
         currentItemStrokeColor: "#ff006e",
         currentItemStrokeWidth: 4,
         currentItemStrokeStyle: "dashed",
-        currentItemRoundness: { type: 2 },
+        currentItemRoundness: "round",
         currentItemStartArrowhead: "triangle",
         currentItemEndArrowhead: "arrow",
         currentItemArrowType: "round",
@@ -81,6 +81,10 @@ describe("reading the current native arrow defaults", () => {
       endArrowhead: "arrow",
       elbowed: false,
     });
+  });
+
+  it("maps the sharp app-state choice to an unrounded arrow", () => {
+    expect(readArrowStyle({ currentItemRoundness: "sharp" }).roundness).toBeNull();
   });
 
   it("reports not-ready through the capability rather than exposing the raw handle", () => {

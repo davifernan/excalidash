@@ -69,4 +69,30 @@ describe("useGridModePreference", () => {
     );
     expect(capabilities.scene.apply).not.toHaveBeenCalled();
   });
+
+  it("persists the final of several toggles while loading", async () => {
+    let resolvePreferences: (value: { gridModeEnabled: boolean }) => void;
+    vi.mocked(api.getUserPreferences).mockReturnValue(
+      new Promise((resolve) => {
+        resolvePreferences = resolve;
+      }),
+    );
+    const capabilities = makeCapabilities(true);
+    renderHook(() =>
+      useGridModePreference({
+        active: true,
+        boardSettings: capabilities.boardSettings as any,
+        scene: capabilities.scene as any,
+      }),
+    );
+    act(() => {
+      capabilities.toggle(false);
+      capabilities.toggle(true);
+    });
+    resolvePreferences!({ gridModeEnabled: false });
+    await waitFor(() =>
+      expect(api.updateUserPreferences).toHaveBeenCalledWith({ gridModeEnabled: true }),
+    );
+    expect(api.updateUserPreferences).toHaveBeenCalledTimes(1);
+  });
 });

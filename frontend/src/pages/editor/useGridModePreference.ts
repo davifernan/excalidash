@@ -25,6 +25,7 @@ export const useGridModePreference = ({
   const observedRef = useRef<boolean | null>(null);
   const changedBeforeLoadRef = useRef<boolean | null>(null);
   const applyingStoredRef = useRef<boolean | null>(null);
+  const writeInFlightRef = useRef(false);
 
   if (loadRef.current === null) {
     loadRef.current = api
@@ -39,19 +40,37 @@ export const useGridModePreference = ({
     if (!active) return;
     const initial = boardSettings.read();
     observedRef.current = initial.ok ? initial.value.gridModeEnabled : null;
+    const persistLatestChange = () => {
+      if (writeInFlightRef.current) return;
+      void loadRef.current!.then(() => {
+        const value = changedBeforeLoadRef.current;
+        if (value === null || writeInFlightRef.current) return;
+        changedBeforeLoadRef.current = null;
+        writeInFlightRef.current = true;
+        void Promise.resolve(api.updateUserPreferences({ gridModeEnabled: value }))
+          .catch(() => {
+            // Keep the local choice when persistence is temporarily unavailable.
+          })
+          .finally(() => {
+            writeInFlightRef.current = false;
+            // A later toggle must win even when a previous preference write is
+            // still in flight.
+            persistLatestChange();
+          });
+      });
+    };
     const unsubscribe = boardSettings.subscribe((settings) => {
       const previous = observedRef.current;
       observedRef.current = settings.gridModeEnabled;
       if (previous === null || previous === settings.gridModeEnabled) return;
-      if (applyingStoredRef.current === settings.gridModeEnabled) return;
-      if (changedBeforeLoadRef.current === null)
-        changedBeforeLoadRef.current = settings.gridModeEnabled;
-      void loadRef.current!.then(() => {
-        const value = changedBeforeLoadRef.current;
-        if (value === null) return;
-        changedBeforeLoadRef.current = null;
-        void api.updateUserPreferences({ gridModeEnabled: value });
-      });
+      if (applyingStoredRef.current === settings.gridModeEnabled) {
+        applyingStoredRef.current = null;
+        return;
+      }
+      // Keep the latest choice, not the first: several command-palette
+      // toggles may land before the preference read resolves.
+      changedBeforeLoadRef.current = settings.gridModeEnabled;
+      persistLatestChange();
     });
 
     let cancelled = false;
