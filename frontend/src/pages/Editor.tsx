@@ -157,7 +157,18 @@ export const Editor: React.FC = () => {
     // this global as its readiness signal -- the old one was set at exactly that
     // moment -- and publishing it on first render lets a spec reach for
     // `.excalidraw` before Excalidraw has mounted any DOM.
-    if (!import.meta.env.DEV || !isReady) return;
+    //
+    // `VITE_E2E_HARNESS_ENABLED` (NIL-649) is the second way this turns on,
+    // beside plain `DEV`: a real production build (`vite build`) has
+    // `import.meta.env.DEV === false`, so without this the harness -- and
+    // therefore every spec that opens a board through `openEditor` -- could
+    // never run against the actual built-and-served image, only the dev
+    // server. It defaults to unset/false everywhere a real user's image gets
+    // built (frontend/Dockerfile's ARG default, publish-images.yml, the
+    // ordinary `docker-compose.yml` build); only the CI job that smoke-tests
+    // the built image (`docker-compose.e2e-smoke.yml`) sets it, so shipped
+    // images never carry this internal read/write surface.
+    if (!(import.meta.env.DEV || import.meta.env.VITE_E2E_HARNESS_ENABLED) || !isReady) return;
     const unwrap = <T,>(result: { ok: true; value: T } | { ok: false }, fallback: T): T =>
       result.ok ? result.value : fallback;
     const openDocument = (result: ReturnType<typeof adapter.scene.readDocument>) =>

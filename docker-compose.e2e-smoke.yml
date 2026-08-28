@@ -1,0 +1,38 @@
+# NIL-649: overlay for docker-compose.yml used ONLY by the "E2E Built Image
+# Smoke" CI job (.github/workflows/test.yml). It builds the same images the
+# job runs against real users' way (npm run build, nginx), with exactly one
+# difference -- VITE_E2E_HARNESS_ENABLED=true, so window.__EXCALIDASH_TEST__
+# exists for Playwright to drive the board through. See Editor.tsx's harness
+# effect and vite.config.ts for what that flag gates and why it is off
+# everywhere else, including a plain `docker compose -f docker-compose.yml
+# build` with this file not layered in.
+#
+# Not for local development use. `make dev`/`docker-compose.yml` alone still
+# build the harness-free image, matching what ships.
+services:
+  frontend:
+    build:
+      args:
+        VITE_E2E_HARNESS_ENABLED: "true"
+    # The smoke job talks to the frontend on its own host port so it can
+    # never collide with the production containers this same host runs on
+    # ports 8000/6767 outside of CI.
+    ports:
+      - "16767:80"
+
+  backend:
+    environment:
+      # The smoke spec is a single short flow, but keep the same generous
+      # ceiling every other CI job uses rather than trusting the small
+      # default (60 CSRF requests) to hold as the spec grows.
+      - CSRF_MAX_REQUESTS=100000
+      - RATE_LIMIT_MAX_REQUESTS=100000
+      # Must match the frontend's own host port below -- the backend's CSRF
+      # origin check (server/csrf.ts) rejects a mutating request whose
+      # Origin header does not match this, and the browser's Origin is
+      # whatever port the frontend container is actually reachable on.
+      # docker-compose.yml leaves this unset (defaults to :6767), which is
+      # right for the ordinary compose stack but wrong here, since this
+      # overlay moves the frontend to :16767 precisely so it never collides
+      # with a production stack on the same host.
+      - FRONTEND_URL=http://localhost:16767
