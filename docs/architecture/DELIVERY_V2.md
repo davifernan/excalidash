@@ -158,8 +158,15 @@ The manifest distinguishes:
 - non-visible frontend infrastructure;
 - backend, operations, documentation, and other files.
 
-Visible frontend product files require `Visual-Evidence: provided` plus final-head Multica
-attachments that name scenario, viewport, and expected result. Test-only frontend changes use
+Visible frontend product files require `Visual-Evidence: provided` plus final-head PR evidence
+that names scenario, viewport, and expected result. For a changed interaction, animation, or
+time-sensitive user path, that evidence is a short animated GIF rather than a still screenshot:
+the focused green Playwright run sets `PLAYWRIGHT_MOTION_EVIDENCE=true` and
+`scripts/motion-evidence.cjs publish` converts it, caps it at 12 seconds / 5 MiB, appends it to the
+permanent `evidence` branch, embeds the Raw URL in the PR, and applies its `screenshot` label.
+The existing `Visual-Evidence: provided` value deliberately remains the one contract declaration;
+the required medium follows the observable change rather than creating another unchecked field.
+Test-only frontend changes use
 `Visual-Evidence: skipped: test-only frontend delta`. Every other non-visible change uses
 `Visual-Evidence: skipped: no visible frontend product delta`.
 

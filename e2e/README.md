@@ -121,6 +121,32 @@ drop the html report and the diagnostics NIL-488 depends on. That is why
 `retain-on-failure` keeps the trace/video for a test that fails on its one
 attempt and discards it for one that passes.
 
+## Motion evidence for a pull request
+
+Use a focused, green browser test when a change affects interaction, animation, or perceived
+latency. It intentionally records only that run; regular E2E and CI remain failure-only to avoid
+retaining a repository of videos. Choose an unused port first and check available memory before
+starting the browser:
+
+```bash
+free -m
+ss -tlnp | grep :6650
+cd e2e
+FRONTEND_PORT=6650 PORT=8650 PLAYWRIGHT_OUTPUT_DIR=motion-results \
+  PLAYWRIGHT_MOTION_EVIDENCE=true npx playwright test \
+  tests/sticky-connect.spec.ts -g 'creates a connected child right away'
+MOTION_VIDEO=$(find motion-results -name video.webm -print -quit)
+cd ..
+node scripts/motion-evidence.cjs publish \
+  --package NIL-650 --pr <PR-number> --input "$MOTION_VIDEO" \
+  --name connected-child-latency
+```
+
+`publish` trims to the first 12 seconds, scales to 640px wide at 8fps, rejects a GIF larger than
+5 MiB, appends it to `evidence/motion/NIL-650/`, pushes the append-only evidence commit, embeds the
+Raw GIF in the PR, and adds the `screenshot` label. It never changes `main`, force-pushes, or
+reuses a path. Use a new descriptive `--name` for every recording.
+
 `frontend/playwright.config.ts` (NIL-418) is gone rather than decorated: its
 `testDir` (`frontend/e2e`) never existed in this fork's history, and nothing
 called it -- see `git log` on this repository before this change for the

@@ -9,6 +9,11 @@ const FRONTEND_PORT = Number(process.env.FRONTEND_PORT) || 6767;
 const BACKEND_PORT = Number(process.env.PORT) || 8000;
 const FRONTEND_URL = process.env.BASE_URL || `http://localhost:${FRONTEND_PORT}`;
 const BACKEND_URL = process.env.API_URL || `http://localhost:${BACKEND_PORT}`;
+// A deliberately selected evidence run must retain a recording even when its
+// assertion is green: a timing or animation regression can look wrong while
+// still satisfying the test. Normal CI keeps retain-on-failure so every suite
+// run does not retain a large collection of successful recordings.
+const MOTION_EVIDENCE = process.env.PLAYWRIGHT_MOTION_EVIDENCE === "true";
 
 /**
  * Specs that run on every engine.
@@ -179,7 +184,7 @@ export default defineConfig({
 
     screenshot: "only-on-failure",
 
-    video: "retain-on-failure",
+    video: MOTION_EVIDENCE ? "on" : "retain-on-failure",
 
     headless: process.env.HEADED !== "true",
   },

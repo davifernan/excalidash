@@ -108,6 +108,14 @@ test("accepts only durable raw image links from the permanent evidence branch", 
   );
 });
 
+test("accepts an animated GIF from the permanent evidence branch", () => {
+  const url = "https://raw.githubusercontent.com/davifernan/excalidash/evidence/motion/NIL-621/latency.gif";
+  assert.deepEqual(
+    classifyScreenshotEvidence({ issue: issue(), pr: pr(), comments: [{ body: `![motion](${url})` }] }),
+    { result: "satisfied", supportedUrls: [url] },
+  );
+});
+
 test("a confident absence is missing, but an unfamiliar image host is ambiguous", () => {
   assert.deepEqual(classifyScreenshotEvidence({ issue: issue(), pr: pr(), comments: [] }), {
     result: "missing",
