@@ -7,6 +7,11 @@ const path = require("node:path");
 
 const { ARTIFACT_DIR_RELATIVE, PART_SUMMARY_FILENAME } = require("./soak-nightly-extract.cjs");
 const { PART_SUMMARY_RELATIVE_PATH } = require("./soak-nightly-aggregate.cjs");
+const {
+  commonAncestorSegments,
+  resolveToAbsolute,
+  extractStepPaths,
+} = require("./soak-upload-artifact-root.cjs");
 
 /**
  * NIL-639 Hans finding #2: _soak-part.yml once uploaded a workspace-relative
@@ -29,70 +34,9 @@ const { PART_SUMMARY_RELATIVE_PATH } = require("./soak-nightly-aggregate.cjs");
 const WORKFLOW_PATH = path.join(__dirname, "..", ".github", "workflows", "_soak-part.yml");
 const STEP_NAME = "Upload this part's soak artifacts";
 
-// upload-artifact@v4's own rule ("Uploading a Single File or Directory" /
-// "Uploading Multiple Files" in its README): a single given path is itself
-// the archive root (its contents are uploaded flattened, the directory name
-// does not survive inside the archive); with multiple paths, the archive
-// root is the least common ancestor path segment shared by all of them.
-function commonAncestorSegments(pathList) {
-  const segLists = pathList.map((p) => (p.endsWith("/") ? p.slice(0, -1) : p).split("/"));
-  let common = segLists[0];
-  for (const segs of segLists.slice(1)) {
-    const len = Math.min(common.length, segs.length);
-    let i = 0;
-    while (i < len && common[i] === segs[i]) i++;
-    common = common.slice(0, i);
-  }
-  return common;
-}
-
-function resolveToAbsolute(entry, workspaceDir) {
-  const cleaned = entry.trim().replace(/\$\{\{\s*inputs\.part\s*\}\}/g, "1");
-  return cleaned.startsWith("/") ? cleaned : path.posix.join(workspaceDir, cleaned);
-}
-
-// Extracts the literal `path:` value(s) of one named step from the
-// workflow's real YAML text -- no YAML dependency in scripts/ (same
-// approach as workflow-timeouts.test.cjs), and reading the file itself
-// rather than a fixture means an edit to the real step is exactly what this
-// test reacts to.
-function extractStepPaths(workflowSource, stepName) {
-  const lines = workflowSource.split(/\r?\n/);
-  const stepStart = lines.findIndex((l) => l.trim() === `- name: ${stepName}`);
-  assert.notStrictEqual(stepStart, -1, `step "${stepName}" not found in ${WORKFLOW_PATH}`);
-
-  let stepEnd = lines.length;
-  for (let i = stepStart + 1; i < lines.length; i++) {
-    if (/^ {6}- name:/.test(lines[i])) {
-      stepEnd = i;
-      break;
-    }
-  }
-  const block = lines.slice(stepStart, stepEnd);
-
-  const singleLine = block.find((l) => /^\s*path:\s*\S/.test(l));
-  if (singleLine) {
-    return [singleLine.replace(/^\s*path:\s*/, "").trim()];
-  }
-
-  const blockStart = block.findIndex((l) => /^\s*path:\s*\|/.test(l));
-  assert.notStrictEqual(blockStart, -1, `no "path:" under step "${stepName}"`);
-  const baseIndent = block[blockStart].match(/^(\s*)/)[1].length;
-  const paths = [];
-  for (let i = blockStart + 1; i < block.length; i++) {
-    const line = block[i];
-    if (line.trim() === "") continue;
-    const indent = line.match(/^(\s*)/)[1].length;
-    if (indent <= baseIndent) break;
-    paths.push(line.trim());
-  }
-  assert.ok(paths.length > 0, `"path:" block under step "${stepName}" had no entries`);
-  return paths;
-}
-
 test("soak-part.yml's upload path resolves to where the aggregator reads part-summary.json", () => {
   const workflowSource = fs.readFileSync(WORKFLOW_PATH, "utf8");
-  const configuredPaths = extractStepPaths(workflowSource, STEP_NAME);
+  const configuredPaths = extractStepPaths(workflowSource, STEP_NAME, WORKFLOW_PATH);
 
   const WORKSPACE = "/gh-workspace";
   const absolutePaths = configuredPaths.map((p) => resolveToAbsolute(p, WORKSPACE));

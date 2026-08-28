@@ -95,8 +95,19 @@ jobs:
           cp /tmp/soak-db-state/nightly-soak.db* backend/prisma/
           rm -rf "${ASSET_STORAGE_DIR}"
           mkdir -p "${ASSET_STORAGE_DIR}"
-          if [ -d /tmp/soak-db-state/assets ]; then
-            cp -a /tmp/soak-db-state/assets/. "${ASSET_STORAGE_DIR}/"
+          # Hans-Friedrich finding on #223: "Upload DB/asset state for the
+          # next part" below uploads backend/prisma/nightly-soak.db(-wal/-shm)
+          # alongside backend/prisma/nightly-soak-assets/** in ONE
+          # upload-artifact call. Their common ancestor is backend/prisma, so
+          # the archive preserves nightly-soak-assets/ under ITS OWN name --
+          # never under a plain "assets/" -- exactly the same
+          # upload-artifact root rule soak-artifact-layout.test.cjs already
+          # covers for part-summary.json. Checking for "assets" here always
+          # found nothing, silently: rm -rf had already cleared the local
+          # dir, so every part after the first restored an EMPTY asset
+          # store, with no error and no warning.
+          if [ -d /tmp/soak-db-state/nightly-soak-assets ]; then
+            cp -a /tmp/soak-db-state/nightly-soak-assets/. "${ASSET_STORAGE_DIR}/"
           fi
 
       - name: Create fresh database schema (part 1 only)
