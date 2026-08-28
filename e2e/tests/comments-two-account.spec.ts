@@ -167,7 +167,7 @@ test.describe
 
   test("A mentions B in a comment; B is notified, opens the deep link, replies; A sees it live; A resolves and deletes the reply; B sees both live; the event reaches the team activity feed", async ({
     browser,
-  }) => {
+  }, testInfo) => {
     test.skip(!drawingId || !userB, "beforeAll setup did not complete");
     const drawing_id = drawingId as string;
 
@@ -188,8 +188,12 @@ test.describe
       // Excalidraw's own collaborator-avatar list into its "+N" collapsed
       // state instead of showing individual avatars.
       await pageA.getByTestId("main-menu-trigger").click();
-      await pageA.locator('[data-testid="dropdown-menu"]').getByText("Comments", { exact: true }).click();
+      await pageA
+        .locator('[data-testid="dropdown-menu"]')
+        .getByText("Comments", { exact: true })
+        .click();
       await expect(pageA.getByTestId("comment-panel")).toBeVisible();
+      await pageA.screenshot({ path: testInfo.outputPath("nil-644-comment-composer.png") });
 
       // Anchor the thread to a point on the canvas (not a bare, unanchored
       // note) -- "Pin a point" runs the same anchor/hit-test path a click on
@@ -220,9 +224,16 @@ test.describe
       await expect(commentInput).toHaveValue(new RegExp(`@\\[${USER_B_NAME}\\]`));
       await pageA.waitForTimeout(150);
       await commentInput.type(MENTION_BODY_TAIL);
-      await pageA.getByTestId("new-comment-submit").click();
+      await pageA.keyboard.press("Shift+Enter");
+      await commentInput.type("with a second line");
+      await expect(commentInput).toHaveValue(
+        new RegExp(`${MENTION_BODY_TAIL}\\nwith a second line`),
+      );
+      // The composer owns Enter while focused; it must submit here instead
+      // of reaching Excalidraw's canvas shortcut handler.
+      await pageA.keyboard.press("Enter");
 
-      await expect(pageA.getByTestId("comment-thread").first()).toContainText(MENTION_BODY_TAIL);
+      await expect(pageA.getByTestId("comment-thread").first()).toContainText("with a second line");
       // A real anchor produced a real marker pin on the canvas.
       await expect(pageA.getByTestId("comment-marker").first()).toBeVisible();
 

@@ -334,7 +334,10 @@ export const CommentPanel: React.FC<Props> = ({
     <div
       data-testid="comment-panel"
       className="pointer-events-auto absolute top-14 right-2 bottom-2 w-[300px] flex flex-col rounded-2xl border-2 border-black dark:border-neutral-700 bg-white dark:bg-neutral-950 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.08)] overflow-hidden"
-      style={{ zIndex: stacking.chrome }}
+      // The composer needs to sit above Excalidraw's layer-ui wrapper. Using
+      // the chrome layer puts it in the same stacking context as that wrapper,
+      // which can leave the canvas UI intercepting every click and keystroke.
+      style={{ zIndex: stacking.anchoredOverlay }}
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b-2 border-black dark:border-neutral-700">
         <span className="text-xs font-black uppercase tracking-wide text-slate-900 dark:text-neutral-100">
@@ -465,6 +468,7 @@ export const CommentPanel: React.FC<Props> = ({
             onChange={setNewBody}
             candidates={candidates}
             placeholder="Add a comment... (@ to mention)"
+            submitOnEnter
             onSubmit={submitNewThread}
             data-testid="new-comment-input"
           />

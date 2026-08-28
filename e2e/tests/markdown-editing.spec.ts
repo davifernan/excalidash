@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { createDrawing, deleteDrawing } from "./helpers/api";
-import { activateDocumentWidget, dropMarkdown, openEditor } from "./helpers/editor";
+import {
+  activateDocumentWidget,
+  dropMarkdown,
+  openEditor,
+  waitForDocumentWidgetLoaded,
+} from "./helpers/editor";
 
 test("Markdown edit is durable and a second browser is explicitly locked out", async ({
   browser,
@@ -24,6 +29,7 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     await openEditor(writer, drawing.id, { settleMs: 500 });
     await dropMarkdown(writer, "# Original notes\n\nBefore editing.\n", "editable-notes.md");
     await expect(writer.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
+    await waitForDocumentWidgetLoaded(writer);
     await activateDocumentWidget(writer);
     await expect(writer.getByRole("button", { name: "Edit Markdown" })).toBeVisible();
     // The server materialises the widget binding during the first scene save;
@@ -32,6 +38,7 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
 
     await openEditor(reader, drawing.id, { settleMs: 500 });
     await expect(reader.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
+    await waitForDocumentWidgetLoaded(reader);
     await activateDocumentWidget(reader);
     await writer.screenshot({ path: "test-results/nil567-before-edit.png" });
 
@@ -117,6 +124,7 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     await writer.waitForSelector("canvas");
     await writer.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
     await expect(writer.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
+    await waitForDocumentWidgetLoaded(writer);
     await expect(writer.getByRole("heading", { name: "Persisted notes" })).toBeVisible();
     await activateDocumentWidget(writer);
     await expect(writer.getByRole("button", { name: "Edit Markdown" })).toBeEnabled();
