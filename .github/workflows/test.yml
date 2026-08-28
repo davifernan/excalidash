@@ -602,11 +602,33 @@ jobs:
   # Not sharded: firefox and webkit carry a small subset each, so a second
   # runner would cost more in setup than it saves.
   e2e-cross-engine:
-    name: E2E Cross-Engine Tests
+    # One job per engine instead of all three in one (NIL-652).
+    #
+    # The single job ran the whole 130-test suite under an inner
+    # `timeout ... 720` -- 12.0 minutes. The suite had grown into that wall:
+    # measured on 2026-08-27, a passing run took 11.8 minutes, leaving twelve
+    # seconds of margin, and a slower runner simply crossed it. What died was
+    # then whichever test happened to be in flight at second 720, which is why
+    # it looked like flakiness scattered across unrelated specs. It was not:
+    # the failing run reported `121 passed, 1 interrupted` and zero failures.
+    #
+    # Split per engine, each job carries roughly a third of the work, installs
+    # only the browser it needs, and gets its own budget. The engines are also
+    # independent -- `fail-fast: false` so a WebKit break still reports what
+    # Firefox did.
+    name: E2E Cross-Engine (${{ matrix.project }})
     runs-on: ubuntu-latest
-    # The same bound as a shard. It carries roughly as many tests -- about
-    # seventy across three engines -- plus the install of two more browsers.
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: firefox
+            browser: firefox
+          - project: webkit
+            browser: webkit
+          - project: mobile-chrome
+            browser: chromium
     steps:
       - uses: actions/checkout@v4
       
@@ -650,7 +672,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install firefox webkit chromium --with-deps
+          npx playwright install ${{ matrix.browser }} --with-deps
       
       - name: Start servers and run E2E tests
         run: |
@@ -718,14 +740,20 @@ jobs:
           # write one (verified locally -- SIGTERM kills the process before
           # it can write anything, SIGINT lets it finish the run as
           # "interrupted" and write report/trace/video for what already ran).
-          # 720s leaves several minutes of headroom under the job's 20-minute
-          # ceiling for install/setup and this upload step.
           # `--preserve-status` keeps the real pass/fail exit code instead of
           # always reporting 124.
+          #
+          # 660s for ONE engine, where all three together used to share 720s
+          # (NIL-652). A third of the suite finished well inside four minutes
+          # in the measured runs, so this is deliberate slack, not a new
+          # ceiling to grow into. If a single engine ever approaches it, that
+          # is a real signal worth reading rather than a budget to raise --
+          # the previous wall taught that lesson by looking like flakiness for
+          # a day.
           cd e2e
           TEST_EXIT_CODE=0
-          NO_SERVER=true CI=true timeout --signal=INT --kill-after=30s --preserve-status 720 \
-            npx playwright test --project=firefox --project=webkit --project=mobile-chrome \
+          NO_SERVER=true CI=true timeout --signal=INT --kill-after=30s --preserve-status 660 \
+            npx playwright test --project=${{ matrix.project }} \
             || TEST_EXIT_CODE=$?
           cd ..
 
@@ -737,7 +765,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report-cross-engine
+          name: playwright-report-cross-engine-${{ matrix.project }}
           path: e2e/playwright-report/
           retention-days: 7
           if-no-files-found: error
@@ -746,7 +774,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-results-cross-engine
+          name: test-results-cross-engine-${{ matrix.project }}
           path: e2e/test-results/
           retention-days: 7
           if-no-files-found: error
