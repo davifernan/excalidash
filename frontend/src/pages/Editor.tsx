@@ -18,6 +18,7 @@ import { useEditorSceneLoader } from "./editor/useEditorSceneLoader";
 import { useEditorCollaboration } from "./editor/useEditorCollaboration";
 import { useEditorPersistence } from "./editor/useEditorPersistence";
 import { useEditorCanvasHandlers } from "./editor/useEditorCanvasHandlers";
+import { useGridModePreference } from "./editor/useGridModePreference";
 import { useStickyNotesFeature } from "../sticky";
 import { canonicalizeStickyFontState } from "../sticky/stickyDerivedState";
 import { useMindMapFeature } from "../mindMap";
@@ -571,6 +572,11 @@ export const Editor: React.FC = () => {
     fileCapability: adapter.files,
     scene: adapter.scene,
     viewport: adapter.viewport,
+  });
+  useGridModePreference({
+    active: isReady && !!user,
+    boardSettings: adapter.boardSettings,
+    scene: adapter.scene,
   });
   const { stickyOverlay, onCanvasChange: handleChangeWithNotes } = useStickyNotesFeature({
     containerRef: editorContainerRef,

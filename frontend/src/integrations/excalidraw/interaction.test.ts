@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createInteractionCapability,
   readActiveTool,
+  readArrowStyle,
   readInteraction,
   toEditorTool,
 } from "./interaction";
@@ -56,6 +57,36 @@ describe("reading what the editor is doing", () => {
     expect(state.editingTextElementId).toBeNull();
     expect(state.creatingElementId).toBeNull();
     expect(state.resizingElementId).toBeNull();
+  });
+});
+
+describe("reading the current native arrow defaults", () => {
+  it("keeps every style field an ordinary arrow receives", () => {
+    expect(
+      readArrowStyle({
+        currentItemStrokeColor: "#ff006e",
+        currentItemStrokeWidth: 4,
+        currentItemStrokeStyle: "dashed",
+        currentItemRoundness: { type: 2 },
+        currentItemStartArrowhead: "triangle",
+        currentItemEndArrowhead: "arrow",
+        currentItemArrowType: "round",
+      }),
+    ).toEqual({
+      strokeColor: "#ff006e",
+      strokeWidth: 4,
+      strokeStyle: "dashed",
+      roundness: { type: 2 },
+      startArrowhead: "triangle",
+      endArrowhead: "arrow",
+      elbowed: false,
+    });
+  });
+
+  it("reports not-ready through the capability rather than exposing the raw handle", () => {
+    const result = createInteractionCapability(() => null).readArrowStyle();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.seam).toBe("interaction.readArrowStyle");
   });
 });
 

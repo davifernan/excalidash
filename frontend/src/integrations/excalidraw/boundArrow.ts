@@ -1,5 +1,5 @@
 import { buildElements } from "./elements";
-import type { BoundElementRef, ElementId } from "./types";
+import type { ArrowStyle, BoundElementRef, ElementId } from "./types";
 
 export type BoundBox = {
   readonly id: string;
@@ -25,7 +25,7 @@ export function createBoundArrow(
   endBox: BoundBox,
   start: ScenePoint,
   end: ScenePoint,
-  style: { readonly strokeColor: string; readonly strokeWidth: number },
+  style: Pick<ArrowStyle, "strokeColor" | "strokeWidth"> & Partial<ArrowStyle>,
 ): any {
   const [, , arrow] = buildElements(
     [

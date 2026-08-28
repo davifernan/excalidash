@@ -130,6 +130,20 @@ describe("placing a connected child", () => {
         applySettled,
       },
       { beginTextEditing },
+      {
+        readArrowStyle: () => ({
+          ok: true as const,
+          value: {
+            strokeColor: "#ff006e",
+            strokeWidth: 4,
+            strokeStyle: "dashed" as const,
+            roundness: { type: 2 },
+            startArrowhead: "triangle",
+            endArrowhead: "arrow",
+            elbowed: false,
+          },
+        }),
+      },
     );
 
     expect(applySettled).toHaveBeenCalledOnce();
@@ -141,6 +155,14 @@ describe("placing a connected child", () => {
     expect(child.customData?.excalidash?.sticky).toBeTruthy();
     expect(arrow.startBinding?.elementId).toBe(parent.id);
     expect(arrow.endBinding?.elementId).toBe(child.id);
+    expect(arrow).toMatchObject({
+      strokeColor: "#ff006e",
+      strokeWidth: 4,
+      strokeStyle: "dashed",
+      roundness: { type: 2 },
+      startArrowhead: "triangle",
+      endArrowhead: "arrow",
+    });
     expect(ops.at(-1)).toEqual({ kind: "select", ids: [child.id] });
     expect(beginTextEditing).toHaveBeenCalledWith(child.id);
   });

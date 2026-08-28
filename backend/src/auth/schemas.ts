@@ -167,5 +167,7 @@ export const userPreferencesSchema = z
      * feature is added or removed.
      */
     toolbarFeatureIds: z.array(z.string().min(1).max(64)).max(32).optional(),
+    // Grid visibility is a person-level workspace choice, never board state.
+    gridModeEnabled: z.boolean().optional(),
   })
   .strict();

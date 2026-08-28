@@ -236,6 +236,7 @@ export async function createConnectedChild(
   side: HandleSide,
   scene: Pick<SceneCapability, "summaries" | "applySettled">,
   ui: Pick<UiCapability, "beginTextEditing">,
+  interaction: Pick<InteractionCapability, "readArrowStyle">,
 ): Promise<void> {
   const elements = scene.summaries();
   if (!elements.ok) return;
@@ -250,11 +251,20 @@ export async function createConnectedChild(
     ),
     frameId: parent.frameId,
   };
+  const arrowStyle = interaction.readArrowStyle();
+  if (!arrowStyle.ok) {
+    notify("error", "Couldn't read the current arrow style. Please try again.");
+    return;
+  }
   const arrowId = crypto.randomUUID() as ElementId;
-  const arrow = createBoundArrow(arrowId, parent, child, preview.start, preview.end, {
-    strokeColor: "#6965db",
-    strokeWidth: 1.5,
-  });
+  const arrow = createBoundArrow(
+    arrowId,
+    parent,
+    child,
+    preview.start,
+    preview.end,
+    arrowStyle.value,
+  );
   const arrowRef = mergeArrowBinding(null, arrowId);
 
   const applied = await scene.applySettled(
