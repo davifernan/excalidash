@@ -42,6 +42,7 @@ export default defineConfig(({ command }) => {
       "import.meta.env.VITE_EXCALIDRAW_VERSION": JSON.stringify(readExcalidrawVersion()),
     },
     optimizeDeps: {
+      include: ["zod"],
       esbuildOptions: {
         define: processEnvDefines,
         target: "es2022",
