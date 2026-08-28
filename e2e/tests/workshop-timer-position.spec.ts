@@ -40,7 +40,9 @@ test.describe("workshop timer position", () => {
   test("the handle, timer and restart action form one visual bar", async ({ page }) => {
     await openEditor(page, drawingId);
     await page.locator(".workshop-timer__summary").click();
-    await page.getByRole("button", { name: "Start" }).click();
+    // Scoped to the timer's own expanded panel -- NIL-655 put "Start a vote"
+    // in the same corner, and an unscoped "Start" match now resolves both.
+    await page.locator(".workshop-timer__panel").getByRole("button", { name: "Start" }).click();
     await expect(page.getByTestId("workshop-timer-restart")).toBeVisible();
     const styles = await corner(page).evaluate((element) => {
       const parent = getComputedStyle(element);
@@ -134,7 +136,9 @@ test.describe("workshop timer position", () => {
     await openEditor(page, drawingId);
     await page.locator(".workshop-timer__summary").click();
     await page.getByLabel("Minutes").fill("1");
-    await page.getByRole("button", { name: "Start" }).click();
+    // Scoped to the timer's own expanded panel -- NIL-655 put "Start a vote"
+    // in the same corner, and an unscoped "Start" match now resolves both.
+    await page.locator(".workshop-timer__panel").getByRole("button", { name: "Start" }).click();
     await expect(page.locator(".workshop-timer__time")).toHaveText("00:58", { timeout: 5_000 });
 
     const handleBox = (await handle(page).boundingBox())!;
