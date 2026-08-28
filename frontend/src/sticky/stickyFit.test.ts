@@ -135,4 +135,26 @@ describe("fitting and floor behavior", () => {
     expect(fitTextToNote(note, null)).toBeNull();
     expect(fitTextToNote(null, label(note, "hi"))).toBeNull();
   });
+
+  it("centres the fitted label on the note's own centre, not its corner", () => {
+    // NIL-646 finding (PR #227): the measuring probe used to reset to
+    // `container.x`/`container.y` with a 1px box. Excalidraw's
+    // `getAdjustedDimensions` always takes the already-bound branch for a
+    // bound label and recentres the *new* size on the probe's *current*
+    // centre -- never on the container -- so that recentred on
+    // `container.x + 0.5`, the note's left edge, rather than its middle. On
+    // a 200px note that landed the label about 100px too far left, and
+    // `stickyNormalise.ts` writes `fit.x`/`fit.y` straight onto the rendered
+    // label on every settle pass, so every note the code fitted was
+    // affected.
+    const note = noteAt(200);
+    const noteCentreX = note.x + note.width / 2;
+    const noteCentreY = note.y + note.height / 2;
+
+    for (const text of ["a", "a short line", textAt(90)]) {
+      const fit = fitTextToNote(note, label(note, text))!;
+      expect(fit.x + fit.width / 2).toBeCloseTo(noteCentreX, 0);
+      expect(fit.y + fit.height / 2).toBeCloseTo(noteCentreY, 0);
+    }
+  });
 });
