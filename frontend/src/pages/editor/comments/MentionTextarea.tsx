@@ -88,6 +88,10 @@ export const MentionTextarea: React.FC<Props> = ({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Excalidraw listens for shortcuts on its containing editor. A comment
+    // composer owns every keystroke while it has focus, including Shift+Enter
+    // for a literal newline, so none may reach the drawing canvas.
+    event.stopPropagation();
     if (triggerStart !== null && matches.length > 0) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
