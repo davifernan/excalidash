@@ -42,14 +42,31 @@ const useRemainingMs = (timer: WorkshopTimerController): number => {
 export const WorkshopTimerWidget = ({
   canEdit,
   timer,
+  expanded: expandedProp,
+  onExpandedChange,
 }: {
   canEdit: boolean;
   timer: WorkshopTimerController;
+  /**
+   * Controlled from outside by WorkshopTimerCorner.tsx so the feature
+   * registry's `workshop-timer` entry (NIL-655) can open this widget the
+   * same way a click on its own summary button already does. Optional and
+   * uncontrolled by default so WorkshopTimerWidget.test.tsx, which renders
+   * this widget on its own, keeps working unchanged.
+   */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }) => {
   // Two editors on one page would otherwise share one id, and the second
   // widget's label would focus the first widget's input.
   const inputId = useId();
-  const [expanded, setExpanded] = useState(false);
+  const [expandedState, setExpandedState] = useState(false);
+  const expanded = expandedProp ?? expandedState;
+  const setExpanded = (next: boolean | ((current: boolean) => boolean)) => {
+    const resolved = typeof next === "function" ? next(expanded) : next;
+    setExpandedState(resolved);
+    onExpandedChange?.(resolved);
+  };
   const [minutes, setMinutes] = useState("10");
   const [soundMuted, setSoundMuted] = useState(isWorkshopTimerSoundMuted);
   const remainingMs = useRemainingMs(timer);
