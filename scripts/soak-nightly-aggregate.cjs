@@ -107,11 +107,22 @@ function metricsSection(matching, profile) {
   ];
 }
 
-function buildSummaryMarkdown(thisRun, parts, metricsLines) {
+// evidenceWriteError, when present, means this run's raw numbers were NOT
+// durably recorded -- see the PUT in main(). That must show up in both
+// places a human (or soak-nightly-notify.cjs, which embeds this whole
+// string in the tracking-issue comment) would look: the Overall verdict
+// itself, not just a buried extra line, and an explicit line naming the
+// failure. Hans-Friedrich finding on #223: the four parts all passing and
+// the evidence write failing must never read as a clean PASSED.
+function buildSummaryMarkdown(thisRun, parts, metricsLines, evidenceWriteError = null) {
+  const overallPassed = thisRun.allPassed && !evidenceWriteError;
   return [
     `# Nightly team-readiness soak -- ${thisRun.ts}`,
     "",
-    `Overall: ${thisRun.allPassed ? "PASSED" : "FAILED"}`,
+    `Overall: ${overallPassed ? "PASSED" : "FAILED"}`,
+    evidenceWriteError
+      ? `Evidence log write: FAILED -- ${evidenceWriteError.message.split("\n")[0]} (this run's raw numbers were NOT durably recorded)`
+      : "Evidence log write: appended",
     `Profile: context_count=${thisRun.profile.context_count}, engines=${thisRun.profile.engines}, part_duration_minutes=${thisRun.profile.part_duration_minutes}`,
     `Total cycles: ${thisRun.totalCycles} · Watchdog violations: ${thisRun.totalWatchdogViolations} · Actor errors: ${thisRun.totalErrors} · Elapsed: ${Math.round(thisRun.totalElapsedMs / 1000)}s`,
     `Peak RSS: ${thisRun.peakMemUsedMB ?? "n/a"} MB · Peak swap: ${thisRun.peakSwapUsedMB ?? "n/a"} MB (raw per-part samples: soak-part-<N>-results/resource-samples.ndjson)`,
@@ -229,7 +240,12 @@ function main() {
     })
     .filter(Boolean);
   const matching = matchingPassedRuns(existingRuns, profile, thisRun);
-  const summaryMd = buildSummaryMarkdown(thisRun, parts, metricsSection(matching, profile));
+  const summaryMd = buildSummaryMarkdown(
+    thisRun,
+    parts,
+    metricsSection(matching, profile),
+    evidenceWriteError,
+  );
 
   fs.mkdirSync(RESULTS_DIR, { recursive: true });
   fs.writeFileSync(path.join(RESULTS_DIR, "summary.md"), summaryMd);

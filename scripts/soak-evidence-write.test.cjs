@@ -58,10 +58,35 @@ process.exit(0);
   return ghPath;
 }
 
-function runAggregateScript({ getMode, putMode }) {
+// Matches PART_SUMMARY_RELATIVE_PATH in soak-nightly-aggregate.cjs -- a
+// single file directly inside soak-part-<N>-results/, per the artifact
+// layout soak-artifact-layout.test.cjs already covers.
+function writePassingParts(resultsDir) {
+  for (let part = 1; part <= 4; part++) {
+    const dir = path.join(resultsDir, `soak-part-${part}-results`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "part-summary.json"),
+      JSON.stringify({
+        part,
+        exitCode: 0,
+        passed: true,
+        boardId: "board-1",
+        cycles: 10,
+        watchdogViolations: 0,
+        errorCount: 0,
+        actualElapsedMs: 1000,
+        resources: { peakMemUsedMB: 5000, peakSwapUsedMB: 0 },
+      }),
+    );
+  }
+}
+
+function runAggregateScript({ getMode, putMode, withPassingParts = false }) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "soak-evidence-test-"));
   const resultsDir = path.join(tmpDir, "soak-results");
   fs.mkdirSync(resultsDir, { recursive: true });
+  if (withPassingParts) writePassingParts(resultsDir);
   writeFakeGh(tmpDir, { getMode, putMode });
 
   const result = spawnSync(process.execPath, [SCRIPT_PATH], {
@@ -79,12 +104,14 @@ function runAggregateScript({ getMode, putMode }) {
     encoding: "utf8",
   });
 
+  const summaryPath = path.join(resultsDir, "summary.md");
+  const summary = fs.existsSync(summaryPath) ? fs.readFileSync(summaryPath, "utf8") : null;
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  return result;
+  return { result, summary };
 }
 
 test("soak-nightly-aggregate.cjs exits non-zero when the evidence-branch write fails", () => {
-  const result = runAggregateScript({ getMode: "fail", putMode: "fail" });
+  const { result } = runAggregateScript({ getMode: "fail", putMode: "fail" });
   assert.notStrictEqual(
     result.status,
     0,
@@ -93,37 +120,48 @@ test("soak-nightly-aggregate.cjs exits non-zero when the evidence-branch write f
   assert.match(result.stderr, /failed to write evidence log/);
 });
 
-test("soak-nightly-aggregate.cjs still writes summary.md when the evidence write fails", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "soak-evidence-test-"));
-  const resultsDir = path.join(tmpDir, "soak-results");
-  fs.mkdirSync(resultsDir, { recursive: true });
-  writeFakeGh(tmpDir, { getMode: "fail", putMode: "fail" });
-
-  spawnSync(process.execPath, [SCRIPT_PATH], {
-    env: {
-      ...process.env,
-      PATH: `${tmpDir}:${process.env.PATH}`,
-      SOAK_RESULTS_DIR: resultsDir,
-      GITHUB_REPOSITORY: "example/repo",
-      CONTEXT_COUNT: "10",
-      ENGINES: "chromium",
-      PART_DURATION_MINUTES: "115",
-    },
-    encoding: "utf8",
-  });
-
+test("soak-nightly-aggregate.cjs still writes summary.md, showing FAILED, when the evidence write fails", () => {
+  const { summary } = runAggregateScript({ getMode: "fail", putMode: "fail" });
   assert.ok(
-    fs.existsSync(path.join(resultsDir, "summary.md")),
+    summary,
     "summary.md must still be written so the tracking-issue comment step (if: always()) has something to post",
   );
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  // With no part-summary.json files present, readPartSummary already reports
+  // all four "missing" and allPassed=false on its own -- the sharper case
+  // (all parts genuinely passing) is covered separately below, isolating
+  // the evidence-write failure as the ONLY reason for FAILED.
+  assert.match(summary, /Overall: FAILED/);
+  assert.match(summary, /Evidence log write: FAILED/);
 });
 
-test("soak-nightly-aggregate.cjs exits zero when the evidence-branch write succeeds", () => {
-  const result = runAggregateScript({ getMode: "fail", putMode: "succeed" });
+test("soak-nightly-aggregate.cjs reports FAILED even when all four parts passed, if the evidence write failed", () => {
+  // This is Hans-Friedrich's exact scenario on #223: "alle vier Teile
+  // bestehen, der Evidence-PUT scheitert mit 403, das Tracking-Issue meldet
+  // trotzdem PASSED." Isolates the evidence write as the only failure.
+  const { result, summary } = runAggregateScript({
+    getMode: "fail",
+    putMode: "fail",
+    withPassingParts: true,
+  });
+  assert.notStrictEqual(result.status, 0);
+  assert.match(summary, /Overall: FAILED/);
+  assert.doesNotMatch(summary, /Overall: PASSED/);
+  assert.match(summary, /Evidence log write: FAILED/);
+  assert.match(summary, /Part 1: passed/);
+  assert.match(summary, /Part 4: passed/);
+});
+
+test("soak-nightly-aggregate.cjs exits zero and reports PASSED when all parts and the evidence write succeed", () => {
+  const { result, summary } = runAggregateScript({
+    getMode: "fail",
+    putMode: "succeed",
+    withPassingParts: true,
+  });
   assert.strictEqual(
     result.status,
     0,
     `expected exit 0 when the evidence PUT succeeds, got ${result.status}. stderr:\n${result.stderr}`,
   );
+  assert.match(summary, /Overall: PASSED/);
+  assert.match(summary, /Evidence log write: appended/);
 });

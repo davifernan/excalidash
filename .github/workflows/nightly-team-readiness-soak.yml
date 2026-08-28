@@ -170,8 +170,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Hans-Friedrich finding on #223: this status used to come ONLY
+          # from the four part jobs' results, never from whether the
+          # "Aggregate..." step (id: aggregate) itself succeeded. All four
+          # parts passing while the evidence-branch write 403s used to still
+          # post "PASSED" here -- the exact silent-failure channel this
+          # tracking issue exists to close. steps.aggregate.outcome is
+          # 'failure' whenever that step's script exits non-zero (see its
+          # own comment on the evidence PUT), independent of the parts.
           node scripts/soak-nightly-notify.cjs \
-            --status="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failed' || 'passed' }}" \
+            --status="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || steps.aggregate.outcome == 'failure') && 'failed' || 'passed' }}" \
             --summary-file=/tmp/soak-results/summary.md \
             --run-url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 

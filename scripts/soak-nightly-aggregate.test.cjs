@@ -8,6 +8,7 @@ const {
   buildAggregate,
   matchingPassedRuns,
   metricsSection,
+  buildSummaryMarkdown,
 } = require("./soak-nightly-aggregate.cjs");
 
 test("median handles both odd and even sample counts", () => {
@@ -146,4 +147,47 @@ test("metricsSection reports median/p95 once 3 same-profile passed runs exist", 
   const lines = metricsSection(runs, profile);
   assert.ok(lines[0].includes("Median/p95 across 3 same-profile passed runs"));
   assert.ok(lines.some((l) => l.includes("median 2s")));
+});
+
+function makeRun(overrides = {}) {
+  return {
+    ts: "2026-08-28T00:00:00.000Z",
+    allPassed: true,
+    totalCycles: 10,
+    totalWatchdogViolations: 0,
+    totalErrors: 0,
+    totalElapsedMs: 1000,
+    peakMemUsedMB: 5000,
+    peakSwapUsedMB: 0,
+    profile: { context_count: "10", engines: "chromium,firefox", part_duration_minutes: "115" },
+    ...overrides,
+  };
+}
+
+test("buildSummaryMarkdown reports PASSED when all parts passed and the evidence write succeeded", () => {
+  const md = buildSummaryMarkdown(makeRun(), [], ["some metrics line"], null);
+  assert.match(md, /^# Nightly team-readiness soak/);
+  assert.match(md, /Overall: PASSED/);
+  assert.match(md, /Evidence log write: appended/);
+});
+
+test("buildSummaryMarkdown reports FAILED and names the error when the evidence write failed, even with all parts passing", () => {
+  const md = buildSummaryMarkdown(
+    makeRun({ allPassed: true }),
+    [],
+    ["some metrics line"],
+    new Error("HTTP 403: Resource not accessible by integration"),
+  );
+  // Hans-Friedrich finding on #223: all parts passing must NOT read as a
+  // clean PASSED when the evidence log itself failed to write.
+  assert.match(md, /Overall: FAILED/);
+  assert.doesNotMatch(md, /Overall: PASSED/);
+  assert.match(md, /Evidence log write: FAILED -- HTTP 403/);
+  assert.match(md, /NOT durably recorded/);
+});
+
+test("buildSummaryMarkdown still reports FAILED when parts failed, independent of the evidence write", () => {
+  const md = buildSummaryMarkdown(makeRun({ allPassed: false }), [], ["x"], null);
+  assert.match(md, /Overall: FAILED/);
+  assert.match(md, /Evidence log write: appended/);
 });
