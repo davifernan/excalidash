@@ -67,6 +67,25 @@ function layoutAt(container: any, text: any, fontSize: number): StickyFit | null
     ...text,
     fontSize,
     text: text.originalText ?? text.text ?? "",
+    // `restoreElements` grows an autoResize label to fit its text but never
+    // shrinks it below whatever width/height it is handed -- so feeding it
+    // the label's own last-rendered box let a stale, larger-than-needed
+    // render answer for the exact same content depending on what the label
+    // happened to look like a moment before (measured: an empty label
+    // returned fontSize 57 fresh and 55.53 once it had briefly been 23x71
+    // wide, for byte-identical input). A 1px starting box is the smallest no
+    // prior render can beat -- exactly 0 is dropped as an invalid element by
+    // the restore step -- so every call grows up from (effectively) nothing
+    // to the text's own natural size, and the answer depends only on `text`
+    // and `fontSize`. The recentred x/y restore derives are anchored off this
+    // same starting position, so it needs resetting for the same reason: left
+    // at the label's last position, two back-to-back calls for the identical,
+    // already-centred text measured the same box but centred it differently
+    // (x drifted from -65.75 to -136.5 on a settled, unchanging note).
+    width: 1,
+    height: 1,
+    x: container.x,
+    y: container.y,
   };
 
   const restored = restore([container, probe], {
