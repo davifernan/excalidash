@@ -82,10 +82,7 @@ permissions:
 env:
   CONTEXT_COUNT: ${{ github.event.inputs.context_count || '10' }}
   PART_DURATION_MINUTES: ${{ github.event.inputs.part_duration_minutes || '115' }}
-  CYCLE_MS: ${{ github.event.inputs.cycle_ms || '15000' }}
   ENGINES: ${{ github.event.inputs.engines || 'chromium,firefox' }}
-  DB_PATH: backend/prisma/nightly-soak.db
-  ASSET_DIR: backend/prisma/nightly-soak-assets
 
 jobs:
   part_1:
