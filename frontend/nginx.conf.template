@@ -174,9 +174,22 @@ http {
 
         # Never cache the HTML shell. Vite builds use hashed asset filenames, so caching
         # index.html is the primary way users end up stuck on an old UI after upgrades.
+        #
+        # NIL-667: nginx only inherits a parent block's add_header directives when the
+        # current location has none of its own -- the moment a location adds even one
+        # add_header (Cache-Control here), every server-level security header silently
+        # stops applying to it. Since try_files in `location /` above lands almost every
+        # real page request on this exact block, that dropped CSP/X-Frame-Options/nosniff/
+        # Permissions-Policy from nearly all real page loads. Repeat all five explicitly
+        # in every location below that sets its own add_header, rather than relying on
+        # inheritance from the server block.
         location = /index.html {
             add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
             add_header Referrer-Policy "no-referrer" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+            add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:;" always;
             expires -1;
             try_files /index.html =404;
         }
@@ -186,6 +199,10 @@ http {
         location = /runtime-config.js {
             add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
             add_header Referrer-Policy "no-referrer" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+            add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:;" always;
             expires -1;
             try_files /runtime-config.js =404;
         }
@@ -193,7 +210,12 @@ http {
         # Cache static assets
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
             expires 1y;
-            add_header Cache-Control "public, immutable";
+            add_header Cache-Control "public, immutable" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "no-referrer" always;
+            add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+            add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:;" always;
         }
     }
 }
