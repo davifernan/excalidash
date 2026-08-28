@@ -370,26 +370,50 @@ test.describe("sticky note font scaling (NIL-630)", () => {
         before,
       );
       const after = await snapshot();
-      const states = samples.filter(
+      const geometryOf = (sample: readonly (number | undefined)[]) =>
+        JSON.stringify(sample.slice(0, 4));
+      const beforeGeometry = geometryOf(before);
+      const afterGeometry = geometryOf(after);
+      const allowedGeometries = new Set([beforeGeometry, afterGeometry]);
+
+      const unexpectedGeometry = samples.find(
+        (sample) => !allowedGeometries.has(geometryOf(sample)),
+      );
+
+      // Membership alone (NIL-645) cannot tell a clean transition from
+      // flicker: a bounce between the two allowed geometries stays a member
+      // of the set on every sample. What distinguishes them is not which
+      // geometries appear but how often the note switches between them -- a
+      // clean transition changes `isAfter` at most once, flicker changes it
+      // repeatedly. This reads state (`isAfter`), never a frame count or a
+      // wall-clock duration, so it does not share NIL-664/NIL-665's failure
+      // mode of timing-shaped assertions.
+      const isAfterFlags = samples.map((sample) => geometryOf(sample) === afterGeometry);
+      let transitions = 0;
+      for (let index = 1; index < isAfterFlags.length; index += 1) {
+        if (isAfterFlags[index] !== isAfterFlags[index - 1]) transitions += 1;
+      }
+
+      // Deduplicated purely for the debug log -- membership and the
+      // transition count above both already work off the raw `samples`
+      // (Hans' finding at :375: the dedup contributed nothing once
+      // `toHaveLength` was dropped from the assertion itself).
+      const changedSamples = samples.filter(
         (sample, index) =>
           index === 0 || sample.some((value, field) => value !== samples[index - 1][field]),
       );
-
-      const allowedGeometries = new Set([
-        JSON.stringify(before.slice(0, 4)),
-        JSON.stringify(after.slice(0, 4)),
-      ]);
-      const unexpectedGeometry = states.find(
-        (state) => !allowedGeometries.has(JSON.stringify(state.slice(0, 4))),
-      );
       console.log(
-        `NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, states, after, unexpectedGeometry })}`,
+        `NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, changedSamples, after, unexpectedGeometry, transitions })}`,
       );
       // Start only after the peer received the Space, then watch every frame
       // for a second. The Font projection can arrive in a separate harmless
       // frame, but no sampled note geometry may be other than the starting
       // or settled geometry; that would be the visible text-edit box flicker.
       expect(unexpectedGeometry).toBeUndefined();
+      // And the note may leave the starting geometry for the settled one at
+      // most once -- more than one switch is the box visibly bouncing
+      // between the two allowed states, i.e. flicker (NIL-653).
+      expect(transitions).toBeLessThanOrEqual(1);
     } finally {
       await spectatorContext.close();
     }
