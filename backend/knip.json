@@ -15,6 +15,10 @@
   ],
   "ignoreDependencies": [
     "@prisma/client",
-    "ts-node"
+    "@excalidash/domain",
+    "@types/express-serve-static-core",
+    "nodemon",
+    "prettier",
+    "prisma"
   ]
 }
