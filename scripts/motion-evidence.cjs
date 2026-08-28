@@ -99,7 +99,7 @@ function publish({ packageId, pr, input, name }) {
     }
     command("git", ["push", "fork", "HEAD:refs/heads/evidence"], { cwd: worktree });
     const url = rawEvidenceUrl(packageId, filename);
-    command("gh", ["pr", "comment", pr, "--repo", "davifernan/excalidash", "--body", `Motion evidence (${packageId}, focused green Playwright run):\n\n![${name}](${url})\n\n12s maximum, 640px wide, 8fps, ${result.bytes} bytes.`], { cwd: root });
+    command("gh", ["pr", "comment", pr, "--repo", "davifernan/excalidash", "--body", `Motion evidence (${packageId}, targeted Playwright capture):\n\n![${name}](${url})\n\n12s maximum, 640px wide, 8fps, ${result.bytes} bytes.`], { cwd: root });
     command("gh", ["pr", "edit", pr, "--repo", "davifernan/excalidash", "--add-label", "screenshot"], { cwd: root });
     return { ...result, url, filename };
   } finally {
