@@ -1255,19 +1255,23 @@ jobs:
 
       - name: Build the frontend and backend images
         # Same images `docker-compose.prod.yml` runs in production, with
-        # exactly one difference layered in by docker-compose.e2e-smoke.yml:
-        # the frontend is built with VITE_E2E_HARNESS_ENABLED=true, so
-        # window.__EXCALIDASH_TEST__ exists for Playwright to drive the board
-        # through (see Editor.tsx's harness effect). A real published image
-        # never sets that build arg.
+        # exactly one difference: the frontend is built with
+        # VITE_E2E_HARNESS_ENABLED=true, so window.__EXCALIDASH_TEST__
+        # exists for Playwright to drive the board through (see Editor.tsx's
+        # harness effect). A real published image never sets that build arg.
+        #
+        # docker-compose.e2e-smoke.yml is a standalone file, not layered
+        # onto docker-compose.yml with `-f` -- see its own header comment
+        # for why (a review finding on this ticket's own PR: Compose merges
+        # `ports` across `-f` files by concatenating them rather than
+        # replacing them, and both docker-compose.yml and
+        # docker-compose.prod.yml hard-code the same container names).
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.e2e-smoke.yml \
-            build backend frontend
+          docker compose -f docker-compose.e2e-smoke.yml build backend frontend
 
       - name: Start the built image
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.e2e-smoke.yml \
-            up -d backend frontend
+          docker compose -f docker-compose.e2e-smoke.yml up -d backend frontend
 
       - name: Wait for the built image to answer
         run: |
@@ -1291,7 +1295,7 @@ jobs:
           done
           curl -sf http://localhost:16767/api/health > /dev/null || {
             echo "Built image never became ready. Backend log:"
-            docker compose -f docker-compose.yml -f docker-compose.e2e-smoke.yml logs backend
+            docker compose -f docker-compose.e2e-smoke.yml logs backend
             exit 1
           }
 
@@ -1327,12 +1331,12 @@ jobs:
       - name: Container logs (always, for diagnosis)
         if: always()
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.e2e-smoke.yml logs
+          docker compose -f docker-compose.e2e-smoke.yml logs
 
       - name: Tear down the built image
         if: always()
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.e2e-smoke.yml down -v
+          docker compose -f docker-compose.e2e-smoke.yml down -v
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

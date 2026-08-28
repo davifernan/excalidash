@@ -1,46 +1,112 @@
-# NIL-649: overlay for docker-compose.yml used ONLY by the "E2E Built Image
-# Smoke" CI job (.github/workflows/test.yml). It builds the same images the
-# job runs against real users' way (npm run build, nginx), with exactly one
+# NIL-649: standalone compose file for the "E2E Built Image Smoke" CI job
+# (.github/workflows/test.yml). It builds the same images the job runs
+# against real users' way (npm run build, nginx), with exactly one
 # difference -- VITE_E2E_HARNESS_ENABLED=true, so window.__EXCALIDASH_TEST__
 # exists for Playwright to drive the board through. See Editor.tsx's harness
 # effect and vite.config.ts for what that flag gates and why it is off
 # everywhere else, including a plain `docker compose -f docker-compose.yml
-# build` with this file not layered in.
+# build` (this file is never layered onto that one -- see below).
+#
+# Deliberately NOT an overlay merged with docker-compose.yml (`docker
+# compose -f docker-compose.yml -f docker-compose.e2e-smoke.yml ...`), even
+# though that is the more common Compose pattern. Two reasons, both found by
+# review on this ticket's own PR:
+#
+# 1. Compose merges list-type keys like `ports` across `-f` files by
+#    concatenating them, not replacing them. A merge-replace YAML tag
+#    (`!override`/`!reset`) fixes that ON A COMPOSE CLI NEW ENOUGH TO
+#    SUPPORT IT -- an older `docker compose` (plausibly what a CI runner or
+#    a reviewer's own environment has) either errors on the unrecognized tag
+#    or silently falls back to the default append behavior, publishing BOTH
+#    the base file's port and this file's. That is not a bug worth taking
+#    the version risk on when the alternative (a standalone file with
+#    nothing to merge) has none.
+# 2. `docker-compose.yml` and `docker-compose.prod.yml` both hard-code
+#    `container_name: excalidash-backend`/`excalidash-frontend` -- an
+#    overlay inherits that unless it explicitly overrides it too. This
+#    server's actual production stack does NOT run on those names' default
+#    ports -- its own `docker-compose.yml` binds them to
+#    `127.0.0.1:6768`/`127.0.0.1:6770` specifically because 6767/8000 are
+#    where this project's dev servers and E2E runs bind, and several of
+#    those run concurrently on this shared host. So the real collision this
+#    file avoids is with those dev/E2E processes, not production directly --
+#    but a name clash on `excalidash-backend`/`excalidash-frontend` would
+#    still either refuse to start or, if a plain `docker-compose.yml` build
+#    happened to be running under those same default names at the time,
+#    disrupt it. This file gives both services their own `container_name`
+#    for exactly that reason -- not just a different port.
 #
 # Not for local development use. `make dev`/`docker-compose.yml` alone still
 # build the harness-free image, matching what ships.
 services:
-  frontend:
-    build:
-      args:
-        VITE_E2E_HARNESS_ENABLED: "true"
-    # The smoke job talks to the frontend on its own host port so it can
-    # never collide with the production containers this same host runs on
-    # ports 8000/6767 outside of CI.
-    #
-    # `!override`, not a plain list -- Compose merges list-type keys like
-    # `ports` by concatenating them, not replacing them, so a plain list
-    # here left the merged config publishing BOTH 6767 (from
-    # docker-compose.yml) AND 16767, defeating the whole point of moving
-    # this job off the production port (caught by review on NIL-649's own
-    # PR: `docker compose ... config` showed two `ports` entries for the
-    # frontend service).
-    ports: !override
-      - "16767:80"
-
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: excalidash-e2e-smoke-backend
+    mem_limit: 1500m
+    memswap_limit: 1500m
     environment:
+      - DATABASE_PROVIDER=sqlite
+      - DATABASE_URL=file:/app/prisma/dev.db
+      - PORT=8000
+      - NODE_ENV=production
+      - AUTH_MODE=local
+      - TRUST_PROXY=false
+      # Must match the frontend's own host port below -- the backend's CSRF
+      # origin check (server/csrf.ts) rejects a mutating request whose
+      # Origin header does not match this, and the browser's Origin is
+      # whatever port the frontend container is actually reachable on.
+      - FRONTEND_URL=http://localhost:16767
       # The smoke spec is a single short flow, but keep the same generous
       # ceiling every other CI job uses rather than trusting the small
       # default (60 CSRF requests) to hold as the spec grows.
       - CSRF_MAX_REQUESTS=100000
       - RATE_LIMIT_MAX_REQUESTS=100000
-      # Must match the frontend's own host port below -- the backend's CSRF
-      # origin check (server/csrf.ts) rejects a mutating request whose
-      # Origin header does not match this, and the browser's Origin is
-      # whatever port the frontend container is actually reachable on.
-      # docker-compose.yml leaves this unset (defaults to :6767), which is
-      # right for the ordinary compose stack but wrong here, since this
-      # overlay moves the frontend to :16767 precisely so it never collides
-      # with a production stack on the same host.
-      - FRONTEND_URL=http://localhost:16767
+      # JWT_SECRET/CSRF_SECRET left unset on purpose: docker-entrypoint.sh
+      # auto-generates and persists them in the volume, same as a fresh
+      # single-instance deployment would.
+    volumes:
+      - excalidash-e2e-smoke-backend-data:/app/prisma
+    networks:
+      - excalidash-e2e-smoke
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:8000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_E2E_HARNESS_ENABLED: "true"
+    container_name: excalidash-e2e-smoke-frontend
+    mem_limit: 256m
+    memswap_limit: 256m
+    # Own host port so this never collides with the dev servers and other
+    # E2E runs that bind 6767 on this shared host (several run concurrently
+    # here) or with a `docker-compose.yml`/`docker-compose.prod.yml` stack.
+    ports:
+      - "16767:80"
+    environment:
+      - BACKEND_URL=backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - excalidash-e2e-smoke
+
+networks:
+  excalidash-e2e-smoke:
+    driver: bridge
+
+volumes:
+  excalidash-e2e-smoke-backend-data:
