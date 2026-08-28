@@ -183,6 +183,50 @@ test.describe("sticky notes", () => {
     expect(label.height).toBeGreaterThan(200 - 10);
   });
 
+  test("typing then undoing the first character leaves an unchanged note (NIL-646)", async ({
+    page,
+  }) => {
+    // NIL-646: the note's derived font size was measured to be non-deterministic
+    // for the same content -- `deriveStickyFontSize` on a freshly-opened empty
+    // label answered 57 once and 55.53 a moment later for the exact same empty
+    // string, purely because of what the label's own last-rendered width/height
+    // happened to be (frontend/src/sticky/stickyFit.ts's `layoutAt` fed the
+    // label's live geometry back into its own throwaway measuring copy). A user
+    // saw that as the caret jumping when the first space was pressed, and as
+    // Backspace appearing to do nothing afterwards -- every unnecessary font
+    // recompute forces Excalidraw to resync the live editor, and each resync is
+    // one more chance for the caret to land somewhere other than where it was.
+    // The externally observable version of the same defect: measuring the same
+    // empty note before and after a type-then-undo round trip must return to
+    // the exact same font size, not a nearby-but-different one.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    const textarea = page.locator("textarea.excalidraw-wysiwyg");
+    await expect(textarea).toBeVisible();
+    await settle(page);
+    const [beforeLabel] = await labels(page);
+
+    await page.keyboard.press("Space");
+    await settle(page);
+    await expect(textarea).toHaveValue(" ");
+
+    await page.keyboard.press("Backspace");
+    await settle(page);
+    await expect(textarea).toHaveValue("");
+
+    const [afterLabel] = await labels(page);
+    expect(afterLabel.fontSize).toBe(beforeLabel.fontSize);
+
+    // The empty note must still be a normal, further-editable label: typing
+    // through it lands clean text, not something left over from the space.
+    await page.keyboard.type("hi");
+    await page.keyboard.press("Escape");
+    await settle(page);
+
+    const [label] = await labels(page);
+    expect(label.originalText).toBe("hi");
+  });
+
   test("starts a short note large instead of leaving the paper empty", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
@@ -445,5 +489,58 @@ test.describe("where a new note lands in the stack", () => {
     );
     expect(notes).toHaveLength(3);
     expect([...notes].sort()).toEqual(notes);
+  });
+});
+
+test.describe("a rejected save (NIL-647)", () => {
+  // NIL-647 asked for an explicit rollback path alongside optimistic
+  // placement: "what happens when the server does refuse the save" -- the
+  // same question NIL-615 answered the hard way once already, when a
+  // refused save let typed text vanish without a trace. The note itself is
+  // already local-first (Excalidraw renders it before any network round
+  // trip runs), and useEditorPersistence.ts already has a general
+  // refused-save path (see its own "keeps a failed save visible to the next
+  // file delta" unit test) -- what had never been exercised is that a
+  // brand-new sticky note, never before saved, goes through that exact same
+  // path rather than some earlier, untested one. It does: this is coverage
+  // of the existing mechanism for this specific flow, not a new mechanism.
+  let drawingId: string;
+  let api: APIRequestContext;
+
+  test.beforeEach(async ({ request }) => {
+    api = request;
+    const drawing = await createDrawing(request, { name: `e2e-sticky-reject-${Date.now()}` });
+    drawingId = drawing.id;
+  });
+
+  test.afterEach(async () => {
+    if (drawingId) await deleteDrawing(api, drawingId).catch(() => {});
+  });
+
+  test("keeps the note on the board and tells the user, instead of losing it quietly", async ({
+    page,
+  }) => {
+    await openEditor(page, drawingId);
+    await page.route(`**/api/drawings/${drawingId}`, async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      await route.fulfill({ status: 500, contentType: "application/json", body: "{}" });
+    });
+
+    await placeNote(page, { x: 400, y: 300 });
+    await page.keyboard.type("Do not lose me");
+    await page.keyboard.press("Escape");
+
+    // The save is debounced by a second (useEditorPersistence.ts's
+    // `debouncedSave`); give the refused round trip time to actually happen.
+    await expect(page.locator("[data-sonner-toast]")).toContainText(/could not be saved/i, {
+      timeout: 5000,
+    });
+
+    // The note is still on the board, with its text intact -- not silently
+    // reverted, not blanked, not removed.
+    const placed = await notes(page);
+    expect(placed).toHaveLength(1);
+    const [label] = await labels(page);
+    expect(label.originalText).toBe("Do not lose me");
   });
 });

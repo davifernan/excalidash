@@ -187,6 +187,41 @@ test.describe("dragging an arrow out of a note", () => {
     expect(movedNotes[1].y).toBeGreaterThan(childY + 100);
   });
 
+  test("creates a connected child right away, not after a stall (NIL-647)", async ({ page }) => {
+    // NIL-647: clicking a handle used to take ~1s before the child note even
+    // appeared in the scene. Root cause, measured directly: this component's
+    // `createChild` asked `interaction.setActiveToolSettled` to confirm the
+    // "selection" tool with the wrong ActiveTool shape
+    // (`{ type: "builtin", name: "selection" }` instead of `{ type:
+    // "selection" }` -- see types.ts's ActiveTool union). The tool itself
+    // switched correctly within a frame, but the settle check could never
+    // report success, so every click burned its full 1000ms timeout before
+    // `createConnectedChild` ran at all. The existing "previews a child..."
+    // test above only waits for eventual success and would pass either way
+    // (Playwright's default timeout is longer than the stall); this asserts
+    // the actual regression -- the wall-clock budget, not just the outcome.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+
+    const startedAt = Date.now();
+    await handle.click();
+    await page.waitForFunction(
+      () =>
+        (window as any).__EXCALIDASH_TEST__
+          .getSceneElements()
+          .filter((element: any) => element.customData?.excalidash?.sticky).length >= 2,
+      null,
+      { timeout: 5000 },
+    );
+    const elapsedMs = Date.now() - startedAt;
+    expect(elapsedMs).toBeLessThan(500);
+  });
+
   test("treats a 150ms stationary press as a click, not a drag", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
