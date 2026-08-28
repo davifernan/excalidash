@@ -421,6 +421,22 @@ export const deliveryState = (page: Page): Promise<DeliveryState | null> =>
 export const documentPageLabel = (page: Page) => page.locator(".element-floating-toolbar__page-number");
 
 /**
+ * `.text-document-widget` mounts before it has anything to show: the asset
+ * fetch, the content fetch, and the off-thread pagination worker all still
+ * have to finish before TextDocumentWidget.tsx renders its toolbar, its
+ * heading, or an "Edit Markdown" button (see its `loaded`/`pages` state and
+ * the `Loader2 aria-label="Loading document"` it renders until both are set).
+ * Waiting for the container's presence, as the tests here used to, is a wait
+ * on mount, not on the state those elements actually depend on -- NIL-664.
+ * `waitFor({ state: "detached" })` resolves immediately when the spinner
+ * never existed in the first place, so this is safe to call unconditionally.
+ */
+export const waitForDocumentWidgetLoaded = (page: Page) =>
+  page
+    .locator('.text-document-widget [aria-label="Loading document"]')
+    .waitFor({ state: "detached", timeout: 30_000 });
+
+/**
  * Excalidraw keeps an embedded element behind its own canvas until you click
  * it, the same way it guards an embedded video. Until then the canvas swallows
  * every click, so the widget's own controls cannot be reached.
