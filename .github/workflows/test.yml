@@ -68,10 +68,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: npm ci
 
       - name: Typecheck frontend
         run: npm run typecheck --prefix frontend
@@ -124,11 +124,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
 
       - name: Generate Prisma client
@@ -266,10 +265,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: npm ci
 
       - name: Check frontend formatting
         run: npm run format:check --prefix frontend
@@ -297,10 +296,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install backend dependencies
-        run: npm ci --prefix backend
+        run: npm ci
 
       - name: Check backend formatting
         run: npm run format:check --prefix backend
@@ -347,11 +346,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
 
       - name: Generate Prisma client
@@ -385,11 +383,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
       
       - name: Install frontend dependencies
         run: |
-          cd frontend
           npm ci
       
       - name: Run frontend tests
@@ -411,13 +408,13 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
+            package-lock.json
 
       - name: Install package dependencies
         run: |
-          npm ci --prefix backend
-          npm ci --prefix frontend
+          npm ci
+          npm ci
 
       - name: Check backend dead code
         run: npm run check:dead-code --prefix backend
@@ -453,13 +450,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
+            package-lock.json
             e2e/package-lock.json
       
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
       
       - name: Generate Prisma client
@@ -476,7 +472,6 @@ jobs:
       
       - name: Install frontend dependencies
         run: |
-          cd frontend
           npm ci
       
       - name: Install E2E test dependencies
@@ -616,13 +611,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
+            package-lock.json
             e2e/package-lock.json
       
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
       
       - name: Generate Prisma client
@@ -639,7 +633,6 @@ jobs:
       
       - name: Install frontend dependencies
         run: |
-          cd frontend
           npm ci
       
       - name: Install E2E test dependencies
@@ -776,13 +769,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
 
       - name: Generate Prisma client
@@ -799,7 +791,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: |
-          cd frontend
           npm ci
 
       - name: Install E2E test dependencies
@@ -934,13 +925,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
 
       - name: Generate Prisma client
@@ -957,7 +947,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: |
-          cd frontend
           npm ci
 
       - name: Install E2E test dependencies
@@ -1082,13 +1071,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
 
       - name: Generate Prisma client
@@ -1105,7 +1093,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: |
-          cd frontend
           npm ci
 
       - name: Install E2E test dependencies
@@ -1244,11 +1231,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: package-lock.json
       
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
       
       - name: Generate Prisma client

@@ -52,13 +52,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
       - name: Install backend dependencies
         run: |
-          cd backend
           npm ci
 
       - name: Generate Prisma client
@@ -75,7 +74,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: |
-          cd frontend
           npm ci
 
       - name: Install E2E test dependencies
