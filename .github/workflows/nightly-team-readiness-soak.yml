@@ -125,7 +125,18 @@ jobs:
       cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
       engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
       restore_from_part: 2
-      board_id: ${{ needs.part_1.outputs.board_id }}
+      # GitHub only fills needs.<job> for a job's DIRECT dependencies --
+      # part_3 only lists `needs: part_2`, so needs.part_1 is empty here
+      # even though part_1 ran earlier in the chain. Each part's own
+      # board_id output already carries the same shared id forward (it
+      # reuses whatever board_id it was given as its own SOAK_EXISTING_
+      # BOARD_ID and reports that back, see _soak-part.yml's board_id
+      # output and team-readiness.spec.ts's report.sharedBoardId), so
+      # reading it from the direct predecessor is both correct and requires
+      # no needs: change. soak-nightly-board-id-chain.test.cjs asserts every
+      # part_N>1's board_id input names a job actually listed in its own
+      # needs:.
+      board_id: ${{ needs.part_2.outputs.board_id }}
       skip_teardown: true
 
   part_4:
@@ -139,7 +150,9 @@ jobs:
       cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
       engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
       restore_from_part: 3
-      board_id: ${{ needs.part_1.outputs.board_id }}
+      # Same reasoning as part_3 above: part_4 only lists `needs: part_3`,
+      # so it must read board_id from part_3's own output, not part_1's.
+      board_id: ${{ needs.part_3.outputs.board_id }}
       skip_teardown: false
 
   summary:
