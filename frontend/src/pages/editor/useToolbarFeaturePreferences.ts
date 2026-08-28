@@ -11,6 +11,18 @@
  * latter means the viewer actually unchecked everything. That is why this
  * hook tracks the stored list as `string[] | null` rather than defaulting
  * eagerly -- `null` is "not customized yet", not "empty".
+ *
+ * `toggle` always awaits the same in-flight read before computing what to
+ * write (Hans-Friedrich, PR #228): a click that lands before
+ * `getUserPreferences()` resolves used to fall back to "every known id" as
+ * its base, so it could write over -- and then permanently discard, via
+ * `hasWrittenRef` -- an already-saved selection the read just hadn't
+ * delivered yet. Routing every write through the same promise the read
+ * effect subscribes to, and reading the base out of React state via a
+ * functional updater rather than a closed-over variable, means a toggle can
+ * only ever start from the real stored selection (or the real "never
+ * customized" default), never from a guess made while that answer was still
+ * in flight.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../../api";
@@ -25,24 +37,34 @@ export const useToolbarFeaturePreferences = (
   knownIds: readonly EditorFeatureId[],
 ): ToolbarFeatureSelection => {
   const [stored, setStored] = useState<readonly EditorFeatureId[] | null>(null);
-  // Guards a write started before the read resolved from clobbering it with
-  // the read's now-stale snapshot.
+  // Created once per hook instance (not per render) and shared by the load
+  // effect and every `toggle` call, so both always agree on the same
+  // eventual read instead of racing two independent fetches.
+  const loadRef = useRef<Promise<readonly EditorFeatureId[] | null> | null>(null);
+  if (loadRef.current === null) {
+    loadRef.current = api
+      .getUserPreferences()
+      .then((preferences) =>
+        Array.isArray(preferences.toolbarFeatureIds)
+          ? (preferences.toolbarFeatureIds as EditorFeatureId[])
+          : null,
+      )
+      .catch(() => null);
+  }
+  // Sourced from a click, not the read -- guards the read's own `setStored`
+  // from clobbering a selection a `toggle` already wrote once the read
+  // eventually resolves.
   const hasWrittenRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .getUserPreferences()
-      .then((preferences) => {
-        if (cancelled || hasWrittenRef.current) return;
-        if (Array.isArray(preferences.toolbarFeatureIds)) {
-          setStored(preferences.toolbarFeatureIds as EditorFeatureId[]);
-        }
-      })
-      .catch(() => {
-        // Anonymous/guest viewers and offline reads keep every applicable
-        // feature visible -- the same tolerant fallback ThemeContext uses.
-      });
+    loadRef.current!.then((loaded) => {
+      if (cancelled || hasWrittenRef.current || loaded === null) return;
+      // Anonymous/guest viewers and offline/failed reads keep every
+      // applicable feature visible -- the same tolerant fallback
+      // ThemeContext uses.
+      setStored(loaded);
+    });
     return () => {
       cancelled = true;
     };
@@ -52,18 +74,22 @@ export const useToolbarFeaturePreferences = (
 
   const toggle = useCallback(
     (id: EditorFeatureId) => {
-      const current = stored === null ? knownIds : stored;
-      const next = current.includes(id)
-        ? current.filter((candidate) => candidate !== id)
-        : [...current, id];
       hasWrittenRef.current = true;
-      setStored(next);
-      api.updateUserPreferences({ toolbarFeatureIds: [...next] }).catch(() => {
-        // Keep the local choice even when the write fails/offline -- it
-        // just does not survive a reload, same tradeoff as ThemeContext.
+      void loadRef.current!.then((loaded) => {
+        setStored((current) => {
+          const base = current ?? loaded ?? knownIds;
+          const next = base.includes(id)
+            ? base.filter((candidate) => candidate !== id)
+            : [...base, id];
+          api.updateUserPreferences({ toolbarFeatureIds: [...next] }).catch(() => {
+            // Keep the local choice even when the write fails/offline -- it
+            // just does not survive a reload, same tradeoff as ThemeContext.
+          });
+          return next;
+        });
       });
     },
-    [stored, knownIds],
+    [knownIds],
   );
 
   return {
