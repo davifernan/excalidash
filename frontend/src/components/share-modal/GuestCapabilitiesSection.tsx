@@ -29,9 +29,16 @@ type RowProps = {
 /**
  * One capability row. `board` is this drawing's own opt-in and is what the
  * toggle here controls; `instanceAllowed` is the admin ceiling (Admin ->
- * Guest Access) that this board can never raise, only narrow further --
- * turning the toggle here off still works while the instance is off, but
- * turning it on has no effect until an admin allows it too.
+ * Guest Access) that this board can never raise, only narrow further.
+ *
+ * The toggle stays fully interactive in both directions even while
+ * `instanceAllowed` is false: the server accepts either write regardless
+ * (`setBoardGuestCapabilityPolicy` doesn't consult the instance policy), and
+ * disabling the control here would only be a CSS-level lock a keyboard or
+ * script bypasses anyway -- not real enforcement, just a false sense of one.
+ * The amber note below says plainly that turning it on won't take effect
+ * yet; the authoritative rejection is `combineGuestCapabilities` on the
+ * server, not this control being clickable or not.
  */
 const CapabilityRow: React.FC<RowProps> = ({
   icon,
@@ -57,20 +64,19 @@ const CapabilityRow: React.FC<RowProps> = ({
     <div className="flex-1 min-w-0 flex flex-col gap-1">
       <div className="flex items-center gap-2">
         <span className="text-[11px] font-black text-slate-700 dark:text-neutral-200">{title}</span>
-        <div className={clsx(!instanceAllowed && "opacity-50 pointer-events-none")}>
-          <CustomSelect
-            value={board ? "on" : "off"}
-            onChange={() => void onToggle()}
-            options={ON_OFF_OPTIONS}
-            variant="bordered"
-            showCheck={false}
-          />
-        </div>
+        <CustomSelect
+          value={board ? "on" : "off"}
+          onChange={() => void onToggle()}
+          options={ON_OFF_OPTIONS}
+          variant="bordered"
+          showCheck={false}
+        />
       </div>
       {!instanceAllowed ? (
         <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1">
           <ShieldAlert size={11} strokeWidth={2.5} />
-          Disabled instance-wide by an admin -- this board cannot turn it back on.
+          Disabled instance-wide by an admin -- turning this on here won't take effect until that
+          changes.
         </p>
       ) : (
         <p className="text-[10px] font-bold text-slate-500 dark:text-neutral-400">
