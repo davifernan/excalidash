@@ -77,11 +77,10 @@ function layoutAt(container: any, text: any, fontSize: number): StickyFit | null
     // prior render can beat -- exactly 0 is dropped as an invalid element by
     // the restore step -- so every call grows up from (effectively) nothing
     // to the text's own natural size, and the answer depends only on `text`
-    // and `fontSize`. The recentred x/y restore derives are anchored off this
-    // same starting position, so it needs resetting for the same reason: left
-    // at the label's last position, two back-to-back calls for the identical,
-    // already-centred text measured the same box but centred it differently
-    // (x drifted from -65.75 to -136.5 on a settled, unchanging note).
+    // and `fontSize`.
+    //
+    // The position this yields from `restore()` is not used below -- see why
+    // at the return statement.
     width: 1,
     height: 1,
     x: container.x,
@@ -100,8 +99,22 @@ function layoutAt(container: any, text: any, fontSize: number): StickyFit | null
     text: laidOut.text,
     width: laidOut.width,
     height: laidOut.height,
-    x: laidOut.x,
-    y: laidOut.y,
+    // Centred on the container directly, not `laidOut.x`/`laidOut.y`.
+    //
+    // For a bound label, Excalidraw's own `getAdjustedDimensions` treats the
+    // two axes differently: horizontally it recentres the new width on the
+    // probe's *current* centre (so a `container.x` probe answers off by
+    // `width / 2`), but vertically -- for a bound, centre-aligned label --
+    // only its "south" side is ever counted as moving, so the *y* it derives
+    // never recentres at all; it stays anchored to whatever `y` the probe
+    // started with, no matter how much the label's height changes. There is
+    // no single starting position that makes both of those correct at once
+    // (measured: seeding the probe at the container's own centre fixed `x`
+    // exactly but left `y` 35px off-centre on a 71px-tall single line).
+    // Deriving both directly from the container's real box and the label's
+    // now-known width/height sidesteps that mismatch instead of chasing it.
+    x: container.x + (container.width - laidOut.width) / 2,
+    y: container.y + (container.height - laidOut.height) / 2,
     fits: true,
   };
 }
