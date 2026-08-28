@@ -176,19 +176,36 @@ test.describe("dragging an arrow out of a note", () => {
     };
     await page.mouse.move(childPage.x, childPage.y);
     await page.mouse.down();
-    await page.mouse.move(
-      canvasBox.x + childTargetViewport.x,
-      canvasBox.y + childTargetViewport.y,
-      { steps: 12 },
-    );
+    // NIL-665: Excalidraw only commits a dragged element's position into the
+    // scene on pointerup (confirmed directly: polling getSceneElements() for
+    // this note while the button is still held never shows it move at all,
+    // even as late as several seconds in) -- so the fix cannot wait on scene
+    // state before releasing, the way NIL-664's fix waits on the document
+    // widget's load state. The actual race is upstream of that: a single
+    // `mouse.move(..., { steps: 12 })` dispatches all 12 synthetic pointer
+    // events back-to-back with no gap between them, faster than WebKit's own
+    // paint-aligned pointermove delivery can keep up with -- confirmed
+    // directly too: the flaky drop consistently lands at 10/12 of the
+    // requested distance (childY+100 of a childY+120 target), i.e. WebKit
+    // coalesces/drops the last steps rather than merely delaying them, and
+    // no number of animation-frame waits *after* the move recovers them
+    // (tried up to 6 rAFs here; still 10/12). Moving one step at a time and
+    // waiting for a real animation frame between each step, instead of
+    // between the whole move and the release, gives WebKit's own paint cycle
+    // a turn to actually deliver each intermediate pointermove before the
+    // next one is dispatched -- a wait on the browser having rendered each
+    // step, not on a guessed total duration.
+    const steps = 12;
+    for (let step = 1; step <= steps; step++) {
+      await page.mouse.move(
+        childPage.x + ((canvasBox.x + childTargetViewport.x - childPage.x) * step) / steps,
+        childPage.y + ((canvasBox.y + childTargetViewport.y - childPage.y) * step) / steps,
+      );
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    }
     await page.mouse.up();
     await settle(page);
     const movedNotes = (await notes(page)).sort((a: any, b: any) => a.x - b.x);
-    // NIL-665: this assertion is flaky under WebKit (measured 2/6 local repeats landing right at
-    // the threshold, e.g. 300 or 270 against `> 300`) -- a synthetic-drag timing issue in this
-    // pre-existing vertical-drag check, unrelated to NIL-646/NIL-647 or CHILD_GAP (this note is
-    // created to the *right* of its parent; CHILD_GAP only affects that horizontal offset, and
-    // the same failure reproduced on main before this PR's CHILD_GAP change existed at all).
     expect(movedNotes[1].y).toBeGreaterThan(childY + 100);
   });
 
