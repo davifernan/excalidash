@@ -94,6 +94,7 @@ export const getPersistedAppState = (appState: Record<string, any> | null | unde
     gridSize: appState?.gridSize ?? null,
   };
   if (appState?.gridStep != null) base.gridStep = appState.gridStep;
+  if (appState?.gridModeEnabled != null) base.gridModeEnabled = appState.gridModeEnabled;
   if (appState?.objectsSnapModeEnabled != null)
     base.objectsSnapModeEnabled = appState.objectsSnapModeEnabled;
   return base;
@@ -103,7 +104,7 @@ export const boardSettingsSignature = (appState: Record<string, any> | null | un
   JSON.stringify(getPersistedAppState(appState));
 
 /**
- * Whether the board settings -- snapping and canvas colour -- differ from
+ * Whether the board settings -- grid, snapping, canvas colour -- differ from
  * the baseline and therefore have to be saved.
  *
  * The baseline is a state Excalidraw itself reported, never the one the server

@@ -156,6 +156,7 @@ describe("editor/shared scene guards", () => {
         viewBackgroundColor: "#123456",
         gridSize: 24,
         gridStep: 5,
+        gridModeEnabled: true,
         objectsSnapModeEnabled: false,
         cursorButton: "down",
         activeTool: { type: "hand", locked: false, lastActiveTool: null },
@@ -170,6 +171,7 @@ describe("editor/shared scene guards", () => {
       viewBackgroundColor: "#123456",
       gridSize: 24,
       gridStep: 5,
+      gridModeEnabled: true,
       objectsSnapModeEnabled: false,
     });
   });
@@ -187,7 +189,7 @@ describe("editor/shared scene guards", () => {
   });
 
   it("carries the object snapping choice through a save and back", () => {
-    const snapping = getPersistedAppState({ objectsSnapModeEnabled: true });
+    const snapping = getPersistedAppState({ gridModeEnabled: false, objectsSnapModeEnabled: true });
     expect(snapping.objectsSnapModeEnabled).toBe(true);
     expect(resolveObjectsSnapMode(snapping)).toBe(true);
 
@@ -196,10 +198,13 @@ describe("editor/shared scene guards", () => {
     expect(resolveObjectsSnapMode(switchedOff)).toBe(false);
   });
 
-  it("starts a drawing with snapping when it has no board preference", () => {
+  it("starts a drawing with snapping unless it is one that draws on the grid", () => {
+    // Excalidraw's own toggles switch grid and snapping off for each other, so
+    // a default has to be based on both persisted values.
     expect(resolveObjectsSnapMode(getPersistedAppState({}))).toBe(true);
     expect(resolveObjectsSnapMode(getPersistedAppState(undefined))).toBe(true);
-    expect(resolveObjectsSnapMode(getPersistedAppState({ gridModeEnabled: true }))).toBe(true);
+    expect(resolveObjectsSnapMode(getPersistedAppState({ gridModeEnabled: false }))).toBe(true);
+    expect(resolveObjectsSnapMode(getPersistedAppState({ gridModeEnabled: true }))).toBe(false);
     expect(resolveObjectsSnapMode({ gridModeEnabled: true, objectsSnapModeEnabled: "yes" })).toBe(
       false,
     );
@@ -227,10 +232,10 @@ describe("board settings that have to be saved on their own", () => {
     expect(shouldSaveBoardSettings(baseline, live())).toBe(false);
   });
 
-  it("notices board settings but not the user-level grid switch", () => {
+  it("notices snapping and the grid being switched", () => {
     const baseline = boardSettingsSignature(live());
     expect(shouldSaveBoardSettings(baseline, live({ objectsSnapModeEnabled: false }))).toBe(true);
-    expect(shouldSaveBoardSettings(baseline, live({ gridModeEnabled: true }))).toBe(false);
+    expect(shouldSaveBoardSettings(baseline, live({ gridModeEnabled: true }))).toBe(true);
     expect(shouldSaveBoardSettings(baseline, live({ viewBackgroundColor: "#111111" }))).toBe(true);
   });
 
