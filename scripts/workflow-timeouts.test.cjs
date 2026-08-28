@@ -28,9 +28,17 @@ const jobsWithoutTimeout = (source) => {
   const missing = [];
   let current = null;
   let hasTimeout = false;
+  // A job that calls a reusable workflow (`uses:`) cannot carry its own
+  // `timeout-minutes` at all -- GitHub's schema rejects it outright
+  // ("Unexpected value 'timeout-minutes'", found the hard way on NIL-639's
+  // nightly-team-readiness-soak.yml, which failed workflow validation with
+  // zero jobs ever created). Its upper bound is the CALLED workflow's own
+  // job timeout instead, which is exactly the same guarantee this check
+  // exists to require -- just declared one file over.
+  let usesReusableWorkflow = false;
 
   const close = () => {
-    if (current && !hasTimeout) missing.push(current);
+    if (current && !hasTimeout && !usesReusableWorkflow) missing.push(current);
   };
 
   for (const line of lines.slice(jobsStart + 1)) {
@@ -39,6 +47,7 @@ const jobsWithoutTimeout = (source) => {
       close();
       current = jobHeader[1];
       hasTimeout = false;
+      usesReusableWorkflow = false;
       continue;
     }
     if (/^\S/.test(line) && line.trim() !== "") {
@@ -47,6 +56,7 @@ const jobsWithoutTimeout = (source) => {
       continue;
     }
     if (current && /^ {4}timeout-minutes:\s*\d+\s*$/.test(line)) hasTimeout = true;
+    if (current && /^ {4}uses:\s*\S+/.test(line)) usesReusableWorkflow = true;
   }
   close();
 
@@ -96,4 +106,20 @@ test("a commented-out timeout does not count", () => {
   );
 
   assert.deepStrictEqual(jobsWithoutTimeout(source), ["pretend"]);
+});
+
+test("a job calling a reusable workflow is exempt -- GitHub rejects timeout-minutes there", () => {
+  const source = [
+    "jobs:",
+    "  caller:",
+    "    uses: ./.github/workflows/_reusable.yml",
+    "    with:",
+    "      x: 1",
+    "  unbounded:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: true",
+  ].join("\n");
+
+  assert.deepStrictEqual(jobsWithoutTimeout(source), ["unbounded"]);
 });

@@ -1,0 +1,219 @@
+#!/usr/bin/env node
+// NIL-639: reads all four parts' part-summary.json (written by
+// soak-nightly-extract.cjs, downloaded by the nightly workflow's summary
+// job into /tmp/soak-results/soak-part-<N>-results/soak-artifacts/), builds
+// this run's aggregate, appends it as one line to the durable evidence-branch
+// log, and reports median/p95 only once that log holds at least three
+// same-profile rows -- SOAK_RUNNER_DECISION.md's own rule: a single run is a
+// data point, not a metric, and this repo's earlier measurements already
+// mixed at least two different modes (a passed run and an aborted one) when
+// someone tried to average them anyway.
+
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+const RESULTS_DIR = "/tmp/soak-results";
+const EVIDENCE_PATH = "soak-nightly/team-readiness-log.ndjson";
+
+function sameProfile(a, b) {
+  return (
+    a.context_count === b.context_count &&
+    a.engines === b.engines &&
+    a.part_duration_minutes === b.part_duration_minutes
+  );
+}
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function p95(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1);
+  return sorted[idx];
+}
+
+function buildAggregate(parts, profile, { ts, sha, runUrl }) {
+  const allPassed = parts.every((p) => p.passed === true);
+  const totalCycles = parts.reduce((sum, p) => sum + (p.cycles ?? 0), 0);
+  const totalWatchdogViolations = parts.reduce((sum, p) => sum + (p.watchdogViolations ?? 0), 0);
+  const totalErrors = parts.reduce((sum, p) => sum + (p.errorCount ?? 0), 0);
+  const totalElapsedMs = parts.reduce((sum, p) => sum + (p.actualElapsedMs ?? 0), 0);
+  return {
+    ts,
+    sha,
+    runUrl,
+    profile,
+    allPassed,
+    totalCycles,
+    totalWatchdogViolations,
+    totalErrors,
+    totalElapsedMs,
+    parts: parts.map((p) => ({
+      part: p.part,
+      passed: p.passed,
+      missing: p.missing ?? false,
+      cycles: p.cycles ?? null,
+      watchdogViolations: p.watchdogViolations ?? null,
+      errorCount: p.errorCount ?? null,
+      actualElapsedMs: p.actualElapsedMs ?? null,
+    })),
+  };
+}
+
+// Only counts a same-profile run once it PASSED -- an aborted/failed run's
+// numbers describe how far it got before something broke, not steady-state
+// behavior, and mixing the two is exactly the "at least two modes" mistake
+// SOAK_RUNNER_DECISION.md's own header warns against.
+function matchingPassedRuns(existingRuns, profile, thisRun) {
+  const priorMatches = existingRuns.filter(
+    (r) => r && sameProfile(r.profile, profile) && r.allPassed,
+  );
+  return thisRun.allPassed ? [...priorMatches, thisRun] : priorMatches;
+}
+
+function metricsSection(matching, profile) {
+  if (matching.length < 3) {
+    return [
+      `Not enough same-profile passed runs yet for median/p95: ${matching.length} of the required 3` +
+        ` (context_count=${profile.context_count}, engines=${profile.engines}, part_duration_minutes=${profile.part_duration_minutes}).`,
+      "No metric reported -- per SOAK_RUNNER_DECISION.md, a single run (or fewer than three same-profile runs) is a data point, not a metric.",
+    ];
+  }
+  const durations = matching.map((r) => r.totalElapsedMs).filter((v) => typeof v === "number");
+  const cycles = matching.map((r) => r.totalCycles).filter((v) => typeof v === "number");
+  return [
+    `Median/p95 across ${matching.length} same-profile passed runs (context_count=${profile.context_count}, engines=${profile.engines}, part_duration_minutes=${profile.part_duration_minutes}):`,
+    `- total elapsed: median ${Math.round(median(durations) / 1000)}s, p95 ${Math.round(p95(durations) / 1000)}s`,
+    `- total cycles: median ${Math.round(median(cycles))}, p95 ${Math.round(p95(cycles))}`,
+  ];
+}
+
+function buildSummaryMarkdown(thisRun, parts, metricsLines) {
+  return [
+    `# Nightly team-readiness soak -- ${thisRun.ts}`,
+    "",
+    `Overall: ${thisRun.allPassed ? "PASSED" : "FAILED"}`,
+    `Profile: context_count=${thisRun.profile.context_count}, engines=${thisRun.profile.engines}, part_duration_minutes=${thisRun.profile.part_duration_minutes}`,
+    `Total cycles: ${thisRun.totalCycles} · Watchdog violations: ${thisRun.totalWatchdogViolations} · Actor errors: ${thisRun.totalErrors} · Elapsed: ${Math.round(thisRun.totalElapsedMs / 1000)}s`,
+    "",
+    "## Per part",
+    ...parts.map(
+      (p) =>
+        `- Part ${p.part}: ${p.missing ? "MISSING" : p.passed ? "passed" : "FAILED"}` +
+        (p.missing
+          ? ""
+          : `, cycles=${p.cycles}, watchdogViolations=${p.watchdogViolations}, errors=${p.errorCount}`),
+    ),
+    "",
+    "## Median/p95",
+    ...metricsLines,
+  ].join("\n");
+}
+
+function main() {
+  function readPartSummary(part) {
+    const p = path.join(
+      RESULTS_DIR,
+      `soak-part-${part}-results`,
+      "soak-artifacts",
+      "part-summary.json",
+    );
+    if (!fs.existsSync(p)) return { part, missing: true, passed: false };
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  }
+
+  function gh(args) {
+    return execFileSync("gh", args, { encoding: "utf8" });
+  }
+
+  const parts = [1, 2, 3, 4].map(readPartSummary);
+  const profile = {
+    context_count: process.env.CONTEXT_COUNT || null,
+    engines: process.env.ENGINES || null,
+    part_duration_minutes: process.env.PART_DURATION_MINUTES || null,
+  };
+  const thisRun = buildAggregate(parts, profile, {
+    ts: new Date().toISOString(),
+    sha: process.env.GITHUB_SHA || null,
+    runUrl: process.env.RUN_URL || null,
+  });
+
+  // Append-only: fetch current content (if any), append this run, write
+  // back. The `evidence` branch is the repo's established durable,
+  // never-force-pushed home for exactly this kind of append-only record
+  // (see excalidash-kickoffs/_common.md, "Bildnachweise: PR und dauerhafter
+  // evidence-Branch").
+  let existingLines = [];
+  let existingSha = null;
+  try {
+    const contentJson = gh([
+      "api",
+      `repos/${process.env.GITHUB_REPOSITORY}/contents/${EVIDENCE_PATH}?ref=evidence`,
+    ]);
+    const parsed = JSON.parse(contentJson);
+    existingSha = parsed.sha;
+    existingLines = Buffer.from(parsed.content, "base64")
+      .toString("utf8")
+      .split("\n")
+      .filter(Boolean);
+  } catch (err) {
+    console.log(
+      `soak-nightly-aggregate: no existing evidence log yet (${err.message.split("\n")[0]}) -- starting one`,
+    );
+  }
+
+  const newLines = [...existingLines, JSON.stringify(thisRun)];
+  const newContentB64 = Buffer.from(newLines.join("\n") + "\n", "utf8").toString("base64");
+  const body = {
+    message: `soak: append nightly team-readiness run ${thisRun.ts}`,
+    content: newContentB64,
+    branch: "evidence",
+    ...(existingSha ? { sha: existingSha } : {}),
+  };
+  fs.writeFileSync("/tmp/soak-evidence-put-body.json", JSON.stringify(body));
+  try {
+    gh([
+      "api",
+      `repos/${process.env.GITHUB_REPOSITORY}/contents/${EVIDENCE_PATH}`,
+      "--input",
+      "/tmp/soak-evidence-put-body.json",
+      "-X",
+      "PUT",
+    ]);
+    console.log("soak-nightly-aggregate: appended this run to evidence branch log");
+  } catch (err) {
+    console.error(`soak-nightly-aggregate: failed to write evidence log: ${err.message}`);
+  }
+
+  const existingRuns = existingLines
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+  const matching = matchingPassedRuns(existingRuns, profile, thisRun);
+  const summaryMd = buildSummaryMarkdown(thisRun, parts, metricsSection(matching, profile));
+
+  fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  fs.writeFileSync(path.join(RESULTS_DIR, "summary.md"), summaryMd);
+  console.log(summaryMd);
+}
+
+if (require.main === module) main();
+
+module.exports = {
+  sameProfile,
+  median,
+  p95,
+  buildAggregate,
+  matchingPassedRuns,
+  metricsSection,
+  buildSummaryMarkdown,
+};

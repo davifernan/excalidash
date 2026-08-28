@@ -1,0 +1,178 @@
+name: Nightly Team-Readiness Soak
+
+# NIL-639: operationalize NIL-330's team-readiness soak
+# (e2e/tests/team-readiness.spec.ts) as a recurring, GitHub-hosted check,
+# after docs/architecture/SOAK_RUNNER_DECISION.md established that:
+#   - a GitHub-hosted job cannot run the spec's own 8h/10-context default in
+#     one piece (GitHub caps every hosted job at 6h), and
+#   - the production host this repo also runs on must never be a soak
+#     target -- a 10-context attempt there once drove swap to 8191/8191 MB
+#     while production containers were still running.
+#
+# The decision that unblocked this (recorded on NIL-330, since it was never
+# written down before): split the 8h/10-context profile into four ~2h parts,
+# chained as separate GitHub Actions jobs, each well under the 6h ceiling.
+#
+# A naive split -- four independent 2h/10-context runs against four fresh,
+# empty databases -- would not answer the question NIL-330's acceptance
+# criterion actually asks: does the system hold up under SUSTAINED
+# accumulation over ~8h, not four unrelated half-hours. So each part after
+# the first restores the previous part's SQLite database and asset storage
+# directory from an artifact before starting its own backend, and reuses the
+# same shared board id (SOAK_EXISTING_BOARD_ID) -- the scene, comments and
+# uploaded assets keep growing across all four parts exactly as they would
+# in one continuous run. What this design does NOT cover, and does not claim
+# to: an in-process leak that only shows up inside a single browser tab kept
+# open for 8h straight, since each part launches fresh browser processes.
+# That gap is unchanged from before this workflow existed -- NIL-330's own
+# manually-triggered full profile (still supported, unmodified) is the tool
+# for it, on a dedicated non-production host, not here.
+#
+# A part failing stops the chain (GitHub's default `needs:` behavior -- there
+# is no point building three more hours on a run that already went red) and
+# is made visible immediately via a comment on a pinned tracking issue,
+# rather than waiting for someone to notice a silent red night in the Actions
+# tab. The summary job runs regardless (`if: always()`), reports what
+# actually finished, and appends this run's raw numbers to a durable log on
+# the `evidence` branch -- median and p95 are only computed once that log
+# holds at least three same-profile runs (SOAK_RUNNER_DECISION.md's own
+# rule: one run is a data point, not a metric).
+
+on:
+  schedule:
+    # 02:00 UTC. Four parts at ~2h/part plus setup/teardown land comfortably
+    # before normal daytime PR traffic resumes.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      context_count:
+        description: "SOAK_CONTEXT_COUNT per part"
+        default: "10"
+      part_duration_minutes:
+        description: "Test duration per part, in minutes (job timeout gives ~35 extra minutes for install/start/teardown)"
+        default: "115"
+      cycle_ms:
+        description: "SOAK_CYCLE_MS"
+        default: "15000"
+      engines:
+        description: "SOAK_ENGINES (comma-separated)"
+        default: "chromium,firefox"
+
+# One nightly soak at a time. A second overlapping run (manual dispatch
+# during the scheduled window) would fight the first over ports/CPU inside
+# each job's own runner -- unlikely to matter since each job gets its own
+# VM, but the four parts are NOT independent (they share DB/asset state
+# through artifacts keyed only by workflow run), so two concurrent runs
+# would corrupt each other's artifact chain. Queue, don't cancel: a soak
+# that gets killed mid-run should not silently disappear.
+concurrency:
+  group: nightly-team-readiness-soak
+  cancel-in-progress: false
+
+env:
+  CONTEXT_COUNT: ${{ github.event.inputs.context_count || '10' }}
+  PART_DURATION_MINUTES: ${{ github.event.inputs.part_duration_minutes || '115' }}
+  CYCLE_MS: ${{ github.event.inputs.cycle_ms || '15000' }}
+  ENGINES: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+  DB_PATH: backend/prisma/nightly-soak.db
+  ASSET_DIR: backend/prisma/nightly-soak-assets
+
+jobs:
+  part_1:
+    name: Soak part 1/4
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 1
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 0
+      skip_teardown: true
+
+  part_2:
+    name: Soak part 2/4
+    needs: part_1
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 2
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 1
+      board_id: ${{ needs.part_1.outputs.board_id }}
+      skip_teardown: true
+
+  part_3:
+    name: Soak part 3/4
+    needs: part_2
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 3
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 2
+      board_id: ${{ needs.part_1.outputs.board_id }}
+      skip_teardown: true
+
+  part_4:
+    name: Soak part 4/4
+    needs: part_3
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 4
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 3
+      board_id: ${{ needs.part_1.outputs.board_id }}
+      skip_teardown: false
+
+  summary:
+    name: Aggregate + report
+    needs: [part_1, part_2, part_3, part_4]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download per-part results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: soak-part-*-results
+          path: /tmp/soak-results
+          merge-multiple: false
+
+      - name: Aggregate this run's parts and append to the evidence log
+        id: aggregate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PART1_RESULT: ${{ needs.part_1.result }}
+          PART2_RESULT: ${{ needs.part_2.result }}
+          PART3_RESULT: ${{ needs.part_3.result }}
+          PART4_RESULT: ${{ needs.part_4.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/soak-nightly-aggregate.cjs
+
+      - name: Comment nightly result (pass or fail) on the tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/soak-nightly-notify.cjs \
+            --status="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failed' || 'passed' }}" \
+            --summary-file=/tmp/soak-results/summary.md \
+            --run-url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Upload aggregated summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak-nightly-summary
+          path: /tmp/soak-results/summary.md
+          retention-days: 90
