@@ -11,6 +11,15 @@
 const fs = require("fs");
 const path = require("path");
 
+// This is also the directory _soak-part.yml's "Upload this part's soak
+// artifacts" step uploads as its single `path:`, and upload-artifact@v4
+// roots that upload at this directory itself -- see
+// soak-artifact-layout.test.cjs, which checks this constant against that
+// workflow step and against soak-nightly-aggregate.cjs's
+// PART_SUMMARY_RELATIVE_PATH so the three can't drift apart silently.
+const ARTIFACT_DIR_RELATIVE = path.join("e2e", "soak-artifacts");
+const PART_SUMMARY_FILENAME = "part-summary.json";
+
 function parseResultLine(logText) {
   const line = logText
     .split("\n")
@@ -25,7 +34,55 @@ function parseResultLine(logText) {
   }
 }
 
-function buildSummary(part, exitCode, resultJson) {
+// Reduces the resource sampler's raw per-minute ndjson (RSS/swap/CPU-time
+// samples, one line per soak-resource-sampler.cjs tick) to the few figures
+// that matter for a capacity read at a glance -- the full raw samples
+// themselves stay in the artifact unmodified (resource-samples.ndjson is
+// uploaded alongside part-summary.json), this is not a replacement for them.
+function summarizeResourceSamples(samples) {
+  if (!samples || samples.length === 0) return null;
+  const memUsed = samples.map((s) => s.memUsedMB).filter((v) => typeof v === "number");
+  const swapUsed = samples.map((s) => s.swapUsedMB).filter((v) => typeof v === "number");
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const cpuBusyJiffies = (s) =>
+    s.cpu ? s.cpu.userJiffies + s.cpu.niceJiffies + s.cpu.systemJiffies : null;
+  const firstBusy = cpuBusyJiffies(first);
+  const lastBusy = cpuBusyJiffies(last);
+  return {
+    sampleCount: samples.length,
+    peakMemUsedMB: memUsed.length ? Math.max(...memUsed) : null,
+    peakSwapUsedMB: swapUsed.length ? Math.max(...swapUsed) : null,
+    firstTs: first.ts ?? null,
+    lastTs: last.ts ?? null,
+    // Cumulative jiffies since boot, diffed across the part -- raw CPU time
+    // consumed (user+nice+system) over the sampled window, not a rate.
+    cpuBusyJiffiesDelta:
+      typeof firstBusy === "number" && typeof lastBusy === "number" ? lastBusy - firstBusy : null,
+  };
+}
+
+function readResourceSamples(resourcesPath) {
+  if (!resourcesPath) return [];
+  try {
+    return fs
+      .readFileSync(resourcesPath, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function buildSummary(part, exitCode, resultJson, resourceSamples = []) {
   const boardId = resultJson?.drawingId || "";
   return {
     part: Number(part),
@@ -41,6 +98,7 @@ function buildSummary(part, exitCode, resultJson) {
       ? (resultJson.perActorCycles ?? []).reduce((sum, a) => sum + (a.errors?.length ?? 0), 0)
       : null,
     actualElapsedMs: resultJson?.actualElapsedMs ?? null,
+    resources: summarizeResourceSamples(resourceSamples),
     raw: resultJson,
   };
 }
@@ -55,6 +113,7 @@ function main() {
   const logPath = arg("log");
   const part = arg("part");
   const exitCode = arg("exit-code", "1");
+  const resourcesPath = arg("resources");
 
   const githubOutput = process.env.GITHUB_OUTPUT;
   function setOutput(name, value) {
@@ -68,12 +127,13 @@ function main() {
     console.error(`soak-nightly-extract: could not read ${logPath}: ${err.message}`);
   }
 
-  const summary = buildSummary(part, exitCode, resultJson);
+  const resourceSamples = readResourceSamples(resourcesPath);
+  const summary = buildSummary(part, exitCode, resultJson, resourceSamples);
   setOutput("board_id", summary.boardId);
 
-  const outDir = path.join(process.env.GITHUB_WORKSPACE || ".", "e2e", "soak-artifacts");
+  const outDir = path.join(process.env.GITHUB_WORKSPACE || ".", ARTIFACT_DIR_RELATIVE);
   fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(path.join(outDir, "part-summary.json"), JSON.stringify(summary, null, 2));
+  fs.writeFileSync(path.join(outDir, PART_SUMMARY_FILENAME), JSON.stringify(summary, null, 2));
 
   console.log(
     `soak-nightly-extract: part ${part} -- passed=${summary.passed} cycles=${summary.cycles} ` +
@@ -83,4 +143,11 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { parseResultLine, buildSummary };
+module.exports = {
+  parseResultLine,
+  buildSummary,
+  summarizeResourceSamples,
+  readResourceSamples,
+  ARTIFACT_DIR_RELATIVE,
+  PART_SUMMARY_FILENAME,
+};

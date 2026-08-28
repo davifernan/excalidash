@@ -109,6 +109,19 @@ jobs:
       - name: Report memory before starting the soak
         run: free -m
 
+      - name: Start resource sampler (RSS, swap, CPU time)
+        # NIL-639 asks for raw RSS/swap/CPU-time values as an artifact, not
+        # just this job's one-off pre-soak `free -m` above. Starts before the
+        # backend/frontend so the baseline sample predates any load, and
+        # keeps sampling through the whole part; stopped in "Stop servers"
+        # below, right before the artifacts are uploaded.
+        run: |
+          mkdir -p e2e/soak-artifacts
+          node ${{ github.workspace }}/scripts/soak-resource-sampler.cjs \
+            --out=e2e/soak-artifacts/resource-samples.ndjson \
+            --interval-ms=60000 &
+          echo $! > /tmp/sampler.pid
+
       - name: Start backend and frontend
         run: |
           cd backend
@@ -160,13 +173,19 @@ jobs:
           cat /tmp/soak-part-${{ inputs.part }}.log
           exit 0
 
+      - name: Stop resource sampler
+        if: always()
+        run: |
+          [ -f /tmp/sampler.pid ] && kill -TERM "$(cat /tmp/sampler.pid)" 2>/dev/null || true
+
       - name: Extract board id and part result
         id: extract
         if: always()
         run: node ${{ github.workspace }}/scripts/soak-nightly-extract.cjs \
           --log=/tmp/soak-part-${{ inputs.part }}.log \
           --part=${{ inputs.part }} \
-          --exit-code="${{ steps.soak.outputs.exit_code }}"
+          --exit-code="${{ steps.soak.outputs.exit_code }}" \
+          --resources=e2e/soak-artifacts/resource-samples.ndjson
 
       - name: Stop servers (flush WAL before archiving the DB)
         if: always()
@@ -194,13 +213,29 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+      - name: Copy the part log into the artifact directory
+        # upload-artifact@v4 roots a multi-path upload at the paths' common
+        # ancestor -- mixing this workspace-relative dir with the absolute
+        # /tmp log path made that ancestor "/" (filesystem root) instead of
+        # this directory, so the downloaded artifact nested part-summary.json
+        # under the whole runner workspace path instead of appearing at the
+        # artifact's own top level. Copying the log in here keeps this a
+        # single directory path, so upload-artifact roots the archive AT
+        # this directory: part-summary.json and the log land directly at the
+        # artifact's top level (no "soak-artifacts/" prefix survives inside
+        # the artifact -- see soak-nightly-aggregate.cjs's readPartSummary
+        # and soak-artifact-layout.test.cjs, which models this rule and goes
+        # red on the old two-path config).
+        if: always()
+        run: |
+          mkdir -p e2e/soak-artifacts
+          cp /tmp/soak-part-${{ inputs.part }}.log e2e/soak-artifacts/soak-part-${{ inputs.part }}.log 2>/dev/null || true
+
       - name: Upload this part's soak artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: soak-part-${{ inputs.part }}-results
-          path: |
-            e2e/soak-artifacts/
-            /tmp/soak-part-${{ inputs.part }}.log
+          path: e2e/soak-artifacts/
           retention-days: 90
           if-no-files-found: warn

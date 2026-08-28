@@ -36,12 +36,22 @@ function p95(values) {
   return sorted[idx];
 }
 
+// max() over whichever parts actually reported a peak -- a missing part
+// (readPartSummary found no file) has no `resources` field at all, and
+// should not silently read as "0 MB used" against the parts that did report.
+function peakAcrossParts(parts, field) {
+  const values = parts.map((p) => p.resources?.[field]).filter((v) => typeof v === "number");
+  return values.length ? Math.max(...values) : null;
+}
+
 function buildAggregate(parts, profile, { ts, sha, runUrl }) {
   const allPassed = parts.every((p) => p.passed === true);
   const totalCycles = parts.reduce((sum, p) => sum + (p.cycles ?? 0), 0);
   const totalWatchdogViolations = parts.reduce((sum, p) => sum + (p.watchdogViolations ?? 0), 0);
   const totalErrors = parts.reduce((sum, p) => sum + (p.errorCount ?? 0), 0);
   const totalElapsedMs = parts.reduce((sum, p) => sum + (p.actualElapsedMs ?? 0), 0);
+  const peakMemUsedMB = peakAcrossParts(parts, "peakMemUsedMB");
+  const peakSwapUsedMB = peakAcrossParts(parts, "peakSwapUsedMB");
   return {
     ts,
     sha,
@@ -52,6 +62,8 @@ function buildAggregate(parts, profile, { ts, sha, runUrl }) {
     totalWatchdogViolations,
     totalErrors,
     totalElapsedMs,
+    peakMemUsedMB,
+    peakSwapUsedMB,
     parts: parts.map((p) => ({
       part: p.part,
       passed: p.passed,
@@ -60,6 +72,7 @@ function buildAggregate(parts, profile, { ts, sha, runUrl }) {
       watchdogViolations: p.watchdogViolations ?? null,
       errorCount: p.errorCount ?? null,
       actualElapsedMs: p.actualElapsedMs ?? null,
+      resources: p.resources ?? null,
     })),
   };
 }
@@ -99,6 +112,7 @@ function buildSummaryMarkdown(thisRun, parts, metricsLines) {
     `Overall: ${thisRun.allPassed ? "PASSED" : "FAILED"}`,
     `Profile: context_count=${thisRun.profile.context_count}, engines=${thisRun.profile.engines}, part_duration_minutes=${thisRun.profile.part_duration_minutes}`,
     `Total cycles: ${thisRun.totalCycles} · Watchdog violations: ${thisRun.totalWatchdogViolations} · Actor errors: ${thisRun.totalErrors} · Elapsed: ${Math.round(thisRun.totalElapsedMs / 1000)}s`,
+    `Peak RSS: ${thisRun.peakMemUsedMB ?? "n/a"} MB · Peak swap: ${thisRun.peakSwapUsedMB ?? "n/a"} MB (raw per-part samples: soak-part-<N>-results/resource-samples.ndjson)`,
     "",
     "## Per part",
     ...parts.map(
@@ -114,14 +128,17 @@ function buildSummaryMarkdown(thisRun, parts, metricsLines) {
   ].join("\n");
 }
 
+// Relative to the downloaded artifact's own directory
+// (<RESULTS_DIR>/soak-part-<N>-results/). upload-artifact@v4 roots a
+// single-directory `path:` at that directory itself -- see
+// _soak-part.yml's "Upload this part's soak artifacts" step and
+// soak-artifact-layout.test.cjs, which models the rule against both files
+// so a future change to either can't drift silently again.
+const PART_SUMMARY_RELATIVE_PATH = "part-summary.json";
+
 function main() {
   function readPartSummary(part) {
-    const p = path.join(
-      RESULTS_DIR,
-      `soak-part-${part}-results`,
-      "soak-artifacts",
-      "part-summary.json",
-    );
+    const p = path.join(RESULTS_DIR, `soak-part-${part}-results`, PART_SUMMARY_RELATIVE_PATH);
     if (!fs.existsSync(p)) return { part, missing: true, passed: false };
     return JSON.parse(fs.readFileSync(p, "utf8"));
   }
@@ -216,4 +233,5 @@ module.exports = {
   matchingPassedRuns,
   metricsSection,
   buildSummaryMarkdown,
+  PART_SUMMARY_RELATIVE_PATH,
 };

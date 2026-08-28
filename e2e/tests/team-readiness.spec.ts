@@ -1131,12 +1131,16 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           `browser close for actor ${actor.id}`,
         ).catch(() => {});
       }
+      // SKIP_TEARDOWN protects only the shared board across parts (it is the
+      // continuity artifact restored by the next part) -- an isolated actor's
+      // own board is never reused by any later part, in this run or the next
+      // one, so it is deleted every time regardless of SKIP_TEARDOWN.
       if (!SKIP_TEARDOWN) {
         await deleteDrawing(request, drawing.id).catch(() => {});
-        for (const actor of actors) {
-          if (actor.boardId !== drawing.id) {
-            await deleteDrawing(request, actor.boardId).catch(() => {});
-          }
+      }
+      for (const actor of actors) {
+        if (actor.boardId !== drawing.id) {
+          await deleteDrawing(request, actor.boardId).catch(() => {});
         }
       }
     }

@@ -63,6 +63,25 @@ test("buildAggregate treats a missing part as not-passed and does not count its 
   assert.equal(agg.totalErrors, 2);
 });
 
+test("buildAggregate reports the peak RSS/swap across parts, ignoring a missing part", () => {
+  const parts = [
+    { part: 1, passed: true, resources: { peakMemUsedMB: 6000, peakSwapUsedMB: 100 } },
+    { part: 2, missing: true, passed: false },
+    { part: 3, passed: true, resources: { peakMemUsedMB: 9000, peakSwapUsedMB: 4000 } },
+    { part: 4, passed: true, resources: { peakMemUsedMB: 7000, peakSwapUsedMB: 500 } },
+  ];
+  const agg = buildAggregate(parts, { context_count: "10" }, { ts: "t", sha: "s", runUrl: "u" });
+  assert.equal(agg.peakMemUsedMB, 9000);
+  assert.equal(agg.peakSwapUsedMB, 4000);
+});
+
+test("buildAggregate reports null peaks when no part carried a resources field", () => {
+  const parts = [{ part: 1, passed: true }];
+  const agg = buildAggregate(parts, { context_count: "10" }, { ts: "t", sha: "s", runUrl: "u" });
+  assert.equal(agg.peakMemUsedMB, null);
+  assert.equal(agg.peakSwapUsedMB, null);
+});
+
 test("matchingPassedRuns excludes failed runs from the same profile and includes a passed current run", () => {
   const profile = {
     context_count: "10",
