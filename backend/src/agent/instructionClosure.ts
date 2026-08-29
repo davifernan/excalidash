@@ -191,10 +191,21 @@ export const compileInstructionClosure = (input: InstructionClosureInput): Instr
   };
 
   // A whole-frame relation means the authored instruction explicitly says
-  // that the frame's complete current content is meaningful.  Its direct
-  // members are therefore closure nodes; unrelated frames remain absent.
-  for (const relation of reachableRelations()) {
-    if (relation.kind !== "whole_frame" || !reachable.has(relation.fromElementId)) continue;
+  // that the frame's complete current content is meaningful. Its members can
+  // themselves introduce another whole-frame relation, so work from a growing
+  // queue rather than a one-time reachableRelations() snapshot.
+  const wholeFrameWorklist: InstructionSemanticRelation[] = [];
+  const scheduledWholeFrameRelations = new Set<InstructionSemanticRelation>();
+  const enqueueReachableWholeFrameRelations = () => {
+    for (const relation of reachableRelations()) {
+      if (relation.kind !== "whole_frame" || scheduledWholeFrameRelations.has(relation)) continue;
+      scheduledWholeFrameRelations.add(relation);
+      wholeFrameWorklist.push(relation);
+    }
+  };
+  enqueueReachableWholeFrameRelations();
+
+  for (const relation of wholeFrameWorklist) {
     validateReachableRelation(relation);
     const frame = byId.get(relation.toElementId)!;
     if (frame.type !== "frame") {
@@ -211,6 +222,7 @@ export const compileInstructionClosure = (input: InstructionClosureInput): Instr
         visit(id);
       }
     }
+    enqueueReachableWholeFrameRelations();
   }
 
   reachableRelations().forEach(validateReachableRelation);

@@ -165,6 +165,49 @@ describe("Instruction Semantic Closure", () => {
     expect(changed.closureHash).not.toBe(approved.closureHash);
   });
 
+  it("expands chained whole-frame relations until every reachable frame member is bound", () => {
+    const elements = [
+      ...scene(),
+      { id: "frame-two", type: "frame", x: 500, y: 0, width: 400, height: 300 },
+      {
+        id: "nested-plan",
+        type: "text",
+        frameId: "frame-two",
+        originalText: "Deploy after verification",
+        text: "Deploy after verification",
+      },
+    ];
+    const relations: InstructionSemanticRelation[] = [
+      { fromElementId: "instruction", toElementId: "frame", kind: "whole_frame" },
+      { fromElementId: "plan", toElementId: "frame-two", kind: "whole_frame" },
+    ];
+    const compile = (updatedElements: Element[]) =>
+      compileInstructionClosure({
+        contextId: "context-a",
+        instructionElementId: "instruction",
+        elements: updatedElements,
+        relations,
+        resolveContextId: (element) =>
+          element.id === "frame" ||
+          element.id === "frame-two" ||
+          element.frameId === "frame" ||
+          element.frameId === "frame-two"
+            ? "context-a"
+            : null,
+      });
+
+    const approved = compile(elements);
+    const changed = compile(
+      elements.map((element) =>
+        element.id === "nested-plan"
+          ? { ...element, originalText: "Deploy only after a second verification" }
+          : element,
+      ),
+    );
+
+    expect(changed.closureHash).not.toBe(approved.closureHash);
+  });
+
   it("is deterministic for duplicate paths and cycles", () => {
     const relations: InstructionSemanticRelation[] = [
       { fromElementId: "instruction", toElementId: "plan", kind: "references" },

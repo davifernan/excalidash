@@ -116,9 +116,14 @@ type EditorViewProps = {
   agentPresenceOverlay?: React.ReactNode;
 };
 
-const approvalSceneKey = (
+export const approvalSceneKey = (
   elements: readonly any[],
-  appState: { selectedElementIds?: Record<string, unknown> } | null,
+  appState: {
+    selectedElementIds?: Record<string, unknown>;
+    scrollX?: number;
+    scrollY?: number;
+    zoom?: { value?: number };
+  } | null,
 ) => {
   const selectedIds = Object.keys(appState?.selectedElementIds ?? {})
     .filter((id) => appState?.selectedElementIds?.[id])
@@ -126,7 +131,7 @@ const approvalSceneKey = (
 
   if (selectedIds.length === 0) return null;
 
-  return selectedIds
+  const selectionKey = selectedIds
     .map((id) => {
       const element = elements.find((item) => item.id === id);
       return element
@@ -143,6 +148,11 @@ const approvalSceneKey = (
         : id;
     })
     .join("\u0001");
+
+  // The floating toolbar anchor is projected through the current viewport.
+  // Pan and zoom therefore need their own stable state transition, even when
+  // selection and element content are unchanged.
+  return [selectionKey, appState?.scrollX, appState?.scrollY, appState?.zoom?.value].join("\u0002");
 };
 
 export const EditorView: React.FC<EditorViewProps> = ({
@@ -216,8 +226,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
   });
   const lastApprovalSceneKey = useRef<string | null>(null);
   // Excalidraw emits fresh element and app-state objects on every change. The
-  // approval seam needs a snapshot only when the selected element changes; a
-  // per-change setState turns its own parent render back into Excalidraw work.
+  // approval seam needs a snapshot only when selection/content or its viewport
+  // changes; a per-change setState turns its own parent render back into
+  // Excalidraw work.
   const handleCanvasChange = useCallback(
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
       const nextApprovalSceneKey = approvalSceneKey(elements, appState);
