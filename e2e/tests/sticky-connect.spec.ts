@@ -201,7 +201,9 @@ test.describe("dragging an arrow out of a note", () => {
         childPage.x + ((canvasBox.x + childTargetViewport.x - childPage.x) * step) / steps,
         childPage.y + ((canvasBox.y + childTargetViewport.y - childPage.y) * step) / steps,
       );
-      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
     }
     await page.mouse.up();
     await settle(page);
@@ -307,20 +309,7 @@ test.describe("dragging an arrow out of a note", () => {
     expect((await scene(page)).filter((element: any) => element.type === "arrow")).toHaveLength(1);
   });
 
-  test("undoes a click-created note and arrow as one gesture", async ({ page }, testInfo) => {
-    if (testInfo.project.name === "firefox" || testInfo.project.name === "webkit") {
-      // NIL-640: WebKit records the parent note late, at the END of the later child text
-      // edit, and folds both changes together; Undo consequently targets the parent entry.
-      // A Chromium/WebKit History dump proved this, and captureUpdate: IMMEDIATELY does not fix it.
-      //
-      // Re-checked for PR #227 (NIL-646/NIL-647), since main's Cross-Engine CI now runs each
-      // engine in its own job (NIL-652) and WebKit no longer shares a runner with the other
-      // engines. If this were a CI-timeout artifact of the old combined job, the extra headroom
-      // would let it pass. It didn't: this genuinely failed in 6/6 local WebKit repeats, in the
-      // CI run for main's NIL-652 commit, and in this PR's own CI run. The marking stays; the
-      // underlying History-ordering race is unrelated to CI scheduling.
-      test.fail();
-    }
+  test("undoes a click-created note and arrow as one gesture", async ({ page }) => {
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
     await escapeEditor(page);
