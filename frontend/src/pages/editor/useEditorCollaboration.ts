@@ -415,6 +415,11 @@ export const useEditorCollaboration = ({
         return;
       }
       const protectedIds = heldElementIds(interactionState.value, latestElementsRef.current);
+      // Snapshot of what was actually on screen before this flush touches
+      // anything -- see the fingerprint-filtering comment below (NIL-685)
+      // for why a fingerprint must only be built from elements that this
+      // flush actually moved.
+      const previousElementsById = new Map(latestElementsRef.current.map((el: any) => [el.id, el]));
       isSyncing.current = true;
       let appliedSceneMutation = false;
       let finalElementsById: Map<string, any> | null = null;
@@ -551,26 +556,68 @@ export const useEditorCollaboration = ({
           // client expects to see echoed back, per updated element, and let
           // `handleCanvasChange` release the guard itself the moment an
           // `onChange` reports exactly that state -- however many frames that
-          // takes. The 2s `setTimeout` below is only a backstop against
-          // Excalidraw never firing that `onChange` at all (e.g. a merge that
-          // produces no net change), not the normal exit.
+          // takes.
+          //
+          // Only elements this flush actually moved go into the fingerprint
+          // (compared against `previousElementsById`, the pre-flush
+          // snapshot) -- not every id in `pendingElements`. `reconcileElements`
+          // can decide the LOCAL side already wins for some or all of a
+          // batch (its own version is newer than the incoming one, e.g.
+          // because this client kept editing while the remote update was in
+          // flight); `scene.apply()` still runs a `replaceDocument`, but
+          // Excalidraw has nothing new to commit and never fires a
+          // corresponding `onChange` at all. A fingerprint built from the
+          // full batch would then wait for a state that was never going to
+          // arrive, and every one of THIS client's own subsequent local
+          // edits -- typed or dragged while that dangling fingerprint sat
+          // there -- would fail to match it and get silently swallowed by
+          // the `isSyncingRef.current` check below, for as long as 2s
+          // (confirmed directly, NIL-685: reproduced as a two-context ambient
+          // -drag test timing out because the dragging client itself stopped
+          // broadcasting its own drag, not because the guard leaked in the
+          // other direction). If nothing in this batch actually changed,
+          // there is nothing to wait for -- reset immediately, the same as
+          // the no-mutation path below.
           const fingerprint = new Map<string, string>();
           for (const el of pendingElements) {
             const applied = finalElementsById?.get(el.id) ?? el;
-            fingerprint.set(el.id, `${applied?.version ?? 0}:${applied?.versionNonce ?? 0}`);
+            const appliedVersion = `${applied?.version ?? 0}:${applied?.versionNonce ?? 0}`;
+            const previous = previousElementsById.get(el.id);
+            const previousVersion = previous
+              ? `${previous.version ?? 0}:${previous.versionNonce ?? 0}`
+              : null;
+            if (previousVersion === appliedVersion) continue;
+            fingerprint.set(el.id, appliedVersion);
           }
-          pendingSyncFingerprintRef.current = fingerprint;
-          window.setTimeout(() => {
-            if (pendingSyncFingerprintRef.current === fingerprint) {
-              pendingSyncFingerprintRef.current = null;
-              isSyncing.current = false;
-              log.warn(
-                "[Editor] isSyncing guard force-cleared after timeout -- expected onChange never arrived (NIL-685 fallback)",
-                {},
-              );
-            }
-          }, 2000);
+          if (fingerprint.size === 0) {
+            // Hans-Friedrich finding on PR #249, Medium: every reset of
+            // `isSyncing` here must clear `pendingSyncFingerprintRef` in the
+            // same breath. Without it, a still-outstanding fingerprint from
+            // an EARLIER flush cycle (this one overwrote `isSyncing.current
+            // = true` unconditionally at the top of this function, before
+            // knowing whether it would have anything of its own to wait
+            // for) would survive with the guard now reading `false` --
+            // exactly the half-reset inconsistency the original bug grew
+            // from, just one level removed.
+            pendingSyncFingerprintRef.current = null;
+            isSyncing.current = false;
+          } else {
+            pendingSyncFingerprintRef.current = fingerprint;
+            window.setTimeout(() => {
+              if (pendingSyncFingerprintRef.current === fingerprint) {
+                pendingSyncFingerprintRef.current = null;
+                isSyncing.current = false;
+                log.warn(
+                  "[Editor] isSyncing guard force-cleared after timeout -- expected onChange never arrived (NIL-685 fallback)",
+                  {},
+                );
+              }
+            }, 2000);
+          }
         } else {
+          // Same reasoning as the `fingerprint.size === 0` branch above:
+          // clear both together, never `isSyncing` alone.
+          pendingSyncFingerprintRef.current = null;
           isSyncing.current = false;
         }
       }

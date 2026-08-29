@@ -125,8 +125,21 @@ export const useEditorCanvasHandlers = ({
       // `onChange` call -- fact, not a frame-count guess. Consume the
       // fingerprint (useEditorCollaboration.ts sets it right after a
       // successful `scene.apply()`) the moment every element it names
-      // matches; that consumption is what releases `isSyncingRef` here, not
-      // a timer.
+      // matches.
+      //
+      // Consuming it does NOT `return` here (Hans-Friedrich finding on
+      // PR #249, High): the same `onChange` call can carry a genuine,
+      // concurrent local edit to a DIFFERENT element alongside the settled
+      // remote one -- React can batch a user's own pointer-driven change
+      // into the same commit as the tail end of a remote apply. Returning
+      // unconditionally on `settled` silently dropped that local edit; it
+      // never reached `broadcastChanges` below and the collaborator never
+      // saw it. Falling through instead lets the normal path run:
+      // `hasElementChanged` (fed by `recordElementVersion`, which now
+      // records the as-applied element -- see useEditorCollaboration.ts)
+      // correctly reports the just-settled elements as unchanged and skips
+      // re-broadcasting them, while anything else that genuinely changed in
+      // this same `onChange` still goes out.
       const expectedFingerprint = pendingSyncFingerprintRef.current;
       if (expectedFingerprint) {
         let settled = true;
@@ -142,7 +155,6 @@ export const useEditorCanvasHandlers = ({
         if (settled) {
           pendingSyncFingerprintRef.current = null;
           isSyncingRef.current = false;
-          return;
         }
       }
       if (isSyncingRef.current) return;
