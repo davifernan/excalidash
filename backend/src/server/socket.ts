@@ -433,7 +433,7 @@ export const registerSocketHandlers = ({
         const decision = await getCapabilities(socket.id, drawingId);
         return decision.capabilities.uploadFiles;
       },
-      recordElementProvenance: async ({ drawingId, elements, elementOrder }) => {
+      recordElementProvenance: async ({ drawingId, elements }) => {
         const decision = await getCapabilities(socket.id, drawingId);
         if (!canSocketEdit(socket.id, decision.access)) {
           throw new Error("Element provenance authorization changed before admission");
@@ -450,14 +450,16 @@ export const registerSocketHandlers = ({
         // therefore sufficient; neither transition opens a TOCTOU wash.
         const isGuest = joinedAsGuestBySocket.get(socket.id) === true || decision.isGuest;
         if (!isGuest) return;
-        const changedElementIds = [
-          ...elements.flatMap((element) =>
-            element && typeof element === "object" && typeof (element as any).id === "string"
-              ? [(element as any).id as string]
-              : [],
-          ),
-          ...(elementOrder ?? []),
-        ];
+        // `elementOrder` is the sender's complete live-board order whenever
+        // that signature changes. It is synchronization metadata, not a
+        // mutation set: treating it as changed ids would mark every existing
+        // member element guest-touched after one guest insertion. Provenance
+        // follows only the element deltas carried by this event.
+        const changedElementIds = elements.flatMap((element) =>
+          element && typeof element === "object" && typeof (element as any).id === "string"
+            ? [(element as any).id as string]
+            : [],
+        );
         await recordSuccessfulElementMutation({
           prisma,
           drawingId,

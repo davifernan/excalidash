@@ -454,14 +454,25 @@ describe("element guest provenance (NIL-695)", () => {
   });
 
   it("records a link guest at the socket source before another client persists the scene", async () => {
+    const untouchedMemberIds = ["member-note-1", "member-note-2"];
     const drawing = await prisma.drawing.create({
       data: {
         name: "Socket provenance board",
-        elements: JSON.stringify([note({ id: "socket-note" })]),
+        elements: JSON.stringify([
+          note({ id: "socket-note" }),
+          ...untouchedMemberIds.map((id) => note({ id })),
+        ]),
         appState: "{}",
         files: "{}",
         userId: owner.id,
       },
+    });
+    await recordSuccessfulElementMutation({
+      prisma,
+      drawingId: drawing.id,
+      isGuest: false,
+      changedElementIds: untouchedMemberIds,
+      createdElementIds: untouchedMemberIds,
     });
     const shareToken = buildShareLinkToken();
     await prisma.drawingLinkShare.create({
@@ -488,10 +499,17 @@ describe("element guest provenance (NIL-695)", () => {
     await socket.trigger("element-update", {
       drawingId: drawing.id,
       elements: [{ ...note({ id: "socket-note" }), text: "Guest socket edit", version: 2 }],
+      // The frontend sends the full board order whenever its signature
+      // changes. It is synchronization metadata, not a list of mutations.
+      elementOrder: ["member-note-1", "socket-note", "member-note-2"],
     });
 
-    expect(await readElementGuestProvenance(prisma, drawing.id, ["socket-note"])).toEqual([
+    expect(
+      await readElementGuestProvenance(prisma, drawing.id, ["socket-note", ...untouchedMemberIds]),
+    ).toEqual([
       { elementId: "socket-note", status: "guest-touched" },
+      { elementId: "member-note-1", status: "confirmed-clean" },
+      { elementId: "member-note-2", status: "confirmed-clean" },
     ]);
     expect(io.emissions.some((entry) => entry.event === "element-update")).toBe(true);
   });
