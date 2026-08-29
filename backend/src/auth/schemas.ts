@@ -43,10 +43,17 @@ export const guestCapabilityToggleSchema = z
   .object({
     uploadFiles: z.boolean().optional(),
     viewComments: z.boolean().optional(),
+    agentContextContribute: z.boolean().optional(),
   })
-  .refine((data) => data.uploadFiles !== undefined || data.viewComments !== undefined, {
-    message: "At least one guest capability must be provided",
-  });
+  .refine(
+    (data) =>
+      data.uploadFiles !== undefined ||
+      data.viewComments !== undefined ||
+      data.agentContextContribute !== undefined,
+    {
+      message: "At least one guest capability must be provided",
+    },
+  );
 
 export const adminRoleUpdateSchema = z.object({
   identifier: z.string().trim().min(1).max(255),

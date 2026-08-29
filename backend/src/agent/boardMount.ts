@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { config } from "../config";
+import { logger } from "../logger";
 import { readStoredBytes } from "../assets/assetStorage";
 import { readWidgetRecord } from "../assets/customDataSchema";
 import { decodeSnapshotField, encodeSnapshotField } from "../snapshots/snapshotCodec";
@@ -17,8 +18,13 @@ import {
   requireAgentMountCapability,
   resolveEffectiveAgentContextIds,
 } from "../authz/agentContext";
+import { resolveAgentContextContributePolicy } from "../authz/capabilities";
 import { type ContextIdentity, contextFrameBounds, validateContextFrames } from "./boardContexts";
 import { canonicalJson, secretsEqual, sha256Json, sha256Text } from "./canonicalJson";
+import {
+  isEligibleForAgentContribution,
+  readElementGuestProvenance,
+} from "./elementGuestProvenance";
 import {
   boardAgentAudienceFromMount,
   boardAgentFocusTargetsFromResult,
@@ -463,9 +469,68 @@ export const executeAgentBoardTool = async (params: {
   const scene = await loadMountedScene(params);
   const args = params.args ?? {};
   const { byId, resolve } = contextIndex(scene.elements, scene.contexts);
-  const allowedElements = scene.elements.filter((element) =>
+  const inAllowedContext = scene.elements.filter((element) =>
     canReadAgentContext(scene.allowedContextIds, resolve(element)),
   );
+  // NIL-677 Gate 2: a Context-readable element still only contributes if its
+  // guest provenance clears isEligibleForAgentContribution. Batched once per
+  // tool call, not per element -- every tool below reads from the same
+  // allowedElements, so this is the single chokepoint, not N lookups. The
+  // exact same policy read Gate 1 (assertGuestElementWriteAllowed) uses --
+  // see resolveAgentContextContributePolicy's own comment for why neither
+  // gate may carry its own copy of "is this on".
+  const agentContextContributeEnabled = await resolveAgentContextContributePolicy(
+    params.prisma,
+    params.drawingId,
+  );
+  const provenance = await readElementGuestProvenance(
+    params.prisma,
+    params.drawingId,
+    inAllowedContext.map((element) => element.id as string),
+  );
+  const provenanceByElementId = new Map(provenance.map((entry) => [entry.elementId, entry.status]));
+  // A Context's own frame is the boundary marker, not admitted content --
+  // registration conservatively backfills its provenance the same as any
+  // other pre-existing element in the frame (boardContexts.ts's
+  // elementIdsInContextFrame includes the frame itself), so a frame with no
+  // confirmed-clean row would otherwise become unreadable and break every
+  // tool that needs to resolve it, including ones that never expose its
+  // content. Gate 2 protects content leaving the frame, not whether the
+  // frame boundary itself can be addressed.
+  const contextFrameElementIds = new Set(scene.contexts.map((context) => context.frameElementId));
+  // Not just a log line: registerAgentContext (boardContexts.ts) backfills
+  // EVERY element without a provenance row as guest-touched the moment an
+  // existing frame is registered, whether or not a guest was ever near it --
+  // so on a board with real history, this filter can silently drop most of
+  // its content the first time anything actually reads through it. A tool
+  // result that only shows what survived, with no sign anything was cut,
+  // lets an agent answer confidently from a board it never fully saw. The
+  // count below is the minimum an agent needs to know its own view is
+  // incomplete -- not which elements, not their content, just that some
+  // exist and were withheld.
+  let excludedElementCount = 0;
+  const allowedElements = inAllowedContext.filter((element) => {
+    if (contextFrameElementIds.has(element.id as string)) return true;
+    const status = provenanceByElementId.get(element.id as string) ?? "unknown";
+    const eligible = isEligibleForAgentContribution({ status, agentContextContributeEnabled });
+    if (!eligible) {
+      excludedElementCount += 1;
+      // Not proof that Gate 1 (assertGuestElementWriteAllowed) was bypassed
+      // -- an ordinary member drag of old, never-confirmed content into the
+      // frame produces the exact same status, and Gate 1 never restricts
+      // members. Still worth surfacing rather than silently filtering: this
+      // is the one place a human can see that Gate 2 is actually doing
+      // something, not just agreeing with Gate 1 by construction.
+      logger.warn("NIL-677 Gate 2 excluded a Context-readable element from Agent Context", {
+        drawingId: params.drawingId,
+        runId: params.runId,
+        elementId: element.id,
+        contextId: resolve(element),
+        provenanceStatus: status,
+      });
+    }
+    return eligible;
+  });
   const allowedElementIds = new Set(allowedElements.map((element) => element.id as string));
   const revisionAssetIds = new Set<string>(
     scene.revision.assets.map((asset: any) => String(asset.assetId)),
@@ -858,6 +923,12 @@ export const executeAgentBoardTool = async (params: {
       tool: params.tool,
       resultHash,
       result,
+      // The count, not the ids or content -- see excludedElementCount's own
+      // comment above for why this must never be silently absent. Outside
+      // resultHash on purpose: this is a fact about the mount's provenance
+      // state at call time, not part of the tool's own answer, and it must
+      // not perturb the audit hash of that answer.
+      excludedElementCount,
     };
   } catch (error) {
     if (!focusStarted && deferredFocusFallbackTargets.length > 0) {

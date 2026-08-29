@@ -7,21 +7,21 @@ import type { GuestCapabilitySettings } from "../../api";
 const settingsWith = (
   overrides: Partial<GuestCapabilitySettings> = {},
 ): GuestCapabilitySettings => ({
-  board: { uploadFiles: false, viewComments: true },
-  instance: { uploadFiles: true, viewComments: true },
-  effective: { uploadFiles: false, viewComments: true },
+  board: { uploadFiles: false, viewComments: true, agentContextContribute: false },
+  instance: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+  effective: { uploadFiles: false, viewComments: true, agentContextContribute: false },
   ...overrides,
 });
 
+const noopHandlers = {
+  onToggleUploadFiles: vi.fn(),
+  onToggleViewComments: vi.fn(),
+  onToggleAgentContextContribute: vi.fn(),
+};
+
 describe("GuestCapabilitiesSection", () => {
   it("renders nothing while settings have not loaded yet", () => {
-    const { container } = render(
-      <GuestCapabilitiesSection
-        settings={null}
-        onToggleUploadFiles={vi.fn()}
-        onToggleViewComments={vi.fn()}
-      />,
-    );
+    const { container } = render(<GuestCapabilitiesSection settings={null} {...noopHandlers} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -30,14 +30,15 @@ describe("GuestCapabilitiesSection", () => {
     render(
       <GuestCapabilitiesSection
         settings={settingsWith()}
+        {...noopHandlers}
         onToggleUploadFiles={onToggleUploadFiles}
-        onToggleViewComments={vi.fn()}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /off/i }));
+    const offTriggers = screen.getAllByRole("button", { name: /off/i });
+    fireEvent.click(offTriggers[0]!);
     const onOptions = screen.getAllByRole("button", { name: "On" });
-    fireEvent.click(onOptions[0]);
+    fireEvent.click(onOptions[0]!);
 
     expect(onToggleUploadFiles).toHaveBeenCalledTimes(1);
   });
@@ -54,21 +55,20 @@ describe("GuestCapabilitiesSection", () => {
     render(
       <GuestCapabilitiesSection
         settings={settingsWith({
-          board: { uploadFiles: true, viewComments: true },
-          instance: { uploadFiles: false, viewComments: true },
-          effective: { uploadFiles: false, viewComments: true },
+          board: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+          instance: { uploadFiles: false, viewComments: true, agentContextContribute: false },
+          effective: { uploadFiles: false, viewComments: true, agentContextContribute: false },
         })}
+        {...noopHandlers}
         onToggleUploadFiles={onToggleUploadFiles}
-        onToggleViewComments={vi.fn()}
       />,
     );
 
-    // Both rows show "On" (board.uploadFiles and board.viewComments are both
-    // true here); the upload row's trigger is the first one in the DOM.
+    // The upload row's trigger is the first one in the DOM.
     const onTriggers = screen.getAllByRole("button", { name: "On" });
-    fireEvent.click(onTriggers[0]);
+    fireEvent.click(onTriggers[0]!);
     const offOptions = screen.getAllByRole("button", { name: "Off" });
-    fireEvent.click(offOptions[0]);
+    fireEvent.click(offOptions[0]!);
 
     expect(onToggleUploadFiles).toHaveBeenCalledTimes(1);
   });
@@ -84,45 +84,72 @@ describe("GuestCapabilitiesSection", () => {
     const { container } = render(
       <GuestCapabilitiesSection
         settings={settingsWith({
-          board: { uploadFiles: true, viewComments: true },
-          instance: { uploadFiles: false, viewComments: true },
-          effective: { uploadFiles: false, viewComments: true },
+          board: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+          instance: { uploadFiles: false, viewComments: true, agentContextContribute: false },
+          effective: { uploadFiles: false, viewComments: true, agentContextContribute: false },
         })}
-        onToggleUploadFiles={vi.fn()}
-        onToggleViewComments={vi.fn()}
+        {...noopHandlers}
       />,
     );
 
     expect(container.querySelector(".pointer-events-none")).toBeNull();
     const onTriggers = screen.getAllByRole("button", { name: "On" });
-    expect(onTriggers[0].closest(".pointer-events-none")).toBeNull();
+    expect(onTriggers[0]!.closest(".pointer-events-none")).toBeNull();
   });
 
   it("shows that the instance ceiling blocks the board even though the board opted in", () => {
     render(
       <GuestCapabilitiesSection
         settings={settingsWith({
-          board: { uploadFiles: true, viewComments: true },
-          instance: { uploadFiles: false, viewComments: true },
-          effective: { uploadFiles: false, viewComments: true },
+          board: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+          instance: { uploadFiles: false, viewComments: true, agentContextContribute: false },
+          effective: { uploadFiles: false, viewComments: true, agentContextContribute: false },
         })}
-        onToggleUploadFiles={vi.fn()}
-        onToggleViewComments={vi.fn()}
+        {...noopHandlers}
       />,
     );
 
-    expect(screen.getByText(/disabled instance-wide by an admin/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/disabled instance-wide by an admin/i).length).toBeGreaterThan(0);
   });
 
   it("says guests can see comments when both levels agree", () => {
+    render(<GuestCapabilitiesSection settings={settingsWith()} {...noopHandlers} />);
+
+    expect(screen.getByText(/guests can see comments on this board/i)).toBeInTheDocument();
+  });
+
+  it("shows that a guest's own content stays out of Agent Contexts by default", () => {
     render(
       <GuestCapabilitiesSection
-        settings={settingsWith()}
-        onToggleUploadFiles={vi.fn()}
-        onToggleViewComments={vi.fn()}
+        settings={settingsWith({
+          instance: { uploadFiles: true, viewComments: true, agentContextContribute: true },
+        })}
+        {...noopHandlers}
       />,
     );
 
-    expect(screen.getByText(/guests can see comments on this board/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/is never read by an agent working in this board's Agent Contexts/i),
+    ).toBeInTheDocument();
+  });
+
+  it("lets the owner turn on Agent Context contribution and calls the right handler", () => {
+    const onToggleAgentContextContribute = vi.fn();
+    render(
+      <GuestCapabilitiesSection
+        settings={settingsWith({
+          instance: { uploadFiles: true, viewComments: true, agentContextContribute: true },
+        })}
+        {...noopHandlers}
+        onToggleAgentContextContribute={onToggleAgentContextContribute}
+      />,
+    );
+
+    const offTriggers = screen.getAllByRole("button", { name: /off/i });
+    fireEvent.click(offTriggers[offTriggers.length - 1]!);
+    const onOptions = screen.getAllByRole("button", { name: "On" });
+    fireEvent.click(onOptions[onOptions.length - 1]!);
+
+    expect(onToggleAgentContextContribute).toHaveBeenCalledTimes(1);
   });
 });

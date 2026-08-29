@@ -36,6 +36,7 @@ const buildApp = (actingUserId: string, options?: { instanceUploadEnabled?: bool
   const drawingRow = {
     guestUploadEnabled: false,
     guestCommentVisibilityEnabled: true,
+    guestAgentContextContributeEnabled: false,
   };
   const prisma: any = {
     drawing: {
@@ -88,9 +89,9 @@ describe("board guest capability settings", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.payload).toEqual({
-      board: { uploadFiles: false, viewComments: true },
-      instance: { uploadFiles: true, viewComments: true },
-      effective: { uploadFiles: false, viewComments: true },
+      board: { uploadFiles: false, viewComments: true, agentContextContribute: false },
+      instance: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+      effective: { uploadFiles: false, viewComments: true, agentContextContribute: false },
     });
   });
 
@@ -131,9 +132,9 @@ describe("board guest capability settings", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.payload).toEqual({
-      board: { uploadFiles: true, viewComments: true },
-      instance: { uploadFiles: true, viewComments: true },
-      effective: { uploadFiles: true, viewComments: true },
+      board: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+      instance: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+      effective: { uploadFiles: true, viewComments: true, agentContextContribute: false },
     });
     expect(drawingRow.guestUploadEnabled).toBe(true);
   });
@@ -151,11 +152,11 @@ describe("board guest capability settings", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.payload).toEqual({
-      board: { uploadFiles: true, viewComments: true },
-      instance: { uploadFiles: false, viewComments: true },
+      board: { uploadFiles: true, viewComments: true, agentContextContribute: false },
+      instance: { uploadFiles: false, viewComments: true, agentContextContribute: false },
       // The instance closes it even though the board itself opted in -- this
       // is the AND semantics the UI has to display, not silently drop.
-      effective: { uploadFiles: false, viewComments: true },
+      effective: { uploadFiles: false, viewComments: true, agentContextContribute: false },
     });
   });
 

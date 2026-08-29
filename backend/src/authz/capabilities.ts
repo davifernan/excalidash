@@ -20,11 +20,28 @@ import {
 export const HISTORICAL_GUEST_CAPABILITY_DEFAULTS = {
   uploadFiles: false,
   viewComments: true,
+  // NIL-677: unlike the other two, this one has no pre-existing behavior to
+  // preserve -- Agent Contexts didn't exist before this column did. Fail
+  // closed like uploadFiles, not open like viewComments.
+  agentContextContribute: false,
 } as const;
 
 export type EffectiveDrawingCapabilities = {
   uploadFiles: boolean;
   viewComments: boolean;
+  /**
+   * NIL-677's single guest-facing switch for Agent Contexts, backing BOTH of
+   * its enforcement layers (its own "Fertig, wenn" criterion): whether a
+   * guest may write directly into a registered Agent Context frame
+   * (`assertGuestElementWriteAllowed`, boardContexts.ts) and whether a
+   * guest's own content -- see elementGuestProvenance.ts's
+   * `guest-touched`/`unknown` statuses -- may be admitted into a compiled
+   * context (`isEligibleForAgentContribution`, elementGuestProvenance.ts).
+   * There is no column for `write` alone: it is this same value or nothing.
+   * Off by default: a guest cannot write into the frame, and existing
+   * guest-touched/unknown content stays excluded from what an agent reads.
+   */
+  agentContextContribute: boolean;
 };
 
 /**
@@ -37,7 +54,11 @@ export const getInstanceGuestCapabilities = async (
 ): Promise<EffectiveDrawingCapabilities> => {
   const instancePolicy = await prisma.systemConfig.findUnique({
     where: { id: systemConfigId },
-    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+    select: {
+      guestUploadEnabled: true,
+      guestCommentVisibilityEnabled: true,
+      guestAgentContextContributeEnabled: true,
+    },
   });
   return {
     uploadFiles:
@@ -45,6 +66,9 @@ export const getInstanceGuestCapabilities = async (
     viewComments:
       instancePolicy?.guestCommentVisibilityEnabled ??
       HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+    agentContextContribute:
+      instancePolicy?.guestAgentContextContributeEnabled ??
+      HISTORICAL_GUEST_CAPABILITY_DEFAULTS.agentContextContribute,
   };
 };
 
@@ -61,17 +85,24 @@ export const setInstanceGuestCapabilities = async (
       ...(updates.viewComments !== undefined
         ? { guestCommentVisibilityEnabled: updates.viewComments }
         : {}),
+      ...(updates.agentContextContribute !== undefined
+        ? { guestAgentContextContributeEnabled: updates.agentContextContribute }
+        : {}),
     },
     create: {
       id: systemConfigId,
       guestUploadEnabled: updates.uploadFiles ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.uploadFiles,
       guestCommentVisibilityEnabled:
         updates.viewComments ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+      guestAgentContextContributeEnabled:
+        updates.agentContextContribute ??
+        HISTORICAL_GUEST_CAPABILITY_DEFAULTS.agentContextContribute,
     },
   });
   return {
     uploadFiles: updated.guestUploadEnabled,
     viewComments: updated.guestCommentVisibilityEnabled,
+    agentContextContribute: updated.guestAgentContextContributeEnabled,
   };
 };
 
@@ -82,7 +113,11 @@ export const getBoardGuestCapabilityPolicy = async (
 ): Promise<EffectiveDrawingCapabilities> => {
   const drawingPolicy = await prisma.drawing.findUnique({
     where: { id: drawingId },
-    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+    select: {
+      guestUploadEnabled: true,
+      guestCommentVisibilityEnabled: true,
+      guestAgentContextContributeEnabled: true,
+    },
   });
   return {
     uploadFiles:
@@ -90,6 +125,9 @@ export const getBoardGuestCapabilityPolicy = async (
     viewComments:
       drawingPolicy?.guestCommentVisibilityEnabled ??
       HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+    agentContextContribute:
+      drawingPolicy?.guestAgentContextContributeEnabled ??
+      HISTORICAL_GUEST_CAPABILITY_DEFAULTS.agentContextContribute,
   };
 };
 
@@ -106,12 +144,20 @@ export const setBoardGuestCapabilityPolicy = async (
       ...(updates.viewComments !== undefined
         ? { guestCommentVisibilityEnabled: updates.viewComments }
         : {}),
+      ...(updates.agentContextContribute !== undefined
+        ? { guestAgentContextContributeEnabled: updates.agentContextContribute }
+        : {}),
     },
-    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+    select: {
+      guestUploadEnabled: true,
+      guestCommentVisibilityEnabled: true,
+      guestAgentContextContributeEnabled: true,
+    },
   });
   return {
     uploadFiles: updated.guestUploadEnabled,
     viewComments: updated.guestCommentVisibilityEnabled,
+    agentContextContribute: updated.guestAgentContextContributeEnabled,
   };
 };
 
@@ -128,7 +174,31 @@ export const combineGuestCapabilities = (
 ): EffectiveDrawingCapabilities => ({
   uploadFiles: instance.uploadFiles && board.uploadFiles,
   viewComments: instance.viewComments && board.viewComments,
+  agentContextContribute: instance.agentContextContribute && board.agentContextContribute,
 });
+
+/**
+ * NIL-677's single answer to "does 'allow guest contribution' currently
+ * apply to this board" -- the one thing both enforcement layers need and
+ * must never compute independently. `agent_context:write` (boardContexts.ts's
+ * `assertGuestElementWriteAllowed`) and `agent_context:contribute`
+ * (elementGuestProvenance.ts's `isEligibleForAgentContribution`, called from
+ * boardMount.ts) answer different questions, but NIL-677's own "Fertig,
+ * wenn" criterion requires the SAME setting to govern both: call this,
+ * don't re-derive combineGuestCapabilities(...).agentContextContribute at
+ * each call site, or the two layers can silently drift onto different
+ * policy reads.
+ */
+export const resolveAgentContextContributePolicy = async (
+  prisma: PrismaClient,
+  drawingId: string,
+): Promise<boolean> => {
+  const [board, instance] = await Promise.all([
+    getBoardGuestCapabilityPolicy(prisma, drawingId),
+    getInstanceGuestCapabilities(prisma),
+  ]);
+  return combineGuestCapabilities(instance, board).agentContextContribute;
+};
 
 export type DrawingCapabilityDecision = {
   access: DrawingAccess;
@@ -159,7 +229,7 @@ export const getDrawingCapabilities = async (
     return {
       access,
       isGuest: true,
-      capabilities: { uploadFiles: false, viewComments: false },
+      capabilities: { uploadFiles: false, viewComments: false, agentContextContribute: false },
     };
   }
 
@@ -182,6 +252,9 @@ export const getDrawingCapabilities = async (
       capabilities: {
         uploadFiles: canEditDrawing(access),
         viewComments: true,
+        // Not a guest: this policy only ever restricts guest-authored
+        // content, so it never applies to what a member's own content does.
+        agentContextContribute: true,
       },
     };
   }
@@ -198,6 +271,7 @@ export const getDrawingCapabilities = async (
     capabilities: {
       uploadFiles: canEditDrawing(access) && effective.uploadFiles,
       viewComments: effective.viewComments,
+      agentContextContribute: effective.agentContextContribute,
     },
   };
 };

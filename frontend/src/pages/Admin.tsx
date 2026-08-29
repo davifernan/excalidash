@@ -384,9 +384,11 @@ export const Admin: React.FC = () => {
       <GuestAccessCard
         uploadFiles={guestAccess.capabilities?.uploadFiles ?? null}
         viewComments={guestAccess.capabilities?.viewComments ?? null}
+        agentContextContribute={guestAccess.capabilities?.agentContextContribute ?? null}
         loading={guestAccess.loading}
         onToggleUploadFiles={guestAccess.toggleUploadFiles}
         onToggleViewComments={guestAccess.toggleViewComments}
+        onToggleAgentContextContribute={guestAccess.toggleAgentContextContribute}
       />{" "}
       <LoginRateLimitCard
         loading={loginRateLimit.loading}

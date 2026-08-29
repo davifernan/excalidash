@@ -30,6 +30,8 @@ import { computeSearchText } from "../../search/searchIndex";
 import { requestIdOf } from "../../middleware/requestId";
 import {
   AgentContextValidationError,
+  assertGuestElementWriteAllowed,
+  AgentContextGuestWriteDeniedError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
 import {
@@ -358,6 +360,15 @@ export const registerDrawingCreateUpdateRoutes = (
                 drawingId: id,
                 shareToken: getShareToken(req),
               });
+              if (elementMutation && payload.elements !== undefined) {
+                await assertGuestElementWriteAllowed({
+                  prisma: tx,
+                  drawingId: id,
+                  isGuest: decision.isGuest || transactionDecision.isGuest,
+                  changedElementIds: elementMutation.changedElementIds,
+                  elements: payload.elements,
+                });
+              }
               const compress = config.enableSnapshotCompression;
               const snapshot = await tx.drawingSnapshot.create({
                 data: {
@@ -429,6 +440,13 @@ export const registerDrawingCreateUpdateRoutes = (
           return res.status(409).json({
             error: "Invalid Context map",
             code: error.code,
+            message: error.message,
+          });
+        }
+        if (error instanceof AgentContextGuestWriteDeniedError) {
+          return res.status(403).json({
+            error: "Forbidden",
+            code: "AGENT_CONTEXT_GUEST_WRITE_DENIED",
             message: error.message,
           });
         }

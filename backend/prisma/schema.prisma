@@ -69,6 +69,7 @@ model SystemConfig {
   registrationEnabled              Boolean   @default(false)
   guestUploadEnabled               Boolean   @default(false)
   guestCommentVisibilityEnabled    Boolean   @default(true)
+  guestAgentContextContributeEnabled Boolean @default(false)
   oidcJitProvisioningEnabled       Boolean?
   authLoginRateLimitEnabled        Boolean   @default(true)
   authLoginRateLimitWindowMs       Int       @default(900000)
@@ -104,6 +105,7 @@ model Drawing {
   version                       Int                  @default(1)
   guestUploadEnabled            Boolean              @default(false)
   guestCommentVisibilityEnabled Boolean              @default(true)
+  guestAgentContextContributeEnabled Boolean         @default(false)
   /// Monotonic ordering marker for persisted name snapshots and broadcasts.
   nameRevision                  Int                  @default(1)
   /// Who controls the board: shares it, moves it, deletes it, and carries its

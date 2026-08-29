@@ -4,9 +4,11 @@ import { UserRoundCog } from "lucide-react";
 type GuestAccessCardProps = {
   uploadFiles: boolean | null;
   viewComments: boolean | null;
+  agentContextContribute: boolean | null;
   loading: boolean;
   onToggleUploadFiles: () => void | Promise<void>;
   onToggleViewComments: () => void | Promise<void>;
+  onToggleAgentContextContribute: () => void | Promise<void>;
 };
 
 const toggleLabel = (value: boolean | null, loading: boolean) => {
@@ -30,9 +32,11 @@ const toggleClassName = (value: boolean | null) =>
 export const GuestAccessCard: React.FC<GuestAccessCardProps> = ({
   uploadFiles,
   viewComments,
+  agentContextContribute,
   loading,
   onToggleUploadFiles,
   onToggleViewComments,
+  onToggleAgentContextContribute,
 }) => (
   <div className="mb-6 bg-white dark:bg-neutral-900 border-2 border-black dark:border-neutral-700 rounded-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)] p-4 sm:p-6">
     <div className="flex items-center gap-3 mb-4">
@@ -72,6 +76,19 @@ export const GuestAccessCard: React.FC<GuestAccessCardProps> = ({
           className={toggleClassName(viewComments)}
         >
           {toggleLabel(viewComments, loading)}
+        </button>
+      </div>
+      <div>
+        <label className="block text-sm font-bold text-slate-700 dark:text-neutral-300 mb-2">
+          Guest contribution to Agent Contexts
+        </label>
+        <button
+          type="button"
+          onClick={() => void onToggleAgentContextContribute()}
+          disabled={loading || agentContextContribute === null}
+          className={toggleClassName(agentContextContribute)}
+        >
+          {toggleLabel(agentContextContribute, loading)}
         </button>
       </div>
     </div>
