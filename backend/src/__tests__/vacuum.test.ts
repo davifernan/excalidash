@@ -41,6 +41,17 @@ const clearPrismaSingleton = () => {
   delete prismaSingleton.__excalidashPrisma;
 };
 
+const snapshotAndClearPrismaSingleton = () => {
+  hadPrismaSingleton = Object.hasOwn(prismaSingleton, "__excalidashPrisma");
+  originalPrismaSingleton = prismaSingleton.__excalidashPrisma;
+  clearPrismaSingleton();
+};
+
+const restorePrismaSingleton = () => {
+  if (hadPrismaSingleton) prismaSingleton.__excalidashPrisma = originalPrismaSingleton;
+  else clearPrismaSingleton();
+};
+
 const pragmaReplies = (pageCount: number, freeCount: number, autoVacuum = 0) => {
   queryRawUnsafe.mockImplementation(async (sql: string) => {
     if (sql.includes("page_count")) return [{ page_count: pageCount }];
@@ -69,9 +80,7 @@ describe("reclaimSqliteFreeSpace", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    hadPrismaSingleton = Object.hasOwn(prismaSingleton, "__excalidashPrisma");
-    originalPrismaSingleton = prismaSingleton.__excalidashPrisma;
-    clearPrismaSingleton();
+    snapshotAndClearPrismaSingleton();
     queryRawUnsafe.mockReset();
     executeRawUnsafe.mockReset();
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "vacuum-test-"));
@@ -84,8 +93,7 @@ describe("reclaimSqliteFreeSpace", () => {
     if (originalFlag === undefined) delete process.env.ENABLE_SNAPSHOT_VACUUM;
     else process.env.ENABLE_SNAPSHOT_VACUUM = originalFlag;
     fs.rmSync(dir, { recursive: true, force: true });
-    if (hadPrismaSingleton) prismaSingleton.__excalidashPrisma = originalPrismaSingleton;
-    else clearPrismaSingleton();
+    restorePrismaSingleton();
   });
 
   it("does not reuse a Prisma singleton left by another test file", async () => {
@@ -205,9 +213,7 @@ describe("incremental mode", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    hadPrismaSingleton = Object.hasOwn(prismaSingleton, "__excalidashPrisma");
-    originalPrismaSingleton = prismaSingleton.__excalidashPrisma;
-    clearPrismaSingleton();
+    snapshotAndClearPrismaSingleton();
     queryRawUnsafe.mockReset();
     executeRawUnsafe.mockReset();
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "vacuum-inc-"));
@@ -217,8 +223,7 @@ describe("incremental mode", () => {
   afterEach(() => {
     process.env.DATABASE_URL = originalUrl;
     fs.rmSync(dir, { recursive: true, force: true });
-    if (hadPrismaSingleton) prismaSingleton.__excalidashPrisma = originalPrismaSingleton;
-    else clearPrismaSingleton();
+    restorePrismaSingleton();
   });
 
   it("returns pages without rewriting the file", async () => {
@@ -268,9 +273,7 @@ describe("disk headroom", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    hadPrismaSingleton = Object.hasOwn(prismaSingleton, "__excalidashPrisma");
-    originalPrismaSingleton = prismaSingleton.__excalidashPrisma;
-    clearPrismaSingleton();
+    snapshotAndClearPrismaSingleton();
     queryRawUnsafe.mockReset();
     executeRawUnsafe.mockReset();
     statfs.mockReset();
@@ -282,8 +285,7 @@ describe("disk headroom", () => {
   afterEach(() => {
     process.env.DATABASE_URL = originalUrl;
     fs.rmSync(dir, { recursive: true, force: true });
-    if (hadPrismaSingleton) prismaSingleton.__excalidashPrisma = originalPrismaSingleton;
-    else clearPrismaSingleton();
+    restorePrismaSingleton();
   });
 
   it("refuses a full rewrite that would not fit", async () => {
