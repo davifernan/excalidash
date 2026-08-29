@@ -52,6 +52,11 @@ FROM nginx:alpine
 # Copy nginx config template (will be processed at runtime)
 COPY frontend/nginx.conf.template /etc/nginx/nginx.conf.template
 
+# NIL-667: the single shared source for the five security headers repeated
+# `include`s pull into every location that needs them -- see the file's own
+# header comment.
+COPY frontend/security-headers.conf /etc/nginx/security-headers.conf
+
 # Copy entrypoint script
 COPY frontend/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

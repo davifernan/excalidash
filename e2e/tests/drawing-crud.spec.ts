@@ -6,6 +6,7 @@ import {
   getDrawing,
   listDrawings,
 } from "./helpers/api";
+import { scene } from "./helpers/editor";
 
 /**
  * E2E Tests for Drawing Creation and Editing
@@ -251,28 +252,42 @@ test.describe("Drawing Editing", () => {
 
     await page.goto(`/editor/${drawing.id}`);
     await page.waitForSelector("[class*='excalidraw'], canvas", { timeout: 15000 });
-    await page.waitForTimeout(1000);
+    await page.waitForFunction(
+      () => !!(window as unknown as Record<string, unknown>).__EXCALIDASH_TEST__,
+    );
 
     const canvas = page.locator("canvas.excalidraw__canvas.interactive");
     const box = await canvas.boundingBox();
     if (!box) throw new Error("Canvas not found");
 
+    // Away from the left edge: arming the rectangle tool opens the property
+    // panel there, which would otherwise intercept the drag below it.
+    await canvas.click({ position: { x: 500, y: 300 } });
     await page.keyboard.press("r");
     await page.waitForTimeout(200);
 
-    await page.mouse.move(box.x + 200, box.y + 200);
+    await page.mouse.move(box.x + 500, box.y + 300);
     await page.mouse.down();
-    await page.mouse.move(box.x + 300, box.y + 300, { steps: 5 });
+    await page.mouse.move(box.x + 600, box.y + 400, { steps: 5 });
     await page.mouse.up();
 
-    await page.waitForTimeout(500);
+    await expect
+      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .toBe(1);
 
-    await page.keyboard.press("Meta+z");
-    await page.waitForTimeout(500);
+    // `ControlOrMeta+z`, not `Meta+z`: Playwright resolves this to the
+    // platform's real undo shortcut. `Meta+z` is a no-op on Linux CI (NIL-642),
+    // so the assertion right after it is the point -- it must fail if undo
+    // does not actually remove the rectangle, not just after a key is pressed.
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .toBe(0);
 
-    await page.keyboard.press("Meta+Shift+z");
-    await page.waitForTimeout(500);
-
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .toBe(1);
   });
 });
 
