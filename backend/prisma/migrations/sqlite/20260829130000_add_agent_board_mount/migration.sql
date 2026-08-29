@@ -50,8 +50,7 @@ CREATE TABLE "AgentBoardRevisionAsset" (
     "mimeType" TEXT NOT NULL,
     "sizeBytes" INTEGER NOT NULL,
     PRIMARY KEY ("revisionId", "assetId"),
-    CONSTRAINT "AgentBoardRevisionAsset_revisionId_fkey" FOREIGN KEY ("revisionId") REFERENCES "AgentBoardRevision" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "AgentBoardRevisionAsset_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "Asset" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "AgentBoardRevisionAsset_revisionId_fkey" FOREIGN KEY ("revisionId") REFERENCES "AgentBoardRevision" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE UNIQUE INDEX "AgentContext_drawingId_frameElementId_key" ON "AgentContext"("drawingId", "frameElementId");
 CREATE INDEX "AgentContext_drawingId_createdAt_idx" ON "AgentContext"("drawingId", "createdAt");

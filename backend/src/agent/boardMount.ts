@@ -28,7 +28,8 @@ export class AgentMountError extends Error {
       | "ELEMENT_NOT_READABLE"
       | "FRAME_NOT_READABLE"
       | "ASSET_NOT_READABLE"
-      | "ASSET_TOO_LARGE",
+      | "ASSET_TOO_LARGE"
+      | "ASSET_NO_LONGER_AVAILABLE",
     message: string,
   ) {
     super(message);
@@ -231,11 +232,11 @@ const loadMountedScene = async (params: {
     include: {
       revision: {
         include: {
-          assets: {
-            include: {
-              asset: { select: { blob: { select: { storageKey: true, contentEncoding: true } } } },
-            },
-          },
+          // assetId is a historical pointer (see AgentBoardRevisionAsset's
+          // schema comment), not a live foreign key, so the underlying Asset
+          // is looked up lazily -- only readAsset({mode:"content"}) needs it,
+          // and only when the live row still exists.
+          assets: true,
         },
       },
     },
@@ -605,7 +606,21 @@ export const executeAgentBoardTool = async (params: {
       if (revisionAsset.sizeBytes > 1024 * 1024) {
         throw new AgentMountError("ASSET_TOO_LARGE", "Asset content exceeds the 1 MiB tool limit.");
       }
-      const bytes = await readStoredBytes(config.assets.storageDir, revisionAsset.asset.blob);
+      // assetId is a historical pointer, not an enforced foreign key (see the
+      // AgentBoardRevisionAsset schema comment): the asset the revision once
+      // captured may have since been reclaimed by the ordinary cleanup job.
+      // Metadata above never needed the live row; only fetching bytes does.
+      const liveAsset = await params.prisma.asset.findUnique({
+        where: { id: assetId },
+        select: { blob: { select: { storageKey: true, contentEncoding: true } } },
+      });
+      if (!liveAsset) {
+        throw new AgentMountError(
+          "ASSET_NO_LONGER_AVAILABLE",
+          "This revision recorded the asset, but it no longer exists.",
+        );
+      }
+      const bytes = await readStoredBytes(config.assets.storageDir, liveAsset.blob);
       if (createHash("sha256").update(bytes).digest("hex") !== revisionAsset.contentHash) {
         throw new AgentMountError("ASSET_NOT_READABLE", "Mounted asset bytes no longer match.");
       }

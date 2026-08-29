@@ -746,7 +746,6 @@ model Asset {
   blob           StoredBlob                @relation(fields: [blobId], references: [id], onDelete: Restrict)
   drawings       DrawingAsset[]
   snapshots      DrawingSnapshotAsset[]
-  agentRevisions AgentBoardRevisionAsset[]
   pageViews      DocumentPageView[]
 
   @@index([ownerUserId, createdAt])
@@ -813,8 +812,16 @@ model DrawingSnapshotAsset {
 }
 
 /// An immutable asset binding captured with an AgentBoardRevision. Metadata is
-/// copied so a later rename cannot change a mounted tool result; Asset keeps
-/// the underlying immutable StoredBlob alive.
+/// copied so a later rename cannot change a mounted tool result, and that copy
+/// is deliberately the entire record: `assetId` is a historical pointer, not
+/// an enforced foreign key. A revision must know WHICH assets it once
+/// included, but must not force those assets to live forever -- the ordinary
+/// asset cleanup job (assetService.ts collectExpired) is the honest owner of
+/// blob retention, and a Restrict relation here would silently make it unable
+/// to ever delete an asset any revision had ever touched (NIL-671 review,
+/// 2026-08-29). If the live Asset is gone by the time a run calls
+/// readAsset({mode:"content"}), that's reported as ASSET_NO_LONGER_AVAILABLE
+/// using this row's own metadata -- metadata mode never needed the live row.
 model AgentBoardRevisionAsset {
   revisionId   String
   assetId      String
@@ -825,7 +832,6 @@ model AgentBoardRevisionAsset {
   sizeBytes    Int
 
   revision AgentBoardRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
-  asset    Asset              @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@id([revisionId, assetId])
   @@index([assetId])

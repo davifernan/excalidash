@@ -66,4 +66,3 @@ ALTER TABLE "AgentRunMount" ADD CONSTRAINT "AgentRunMount_revisionId_fkey" FOREI
 ALTER TABLE "AgentToolAudit" ADD CONSTRAINT "AgentToolAudit_runId_fkey" FOREIGN KEY ("runId") REFERENCES "AgentRunMount"("runId") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "AgentToolAudit" ADD CONSTRAINT "AgentToolAudit_revisionId_fkey" FOREIGN KEY ("revisionId") REFERENCES "AgentBoardRevision"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "AgentBoardRevisionAsset" ADD CONSTRAINT "AgentBoardRevisionAsset_revisionId_fkey" FOREIGN KEY ("revisionId") REFERENCES "AgentBoardRevision"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "AgentBoardRevisionAsset" ADD CONSTRAINT "AgentBoardRevisionAsset_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "Asset"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
