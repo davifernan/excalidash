@@ -16,6 +16,15 @@ name: NIL-686 Lockfile Matrix
 # that is a measurement outcome, so every leg records it and completes.
 on:
   workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        type: choice
+        default: measure-vs-main
+        options:
+          - measure
+          - measure-vs-main
+          - both
   pull_request:
     types: [labeled]
 
@@ -28,7 +37,7 @@ concurrency:
 
 jobs:
   measure:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-nil-686-matrix'
+    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["measure","both"]'), github.event.inputs.job)) || github.event.label.name == 'run-nil-686-matrix'
     name: ${{ matrix.label }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -211,7 +220,7 @@ jobs:
   # across chromium AND webkit, since the branch was observed failing on
   # both engines.
   measure-vs-main:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-nil-686-matrix'
+    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["measure-vs-main","both"]'), github.event.inputs.job)) || github.event.label.name == 'run-nil-686-matrix'
     name: vs-main-${{ matrix.label }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
