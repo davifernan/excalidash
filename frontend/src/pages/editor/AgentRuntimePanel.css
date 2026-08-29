@@ -1,0 +1,131 @@
+.agent-runtime-panel {
+  position: absolute;
+  z-index: var(--excalidash-z-anchored-overlay);
+  top: 62px;
+  right: 16px;
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100vh - 82px);
+  overflow: auto;
+  pointer-events: auto;
+  border: 1px solid var(--color-surface-low, #e9ecef);
+  border-radius: 12px;
+  background: var(--color-surface-high, #fff);
+  color: var(--color-on-surface, #1b1b1f);
+  box-shadow: var(--shadow-island, 0 4px 16px rgb(0 0 0 / 14%));
+  font-family: var(--ui-font, system-ui, sans-serif);
+}
+
+.agent-runtime-panel header,
+.agent-runtime-panel__title,
+.agent-runtime-panel__run,
+.agent-runtime-panel__primary {
+  display: flex;
+  align-items: center;
+}
+
+.agent-runtime-panel header {
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-surface-low, #e9ecef);
+}
+
+.agent-runtime-panel header button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agent-runtime-panel__title {
+  gap: 7px;
+  font-weight: 600;
+}
+.agent-runtime-panel__body {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+.agent-runtime-panel__body label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.agent-runtime-panel__body input,
+.agent-runtime-panel__body select,
+.agent-runtime-panel__body textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-surface-low, #e9ecef);
+  border-radius: 7px;
+  padding: 8px;
+  background: var(--color-surface-mid, #f8f9fa);
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.agent-runtime-panel__primary {
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: var(--color-primary, #6965db);
+  color: var(--color-on-primary, #fff);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.agent-runtime-panel__primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.agent-runtime-panel__empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 28px 18px;
+  text-align: center;
+}
+.agent-runtime-panel__empty span,
+.agent-runtime-panel__hint,
+.agent-runtime-panel__run small {
+  color: var(--color-on-surface-secondary, #868e96);
+  font-size: 12px;
+}
+.agent-runtime-panel__run {
+  gap: 10px;
+}
+.agent-runtime-panel__run div {
+  display: grid;
+  gap: 2px;
+}
+.agent-runtime-panel__status {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #868e96;
+}
+.agent-runtime-panel__status--working {
+  background: #2f9e44;
+  box-shadow: 0 0 0 3px rgb(47 158 68 / 18%);
+}
+.agent-runtime-panel__status--blocked {
+  background: #e03131;
+}
+.agent-runtime-panel__status--idle {
+  background: #f08c00;
+}
+.agent-runtime-panel__status--done {
+  background: #7048e8;
+}
+
+@media (max-width: 730px) {
+  .agent-runtime-panel {
+    top: 54px;
+    right: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 66px);
+  }
+}

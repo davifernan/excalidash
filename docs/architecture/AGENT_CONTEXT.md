@@ -221,6 +221,12 @@ braucht einen ausdrücklich gebauten Transport (co-lokale Runtime, SSH oder auth
 Outbound-Bridge/Pairing), die Zuordnung Runtime→zahlender Nutzer und eine Auswahl vor Dispatch.
 Diese Entscheidung verschiebt Umfang, Transport- und Sicherheitsmodell erheblich.
 
+NIL-673 hält beide Antworten technisch offen: Der runtime-neutrale Connection-Vertrag kennt
+installationsweite und nutzergebundene Audiences; nur der erste konkrete, ausdrücklich
+co-lokale Herdr-Transport benutzt einen Unix-Socket. Er trifft keine Deployment-Entscheidung
+für NIL-683. Details und Sicherheitsgrenze stehen in
+[`AGENT_RUNTIME_ADAPTER.md`](AGENT_RUNTIME_ADAPTER.md).
+
 ### NIL-682: Lizenzentscheidung vor Runtime-Portierung
 
 Die Übernahme von `origin/alpha:backend/src/ai/**` hängt vom möglichen AGPL-Wechsel ab. NIL-682

@@ -4,6 +4,7 @@ import { Prisma, PrismaClient } from "../../generated/client";
 import type { CollaborationAccessController } from "../../server/collaborationAccess";
 import type { PresenceRegistry } from "../../server/presenceRegistry";
 import type { Server as SocketIoServer } from "socket.io";
+import type { AgentRuntimeGateway } from "../../agent/runtime/gateway";
 
 export type SortField = "name" | "createdAt" | "updatedAt";
 export type SortDirection = "asc" | "desc";
@@ -69,4 +70,5 @@ export type DashboardRouteDeps = {
     userId: string,
     drawingId: string,
   ) => Promise<Record<string, any>>;
+  agentRuntimeGateway: AgentRuntimeGateway;
 };

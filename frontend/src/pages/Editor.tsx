@@ -34,6 +34,7 @@ import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useEditorFileUploads } from "./editor/useEditorFileUploads";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import { useOffscreenPresence } from "./editor/useOffscreenPresence";
+import { useAgentRuntimeFeature } from "./editor/useAgentRuntimeFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
@@ -674,6 +675,10 @@ export const Editor: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { offscreenPresenceOverlay } = useOffscreenPresence({ adapter });
+  const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime } = useAgentRuntimeFeature({
+    adapter,
+    drawingId: id,
+  });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
       drawingId: id,
@@ -773,6 +778,8 @@ export const Editor: React.FC = () => {
         isCommentsOpen={isCommentsOpen}
         onToggleComments={toggleComments}
         unresolvedCommentCount={unresolvedCommentCount}
+        isAgentRuntimeOpen={isAgentRuntimeOpen}
+        onToggleAgentRuntime={toggleAgentRuntime}
         onCanvasDropCapture={handleCanvasDropCapture}
         onExportClick={handleExportClick}
         onLibraryChange={handleLibraryChange}
@@ -787,6 +794,7 @@ export const Editor: React.FC = () => {
         onShareOpen={() => setIsShareOpen(true)}
         onHistoryOpen={() => setIsHistoryOpen(true)}
       />
+      {agentRuntimeOverlay}
       {canEdit ? (
         <LaserToolbarButton containerRef={editorContainerRef} interaction={adapter.interaction} />
       ) : null}
