@@ -144,3 +144,52 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     await deleteDrawing(request, drawing.id).catch(() => {});
   }
 });
+
+test("NIL-664: a reload immediately after Save Markdown, before any confirmation, does not lose the edit", async ({
+  browser,
+  request,
+}) => {
+  // The measured failure (three independent CI occurrences, all with the
+  // identical network-trace signature): the widget's own local scene patch
+  // makes "Save Markdown" LOOK complete -- the new content renders -- before
+  // that patch has actually reached the server. A reload right after,
+  // trusting that visible confirmation, cancels the still-in-flight save
+  // mid-request (observed as an aborted PUT, not a server error). The board
+  // then reloads a fully-rendered, fully-correct, but STALE document -- not
+  // a render race, a persistence one. This test reloads with NO wait for
+  // any confirmation at all -- the most aggressive version of the real
+  // shape, not a softened one.
+  const drawing = await createDrawing(request, { name: `Markdown durability ${Date.now()}` });
+  const writerContext = await browser.newContext();
+  const writer = await writerContext.newPage();
+  try {
+    await openEditor(writer, drawing.id, { settleMs: 500 });
+    await dropMarkdown(writer, "# Original notes\n\nBefore editing.\n", "editable-notes.md");
+    await expect(writer.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
+    await waitForDocumentWidgetLoaded(writer);
+    await activateDocumentWidget(writer);
+    await writer.waitForTimeout(2_000);
+
+    await writer.getByRole("button", { name: "Edit Markdown" }).click();
+    const source = writer.getByRole("textbox", { name: "Markdown source" });
+    await source.fill("# Durable notes\n\nThis must survive an immediate reload.\n");
+
+    await writer.getByRole("button", { name: "Save Markdown" }).click();
+    // Deliberately no wait here -- not even a microtask yield -- for
+    // anything the app renders. A person who does not wait for a save
+    // indicator before hitting reload is the case this test stands in for.
+    await writer.reload();
+
+    await writer.waitForSelector("canvas");
+    await writer.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
+    await expect(writer.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
+    await waitForDocumentWidgetLoaded(writer);
+    await expect(writer.getByRole("heading", { name: "Durable notes" })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(writer.getByRole("heading", { name: "Original notes" })).toHaveCount(0);
+  } finally {
+    await writerContext.close();
+    await deleteDrawing(request, drawing.id).catch(() => {});
+  }
+});

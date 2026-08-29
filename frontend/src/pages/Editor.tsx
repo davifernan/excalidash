@@ -414,38 +414,6 @@ export const Editor: React.FC = () => {
     },
     [adapter.scene],
   );
-  const handleDocumentAssetReplacement = useCallback(
-    async (replacement: DocumentAssetReplacement) => {
-      currentDrawingVersionRef.current = Math.max(
-        currentDrawingVersionRef.current ?? 0,
-        replacement.drawingVersion,
-      );
-      const applied = await (async () => {
-        isSyncing.current = true;
-        try {
-          return await applyDocumentAssetReplacement(adapter.scene, replacement, "immediate");
-        } finally {
-          isSyncing.current = false;
-        }
-      })();
-      if (!applied.ok) {
-        notify(
-          "error",
-          "The Markdown file was saved, but the canvas could not update. Reload the board.",
-        );
-        return false;
-      }
-      const replacementsById = new Map(
-        replacement.elements.map((element) => [element.id, element] as const),
-      );
-      latestElementsRef.current = latestElementsRef.current.map(
-        (element) => replacementsById.get(element?.id) ?? element,
-      );
-      replacement.elements.forEach(recordElementVersion);
-      return true;
-    },
-    [adapter.scene, isSyncing, recordElementVersion],
-  );
   const persistenceRefs = React.useMemo(
     () => ({
       currentDrawingVersion: currentDrawingVersionRef,
@@ -485,6 +453,52 @@ export const Editor: React.FC = () => {
   const prepareDocumentAssetReplacement = useCallback(async () => {
     await flushPendingSceneSave();
   }, [flushPendingSceneSave]);
+  const handleDocumentAssetReplacement = useCallback(
+    async (replacement: DocumentAssetReplacement) => {
+      currentDrawingVersionRef.current = Math.max(
+        currentDrawingVersionRef.current ?? 0,
+        replacement.drawingVersion,
+      );
+      const applied = await (async () => {
+        isSyncing.current = true;
+        try {
+          return await applyDocumentAssetReplacement(adapter.scene, replacement, "immediate");
+        } finally {
+          isSyncing.current = false;
+        }
+      })();
+      if (!applied.ok) {
+        notify(
+          "error",
+          "The Markdown file was saved, but the canvas could not update. Reload the board.",
+        );
+        return false;
+      }
+      const replacementsById = new Map(
+        replacement.elements.map((element) => [element.id, element] as const),
+      );
+      latestElementsRef.current = latestElementsRef.current.map(
+        (element) => replacementsById.get(element?.id) ?? element,
+      );
+      replacement.elements.forEach(recordElementVersion);
+      // NIL-664: the local patch above makes the widget's new content visible
+      // immediately, but a page reload (or a tab close, or a lost connection)
+      // right after that -- before the normal debounced autosave has run --
+      // leaves the SERVER still pointing the widget at the OLD asset. The
+      // asset's own content was already replaced atomically; only this
+      // scene-level "which asset does this widget show" link was still in
+      // flight. `prepareDocumentAssetReplacement` above already flushes a
+      // PENDING save before the replacement, precisely so a stale queued
+      // save cannot overwrite the new link -- this is that guard's missing
+      // other half: flush the save this replacement itself just queued,
+      // and wait for it, before the caller (TextDocumentWidget.saveDraft)
+      // is allowed to tell the user "Persisted notes". A display that gets
+      // ahead of reality is worse than a save that takes an extra moment.
+      await flushPendingSceneSave();
+      return true;
+    },
+    [adapter.scene, flushPendingSceneSave, isSyncing, recordElementVersion],
+  );
   useEditorFileUploads({ drawingId: id, fileCapability: adapter.files, enabled: canUploadFiles });
   const markSceneChangedSinceLoad = useCallback(() => {
     hasSceneChangesSinceLoadRef.current = true;
