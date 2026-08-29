@@ -34,8 +34,14 @@ COPY scripts ../scripts
 # Build arguments
 ARG VITE_APP_VERSION
 ARG VITE_APP_BUILD_LABEL
+# NIL-649: defaults to unset, i.e. "false" once vite.config.ts stringifies it.
+# Only the built-image E2E smoke job (docker-compose.e2e-smoke.yml) passes
+# "true" here -- a real published image never does, so the E2E test harness
+# never ships to a user's instance.
+ARG VITE_E2E_HARNESS_ENABLED
 ENV VITE_APP_VERSION=$VITE_APP_VERSION
 ENV VITE_APP_BUILD_LABEL=$VITE_APP_BUILD_LABEL
+ENV VITE_E2E_HARNESS_ENABLED=$VITE_E2E_HARNESS_ENABLED
 
 # Build the application
 RUN npm run build
@@ -45,6 +51,11 @@ FROM nginx:alpine
 
 # Copy nginx config template (will be processed at runtime)
 COPY frontend/nginx.conf.template /etc/nginx/nginx.conf.template
+
+# NIL-667: the single shared source for the five security headers repeated
+# `include`s pull into every location that needs them -- see the file's own
+# header comment.
+COPY frontend/security-headers.conf /etc/nginx/security-headers.conf
 
 # Copy entrypoint script
 COPY frontend/docker-entrypoint.sh /docker-entrypoint.sh

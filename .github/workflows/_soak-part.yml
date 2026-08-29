@@ -1,0 +1,258 @@
+name: Soak part (reusable)
+
+# One ~2h/N-context slice of NIL-330's team-readiness soak, called four times
+# in sequence by nightly-team-readiness-soak.yml. Not triggered on its own --
+# see that file's header for why the split exists and how continuity across
+# parts works (SQLite DB + asset dir carried forward via artifact, same
+# shared board id reused throughout).
+
+on:
+  workflow_call:
+    inputs:
+      part:
+        required: true
+        type: number
+      context_count:
+        required: true
+        type: string
+      part_duration_minutes:
+        required: true
+        type: string
+      cycle_ms:
+        required: true
+        type: string
+      engines:
+        required: true
+        type: string
+      restore_from_part:
+        description: "0 means start fresh; N restores part N's DB/asset state"
+        required: true
+        type: number
+      board_id:
+        description: "Shared board id from part 1. Empty on part 1 itself (created fresh)."
+        required: false
+        type: string
+        default: ""
+      skip_teardown:
+        required: true
+        type: boolean
+    outputs:
+      board_id:
+        description: "The shared board id this part ran against -- only meaningful from part 1."
+        value: ${{ jobs.run.outputs.board_id }}
+
+# This job never calls the GitHub API -- checkout is all it needs.
+# Read-only, and explicit rather than left to whatever the calling
+# workflow/repo default happens to be.
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # part_duration_minutes (default 115) + ~35 min for install/browser
+    # download/server startup/teardown/artifact upload. Comfortably under
+    # GitHub's 360-minute hard ceiling for a hosted job either way --
+    # SOAK_RUNNER_DECISION.md's finding was against the UNSPLIT 8h profile,
+    # not this one.
+    timeout-minutes: 150
+    outputs:
+      board_id: ${{ steps.extract.outputs.board_id }}
+    env:
+      DATABASE_URL: "file:${{ github.workspace }}/backend/prisma/nightly-soak.db"
+      ASSET_STORAGE_DIR: "${{ github.workspace }}/backend/prisma/nightly-soak-assets"
+      FRONTEND_URL: "http://localhost:6767"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+
+      - name: Generate Prisma client
+        run: cd backend && npx prisma generate
+
+      - name: Download prior part's DB/asset state
+        if: inputs.restore_from_part > 0
+        uses: actions/download-artifact@v4
+        with:
+          name: soak-db-state-part-${{ inputs.restore_from_part }}
+          path: /tmp/soak-db-state
+
+      - name: Restore prior part's DB/asset state
+        if: inputs.restore_from_part > 0
+        run: |
+          mkdir -p backend/prisma
+          cp /tmp/soak-db-state/nightly-soak.db* backend/prisma/
+          rm -rf "${ASSET_STORAGE_DIR}"
+          mkdir -p "${ASSET_STORAGE_DIR}"
+          # Hans-Friedrich finding on #223: "Upload DB/asset state for the
+          # next part" below uploads backend/prisma/nightly-soak.db(-wal/-shm)
+          # alongside backend/prisma/nightly-soak-assets/** in ONE
+          # upload-artifact call. Their common ancestor is backend/prisma, so
+          # the archive preserves nightly-soak-assets/ under ITS OWN name --
+          # never under a plain "assets/" -- exactly the same
+          # upload-artifact root rule soak-artifact-layout.test.cjs already
+          # covers for part-summary.json. Checking for "assets" here always
+          # found nothing, silently: rm -rf had already cleared the local
+          # dir, so every part after the first restored an EMPTY asset
+          # store, with no error and no warning.
+          if [ -d /tmp/soak-db-state/nightly-soak-assets ]; then
+            cp -a /tmp/soak-db-state/nightly-soak-assets/. "${ASSET_STORAGE_DIR}/"
+          fi
+
+      - name: Create fresh database schema (part 1 only)
+        if: inputs.restore_from_part == 0
+        run: cd backend && node scripts/provider-prisma.cjs migrate deploy
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Install E2E dependencies
+        run: cd e2e && npm ci
+
+      - name: Install Playwright browsers
+        run: cd e2e && npx playwright install $(echo "${{ inputs.engines }}" | tr ',' ' ') --with-deps
+
+      - name: Report memory before starting the soak
+        run: free -m
+
+      - name: Start resource sampler (RSS, swap, CPU time)
+        # NIL-639 asks for raw RSS/swap/CPU-time values as an artifact, not
+        # just this job's one-off pre-soak `free -m` above. Starts before the
+        # backend/frontend so the baseline sample predates any load, and
+        # keeps sampling through the whole part; stopped in "Stop servers"
+        # below, right before the artifacts are uploaded.
+        run: |
+          mkdir -p e2e/soak-artifacts
+          node ${{ github.workspace }}/scripts/soak-resource-sampler.cjs \
+            --out=e2e/soak-artifacts/resource-samples.ndjson \
+            --interval-ms=60000 &
+          echo $! > /tmp/sampler.pid
+
+      - name: Start backend and frontend
+        run: |
+          cd backend
+          CSRF_MAX_REQUESTS=1000000 \
+            RATE_LIMIT_MAX_REQUESTS=1000000 \
+            npm run dev &
+          echo $! > /tmp/backend.pid
+          cd ..
+
+          echo "Waiting for backend..."
+          for i in $(seq 1 60); do
+            curl -s http://localhost:8000/health > /dev/null && { echo "Backend ready"; break; }
+            sleep 2
+          done
+
+          cd frontend
+          npm run dev -- --host &
+          echo $! > /tmp/frontend.pid
+          cd ..
+
+          echo "Waiting for frontend..."
+          for i in $(seq 1 60); do
+            curl -s http://localhost:6767 > /dev/null && { echo "Frontend ready"; break; }
+            sleep 2
+          done
+
+      - name: Run soak part ${{ inputs.part }}
+        id: soak
+        working-directory: e2e
+        run: |
+          set +e
+          # SIGINT first (Playwright writes its report/artifacts on a graceful
+          # stop, verified in test.yml's e2e-shards job -- a bare SIGKILL from
+          # the job timeout does not). 10 extra minutes over the configured
+          # test duration covers Playwright's own startup/teardown; the job's
+          # own 150-minute timeout is the backstop if even that hangs.
+          TIMEOUT_SECONDS=$(( ${{ inputs.part_duration_minutes }} * 60 + 600 ))
+          SOAK_CONTEXT_COUNT="${{ inputs.context_count }}" \
+            SOAK_DURATION_MS=$(( ${{ inputs.part_duration_minutes }} * 60 * 1000 )) \
+            SOAK_CYCLE_MS="${{ inputs.cycle_ms }}" \
+            SOAK_ENGINES="${{ inputs.engines }}" \
+            SOAK_ARTIFACT_DIR="soak-artifacts" \
+            SOAK_EXISTING_BOARD_ID="${{ inputs.board_id }}" \
+            SOAK_SKIP_TEARDOWN="${{ inputs.skip_teardown }}" \
+            timeout --signal=INT --kill-after=60s --preserve-status "$TIMEOUT_SECONDS" \
+            npx playwright test --project=soak team-readiness --reporter=line \
+            > /tmp/soak-part-${{ inputs.part }}.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat /tmp/soak-part-${{ inputs.part }}.log
+          exit 0
+
+      - name: Stop resource sampler
+        if: always()
+        run: |
+          [ -f /tmp/sampler.pid ] && kill -TERM "$(cat /tmp/sampler.pid)" 2>/dev/null || true
+
+      - name: Extract board id and part result
+        id: extract
+        if: always()
+        run: node ${{ github.workspace }}/scripts/soak-nightly-extract.cjs \
+          --log=/tmp/soak-part-${{ inputs.part }}.log \
+          --part=${{ inputs.part }} \
+          --exit-code="${{ steps.soak.outputs.exit_code }}" \
+          --resources=e2e/soak-artifacts/resource-samples.ndjson
+
+      - name: Stop servers (flush WAL before archiving the DB)
+        if: always()
+        run: |
+          [ -f /tmp/backend.pid ] && kill -TERM "$(cat /tmp/backend.pid)" 2>/dev/null || true
+          [ -f /tmp/frontend.pid ] && kill -TERM "$(cat /tmp/frontend.pid)" 2>/dev/null || true
+          sleep 3
+
+      - name: Fail this job if the soak part itself failed
+        if: steps.soak.outputs.exit_code != '0'
+        run: |
+          echo "Soak part ${{ inputs.part }} exited ${{ steps.soak.outputs.exit_code }}"
+          exit 1
+
+      - name: Upload DB/asset state for the next part
+        if: always() && inputs.part != 4
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-db-state-part-${{ inputs.part }}
+          path: |
+            backend/prisma/nightly-soak.db
+            backend/prisma/nightly-soak.db-wal
+            backend/prisma/nightly-soak.db-shm
+            backend/prisma/nightly-soak-assets/**
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Copy the part log into the artifact directory
+        # upload-artifact@v4 roots a multi-path upload at the paths' common
+        # ancestor -- mixing this workspace-relative dir with the absolute
+        # /tmp log path made that ancestor "/" (filesystem root) instead of
+        # this directory, so the downloaded artifact nested part-summary.json
+        # under the whole runner workspace path instead of appearing at the
+        # artifact's own top level. Copying the log in here keeps this a
+        # single directory path, so upload-artifact roots the archive AT
+        # this directory: part-summary.json and the log land directly at the
+        # artifact's top level (no "soak-artifacts/" prefix survives inside
+        # the artifact -- see soak-nightly-aggregate.cjs's readPartSummary
+        # and soak-artifact-layout.test.cjs, which models this rule and goes
+        # red on the old two-path config).
+        if: always()
+        run: |
+          mkdir -p e2e/soak-artifacts
+          cp /tmp/soak-part-${{ inputs.part }}.log e2e/soak-artifacts/soak-part-${{ inputs.part }}.log 2>/dev/null || true
+
+      - name: Upload this part's soak artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak-part-${{ inputs.part }}-results
+          path: e2e/soak-artifacts/
+          retention-days: 90
+          if-no-files-found: warn
