@@ -6,6 +6,7 @@ import {
   parseDocumentPageCommand,
   registerDocumentPageRoomEvent,
 } from "./socketDocumentPages";
+import { logger } from "../logger";
 
 const command = (overrides: Record<string, unknown> = {}) => ({
   drawingId: "board-1",
@@ -354,6 +355,39 @@ describe("the room's shared page", () => {
 
     await pages.snapshot("board-1", "socket-later");
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a distinct NIL-601 diagnostic correlation for every coalesced join", async () => {
+    const prisma = fakePrisma({
+      asset: { pageCount: 12, status: "READY" },
+      rows: [row({ page: 4, revision: 8 })],
+    });
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const pages = createDocumentPageManager({ io: fakeIo() as any, prisma });
+
+    await Promise.all([
+      pages.snapshot("board-1", "socket-1"),
+      pages.snapshot("board-1", "socket-2"),
+      pages.snapshot("board-1", "socket-3"),
+      pages.snapshot("board-1", "socket-4"),
+    ]);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    const observations = warn.mock.calls.filter(
+      ([message]) => message === "NIL-601 diagnostic: document-page snapshot requested",
+    );
+    expect(observations.map(([, fields]) => (fields as any).correlationId).sort()).toEqual([
+      "socket-1",
+      "socket-2",
+      "socket-3",
+      "socket-4",
+    ]);
+    expect(observations.map(([, fields]) => (fields as any).coalesced)).toEqual([
+      false,
+      true,
+      true,
+      true,
+    ]);
   });
 
   it("retries after a shared reconciliation failure instead of retaining it", async () => {

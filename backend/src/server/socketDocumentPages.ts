@@ -8,6 +8,7 @@ import {
   type RoomEventResult,
 } from "./socketRoomEvent";
 import { logger } from "../logger";
+import { createInFlightCoalescer } from "../utils/inFlightCoalescer";
 
 export const DOCUMENT_PAGE_EVENT = "document-page-update";
 const DOCUMENT_PAGE_COMMAND_EVENT = "document-page-command";
@@ -73,16 +74,21 @@ export const createDocumentPageManager = ({
   // join the same drawing in one burst, though, and repeating that write
   // transaction does not produce a different snapshot. Share only work that
   // is still in flight; a later join must observe a fresh persisted state.
-  const snapshotsInFlight = new Map<string, Promise<DocumentPageSnapshot>>();
+  const snapshotsInFlight = createInFlightCoalescer<DocumentPageSnapshot>();
 
   const snapshot = async (
     drawingId: string,
     correlationId?: string,
   ): Promise<DocumentPageSnapshot> => {
-    const existing = snapshotsInFlight.get(drawingId);
-    if (existing) return existing;
+    if (correlationId) {
+      logger.warn("NIL-601 diagnostic: document-page snapshot requested", {
+        drawingId,
+        correlationId,
+        coalesced: snapshotsInFlight.has(drawingId),
+      });
+    }
 
-    const operation = (async () => {
+    return snapshotsInFlight.run(drawingId, async () => {
       const reconcile = async (tx: any) => {
         const drawing = await tx.drawing.findUnique({
           where: { id: drawingId },
@@ -115,13 +121,7 @@ export const createDocumentPageManager = ({
           ? await prisma.$transaction(reconcile)
           : await reconcile(prisma);
       return { drawingId, pages: rows };
-    })();
-    snapshotsInFlight.set(drawingId, operation);
-    const clearInFlightSnapshot = () => {
-      if (snapshotsInFlight.get(drawingId) === operation) snapshotsInFlight.delete(drawingId);
-    };
-    void operation.then(clearInFlightSnapshot, clearInFlightSnapshot);
-    return operation;
+    });
   };
 
   const set = async (

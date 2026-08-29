@@ -258,6 +258,12 @@ export const registerDrawingRuntimeRoutes = (
         await publishRuntimePresence(req.params.id, current);
         const pendingEvents: unknown[] = [];
         let streamReady = false;
+        // Deliberately NOT built on backend/src/utils/inFlightCoalescer.ts:
+        // this is a plain re-entrancy guard for a periodic side effect
+        // (deciding whether to buffer an incoming event while a
+        // reauthorization check is running), never a stored/awaited Promise
+        // that callers share a result from. There is no "start work, return
+        // its promise to concurrent callers" here to coalesce (see NIL-693).
         let reauthorizationInFlight = false;
         const flushPendingEvents = () => {
           if (!streamReady || streamClosed || res.writableEnded) return;

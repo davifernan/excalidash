@@ -9,6 +9,16 @@ const ref = <T>(value: T) => ({ current: value }) as MutableRefObject<T>;
 const notification = vi.hoisted(() => vi.fn());
 vi.mock("../../notifications", () => ({ notify: notification }));
 
+// A stand-in for the real `captureElementVersionInfo` (useEditorElementTracking.ts):
+// good enough to round-trip through these tests without pulling in the real
+// content-signature machinery, which none of them exercise.
+const captureStub = (element: any) => ({
+  version: element?.version ?? 0,
+  versionNonce: element?.versionNonce ?? 0,
+  updated: element?.updated ?? 0,
+  contentSig: "stub",
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -34,7 +44,8 @@ describe("editor broadcast delivery tracking", () => {
         computeElementOrderSig: () => "same-order",
         hasElementChanged: () => false,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: vi.fn(),
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: vi.fn(),
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -53,7 +64,7 @@ describe("editor broadcast delivery tracking", () => {
       acknowledge = ack;
     });
     const orderRef = ref("old-order");
-    const recordElementVersion = vi.fn();
+    const recordElementVersionInfo = vi.fn();
     const element = { id: "element-1", version: 2 };
     const { result } = renderHook(() =>
       useEditorBroadcast({
@@ -70,23 +81,77 @@ describe("editor broadcast delivery tracking", () => {
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "new-order",
         hasElementChanged: (element) =>
-          !recordElementVersion.mock.calls.some(([recorded]) => recorded === element),
+          !recordElementVersionInfo.mock.calls.some(([id]: [string]) => id === element.id),
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion,
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo,
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
 
     act(() => result.current.broadcastChanges([element], {}));
 
-    expect(recordElementVersion).not.toHaveBeenCalled();
+    expect(recordElementVersionInfo).not.toHaveBeenCalled();
     expect(orderRef.current).toBe("old-order");
     expect(acknowledge).toBeTypeOf("function");
 
     act(() => acknowledge?.({ ok: true }));
 
-    expect(recordElementVersion).toHaveBeenCalledWith(element);
+    expect(recordElementVersionInfo).toHaveBeenCalledWith(element.id, captureStub(element));
     expect(orderRef.current).toBe("new-order");
+  });
+
+  it("records the version snapshot from send time, not a live reference Excalidraw mutates before the ack arrives (NIL-689 race, Hans-Friedrich finding on 5d0c040f)", () => {
+    // This is the one thing none of the other ack tests above prove: every
+    // other test leaves `element` untouched between broadcastChanges() and
+    // acknowledge(), so captureStub(element) reads the same value at both
+    // points and the test cannot tell a synchronous send-time snapshot apart
+    // from a re-read inside the async ack callback -- exactly the bug this
+    // fix closed. Only mutating `element` in between, the way Excalidraw's
+    // own bind action mutates a live element object while a packet for its
+    // pre-mutation state is still in flight, actually distinguishes them.
+    let acknowledge: ((value: any) => void) | undefined;
+    const emit = vi.fn((_event: string, _payload: unknown, ack?: (value: any) => void) => {
+      acknowledge = ack;
+    });
+    const recordElementVersionInfo = vi.fn();
+    const element = { id: "element-1", version: 2, versionNonce: 111 };
+    const sentSnapshot = captureStub(element);
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        files: { read: () => ({ ok: true, value: {} }) } as any,
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>({ emit }),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => true,
+        normalizeImageElementStatus: (elements) => elements,
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo,
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => result.current.broadcastChanges([element], {}));
+    expect(acknowledge).toBeTypeOf("function");
+
+    // Excalidraw mutates the very same object in place -- e.g. completing a
+    // label bind -- while the packet built from its pre-mutation state is
+    // still on the wire.
+    element.version = 99;
+    element.versionNonce = 999;
+
+    act(() => acknowledge?.({ ok: true }));
+
+    expect(recordElementVersionInfo).toHaveBeenCalledWith(element.id, sentSnapshot);
+    expect(recordElementVersionInfo).not.toHaveBeenCalledWith(element.id, captureStub(element));
   });
 
   it("retries unacknowledged element content instead of losing it", () => {
@@ -114,7 +179,8 @@ describe("editor broadcast delivery tracking", () => {
         computeElementOrderSig: () => "same-order",
         hasElementChanged: () => !sent,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: () => {
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: () => {
           sent = true;
         },
         setHasSceneChangesSinceLoad: vi.fn(),
@@ -137,7 +203,7 @@ describe("editor broadcast delivery tracking", () => {
       if (ack) acknowledgements.push(ack);
     });
     const lastSyncedFilesRef = ref<Record<string, any>>({});
-    const recordElementVersion = vi.fn();
+    const recordElementVersionInfo = vi.fn();
     const oversizedFile = {
       id: "oversized",
       dataURL: `data:image/png;base64,${"x".repeat(10 * 1024 * 1024)}`,
@@ -167,9 +233,10 @@ describe("editor broadcast delivery tracking", () => {
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "same-order",
         hasElementChanged: (element) =>
-          !recordElementVersion.mock.calls.some(([recorded]) => recorded === element),
+          !recordElementVersionInfo.mock.calls.some(([id]: [string]) => id === element.id),
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion,
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo,
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -196,9 +263,12 @@ describe("editor broadcast delivery tracking", () => {
 
     act(() => acknowledgements[0]?.({ ok: true }));
 
-    expect(recordElementVersion).toHaveBeenCalledOnce();
-    expect(recordElementVersion).toHaveBeenCalledWith(unrelatedElement);
-    expect(recordElementVersion).not.toHaveBeenCalledWith(rejectedImage);
+    expect(recordElementVersionInfo).toHaveBeenCalledOnce();
+    expect(recordElementVersionInfo).toHaveBeenCalledWith(
+      unrelatedElement.id,
+      captureStub(unrelatedElement),
+    );
+    expect(recordElementVersionInfo).not.toHaveBeenCalledWith(rejectedImage.id, expect.anything());
     expect(lastSyncedFilesRef.current).toEqual({});
 
     const resizedFile = { ...oversizedFile, dataURL: "data:image/png;base64,resized" };
@@ -226,7 +296,7 @@ describe("editor broadcast delivery tracking", () => {
     const socket = {
       timeout: vi.fn(() => ({ emit })),
     };
-    const recordElementVersion = vi.fn();
+    const recordElementVersionInfo = vi.fn();
     const element = { id: "element-1", version: 2 };
     const { result } = renderHook(() =>
       useEditorBroadcast({
@@ -242,9 +312,10 @@ describe("editor broadcast delivery tracking", () => {
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "same-order",
-        hasElementChanged: () => recordElementVersion.mock.calls.length === 0,
+        hasElementChanged: () => recordElementVersionInfo.mock.calls.length === 0,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion,
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo,
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -252,18 +323,18 @@ describe("editor broadcast delivery tracking", () => {
     act(() => result.current.broadcastChanges([element], {}));
     act(() => acknowledgements[0]?.(new Error("timeout")));
 
-    expect(recordElementVersion).not.toHaveBeenCalled();
+    expect(recordElementVersionInfo).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledTimes(1);
 
     act(() => vi.advanceTimersByTime(1_000));
 
     expect(emit).toHaveBeenCalledTimes(2);
-    expect(recordElementVersion).not.toHaveBeenCalled();
+    expect(recordElementVersionInfo).not.toHaveBeenCalled();
 
     act(() => acknowledgements[1]?.(null, { ok: true }));
 
-    expect(recordElementVersion).toHaveBeenCalledTimes(1);
-    expect(recordElementVersion).toHaveBeenCalledWith(element);
+    expect(recordElementVersionInfo).toHaveBeenCalledTimes(1);
+    expect(recordElementVersionInfo).toHaveBeenCalledWith(element.id, captureStub(element));
     vi.useRealTimers();
   });
 
@@ -302,7 +373,8 @@ describe("editor broadcast delivery tracking", () => {
         computeElementOrderSig: () => "same-order",
         hasElementChanged: () => false,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: vi.fn(),
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: vi.fn(),
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -356,7 +428,8 @@ describe("editor broadcast delivery tracking", () => {
         computeElementOrderSig: () => "same-order",
         hasElementChanged: () => false,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: vi.fn(),
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: vi.fn(),
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -396,7 +469,8 @@ describe("editor broadcast delivery tracking", () => {
         computeElementOrderSig: () => "same-order",
         hasElementChanged: () => false,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: vi.fn(),
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: vi.fn(),
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -435,7 +509,8 @@ describe("editor broadcast delivery tracking", () => {
         computeElementOrderSig: () => "same-order",
         hasElementChanged: () => false,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: vi.fn(),
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: vi.fn(),
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -466,7 +541,7 @@ describe("editor broadcast delivery tracking", () => {
     const socket = { timeout: vi.fn(() => ({ emit })) };
     const first = { id: "first", version: 1 };
     const second = { id: "second", version: 1 };
-    const recordElementVersion = vi.fn();
+    const recordElementVersionInfo = vi.fn();
     const { result } = renderHook(() =>
       useEditorBroadcast({
         drawingId: "drawing-1",
@@ -481,9 +556,11 @@ describe("editor broadcast delivery tracking", () => {
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: (elements) => elements.map((element) => element.id).join(","),
-        hasElementChanged: (element) => !recordElementVersion.mock.calls.flat().includes(element),
+        hasElementChanged: (element) =>
+          !recordElementVersionInfo.mock.calls.some(([id]: [string]) => id === element.id),
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion,
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo,
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -578,7 +655,8 @@ describe("editor broadcast delivery tracking", () => {
           computeElementOrderSig: (elements) => elements.map((element) => element.id).join(","),
           hasElementChanged: () => true,
           normalizeImageElementStatus: (elements) => elements,
-          recordElementVersion: vi.fn(),
+          captureElementVersionInfo: captureStub,
+          recordElementVersionInfo: vi.fn(),
           setHasSceneChangesSinceLoad: vi.fn(),
         }),
       );
@@ -610,7 +688,7 @@ describe("editor broadcast delivery tracking", () => {
     const socket = {
       timeout: vi.fn(() => ({ emit })),
     };
-    const recordElementVersion = vi.fn();
+    const recordElementVersionInfo = vi.fn();
     const orderRef = ref("old-order");
     const element = { id: "element-1", version: 2 };
     const { result } = renderHook(() =>
@@ -627,9 +705,10 @@ describe("editor broadcast delivery tracking", () => {
         debouncedSave: vi.fn(),
         debouncedSavePreview: vi.fn(),
         computeElementOrderSig: () => "new-order",
-        hasElementChanged: () => recordElementVersion.mock.calls.length === 0,
+        hasElementChanged: () => recordElementVersionInfo.mock.calls.length === 0,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion,
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo,
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -644,7 +723,7 @@ describe("editor broadcast delivery tracking", () => {
     act(() => vi.advanceTimersByTime(1_000));
 
     expect(emit).toHaveBeenCalledTimes(expectedEmits);
-    expect(recordElementVersion).not.toHaveBeenCalled();
+    expect(recordElementVersionInfo).not.toHaveBeenCalled();
     expect(orderRef.current).toBe("old-order");
     vi.useRealTimers();
   });
@@ -670,7 +749,8 @@ describe("editor broadcast delivery tracking", () => {
         computeElementOrderSig: () => "new-order",
         hasElementChanged: () => false,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: vi.fn(),
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: vi.fn(),
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -721,7 +801,8 @@ describe("saving the settings a board keeps", () => {
         computeElementOrderSig: () => orderSig,
         hasElementChanged: () => false,
         normalizeImageElementStatus: (elements) => elements,
-        recordElementVersion: vi.fn(),
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo: vi.fn(),
         setHasSceneChangesSinceLoad: vi.fn(),
       }),
     );
@@ -796,7 +877,8 @@ describe("getDeliveryState", () => {
     computeElementOrderSig: () => "same-order",
     hasElementChanged: () => true,
     normalizeImageElementStatus: (elements: readonly any[]) => elements,
-    recordElementVersion: vi.fn(),
+    captureElementVersionInfo: captureStub,
+    recordElementVersionInfo: vi.fn(),
     setHasSceneChangesSinceLoad: vi.fn(),
     ...overrides,
   });

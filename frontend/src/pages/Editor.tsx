@@ -25,7 +25,10 @@ import { useMindMapFeature } from "../mindMap";
 import { mindMapLayoutRunCount } from "../mindMap/mindMapScene";
 import { ambientTreeDragApplyCount, useAmbientTreeDrag } from "../ambientTree/useAmbientTreeDrag";
 import { useEditorCommands } from "./editor/useEditorCommands";
-import { useEditorElementTracking } from "./editor/useEditorElementTracking";
+import {
+  captureElementVersionInfo,
+  useEditorElementTracking,
+} from "./editor/useEditorElementTracking";
 import { useEditorBroadcast, type DeliveryState } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useEditorFileUploads } from "./editor/useEditorFileUploads";
@@ -76,8 +79,13 @@ export const Editor: React.FC = () => {
   useEditorChrome({ drawingName });
   const me: UserIdentity = useEditorIdentity(user);
   const [isReady, setIsReady] = useState(false);
-  const { computeElementOrderSig, elementVersionMap, hasElementChanged, recordElementVersion } =
-    useEditorElementTracking();
+  const {
+    computeElementOrderSig,
+    elementVersionMap,
+    hasElementChanged,
+    recordElementVersion,
+    recordElementVersionInfo,
+  } = useEditorElementTracking();
   const isBootstrappingScene = useRef(true);
   const hasHydratedInitialScene = useRef(false);
   const isUnmounting = useRef(false);
@@ -497,7 +505,8 @@ export const Editor: React.FC = () => {
     computeElementOrderSig,
     hasElementChanged,
     normalizeImageElementStatus: normalizeSceneForTransport,
-    recordElementVersion,
+    captureElementVersionInfo,
+    recordElementVersionInfo,
     setHasSceneChangesSinceLoad: markSceneChangedSinceLoad,
   });
   useEffect(() => {

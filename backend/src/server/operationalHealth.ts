@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Express } from "express";
 import { freeDiskPercent } from "../assets/pageCache";
 import { logger } from "../logger";
+import { createInFlightCoalescer } from "../utils/inFlightCoalescer";
 
 const COMPLETED_BACKUP = /^excalidash-(?:backup-.*\.zip|sqlite-.*\.db)$/;
 
@@ -182,7 +183,8 @@ export const createReadinessProbe = (options: OperationalHealthOptions) => {
   const now = options.now ?? Date.now;
   const readFree = options.readFreeDiskPercent ?? freeDiskPercent;
   let cached: { checkedAtMs: number; report: ReadinessCore } | null = null;
-  let inFlight: Promise<{ checkedAtMs: number; report: ReadinessCore }> | null = null;
+  const measurement = createInFlightCoalescer<{ checkedAtMs: number; report: ReadinessCore }>();
+  const MEASUREMENT_KEY = "readiness";
 
   const materialize = (entry: { checkedAtMs: number; report: ReadinessCore }): ReadinessReport => ({
     ...entry.report,
@@ -214,17 +216,13 @@ export const createReadinessProbe = (options: OperationalHealthOptions) => {
     if (cached && requestedAt - cached.checkedAtMs < options.cacheTtlMs) {
       return materialize(cached);
     }
-    if (!inFlight) {
-      inFlight = measure()
-        .then((entry) => {
-          cached = entry;
-          return entry;
-        })
-        .finally(() => {
-          inFlight = null;
-        });
-    }
-    return materialize(await inFlight);
+    const entry = await measurement.run(MEASUREMENT_KEY, () =>
+      measure().then((measured) => {
+        cached = measured;
+        return measured;
+      }),
+    );
+    return materialize(entry);
   };
 };
 
