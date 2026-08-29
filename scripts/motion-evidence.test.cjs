@@ -64,7 +64,13 @@ test("evidence publication rebases and retries a concurrent append without force
     return "";
   };
 
-  pushEvidenceWithRetry({ worktree: "/tmp/evidence", root: "/repo", run });
+  const verifiedWorktrees = [];
+  pushEvidenceWithRetry({
+    worktree: "/tmp/evidence",
+    root: "/repo",
+    run,
+    verifyIdentity: (worktree) => verifiedWorktrees.push(worktree),
+  });
 
   assert.deepEqual(
     calls.map(({ executable, args, options }) => [executable, args, options.cwd]),
@@ -75,6 +81,7 @@ test("evidence publication rebases and retries a concurrent append without force
       ["git", ["push", "fork", "HEAD:refs/heads/evidence"], "/tmp/evidence"],
     ],
   );
+  assert.deepEqual(verifiedWorktrees, ["/tmp/evidence"]);
   assert.equal(
     calls.some(({ args }) => args.includes("--force") || args.includes("--force-with-lease")),
     false,

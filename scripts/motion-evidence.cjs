@@ -56,6 +56,19 @@ function assertNiloIdentity(cwd) {
   }
 }
 
+function assertCommittedNiloIdentity(cwd) {
+  const commitIdentity = command(
+    "git",
+    ["show", "-s", "--format=author=%an <%ae>%ncommitter=%cn <%ce>", "HEAD"],
+    {
+      cwd,
+    },
+  );
+  if (commitIdentity !== `author=${REQUIRED_GIT_IDENTITY}\ncommitter=${REQUIRED_GIT_IDENTITY}\n`) {
+    throw new Error("Evidence commit identity verification failed.");
+  }
+}
+
 function convert(input, output) {
   if (!fs.statSync(input).isFile()) throw new Error(`Video does not exist: ${input}`);
   fs.mkdirSync(path.dirname(output), { recursive: true });
@@ -85,7 +98,7 @@ function convert(input, output) {
   };
 }
 
-function pushEvidenceWithRetry({ worktree, root, run = command, attempts = 3 }) {
+function pushEvidenceWithRetry({ worktree, root, run = command, attempts = 3, verifyIdentity }) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return run("git", ["push", "fork", "HEAD:refs/heads/evidence"], { cwd: worktree });
@@ -97,6 +110,7 @@ function pushEvidenceWithRetry({ worktree, root, run = command, attempts = 3 }) 
       // Rebase our unique evidence file onto that append; never force-push the retained branch.
       run("git", ["fetch", "fork", "evidence"], { cwd: root });
       run("git", ["rebase", "fork/evidence"], { cwd: worktree });
+      if (verifyIdentity) verifyIdentity(worktree);
     }
   }
 }
@@ -123,18 +137,7 @@ function publish({ packageId, pr, input, name }) {
         cwd: worktree,
       },
     );
-    const commitIdentity = command(
-      "git",
-      ["show", "-s", "--format=author=%an <%ae>%ncommitter=%cn <%ce>", "HEAD"],
-      {
-        cwd: worktree,
-      },
-    );
-    if (
-      commitIdentity !== `author=${REQUIRED_GIT_IDENTITY}\ncommitter=${REQUIRED_GIT_IDENTITY}\n`
-    ) {
-      throw new Error("Evidence commit identity verification failed.");
-    }
+    assertCommittedNiloIdentity(worktree);
     const url = evidenceUrl(packageId, filename);
     const body = `Motion evidence (${packageId}, targeted Playwright capture):\n\n![${name}](${url})\n\n12s maximum, 640px wide, 8fps, ${result.bytes} bytes.`;
     const preliminaryComment = JSON.parse(
@@ -152,7 +155,14 @@ function publish({ packageId, pr, input, name }) {
       ),
     );
     try {
-      pushEvidenceWithRetry({ worktree, root });
+      pushEvidenceWithRetry({
+        worktree,
+        root,
+        verifyIdentity: (retryWorktree) => {
+          assertNiloIdentity(retryWorktree);
+          assertCommittedNiloIdentity(retryWorktree);
+        },
+      });
     } catch (error) {
       try {
         command(
@@ -172,11 +182,17 @@ function publish({ packageId, pr, input, name }) {
       }
       throw error;
     }
-    command(
-      "gh",
-      ["pr", "edit", pr, "--repo", "davifernan/excalidash", "--add-label", "screenshot"],
-      { cwd: root },
-    );
+    try {
+      command(
+        "gh",
+        ["pr", "edit", pr, "--repo", "davifernan/excalidash", "--add-label", "screenshot"],
+        { cwd: root },
+      );
+    } catch (error) {
+      process.stderr.write(
+        `motion-evidence: evidence is published; screenshot label will be reconciled by the watcher: ${error.message}\n`,
+      );
+    }
     return { ...result, url, filename };
   } finally {
     try {
@@ -230,6 +246,7 @@ module.exports = {
   parseOptions,
   evidenceUrl,
   assertNiloIdentity,
+  assertCommittedNiloIdentity,
   pushEvidenceWithRetry,
   validatePublication,
 };
