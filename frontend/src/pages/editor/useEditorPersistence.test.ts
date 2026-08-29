@@ -4,6 +4,8 @@ import * as api from "../../api";
 import { compressExcalidrawFiles } from "../../utils/imageCompression";
 import { getFilesDelta } from "./shared";
 import { useEditorPersistence } from "./useEditorPersistence";
+import { canonicalizeStickyFontState } from "../../sticky/stickyDerivedState";
+import { createStickyNote } from "../../sticky/stickyNote";
 
 const { notification } = vi.hoisted(() => ({ notification: vi.fn() }));
 
@@ -95,7 +97,12 @@ const capabilitySet = () => ({
   interaction: fakeInteraction(),
 });
 
-const renderPersistence = (refs: ReturnType<typeof createRefs>, capabilities = capabilitySet()) =>
+const renderPersistence = (
+  refs: ReturnType<typeof createRefs>,
+  capabilities = capabilitySet(),
+  normalizeImageElementStatus: (elements: readonly any[]) => readonly any[] = (elements) =>
+    elements || [],
+) =>
   renderHook(() =>
     useEditorPersistence({
       refs,
@@ -105,7 +112,7 @@ const renderPersistence = (refs: ReturnType<typeof createRefs>, capabilities = c
       fileCapability: capabilities.fileCapability,
       interaction: capabilities.interaction,
       user: null,
-      normalizeImageElementStatus: (elements) => elements || [],
+      normalizeImageElementStatus,
       resolveSafeSnapshot: (elements) => ({
         snapshot: elements || [],
         prevented: false,
@@ -370,5 +377,71 @@ describe("useEditorPersistence", () => {
     expect(refs.lastPersistedFiles.current).toBe(compressedFiles);
     expect(refs.lastSyncedFiles.current).toBe(editorFiles);
     expect(getFilesDelta(refs.lastSyncedFiles.current, editorFiles)).toEqual({});
+  });
+
+  describe("rebaseOntoLatest and NIL-690's echo (measured, not assumed)", () => {
+    // NIL-690 asks that a content-identical remote OR persistence echo never
+    // bump an unchanged element's bookkeeping. The remote-flush path
+    // (useEditorCollaboration.ts) is fixed there; this hook has its own,
+    // separate reconcileElements call (rebaseOntoLatest, used whenever the
+    // local version base is unknown -- exactly this first-save-after-load
+    // case). Does an untouched Sticky label reach IT with a derived-vs-
+    // canonical signature mismatch too? Measured directly with the REAL
+    // canonicalizeStickyFontState as this hook's `normalizeImageElementStatus`
+    // (production wires the identical function in via Editor.tsx's
+    // `normalizeSceneForTransport`), not a no-op test stub.
+    it("an untouched sticky label reaches the rebase merge already-canonical on both sides -- no echo is possible here", async () => {
+      const note = createStickyNote(100, 100);
+      note.boundElements = [{ id: "sticky-label", type: "text" }];
+      const derivedLabel = {
+        id: "sticky-label",
+        type: "text",
+        containerId: note.id,
+        fontSize: 9.48519094968704, // the locally *derived* size the user sees
+        version: 7,
+        versionNonce: 11,
+        updated: 13,
+      };
+      // The server's stored copy of the SAME, unedited label: always
+      // canonical, because every save already ran it through this same
+      // function before it ever reached the network (Editor.tsx's
+      // normalizeSceneForTransport). Identical bookkeeping -- nothing
+      // changed it server-side either.
+      const serverLabel = { ...derivedLabel, fontSize: 20 };
+
+      vi.mocked(compressExcalidrawFiles).mockResolvedValue({
+        files: {},
+        changed: false,
+        changedIds: [],
+      });
+      vi.mocked(api.getDrawing).mockResolvedValue({
+        version: 7,
+        elements: [note, serverLabel],
+        files: {},
+      } as any);
+      vi.mocked(api.updateDrawing).mockResolvedValue({ version: 8 } as any);
+      const refs = createRefs({});
+      refs.currentDrawingVersion.current = null; // forces rebaseOntoLatest
+      const { result } = renderPersistence(refs, capabilitySet(), canonicalizeStickyFontState);
+
+      await act(async () => {
+        // The live scene still holds the locally *derived* fontSize -- this
+        // is what a real editor's in-memory state looks like, and what this
+        // hook's own `normalizeImageElementStatus` (canonicalizeStickyFontState)
+        // must reduce to canonical BEFORE reconcileElements ever compares it.
+        await result.current.saveDataRef.current?.("drawing", [note, derivedLabel], {}, {});
+      });
+
+      const [, savedPayload] = vi.mocked(api.updateDrawing).mock.calls[0]!;
+      const savedLabel = (savedPayload.elements as any[]).find((el) => el.id === "sticky-label");
+      // Proof, not assumption: the label reconcileElements merged is already
+      // canonical (matches the server's), AND its bookkeeping is untouched --
+      // there was never a signature mismatch for reconcileElements to react
+      // to, because both sides were canonical before the comparison ran.
+      expect(savedLabel.fontSize).toBe(20);
+      expect(savedLabel.version).toBe(7);
+      expect(savedLabel.versionNonce).toBe(11);
+      expect(savedLabel.updated).toBe(13);
+    });
   });
 });

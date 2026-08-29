@@ -122,6 +122,7 @@ model Drawing {
   snapshots                     DrawingSnapshot[]
   assets                        DrawingAsset[]
   pageViews                     DocumentPageView[]
+  elementGuestProvenance        DrawingElementGuestProvenance[]
   comments                      Comment[]
   activityEvents                ActivityEvent[]
   visits                        DrawingVisit[]
@@ -180,17 +181,40 @@ model DrawingSnapshot {
 /// Excalidraw element id rather than a foreign key because elements live in
 /// Drawing.elements JSON. A frame can identify at most one Context.
 model AgentContext {
-  id             String   @id @default(uuid())
-  drawingId      String
-  frameElementId String
-  pinned         Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                String   @id @default(uuid())
+  drawingId         String
+  frameElementId    String
+  pinned            Boolean  @default(false)
+  nextEventSequence Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  drawing Drawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  drawing      Drawing             @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  threadEvents AgentContextEvent[]
 
   @@unique([drawingId, frameElementId])
   @@index([drawingId, createdAt])
+}
+
+/// Server-ordered, append-only history for one Agent Context. The actor is
+/// deliberately polymorphic: agents and system events are not fake User rows.
+/// `payload` is an event-kind-specific JSON object; clients never overwrite or
+/// delete an event after it has been appended.
+model AgentContextEvent {
+  id               String   @id @default(uuid())
+  contextId        String
+  sequence         Int
+  actorKind        String
+  actorId          String?
+  actorDisplayName String
+  eventKind        String
+  payload          String
+  createdAt        DateTime @default(now())
+
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@unique([contextId, sequence])
+  @@index([contextId, createdAt])
 }
 
 /// A full, immutable source image for agent exploration. Unlike ordinary
@@ -804,6 +828,30 @@ model DocumentPageView {
 
   @@id([drawingId, elementId])
   @@index([assetId])
+}
+
+/// Whether an element has definitely been changed by a link-only guest.
+///
+/// Absence is deliberately NOT equivalent to false: elements that predate
+/// this table have unknown provenance. `false` is only written for a
+/// server-observed member creation or an explicit member confirmation;
+/// `true` is monotonic across ordinary writes and is only cleared by that
+/// explicit, audited confirmation path.
+///
+/// `elementId` is not a foreign key because elements live in Drawing.elements
+/// JSON rather than in their own table (the same boundary as DocumentPageView).
+model DrawingElementGuestProvenance {
+  drawingId        String
+  elementId        String
+  everGuestTouched Boolean
+  /// Optimistic guard for the explicit reset: a concurrent guest touch wins.
+  revision         Int      @default(1)
+  updatedAt        DateTime @updatedAt
+
+  drawing Drawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+
+  @@id([drawingId, elementId])
+  @@index([drawingId, everGuestTouched])
 }
 
 /// Which documents a snapshot needs, so restoring an old version still finds

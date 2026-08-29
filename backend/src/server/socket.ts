@@ -89,6 +89,7 @@ import {
   registerDocumentEditDraftRoomEvent,
 } from "./socketDocumentEditDrafts";
 import { drawingCommentsRoomName } from "./socketRoomNames";
+import { recordSuccessfulElementMutation } from "../agent/elementGuestProvenance";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -172,6 +173,11 @@ export const registerSocketHandlers = ({
     1_000,
   );
   const shareTokenBySocket = new Map<string, string>();
+  // Authorization provenance captured at the successful join. Presence.kind
+  // is presentation: auth-disabled bootstrap sessions deliberately render as
+  // guests while remaining the local owner identity, so it must never answer
+  // this question.
+  const joinedAsGuestBySocket = new Map<string, boolean>();
   const workshopTimers = createWorkshopTimerManager({ io });
   const presenters = new PresenterRegistry();
   const voting = new VotingRegistry();
@@ -227,6 +233,7 @@ export const registerSocketHandlers = ({
   const removeFromDrawing = async (socket: Socket, reason: string, leaveSocketRoom = true) => {
     const drawingId = drawingBySocket.get(socket.id);
     shareTokenBySocket.delete(socket.id);
+    joinedAsGuestBySocket.delete(socket.id);
     if (!drawingId) return;
     const lockDrawings = documentEditLocks.releasePresence(socket.id);
     followManager.clearSocket(socket.id, reason);
@@ -426,6 +433,41 @@ export const registerSocketHandlers = ({
         const decision = await getCapabilities(socket.id, drawingId);
         return decision.capabilities.uploadFiles;
       },
+      recordElementProvenance: async ({ drawingId, elements }) => {
+        const decision = await getCapabilities(socket.id, drawingId);
+        if (!canSocketEdit(socket.id, decision.access)) {
+          throw new Error("Element provenance authorization changed before admission");
+        }
+        // Member traffic cannot clear an existing fact and needs no socket-side
+        // row: member-created elements receive their known-clean row in the
+        // version-checked persistence transaction. Guest traffic cannot wait
+        // for that later save, because a member may be the client that performs
+        // it; the source actor would already be lost by then.
+        // Once this connection has entered as a guest, a concurrent promotion
+        // cannot retroactively make the already-originated event a member
+        // write. Conversely, a member whose standing grant was just removed
+        // is caught by the fresh capability decision. Either guest signal is
+        // therefore sufficient; neither transition opens a TOCTOU wash.
+        const isGuest = joinedAsGuestBySocket.get(socket.id) === true || decision.isGuest;
+        if (!isGuest) return;
+        // `elementOrder` is the sender's complete live-board order whenever
+        // that signature changes. It is synchronization metadata, not a
+        // mutation set: treating it as changed ids would mark every existing
+        // member element guest-touched after one guest insertion. Provenance
+        // follows only the element deltas carried by this event.
+        const changedElementIds = elements.flatMap((element) =>
+          element && typeof element === "object" && typeof (element as any).id === "string"
+            ? [(element as any).id as string]
+            : [],
+        );
+        await recordSuccessfulElementMutation({
+          prisma,
+          drawingId,
+          isGuest: true,
+          changedElementIds,
+          createdElementIds: [],
+        });
+      },
     });
     registerSelectionRoomEvent({
       socket,
@@ -576,6 +618,7 @@ export const registerSocketHandlers = ({
           receivesAgentEvents: !principal?.apiKey,
         };
         drawingBySocket.set(socket.id, drawingId);
+        joinedAsGuestBySocket.set(socket.id, decision.isGuest);
         if (shareToken) shareTokenBySocket.set(socket.id, shareToken);
         else shareTokenBySocket.delete(socket.id);
         presences.join(drawingId, presence);

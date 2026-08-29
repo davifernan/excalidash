@@ -113,8 +113,22 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     });
 
     await writer.getByRole("button", { name: "Save Markdown" }).click();
-    await expect(writer.getByRole("heading", { name: "Persisted notes" })).toBeVisible({
+    // NIL-664: the edit-mode split view renders a LIVE preview of the draft
+    // (same ReactMarkdown pipeline, under the same `editing` conditional as
+    // the source textarea) -- so a heading-text locator alone was already
+    // satisfied by line 128's `source.fill()`, long before this click, and
+    // gave zero guarantee that `saveDraft()` (and therefore the reload two
+    // lines below) waited for the save to actually complete. This is the
+    // mechanism behind three prior "fixes" that each measured green and
+    // still recurred: the test itself could reload while the real save was
+    // genuinely still in flight. Wait for the textarea to disappear first --
+    // that only happens once `editing` flips to false, which only happens
+    // after `saveDraft()`'s success path actually runs.
+    await expect(writer.getByRole("textbox", { name: "Markdown source" })).toHaveCount(0, {
       timeout: 30_000,
+    });
+    await expect(writer.getByRole("heading", { name: "Persisted notes" })).toBeVisible({
+      timeout: 5_000,
     });
     await expect(reader.getByRole("heading", { name: "Persisted notes" })).toBeVisible({
       timeout: 30_000,
