@@ -101,6 +101,59 @@ describe("editor broadcast delivery tracking", () => {
     expect(orderRef.current).toBe("new-order");
   });
 
+  it("records the version snapshot from send time, not a live reference Excalidraw mutates before the ack arrives (NIL-689 race, Hans-Friedrich finding on 5d0c040f)", () => {
+    // This is the one thing none of the other ack tests above prove: every
+    // other test leaves `element` untouched between broadcastChanges() and
+    // acknowledge(), so captureStub(element) reads the same value at both
+    // points and the test cannot tell a synchronous send-time snapshot apart
+    // from a re-read inside the async ack callback -- exactly the bug this
+    // fix closed. Only mutating `element` in between, the way Excalidraw's
+    // own bind action mutates a live element object while a packet for its
+    // pre-mutation state is still in flight, actually distinguishes them.
+    let acknowledge: ((value: any) => void) | undefined;
+    const emit = vi.fn((_event: string, _payload: unknown, ack?: (value: any) => void) => {
+      acknowledge = ack;
+    });
+    const recordElementVersionInfo = vi.fn();
+    const element = { id: "element-1", version: 2, versionNonce: 111 };
+    const sentSnapshot = captureStub(element);
+    const { result } = renderHook(() =>
+      useEditorBroadcast({
+        drawingId: "drawing-1",
+        files: { read: () => ({ ok: true, value: {} }) } as any,
+        lastLocalChangeAtRef: ref(0),
+        lastSyncedElementOrderSigRef: ref("same-order"),
+        lastSyncedFilesRef: ref({}),
+        latestAppStateRef: ref(null),
+        latestFilesRef: ref({}),
+        lastPersistedAppStateSigRef: ref(boardSettingsSignature(null)),
+        socketRef: ref<any>({ emit }),
+        debouncedSave: vi.fn(),
+        debouncedSavePreview: vi.fn(),
+        computeElementOrderSig: () => "same-order",
+        hasElementChanged: () => true,
+        normalizeImageElementStatus: (elements) => elements,
+        captureElementVersionInfo: captureStub,
+        recordElementVersionInfo,
+        setHasSceneChangesSinceLoad: vi.fn(),
+      }),
+    );
+
+    act(() => result.current.broadcastChanges([element], {}));
+    expect(acknowledge).toBeTypeOf("function");
+
+    // Excalidraw mutates the very same object in place -- e.g. completing a
+    // label bind -- while the packet built from its pre-mutation state is
+    // still on the wire.
+    element.version = 99;
+    element.versionNonce = 999;
+
+    act(() => acknowledge?.({ ok: true }));
+
+    expect(recordElementVersionInfo).toHaveBeenCalledWith(element.id, sentSnapshot);
+    expect(recordElementVersionInfo).not.toHaveBeenCalledWith(element.id, captureStub(element));
+  });
+
   it("retries unacknowledged element content instead of losing it", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
