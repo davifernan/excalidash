@@ -13,6 +13,10 @@ Team Library, workshop/presentation mode for frames, mind maps, and board-scoped
 `docs/product/PRODUCT_VISION.md` for the product thesis and `FORK.md` for what's actually
 shipped versus tracked from upstream.
 
+For the 0.15 Agent Context work, read
+[`docs/architecture/AGENT_CONTEXT.md`](docs/architecture/AGENT_CONTEXT.md) before changing
+Agent Context, runtime, presence, delegation, or context-authorization contracts.
+
 ## ExcaliDash fork execution protocol
 
 The Multica project `ExcaliDash Fork` is the operational source of truth for roadmap work.
