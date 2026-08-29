@@ -30,6 +30,7 @@ type CanvasHandlerRefs = {
   initialSceneElements: MutableRefObject<readonly any[]>;
   isBootstrappingScene: MutableRefObject<boolean>;
   isSyncing: MutableRefObject<boolean>;
+  pendingSyncFingerprint: MutableRefObject<Map<string, string> | null>;
   isHistoryPreviewing: MutableRefObject<boolean>;
   isUnmounting: MutableRefObject<boolean>;
   lastLocalChangeAt: MutableRefObject<number>;
@@ -90,6 +91,7 @@ export const useEditorCanvasHandlers = ({
     initialSceneElements: initialSceneElementsRef,
     isBootstrappingScene: isBootstrappingSceneRef,
     isSyncing: isSyncingRef,
+    pendingSyncFingerprint: pendingSyncFingerprintRef,
     isHistoryPreviewing: isHistoryPreviewingRef,
     isUnmounting: isUnmountingRef,
     lastLocalChangeAt: lastLocalChangeAtRef,
@@ -118,6 +120,31 @@ export const useEditorCanvasHandlers = ({
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
       if (!canEdit) return;
       if (isUnmountingRef.current) return;
+      // NIL-685: `isSyncingRef` closes as soon as the remote-driven scene
+      // update this guard is waiting for is actually visible in THIS
+      // `onChange` call -- fact, not a frame-count guess. Consume the
+      // fingerprint (useEditorCollaboration.ts sets it right after a
+      // successful `scene.apply()`) the moment every element it names
+      // matches; that consumption is what releases `isSyncingRef` here, not
+      // a timer.
+      const expectedFingerprint = pendingSyncFingerprintRef.current;
+      if (expectedFingerprint) {
+        let settled = true;
+        for (const el of elements) {
+          const id = el?.id;
+          if (typeof id !== "string" || !expectedFingerprint.has(id)) continue;
+          const actual = `${el?.version ?? 0}:${el?.versionNonce ?? 0}`;
+          if (expectedFingerprint.get(id) !== actual) {
+            settled = false;
+            break;
+          }
+        }
+        if (settled) {
+          pendingSyncFingerprintRef.current = null;
+          isSyncingRef.current = false;
+          return;
+        }
+      }
       if (isSyncingRef.current) return;
       // History preview is a read-only projection over the live canvas. Its
       // updateScene call still fires Excalidraw's onChange callback, so this
@@ -168,6 +195,7 @@ export const useEditorCanvasHandlers = ({
       initialSceneElementsRef,
       isBootstrappingSceneRef,
       isSyncingRef,
+      pendingSyncFingerprintRef,
       isHistoryPreviewingRef,
       isUnmountingRef,
       lastPersistedAppStateSigRef,
