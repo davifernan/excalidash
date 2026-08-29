@@ -55,6 +55,26 @@ describe("document pagination worker client", () => {
     },
   );
 
+  it("rejects an invalid worker message before pagination", async () => {
+    const postMessage = vi.fn<(response: DocumentPaginationResponse) => void>();
+    const workerScope: {
+      onmessage?: (event: MessageEvent<unknown>) => void;
+      postMessage: typeof postMessage;
+    } = { postMessage };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+
+    await import("./documentPagination.worker");
+    workerScope.onmessage?.(
+      new MessageEvent("message", { data: { source: 42, kind: "TEXT" } }),
+    );
+
+    expect(postMessage).toHaveBeenCalledWith({
+      ok: false,
+      error: "Invalid document pagination request.",
+    });
+  });
+
   it("posts source to a module worker and releases it after the result", async () => {
     const result = paginateDocumentOffThread("one\ntwo", "TEXT");
     const worker = FakeWorker.instances[0];
