@@ -29,6 +29,18 @@ vi.mock("../generated/client", () => ({
 const PAGE_SIZE = 4096;
 const MB = 1024 * 1024;
 
+type PrismaSingletonGlobal = typeof globalThis & {
+  __excalidashPrisma?: unknown;
+};
+
+const prismaSingleton = globalThis as PrismaSingletonGlobal;
+let hadPrismaSingleton = false;
+let originalPrismaSingleton: unknown;
+
+const clearPrismaSingleton = () => {
+  delete prismaSingleton.__excalidashPrisma;
+};
+
 const pragmaReplies = (pageCount: number, freeCount: number, autoVacuum = 0) => {
   queryRawUnsafe.mockImplementation(async (sql: string) => {
     if (sql.includes("page_count")) return [{ page_count: pageCount }];
@@ -42,7 +54,13 @@ const pragmaReplies = (pageCount: number, freeCount: number, autoVacuum = 0) => 
 /** Pages needed to describe a file of the given size. */
 const pagesFor = (bytes: number) => Math.round(bytes / PAGE_SIZE);
 
-const loadHelper = async () => (await import("../db/prisma")).reclaimSqliteFreeSpace;
+const loadHelper = async () => {
+  // db/prisma deliberately caches its client globally outside production.
+  // This test replaces that client, so it must not inherit a real client
+  // created by a preceding test file in Vitest's single fork.
+  clearPrismaSingleton();
+  return (await import("../db/prisma")).reclaimSqliteFreeSpace;
+};
 
 describe("reclaimSqliteFreeSpace", () => {
   const originalUrl = process.env.DATABASE_URL;
@@ -51,6 +69,9 @@ describe("reclaimSqliteFreeSpace", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    hadPrismaSingleton = Object.hasOwn(prismaSingleton, "__excalidashPrisma");
+    originalPrismaSingleton = prismaSingleton.__excalidashPrisma;
+    clearPrismaSingleton();
     queryRawUnsafe.mockReset();
     executeRawUnsafe.mockReset();
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "vacuum-test-"));
@@ -63,6 +84,25 @@ describe("reclaimSqliteFreeSpace", () => {
     if (originalFlag === undefined) delete process.env.ENABLE_SNAPSHOT_VACUUM;
     else process.env.ENABLE_SNAPSHOT_VACUUM = originalFlag;
     fs.rmSync(dir, { recursive: true, force: true });
+    if (hadPrismaSingleton) prismaSingleton.__excalidashPrisma = originalPrismaSingleton;
+    else clearPrismaSingleton();
+  });
+
+  it("does not reuse a Prisma singleton left by another test file", async () => {
+    const leakedClient = {
+      $queryRawUnsafe: vi.fn(),
+      $executeRawUnsafe: vi.fn(),
+    };
+    prismaSingleton.__excalidashPrisma = leakedClient;
+    pragmaReplies(pagesFor(220 * MB), pagesFor(210 * MB));
+
+    const reclaim = await loadHelper();
+
+    await reclaim();
+
+    expect(leakedClient.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(leakedClient.$executeRawUnsafe).not.toHaveBeenCalled();
+    expect(executeRawUnsafe).toHaveBeenCalledWith("VACUUM");
   });
 
   it("never touches a PostgreSQL database", async () => {
@@ -165,6 +205,9 @@ describe("incremental mode", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    hadPrismaSingleton = Object.hasOwn(prismaSingleton, "__excalidashPrisma");
+    originalPrismaSingleton = prismaSingleton.__excalidashPrisma;
+    clearPrismaSingleton();
     queryRawUnsafe.mockReset();
     executeRawUnsafe.mockReset();
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "vacuum-inc-"));
@@ -174,6 +217,8 @@ describe("incremental mode", () => {
   afterEach(() => {
     process.env.DATABASE_URL = originalUrl;
     fs.rmSync(dir, { recursive: true, force: true });
+    if (hadPrismaSingleton) prismaSingleton.__excalidashPrisma = originalPrismaSingleton;
+    else clearPrismaSingleton();
   });
 
   it("returns pages without rewriting the file", async () => {
@@ -223,6 +268,9 @@ describe("disk headroom", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    hadPrismaSingleton = Object.hasOwn(prismaSingleton, "__excalidashPrisma");
+    originalPrismaSingleton = prismaSingleton.__excalidashPrisma;
+    clearPrismaSingleton();
     queryRawUnsafe.mockReset();
     executeRawUnsafe.mockReset();
     statfs.mockReset();
@@ -234,6 +282,8 @@ describe("disk headroom", () => {
   afterEach(() => {
     process.env.DATABASE_URL = originalUrl;
     fs.rmSync(dir, { recursive: true, force: true });
+    if (hadPrismaSingleton) prismaSingleton.__excalidashPrisma = originalPrismaSingleton;
+    else clearPrismaSingleton();
   });
 
   it("refuses a full rewrite that would not fit", async () => {
