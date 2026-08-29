@@ -1,0 +1,100 @@
+import { expect, test, type Page } from "@playwright/test";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { createDrawing, deleteDrawing } from "./helpers/api";
+import { armTool, openEditor } from "./helpers/editor";
+
+const require = createRequire(import.meta.url);
+const Database = require("../../backend/node_modules/better-sqlite3") as new (path: string) => {
+  prepare(sql: string): { run(...values: unknown[]): void };
+  close(): void;
+};
+
+const placeStickyInFrame = async (page: Page) => {
+  const canvas = page.locator("canvas.excalidraw__canvas.interactive");
+  const canvasBox = await canvas.boundingBox();
+  if (!canvasBox) throw new Error("Interactive canvas is not available.");
+  await canvas.click({ position: { x: 900, y: 600 } });
+  await page.keyboard.press("f");
+  await page.mouse.move(canvasBox.x + 260, canvasBox.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(canvasBox.x + 900, canvasBox.y + 560, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+
+  const frame = await page.evaluate(() =>
+    (window as any).__EXCALIDASH_TEST__
+      .getSceneElements()
+      .find((element: any) => element.type === "frame"),
+  );
+  await armTool(page);
+  await page
+    .locator("canvas")
+    .last()
+    .click({
+      position: { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 },
+    });
+  await page.locator("textarea.excalidraw-wysiwyg").fill("Review this instruction");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
+  return page.evaluate(() => {
+    const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+    const frame = elements.find((element: any) => element.type === "frame");
+    const label = elements.find(
+      (element: any) => element.type === "text" && element.frameId === frame?.id,
+    );
+    return { frameId: frame?.id as string, labelId: label?.id as string };
+  });
+};
+
+const seedContext = (drawingId: string, frameElementId: string) => {
+  // NIL-675 owns the human Context-creation UI. This test seeds only the
+  // already-authoritative server row so NIL-676 can exercise its own UI seam.
+  const database = new Database(path.resolve(process.cwd(), "../backend/prisma/dev.db"));
+  try {
+    database
+      .prepare(
+        'INSERT INTO "AgentContext" (id,drawingId,frameElementId,pinned,updatedAt) VALUES (?,?,?,?,?)',
+      )
+      .run("e2e-instruction-context", drawingId, frameElementId, 0, new Date().toISOString());
+  } finally {
+    database.close();
+  }
+};
+
+test("instruction approval keeps preview, re-approval, and dispatch visibly separate", async ({
+  page,
+  request,
+}, testInfo) => {
+  const drawing = await createDrawing(request, { name: `Instruction approval ${Date.now()}` });
+  try {
+    await openEditor(page, drawing.id, { settleMs: 500 });
+    const { frameId, labelId } = await placeStickyInFrame(page);
+    expect(frameId).toBeTruthy();
+    expect(labelId).toBeTruthy();
+    seedContext(drawing.id, frameId);
+
+    await page.reload();
+    await openEditor(page, drawing.id, { settleMs: 1_000 });
+    await page.evaluate((elementId) => {
+      (window as any).__EXCALIDASH_TEST__.updateScene({
+        appState: { selectedElementIds: { [elementId]: true } },
+      });
+    }, labelId);
+
+    const toolbar = page.getByRole("toolbar", { name: "Agent-Anweisung" });
+    await expect(toolbar).toBeVisible();
+    await toolbar.getByRole("button", { name: "Als Agent-Anweisung freigeben" }).click();
+    await expect(toolbar.getByText("Geprüfte Fassung", { exact: false })).toBeVisible();
+    await expect(toolbar.getByRole("button", { name: "Diese Fassung freigeben" })).toBeVisible();
+    await expect(toolbar.getByRole("button", { name: "Agent-Dispatch öffnen" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("instruction-approval-preview.png") });
+
+    await toolbar.getByRole("button", { name: "Diese Fassung freigeben" }).click();
+    await expect(toolbar.getByText("Anweisung · freigegeben")).toBeVisible();
+    await expect(toolbar.getByRole("button", { name: "Agent-Dispatch öffnen" })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("instruction-approval-approved.png") });
+  } finally {
+    await deleteDrawing(request, drawing.id).catch(() => undefined);
+  }
+});
