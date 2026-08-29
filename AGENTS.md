@@ -185,7 +185,8 @@ Review focus: <what an independent reviewer should attack>
   den PR verweist. Screenshots kommen nie nach `main`.** Wenn ein Multica-Ticket das Label
   `screenshot needed` traegt, werden seine Bilder append-only auf dem dauerhaften Branch
   `evidence` unter einem paketbezogenen Pfad abgelegt, im PR per
-  `raw.githubusercontent.com`-URL eingebunden und der PR erhaelt das GitHub-Label `screenshot`.
+  `github.com/davifernan/excalidash/blob/evidence/PFAD?raw=true`-URL eingebunden und der PR
+  erhaelt das GitHub-Label `screenshot`.
   Der Ticket-Kommentar enthaelt nur den PR-Link, keinen Bild-Anhang.
 - Die dauerhafte Branch-Ausnahmeliste fuer jeden lokalen oder Remote-Aufraeumlauf ist
   `main`, `nilo/live`, `evidence`. `evidence` darf weder geloescht noch force-gepusht werden;
