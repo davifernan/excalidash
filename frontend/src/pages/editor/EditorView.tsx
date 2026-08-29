@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { NotificationHost, notify } from "../../notifications";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { ElementStackingBoundary } from "../../integrations/excalidraw/ElementStackingBoundary";
@@ -116,6 +116,35 @@ type EditorViewProps = {
   agentPresenceOverlay?: React.ReactNode;
 };
 
+const approvalSceneKey = (
+  elements: readonly any[],
+  appState: { selectedElementIds?: Record<string, unknown> } | null,
+) => {
+  const selectedIds = Object.keys(appState?.selectedElementIds ?? {})
+    .filter((id) => appState?.selectedElementIds?.[id])
+    .sort();
+
+  if (selectedIds.length === 0) return null;
+
+  return selectedIds
+    .map((id) => {
+      const element = elements.find((item) => item.id === id);
+      return element
+        ? [
+            id,
+            element.x,
+            element.y,
+            element.width,
+            element.height,
+            element.frameId,
+            element.text,
+            element.originalText,
+          ].join("\u0000")
+        : id;
+    })
+    .join("\u0001");
+};
+
 export const EditorView: React.FC<EditorViewProps> = ({
   id,
   accessLevel,
@@ -185,6 +214,21 @@ export const EditorView: React.FC<EditorViewProps> = ({
     elements: [],
     appState: null,
   });
+  const lastApprovalSceneKey = useRef<string | null>(null);
+  // Excalidraw emits fresh element and app-state objects on every change. The
+  // approval seam needs a snapshot only when the selected element changes; a
+  // per-change setState turns its own parent render back into Excalidraw work.
+  const handleCanvasChange = useCallback(
+    (elements: readonly any[], appState: any, files?: Record<string, any>) => {
+      const nextApprovalSceneKey = approvalSceneKey(elements, appState);
+      if (nextApprovalSceneKey !== lastApprovalSceneKey.current) {
+        lastApprovalSceneKey.current = nextApprovalSceneKey;
+        setApprovalScene({ elements, appState });
+      }
+      onCanvasChange(elements, appState, files);
+    },
+    [onCanvasChange],
+  );
   // Zen mode is handled by Excalidraw itself for everything rendered through
   // its own slots (MainMenu, renderTopRightUI both carry
   // `zen-mode-transition` already); this component no longer has a floating
@@ -267,10 +311,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             theme={theme === "dark" ? "dark" : "light"}
             langCode={langCode}
             initialData={initialData}
-            onChange={(elements, appState, files) => {
-              setApprovalScene({ elements, appState });
-              onCanvasChange(elements, appState, files);
-            }}
+            onChange={handleCanvasChange}
             onPointerUpdate={onPointerUpdate}
             onLibraryChange={onLibraryChange}
             excalidrawAPI={onSetExcalidrawAPI}

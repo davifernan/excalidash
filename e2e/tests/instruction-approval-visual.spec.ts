@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
 import Database from "../../backend/node_modules/better-sqlite3";
-import { createDrawing, deleteDrawing } from "./helpers/api";
+import { createDrawing, deleteDrawing, getDrawing, updateDrawing } from "./helpers/api";
 import { armTool, openEditor } from "./helpers/editor";
 
 const placeStickyInFrame = async (page: Page) => {
@@ -66,6 +66,14 @@ test("instruction approval keeps preview, re-approval, and dispatch visibly sepa
     const { frameId, labelId } = await placeStickyInFrame(page);
     expect(frameId).toBeTruthy();
     expect(labelId).toBeTruthy();
+    // The UI save is debounced. Persist the scene through the normal drawing
+    // API before declaring its frame a server Context, otherwise the Context
+    // can briefly reference a frame the stored drawing has not received yet.
+    const currentDrawing = await getDrawing(request, drawing.id);
+    await updateDrawing(request, drawing.id, {
+      elements: await page.evaluate(() => (window as any).__EXCALIDASH_TEST__.getSceneElements()),
+      version: currentDrawing.version,
+    });
     seedContext(drawing.id, frameId);
 
     await page.reload();
