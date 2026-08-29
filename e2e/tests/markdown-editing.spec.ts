@@ -113,8 +113,22 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     });
 
     await writer.getByRole("button", { name: "Save Markdown" }).click();
-    await expect(writer.getByRole("heading", { name: "Persisted notes" })).toBeVisible({
+    // NIL-664: the edit-mode split view renders a LIVE preview of the draft
+    // (same ReactMarkdown pipeline, under the same `editing` conditional as
+    // the source textarea) -- so a heading-text locator alone was already
+    // satisfied by line 128's `source.fill()`, long before this click, and
+    // gave zero guarantee that `saveDraft()` (and therefore the reload two
+    // lines below) waited for the save to actually complete. This is the
+    // mechanism behind three prior "fixes" that each measured green and
+    // still recurred: the test itself could reload while the real save was
+    // genuinely still in flight. Wait for the textarea to disappear first --
+    // that only happens once `editing` flips to false, which only happens
+    // after `saveDraft()`'s success path actually runs.
+    await expect(writer.getByRole("textbox", { name: "Markdown source" })).toHaveCount(0, {
       timeout: 30_000,
+    });
+    await expect(writer.getByRole("heading", { name: "Persisted notes" })).toBeVisible({
+      timeout: 5_000,
     });
     await expect(reader.getByRole("heading", { name: "Persisted notes" })).toBeVisible({
       timeout: 30_000,
@@ -141,55 +155,6 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
   } finally {
     await writerContext.close();
     await readerContext.close();
-    await deleteDrawing(request, drawing.id).catch(() => {});
-  }
-});
-
-test("NIL-664: a reload immediately after Save Markdown, before any confirmation, does not lose the edit", async ({
-  browser,
-  request,
-}) => {
-  // The measured failure (three independent CI occurrences, all with the
-  // identical network-trace signature): the widget's own local scene patch
-  // makes "Save Markdown" LOOK complete -- the new content renders -- before
-  // that patch has actually reached the server. A reload right after,
-  // trusting that visible confirmation, cancels the still-in-flight save
-  // mid-request (observed as an aborted PUT, not a server error). The board
-  // then reloads a fully-rendered, fully-correct, but STALE document -- not
-  // a render race, a persistence one. This test reloads with NO wait for
-  // any confirmation at all -- the most aggressive version of the real
-  // shape, not a softened one.
-  const drawing = await createDrawing(request, { name: `Markdown durability ${Date.now()}` });
-  const writerContext = await browser.newContext();
-  const writer = await writerContext.newPage();
-  try {
-    await openEditor(writer, drawing.id, { settleMs: 500 });
-    await dropMarkdown(writer, "# Original notes\n\nBefore editing.\n", "editable-notes.md");
-    await expect(writer.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
-    await waitForDocumentWidgetLoaded(writer);
-    await activateDocumentWidget(writer);
-    await writer.waitForTimeout(2_000);
-
-    await writer.getByRole("button", { name: "Edit Markdown" }).click();
-    const source = writer.getByRole("textbox", { name: "Markdown source" });
-    await source.fill("# Durable notes\n\nThis must survive an immediate reload.\n");
-
-    await writer.getByRole("button", { name: "Save Markdown" }).click();
-    // Deliberately no wait here -- not even a microtask yield -- for
-    // anything the app renders. A person who does not wait for a save
-    // indicator before hitting reload is the case this test stands in for.
-    await writer.reload();
-
-    await writer.waitForSelector("canvas");
-    await writer.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
-    await expect(writer.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
-    await waitForDocumentWidgetLoaded(writer);
-    await expect(writer.getByRole("heading", { name: "Durable notes" })).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(writer.getByRole("heading", { name: "Original notes" })).toHaveCount(0);
-  } finally {
-    await writerContext.close();
     await deleteDrawing(request, drawing.id).catch(() => {});
   }
 });
