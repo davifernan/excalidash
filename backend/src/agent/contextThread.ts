@@ -46,13 +46,15 @@ export class ContextThreadCorruptionError extends Error {
   }
 }
 
-const corruptRow = (row: any, reason: string, cause?: unknown): never => {
+const corruptRow = (row: any, reason: string, metadata?: { parserErrorType?: string }): never => {
   logger.error("Stored Agent Context event is corrupt", {
     contextId: row?.contextId,
     eventId: row?.id,
     sequence: row?.sequence,
+    eventKind: row?.eventKind,
+    createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : undefined,
     reason,
-    ...(cause ? { error: cause } : {}),
+    ...metadata,
   });
   throw new ContextThreadCorruptionError(
     `Stored Agent Context event ${String(row?.id ?? "<unknown>")} is corrupt: ${reason}`,
@@ -68,7 +70,11 @@ const parsePayload = (row: any): Record<string, unknown> => {
     return parsed;
   } catch (error) {
     if (error instanceof ContextThreadCorruptionError) throw error;
-    return corruptRow(row, "payload is not valid JSON", error);
+    return corruptRow(row, "payload is not valid JSON", {
+      // Parser messages and stacks can echo the malformed payload. The type
+      // identifies this failure class without forwarding any stored content.
+      parserErrorType: error instanceof Error ? error.name : typeof error,
+    });
   }
 };
 
@@ -94,7 +100,7 @@ const toEntry = (row: any): ContextThreadEntry => {
   };
 };
 
-const validatePayload = (kind: EventKind, payload: Record<string, unknown>): void => {
+const validatePayload = (kind: EventKind, payload: Record<string, unknown>): string => {
   const bounded = (value: unknown, maximum: number): value is string =>
     typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
   if (kind === "message" && !bounded(payload.text, 10_000)) {
@@ -121,9 +127,11 @@ const validatePayload = (kind: EventKind, payload: Record<string, unknown>): voi
       "A retract event needs the retracted event's id.",
     );
   }
-  if (canonicalJson(payload).length > 50_000) {
+  const serializedPayload = canonicalJson(payload);
+  if (serializedPayload.length > 50_000) {
     throw new ContextThreadError("INVALID_CONTEXT_EVENT", "Context event payload is too large.");
   }
+  return serializedPayload;
 };
 
 /**
@@ -145,7 +153,7 @@ export const appendContextThreadEvent = async (params: {
   if (!params.actor.displayName.trim() || params.actor.displayName.length > 200) {
     throw new ContextThreadError("INVALID_CONTEXT_EVENT", "The event actor needs a display name.");
   }
-  validatePayload(params.kind, params.payload);
+  const serializedPayload = validatePayload(params.kind, params.payload);
 
   const row = await params.prisma.$transaction(async (tx: any) => {
     const incremented = await tx.agentContext.updateMany({
@@ -181,7 +189,7 @@ export const appendContextThreadEvent = async (params: {
         actorId: params.actor.id ?? null,
         actorDisplayName: params.actor.displayName.trim(),
         eventKind: params.kind,
-        payload: canonicalJson(params.payload),
+        payload: serializedPayload,
       },
     });
   });

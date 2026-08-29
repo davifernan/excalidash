@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../generated/client";
 import { cleanupTestDb, createTestUser, getTestPrisma, setupTestDb } from "../__tests__/testUtils";
 import {
@@ -202,5 +202,32 @@ describe("context thread: append-only event log", () => {
     await expect(listContextThreadEvents({ prisma, drawingId, contextId })).rejects.toThrow(
       ContextThreadCorruptionError,
     );
+  });
+
+  it("identifies an unreadable persisted payload without logging any payload content", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await prisma.agentContextEvent.create({
+        data: {
+          contextId,
+          sequence: 1,
+          actorKind: "agent",
+          actorDisplayName: "Research Agent",
+          eventKind: "message",
+          payload: "LEAKME42-not-json",
+        },
+      });
+
+      await expect(listContextThreadEvents({ prisma, drawingId, contextId })).rejects.toThrow(
+        ContextThreadCorruptionError,
+      );
+
+      const logged = stderr.mock.calls.map(([chunk]) => String(chunk)).join("\n");
+      expect(logged).toContain("Stored Agent Context event is corrupt");
+      expect(logged).toContain(contextId);
+      expect(logged).not.toContain("LEAKME42");
+    } finally {
+      stderr.mockRestore();
+    }
   });
 });
