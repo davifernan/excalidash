@@ -1,0 +1,172 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { PrismaClient } from "../generated/client";
+import { cleanupTestDb, createTestUser, getTestPrisma, setupTestDb } from "../__tests__/testUtils";
+import {
+  ContextThreadError,
+  appendContextThreadEvent,
+  listContextThreadEvents,
+  listResolvedContextThreadEvents,
+  resolveContextThreadForRun,
+  resolveThreadState,
+} from "./contextThread";
+
+describe("context thread: append-only event log", () => {
+  let prisma: PrismaClient;
+  let userId: string;
+  let drawingId: string;
+  let contextId: string;
+
+  beforeAll(async () => {
+    setupTestDb();
+    prisma = getTestPrisma();
+  });
+
+  afterAll(async () => {
+    if (prisma) await cleanupTestDb(prisma);
+  });
+
+  beforeEach(async () => {
+    await prisma.agentContextEvent.deleteMany({});
+    await prisma.agentContext.deleteMany({});
+    await cleanupTestDb(prisma);
+    const user = await createTestUser(prisma, `contextthread-${Date.now()}@example.com`);
+    userId = user.id;
+    const drawing = await prisma.drawing.create({
+      data: { name: "Board", elements: "[]", appState: "{}", userId },
+    });
+    drawingId = drawing.id;
+    const context = await prisma.agentContext.create({
+      data: { drawingId, frameElementId: "frame-1" },
+    });
+    contextId = context.id;
+  });
+
+  const append = (
+    kind: string,
+    payload: Record<string, unknown>,
+    actor: { kind: "user" | "agent" | "system"; displayName: string } = {
+      kind: "agent",
+      displayName: "Research Agent",
+    },
+  ) =>
+    appendContextThreadEvent({
+      prisma,
+      drawingId,
+      contextId,
+      actor,
+      kind: kind as any,
+      payload,
+    });
+
+  it("assigns a strictly increasing sequence, shared with concurrent appends", async () => {
+    const [a, b, c, d] = await Promise.all([
+      append("message", { text: "one" }),
+      append("message", { text: "two" }),
+      append("message", { text: "three" }),
+      append("message", { text: "four" }),
+    ]);
+    const sequences = [a, b, c, d].map((event) => event.sequence).sort((x, y) => x - y);
+    expect(sequences).toEqual([1, 2, 3, 4]);
+
+    const listed = await listContextThreadEvents({ prisma, drawingId, contextId });
+    expect(listed.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("rejects an edit or retract that references a correction instead of a root event", async () => {
+    const original = await append("message", { text: "hello" });
+    const edit = await append("edit", { supersedes: original.id, text: "hello, corrected" });
+
+    await expect(append("edit", { supersedes: edit.id, text: "double edit" })).rejects.toThrow(
+      ContextThreadError,
+    );
+    await expect(append("retract", { retracts: edit.id })).rejects.toThrow(ContextThreadError);
+  });
+
+  it("rejects an edit/retract referencing an id that does not exist in this Context", async () => {
+    await expect(append("edit", { supersedes: "nope", text: "x" })).rejects.toThrow(
+      ContextThreadError,
+    );
+    await expect(append("retract", { retracts: "nope" })).rejects.toThrow(ContextThreadError);
+  });
+
+  describe("supersession resolution", () => {
+    it("a retracted event never appears in the run-context reader", async () => {
+      const original = await append("message", { text: "delete me" });
+      await append("retract", { retracts: original.id });
+
+      const forRun = await resolveContextThreadForRun({ prisma, drawingId, contextId });
+      expect(forRun.map((event) => event.id)).not.toContain(original.id);
+      expect(forRun).toHaveLength(0);
+    });
+
+    it("retraction is terminal: a later edit cannot revive a retracted event", async () => {
+      const original = await append("message", { text: "delete me" });
+      await append("retract", { retracts: original.id });
+      // Sequence-later than the retract, same root -- must not un-retract it.
+      await append("edit", { supersedes: original.id, text: "actually keep this" });
+
+      const forRun = await resolveContextThreadForRun({ prisma, drawingId, contextId });
+      expect(forRun).toHaveLength(0);
+
+      const resolved = await listResolvedContextThreadEvents({ prisma, drawingId, contextId });
+      expect(resolved).toHaveLength(1);
+      expect(resolved[0]!.status).toBe("retracted");
+    });
+
+    it("a chain of corrections resolves to the same final content in both readers", async () => {
+      const original = await append("message", { text: "v1" });
+      await append("edit", { supersedes: original.id, text: "v2" });
+      await append("edit", { supersedes: original.id, text: "v3" });
+      const lastEdit = await append("edit", { supersedes: original.id, text: "v4" });
+
+      const forRun = await resolveContextThreadForRun({ prisma, drawingId, contextId });
+      expect(forRun).toHaveLength(1);
+      expect(forRun[0]!.payload.text).toBe("v4");
+      expect(forRun[0]!.id).toBe(lastEdit.id);
+
+      const resolved = await listResolvedContextThreadEvents({ prisma, drawingId, contextId });
+      expect(resolved).toHaveLength(1);
+      expect(resolved[0]!.status).toBe("edited");
+      expect(resolved[0]!.currentEdit?.payload.text).toBe("v4");
+      expect(resolved[0]!.currentEdit?.id).toBe(lastEdit.id);
+      expect(resolved[0]!.edits.map((edit) => edit.payload.text)).toEqual(["v2", "v3", "v4"]);
+
+      // The property under test: both readers name the exact same winning
+      // event for the same chain, not just equal-looking text.
+      expect(resolved[0]!.currentEdit?.id).toBe(forRun[0]!.id);
+    });
+
+    it("an untouched root event stays active in both readers", async () => {
+      const original = await append("message", { text: "untouched" });
+
+      const forRun = await resolveContextThreadForRun({ prisma, drawingId, contextId });
+      expect(forRun.map((event) => event.id)).toEqual([original.id]);
+
+      const resolved = await listResolvedContextThreadEvents({ prisma, drawingId, contextId });
+      expect(resolved[0]!.status).toBe("active");
+      expect(resolved[0]!.currentEdit).toBeNull();
+    });
+
+    it("resolveThreadState is a pure function of its input (no hidden dependency on fetch order)", () => {
+      const base = {
+        contextId,
+        actor: { kind: "agent" as const, id: null, displayName: "Agent" },
+        createdAt: new Date().toISOString(),
+      };
+      const events = [
+        { ...base, id: "root-1", sequence: 1, kind: "message" as const, payload: { text: "a" } },
+        {
+          ...base,
+          id: "edit-1",
+          sequence: 2,
+          kind: "edit" as const,
+          payload: { supersedes: "root-1", text: "b" },
+        },
+      ];
+      const resolvedAsIs = resolveThreadState(events);
+      const resolvedShuffled = resolveThreadState([...events].reverse());
+      expect(resolvedAsIs).toEqual(resolvedShuffled);
+      expect(resolvedAsIs[0]!.currentEdit?.payload.text).toBe("b");
+    });
+  });
+});
