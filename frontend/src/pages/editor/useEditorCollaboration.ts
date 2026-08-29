@@ -423,6 +423,7 @@ export const useEditorCollaboration = ({
       isSyncing.current = true;
       let appliedSceneMutation = false;
       let finalElementsById: Map<string, any> | null = null;
+      let changedElementsFingerprint: Map<string, string> | null = null;
       // Declared here, not `const` inside `try`, so the `finally` block below
       // (which builds the fingerprint from it) can still see it -- a bare
       // `const` there is out of scope in `finally` and throws a
@@ -532,32 +533,7 @@ export const useEditorCollaboration = ({
           latestFilesRef.current = nextFiles;
           lastSyncedFilesRef.current = nextFiles;
         }
-      } finally {
         if (appliedSceneMutation) {
-          // `scene.apply()` returning does not mean Excalidraw's own
-          // `onChange` for that applied update has fired yet -- it goes
-          // through `updateScene()` -> `setState()`, committed on a later
-          // render, not synchronously inside `apply()`. Resetting the guard
-          // here, synchronously, closed the window before that `onChange`
-          // arrived: `handleCanvasChange` (useEditorCanvasHandlers.ts) would
-          // then see `isSyncing.current === false` for a change this client
-          // did not make, treat it as a local edit, and re-broadcast it
-          // (confirmed directly, NIL-685: `deriveStickyFontState` computed
-          // the correct value every cycle, `scene.apply` reported `ok:true`
-          // every cycle, and `handleCanvasChange` fired with
-          // `isSyncing:false` immediately after each one).
-          //
-          // A fixed delay (N animation frames) cannot fix this correctly: too
-          // short and the race reopens under load (this is what shipped as a
-          // partial fix during the 0.14 investigation and still failed
-          // ~20-25% of runs); too long and a genuine local edit typed in that
-          // window is silently dropped. Waiting for a *fact* instead of a
-          // *guess* removes the choice: record the version/versionNonce this
-          // client expects to see echoed back, per updated element, and let
-          // `handleCanvasChange` release the guard itself the moment an
-          // `onChange` reports exactly that state -- however many frames that
-          // takes.
-          //
           // Only elements this flush actually moved go into the fingerprint
           // (compared against `previousElementsById`, the pre-flush
           // snapshot) -- not every id in `pendingElements`. `reconcileElements`
@@ -570,14 +546,10 @@ export const useEditorCollaboration = ({
           // full batch would then wait for a state that was never going to
           // arrive, and every one of THIS client's own subsequent local
           // edits -- typed or dragged while that dangling fingerprint sat
-          // there -- would fail to match it and get silently swallowed by
-          // the `isSyncingRef.current` check below, for as long as 2s
-          // (confirmed directly, NIL-685: reproduced as a two-context ambient
-          // -drag test timing out because the dragging client itself stopped
-          // broadcasting its own drag, not because the guard leaked in the
-          // other direction). If nothing in this batch actually changed,
-          // there is nothing to wait for -- reset immediately, the same as
-          // the no-mutation path below.
+          // there -- would fail to match it (confirmed directly, NIL-685:
+          // reproduced as a two-context ambient-drag test timing out because
+          // the dragging client itself stopped broadcasting its own drag,
+          // not because the guard leaked in the other direction).
           const fingerprint = new Map<string, string>();
           for (const el of pendingElements) {
             const applied = finalElementsById?.get(el.id) ?? el;
@@ -589,35 +561,60 @@ export const useEditorCollaboration = ({
             if (previousVersion === appliedVersion) continue;
             fingerprint.set(el.id, appliedVersion);
           }
-          if (fingerprint.size === 0) {
-            // Hans-Friedrich finding on PR #249, Medium: every reset of
-            // `isSyncing` here must clear `pendingSyncFingerprintRef` in the
-            // same breath. Without it, a still-outstanding fingerprint from
-            // an EARLIER flush cycle (this one overwrote `isSyncing.current
-            // = true` unconditionally at the top of this function, before
-            // knowing whether it would have anything of its own to wait
-            // for) would survive with the guard now reading `false` --
-            // exactly the half-reset inconsistency the original bug grew
-            // from, just one level removed.
-            pendingSyncFingerprintRef.current = null;
-            isSyncing.current = false;
-          } else {
-            pendingSyncFingerprintRef.current = fingerprint;
-            window.setTimeout(() => {
-              if (pendingSyncFingerprintRef.current === fingerprint) {
-                pendingSyncFingerprintRef.current = null;
-                isSyncing.current = false;
-                log.warn(
-                  "[Editor] isSyncing guard force-cleared after timeout -- expected onChange never arrived (NIL-685 fallback)",
-                  {},
-                );
-              }
-            }, 2000);
-          }
-        } else {
-          // Same reasoning as the `fingerprint.size === 0` branch above:
-          // clear both together, never `isSyncing` alone.
-          pendingSyncFingerprintRef.current = null;
+          if (fingerprint.size > 0) changedElementsFingerprint = fingerprint;
+        }
+      } finally {
+        // `scene.apply()` returning does not mean Excalidraw's own `onChange`
+        // for that applied update has fired yet -- it goes through
+        // `updateScene()` -> `setState()`, committed on a later render, not
+        // synchronously inside `apply()`. Resetting the guard here,
+        // synchronously, closed the window before that `onChange` arrived:
+        // `handleCanvasChange` (useEditorCanvasHandlers.ts) would then see
+        // `isSyncing.current === false` for a change this client did not
+        // make, treat it as a local edit, and re-broadcast it (confirmed
+        // directly, NIL-685: `deriveStickyFontState` computed the correct
+        // value every cycle, `scene.apply` reported `ok:true` every cycle,
+        // and `handleCanvasChange` fired with `isSyncing:false` immediately
+        // after each one).
+        //
+        // A fixed delay (N animation frames) cannot fix this correctly: too
+        // short and the race reopens under load (this is what shipped as a
+        // partial fix during the 0.14 investigation and still failed
+        // ~20-25% of runs); too long and a genuine local edit typed in that
+        // window is silently dropped. Waiting for a *fact* instead of a
+        // *guess* removes the choice: record the version/versionNonce this
+        // client expects to see echoed back, per updated element, and let
+        // `handleCanvasChange` release the guard itself the moment an
+        // `onChange` reports exactly that state -- however many frames that
+        // takes.
+        if (changedElementsFingerprint) {
+          const fingerprint = changedElementsFingerprint;
+          pendingSyncFingerprintRef.current = fingerprint;
+          window.setTimeout(() => {
+            if (pendingSyncFingerprintRef.current === fingerprint) {
+              pendingSyncFingerprintRef.current = null;
+              isSyncing.current = false;
+              log.warn(
+                "[Editor] isSyncing guard force-cleared after timeout -- expected onChange never arrived (NIL-685 fallback)",
+                {},
+              );
+            }
+          }, 2000);
+        } else if (pendingSyncFingerprintRef.current === null) {
+          // This cycle had nothing of its own to wait for (Hans-Friedrich
+          // finding on PR #249, Medium/Low: this branch previously ran
+          // unconditionally, in two separately-worded but identical copies,
+          // whenever there was no NEW fingerprint to install). But
+          // `pendingSyncFingerprintRef` may already hold one from an EARLIER,
+          // still-unconfirmed flush cycle -- this function overwrites
+          // `isSyncing.current = true` unconditionally at its own start,
+          // before knowing whether THIS cycle will have work of its own.
+          // That earlier wait is still legitimate: its own `onChange` has
+          // not arrived yet, and clearing `isSyncing`/the fingerprint here
+          // just because this cycle had nothing to add would cancel it --
+          // reopening the exact race this guard exists to close, for that
+          // earlier element, one interleaving later. Only reset when there
+          // is truly nothing outstanding.
           isSyncing.current = false;
         }
       }
