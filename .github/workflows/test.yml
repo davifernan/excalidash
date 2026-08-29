@@ -1377,3 +1377,80 @@ jobs:
         run: |
           cd backend
           npx ts-node src/securityTest.ts
+
+  # NIL-667: nginx only inherits a parent block's `add_header` directives when
+  # the current `location` has none of its own -- add even one, and every
+  # server-level security header (X-Frame-Options, X-Content-Type-Options,
+  # Referrer-Policy, Permissions-Policy, Content-Security-Policy) silently
+  # stops applying to it. frontend/nginx.conf.template's server block set all
+  # five "always", but three location blocks each added their own
+  # Cache-Control/Referrer-Policy and dropped the rest -- invisible against
+  # the Vite dev server, which sends no nginx headers at all, and only
+  # checkable against what nginx actually sends, never against the config
+  # file as text (that's why this builds and runs the real image rather than
+  # parsing nginx.conf.template).
+  #
+  # Deliberately its own job rather than folding into NIL-649's "E2E Built
+  # Image Smoke" job (still on its own PR, #229, as of this job's addition):
+  # every header this checks comes from nginx serving static files directly,
+  # never through the /api/ or /socket.io/ proxy_pass paths, so this needs
+  # only the frontend image -- no backend, no Playwright browser, no E2E
+  # harness build flag. That makes a plain `docker build` + `curl` faster and
+  # simpler than standing up the full compose stack a browser-driven flow
+  # needs, and this job has nothing to gain from being harnessed for a
+  # browser once NIL-649 lands: an independent curl-based check on the same
+  # image family is arguably more convincing evidence than a shared spec
+  # file would be, precisely because it does not need whatever
+  # `built-image-smoke.spec.ts` sets up for entirely different reasons.
+  #
+  # Not yet in ops/repository-rules.sh's required_status_checks -- same
+  # ordering as Env Boundary and CORS Header Boundary: a brand new job name
+  # is never made a required check before it has run green on main at least
+  # once.
+  nginx-security-headers:
+    name: Nginx Security Headers (NIL-667)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the frontend image
+        run: docker build -f frontend/Dockerfile -t excalidash-frontend-nil667 .
+
+      - name: Start the built frontend image
+        # Own host port (16768), never 6767 (production) or a port another CI
+        # job might also be using. No backend container exists here -- nginx
+        # still validates its config at startup, and a plain hostname
+        # (the container default "backend:8000") fails DNS resolution with
+        # no compose network to resolve it in ("host not found in upstream
+        # \"backend\""), so BACKEND_URL is an IP:port instead. nginx never
+        # needs it to actually answer: nothing this job checks reaches the
+        # /api/ or /socket.io/ proxy_pass paths.
+        run: docker run -d --name excalidash-frontend-nil667 -p 16768:80 -e BACKEND_URL=127.0.0.1:1 excalidash-frontend-nil667
+
+      - name: Wait for nginx to answer
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:16768/index.html > /dev/null; then
+              echo "Frontend is ready!"
+              break
+            fi
+            echo "Attempt $i: not ready yet..."
+            sleep 1
+          done
+          curl -sf http://localhost:16768/index.html > /dev/null || {
+            echo "Frontend never became ready. Container logs:"
+            docker logs excalidash-frontend-nil667
+            exit 1
+          }
+
+      - name: Check security headers on the running image
+        run: scripts/check-nginx-security-headers.sh http://localhost:16768
+
+      - name: Container logs (always, for diagnosis)
+        if: always()
+        run: docker logs excalidash-frontend-nil667
+
+      - name: Tear down
+        if: always()
+        run: docker rm -f excalidash-frontend-nil667

@@ -9,7 +9,64 @@ declare global {
   var __excalidashPrisma: PrismaClient | undefined;
 }
 
-const prismaClient = globalThis.__excalidashPrisma ?? new PrismaClient();
+// NIL-668: SQLite is single-writer. SQLITE_BUSY_TIMEOUT_MS below (applied as
+// `PRAGMA busy_timeout`) makes a blocked writer wait for a lock instead of
+// failing immediately -- but Prisma's OWN interactive-transaction timeout
+// defaulted to that exact same 5000ms, racing the same clock with zero
+// designed margin. Any transaction that has to wait on busy_timeout for even
+// a large fraction of that window before its actual queries run was then cut
+// off by Prisma's own timeout before it could finish, regardless of how
+// little real work it had left -- exactly the shape measured on NIL-668 (all
+// observed overruns were under 100ms past the 5000ms ceiling, consistent
+// with "the wait alone nearly exhausted the budget"). Concurrency here is
+// not Playwright's test workers (already 1) but the application's own:
+// several sockets independently joining the same board each open their own
+// multi-query `socketDocumentPages.ts` snapshot transaction, and SQLite
+// serializes them.
+//
+// Both clocks moved together, not just Prisma's outer one: this PR's own
+// first CI run still hit a SEPARATE SQLite-side failure ("Operations timed
+// out after `N/A`. Context: the database failed to respond ...", no
+// "however N ms passed" line) -- that message is busy_timeout itself
+// expiring, a distinct clock from Prisma's transactionOptions.timeout, and
+// raising only the Prisma-side clock does nothing for it. Both get raised
+// together, keeping the same real margin between them.
+//
+// Kept as one named constant, not two independent literals, so
+// SQLITE_TRANSACTION_TIMEOUT_MS below can never silently drift back to
+// equaling it -- see prisma.transactionOptions.test.ts, which asserts the
+// margin directly rather than trusting the comment.
+export const SQLITE_BUSY_TIMEOUT_MS = 8000;
+// Total transaction lifetime, INCLUDING any busy_timeout wait a query inside
+// it hits. Must clear SQLITE_BUSY_TIMEOUT_MS with real margin for the
+// queries that follow lock acquisition.
+export const SQLITE_TRANSACTION_TIMEOUT_MS = 12000;
+// Time to acquire a slot to START a transaction, separate from
+// SQLITE_TRANSACTION_TIMEOUT_MS above (which only starts counting once a
+// transaction has begun). Matches SQLITE_BUSY_TIMEOUT_MS: a queue of several
+// same-shaped snapshot transactions piling up from concurrent socket joins
+// can make even STARTING one wait roughly as long as a write-lock wait
+// would.
+export const SQLITE_TRANSACTION_MAX_WAIT_MS = 8000;
+
+// Scoped to SQLite only (same `file:` check configureSqlite below uses) so a
+// PostgreSQL deployment is untouched -- Postgres has no comparable single-
+// writer wait to race against in the first place.
+export const isSqliteDatabase = (databaseUrl: string | undefined): boolean =>
+  !databaseUrl || databaseUrl.startsWith("file:");
+
+const prismaClient =
+  globalThis.__excalidashPrisma ??
+  new PrismaClient(
+    isSqliteDatabase(config.databaseUrl)
+      ? {
+          transactionOptions: {
+            maxWait: SQLITE_TRANSACTION_MAX_WAIT_MS,
+            timeout: SQLITE_TRANSACTION_TIMEOUT_MS,
+          },
+        }
+      : undefined,
+  );
 
 if (config.nodeEnv !== "production") {
   globalThis.__excalidashPrisma = prismaClient;
@@ -36,11 +93,15 @@ export async function configureSqlite(): Promise<void> {
     // Set busy_timeout first so the WAL switch can wait for any lock the
     // initial Prisma client setup may have left in flight.
     //
-    // PRAGMA statements return rows (busy_timeout returns 5000,
+    // PRAGMA statements return rows (busy_timeout returns 8000,
     // journal_mode returns "wal"), so we use $queryRaw — the tagged-
     // template form rejects accidental interpolation, and accepts the
-    // returned row.
-    await prismaClient.$queryRaw`PRAGMA busy_timeout = 5000;`;
+    // returned row. The literal below must match SQLITE_BUSY_TIMEOUT_MS
+    // above (interpolating it here would parameterize the PRAGMA's value,
+    // which this deliberately avoids -- see the comment on $queryRaw just
+    // above); prisma.transactionOptions.test.ts checks the two stay equal
+    // by reading this file's own source rather than trusting the comment.
+    await prismaClient.$queryRaw`PRAGMA busy_timeout = 8000;`;
     await prismaClient.$queryRaw`PRAGMA journal_mode = WAL;`;
     await enableIncrementalAutoVacuumOnSmallDatabase();
   } catch (err) {
