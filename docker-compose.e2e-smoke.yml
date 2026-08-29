@@ -41,8 +41,10 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # Both Dockerfiles consume the root workspace lockfile and the shared
+      # domain package, so their context must be the repository root.
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: excalidash-e2e-smoke-backend
     mem_limit: 1500m
     memswap_limit: 1500m

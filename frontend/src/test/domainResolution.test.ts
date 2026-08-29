@@ -8,9 +8,8 @@ import viteConfig from "../../vite.config";
 import vitestConfig from "../../vitest.config";
 
 function domainAlias(config: typeof viteConfig | typeof vitestConfig) {
-  const resolved = typeof config === "function"
-    ? config({ command: "serve", mode: "test" })
-    : config;
+  const resolved =
+    typeof config === "function" ? config({ command: "serve", mode: "test" }) : config;
   const aliases = resolved.resolve?.alias;
 
   if (!aliases || Array.isArray(aliases)) return undefined;
