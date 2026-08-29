@@ -235,6 +235,7 @@ export const revokeLinkShare = async (
 export type GuestCapabilities = {
   uploadFiles: boolean;
   viewComments: boolean;
+  agentContextContribute: boolean;
 };
 
 export type GuestCapabilitySettings = {

@@ -1,6 +1,6 @@
 import React from "react";
 import clsx from "clsx";
-import { MessageSquare, ShieldAlert, Upload } from "lucide-react";
+import { Bot, MessageSquare, ShieldAlert, Upload } from "lucide-react";
 import type { GuestCapabilitySettings } from "../../api";
 import { CustomSelect } from "./CustomSelect";
 
@@ -8,6 +8,7 @@ type Props = {
   settings: GuestCapabilitySettings | null;
   onToggleUploadFiles: () => void | Promise<void>;
   onToggleViewComments: () => void | Promise<void>;
+  onToggleAgentContextContribute: () => void | Promise<void>;
 };
 
 const ON_OFF_OPTIONS = [
@@ -98,6 +99,7 @@ export const GuestCapabilitiesSection: React.FC<Props> = ({
   settings,
   onToggleUploadFiles,
   onToggleViewComments,
+  onToggleAgentContextContribute,
 }) => {
   if (!settings) return null;
 
@@ -126,6 +128,16 @@ export const GuestCapabilitiesSection: React.FC<Props> = ({
           effectiveLabel="Guests can see comments on this board."
           ineffectiveLabel="Guests cannot see comments on this board."
           onToggle={onToggleViewComments}
+        />
+        <CapabilityRow
+          icon={<Bot size={16} strokeWidth={2.5} />}
+          title="Contribute to Agent Contexts"
+          board={settings.board.agentContextContribute}
+          instanceAllowed={settings.instance.agentContextContribute}
+          effective={settings.effective.agentContextContribute}
+          effectiveLabel="A guest's own board content may be read by an agent working in this board's Agent Contexts."
+          ineffectiveLabel="A guest's own board content is never read by an agent working in this board's Agent Contexts, even if it ends up inside one."
+          onToggle={onToggleAgentContextContribute}
         />
       </div>
     </section>

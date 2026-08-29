@@ -10,6 +10,7 @@ const buildApp = (options?: { role?: "ADMIN" | "USER" }) => {
   const systemConfigRow = {
     guestUploadEnabled: false,
     guestCommentVisibilityEnabled: true,
+    guestAgentContextContributeEnabled: false,
   };
   const prisma = {
     systemConfig: {
@@ -75,7 +76,7 @@ describe("instance-wide guest capability ceiling", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      capabilities: { uploadFiles: false, viewComments: true },
+      capabilities: { uploadFiles: false, viewComments: true, agentContextContribute: false },
     });
   });
 
@@ -86,7 +87,7 @@ describe("instance-wide guest capability ceiling", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      capabilities: { uploadFiles: true, viewComments: true },
+      capabilities: { uploadFiles: true, viewComments: true, agentContextContribute: false },
     });
     expect(systemConfigRow.guestUploadEnabled).toBe(true);
   });

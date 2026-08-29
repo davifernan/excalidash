@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { config } from "../config";
+import { logger } from "../logger";
 import { readStoredBytes } from "../assets/assetStorage";
 import { readWidgetRecord } from "../assets/customDataSchema";
 import { decodeSnapshotField, encodeSnapshotField } from "../snapshots/snapshotCodec";
@@ -13,8 +14,17 @@ import {
   requireAgentMountCapability,
   resolveEffectiveAgentContextIds,
 } from "../authz/agentContext";
+import {
+  combineGuestCapabilities,
+  getBoardGuestCapabilityPolicy,
+  getInstanceGuestCapabilities,
+} from "../authz/capabilities";
 import { type ContextIdentity, contextFrameBounds, validateContextFrames } from "./boardContexts";
 import { canonicalJson, secretsEqual, sha256Json, sha256Text } from "./canonicalJson";
+import {
+  isEligibleForAgentContribution,
+  readElementGuestProvenance,
+} from "./elementGuestProvenance";
 import {
   boardAgentAudienceFromMount,
   boardAgentFocusTargetsFromResult,
@@ -435,9 +445,57 @@ export const executeAgentBoardTool = async (params: {
   const scene = await loadMountedScene(params);
   const args = params.args ?? {};
   const { byId, resolve } = contextIndex(scene.elements, scene.contexts);
-  const allowedElements = scene.elements.filter((element) =>
+  const inAllowedContext = scene.elements.filter((element) =>
     canReadAgentContext(scene.allowedContextIds, resolve(element)),
   );
+  // NIL-677 Gate 2: a Context-readable element still only contributes if its
+  // guest provenance clears isEligibleForAgentContribution. Batched once per
+  // tool call, not per element -- every tool below reads from the same
+  // allowedElements, so this is the single chokepoint, not N lookups.
+  const [boardGuestPolicy, instanceGuestPolicy] = await Promise.all([
+    getBoardGuestCapabilityPolicy(params.prisma, params.drawingId),
+    getInstanceGuestCapabilities(params.prisma),
+  ]);
+  const agentContextContributeEnabled = combineGuestCapabilities(
+    instanceGuestPolicy,
+    boardGuestPolicy,
+  ).agentContextContribute;
+  const provenance = await readElementGuestProvenance(
+    params.prisma,
+    params.drawingId,
+    inAllowedContext.map((element) => element.id as string),
+  );
+  const provenanceByElementId = new Map(provenance.map((entry) => [entry.elementId, entry.status]));
+  // A Context's own frame is the boundary marker, not admitted content --
+  // registration conservatively backfills its provenance the same as any
+  // other pre-existing element in the frame (boardContexts.ts's
+  // elementIdsInContextFrame includes the frame itself), so a frame with no
+  // confirmed-clean row would otherwise become unreadable and break every
+  // tool that needs to resolve it, including ones that never expose its
+  // content. Gate 2 protects content leaving the frame, not whether the
+  // frame boundary itself can be addressed.
+  const contextFrameElementIds = new Set(scene.contexts.map((context) => context.frameElementId));
+  const allowedElements = inAllowedContext.filter((element) => {
+    if (contextFrameElementIds.has(element.id as string)) return true;
+    const status = provenanceByElementId.get(element.id as string) ?? "unknown";
+    const eligible = isEligibleForAgentContribution({ status, agentContextContributeEnabled });
+    if (!eligible) {
+      // Not proof that Gate 1 (assertGuestElementWriteAllowed) was bypassed
+      // -- an ordinary member drag of old, never-confirmed content into the
+      // frame produces the exact same status, and Gate 1 never restricts
+      // members. Still worth surfacing rather than silently filtering: this
+      // is the one place a human can see that Gate 2 is actually doing
+      // something, not just agreeing with Gate 1 by construction.
+      logger.warn("NIL-677 Gate 2 excluded a Context-readable element from Agent Context", {
+        drawingId: params.drawingId,
+        runId: params.runId,
+        elementId: element.id,
+        contextId: resolve(element),
+        provenanceStatus: status,
+      });
+    }
+    return eligible;
+  });
   const allowedElementIds = new Set(allowedElements.map((element) => element.id as string));
   const revisionAssetIds = new Set<string>(
     scene.revision.assets.map((asset: any) => String(asset.assetId)),

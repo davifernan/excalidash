@@ -7,6 +7,7 @@ import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { registerAgentContext } from "../agent/boardContexts";
 import { executeAgentBoardTool } from "../agent/boardMount";
+import { confirmElementGuestProvenance } from "../agent/elementGuestProvenance";
 import { getTestPrisma, setupTestDb } from "./testUtils";
 
 describe("immutable Agent Board Mount (NIL-671)", () => {
@@ -179,6 +180,22 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     });
     contextAId = contextA.id;
     contextBId = contextB.id;
+    // NIL-677 Gate 2: registration conservatively marks pre-existing content
+    // as guest-touched pending review (contextA/B.provenanceReview). This
+    // fixture is a solo owner's own content with no guest ever involved --
+    // confirm it, the same action a diligent owner takes at registration,
+    // so this file keeps testing NIL-671's revision pinning and context
+    // boundary rather than re-litigating NIL-677's separate provenance gate.
+    await confirmElementGuestProvenance(
+      prisma,
+      drawingId,
+      contextA.provenanceReview.elementIdsRequiringConfirmation,
+    );
+    await confirmElementGuestProvenance(
+      prisma,
+      drawingId,
+      contextB.provenanceReview.elementIdsRequiringConfirmation,
+    );
 
     for (const side of ["a", "b"] as const) {
       const blob = await prisma.storedBlob.create({

@@ -224,4 +224,60 @@ export const assertPersistedAgentContextFrames = async (
   if (contexts.length > 0) validateContextFrames(records, contexts);
 };
 
+export class AgentContextGuestWriteDeniedError extends Error {
+  constructor(public readonly elementIds: readonly string[]) {
+    super(
+      `Guests cannot write to elements inside a registered Agent Context frame: ${elementIds.join(", ")}`,
+    );
+    this.name = "AgentContextGuestWriteDeniedError";
+  }
+}
+
+/**
+ * NIL-677 `agent_context:write`, Gate 1 (preventive). A guest may never
+ * change an element that resolves -- directly or through its frame's own
+ * frameId ancestry -- into a registered Agent Context frame. There is no
+ * settable policy for this: unlike `agent_context:contribute`, it is a hard
+ * downgrade from ordinary edit access, not a capability a board owner can
+ * grant back. Checked against the RESULTING scene (the `elements` argument),
+ * not the prior one, because the exact attack this exists to stop is a guest
+ * dragging an element INTO the frame -- the frameId that matters is the one
+ * the write is trying to produce.
+ *
+ * This is prevention, not the guarantee: a socket race, an old client, or an
+ * overlooked sixth mutation path can still slip an element into a frame's
+ * geometry without this check ever running. `executeAgentBoardTool`'s
+ * context-eligibility filter (boardMount.ts) is Gate 2, the one that
+ * actually decides what an agent reads, and never trusts this gate's
+ * earlier judgment.
+ */
+export const assertGuestElementWriteAllowed = async (params: {
+  prisma: any;
+  drawingId: string;
+  isGuest: boolean;
+  changedElementIds: readonly string[];
+  elements: readonly unknown[];
+}): Promise<void> => {
+  if (!params.isGuest || params.changedElementIds.length === 0) return;
+  const contexts = (await params.prisma.agentContext.findMany({
+    where: { drawingId: params.drawingId },
+    select: { frameElementId: true },
+  })) as { frameElementId: string }[];
+  if (contexts.length === 0) return;
+  const records = params.elements.filter(
+    (element): element is Element =>
+      typeof element === "object" && element !== null && !Array.isArray(element),
+  );
+  const protectedElementIds = new Set<string>();
+  for (const context of contexts) {
+    for (const id of elementIdsInContextFrame(records, context.frameElementId)) {
+      protectedElementIds.add(id);
+    }
+  }
+  const denied = params.changedElementIds.filter((id) => protectedElementIds.has(id));
+  if (denied.length > 0) {
+    throw new AgentContextGuestWriteDeniedError(denied);
+  }
+};
+
 export const contextFrameBounds = (element: Element): Bounds | null => frameBounds(element);

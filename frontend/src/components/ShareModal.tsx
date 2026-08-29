@@ -349,6 +349,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
             settings={guestCapabilities}
             onToggleUploadFiles={() => toggleGuestCapability("uploadFiles")}
             onToggleViewComments={() => toggleGuestCapability("viewComments")}
+            onToggleAgentContextContribute={() => toggleGuestCapability("agentContextContribute")}
           />
         </div>
 

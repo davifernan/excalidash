@@ -20,11 +20,24 @@ import {
 export const HISTORICAL_GUEST_CAPABILITY_DEFAULTS = {
   uploadFiles: false,
   viewComments: true,
+  // NIL-677: unlike the other two, this one has no pre-existing behavior to
+  // preserve -- Agent Contexts didn't exist before this column did. Fail
+  // closed like uploadFiles, not open like viewComments.
+  agentContextContribute: false,
 } as const;
 
 export type EffectiveDrawingCapabilities = {
   uploadFiles: boolean;
   viewComments: boolean;
+  /**
+   * Whether a guest's own content (see elementGuestProvenance.ts's
+   * `guest-touched`/`unknown` statuses) may be admitted into a compiled
+   * Agent Context. This is `agent_context:contribute` from NIL-677 -- a
+   * separate question from `agent_context:write` (NIL-677's other scope),
+   * which has no capability column at all: it is a hard, non-configurable
+   * "no" enforced at every element-mutation path, not a settable policy.
+   */
+  agentContextContribute: boolean;
 };
 
 /**
@@ -37,7 +50,11 @@ export const getInstanceGuestCapabilities = async (
 ): Promise<EffectiveDrawingCapabilities> => {
   const instancePolicy = await prisma.systemConfig.findUnique({
     where: { id: systemConfigId },
-    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+    select: {
+      guestUploadEnabled: true,
+      guestCommentVisibilityEnabled: true,
+      guestAgentContextContributeEnabled: true,
+    },
   });
   return {
     uploadFiles:
@@ -45,6 +62,9 @@ export const getInstanceGuestCapabilities = async (
     viewComments:
       instancePolicy?.guestCommentVisibilityEnabled ??
       HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+    agentContextContribute:
+      instancePolicy?.guestAgentContextContributeEnabled ??
+      HISTORICAL_GUEST_CAPABILITY_DEFAULTS.agentContextContribute,
   };
 };
 
@@ -61,17 +81,24 @@ export const setInstanceGuestCapabilities = async (
       ...(updates.viewComments !== undefined
         ? { guestCommentVisibilityEnabled: updates.viewComments }
         : {}),
+      ...(updates.agentContextContribute !== undefined
+        ? { guestAgentContextContributeEnabled: updates.agentContextContribute }
+        : {}),
     },
     create: {
       id: systemConfigId,
       guestUploadEnabled: updates.uploadFiles ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.uploadFiles,
       guestCommentVisibilityEnabled:
         updates.viewComments ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+      guestAgentContextContributeEnabled:
+        updates.agentContextContribute ??
+        HISTORICAL_GUEST_CAPABILITY_DEFAULTS.agentContextContribute,
     },
   });
   return {
     uploadFiles: updated.guestUploadEnabled,
     viewComments: updated.guestCommentVisibilityEnabled,
+    agentContextContribute: updated.guestAgentContextContributeEnabled,
   };
 };
 
@@ -82,7 +109,11 @@ export const getBoardGuestCapabilityPolicy = async (
 ): Promise<EffectiveDrawingCapabilities> => {
   const drawingPolicy = await prisma.drawing.findUnique({
     where: { id: drawingId },
-    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+    select: {
+      guestUploadEnabled: true,
+      guestCommentVisibilityEnabled: true,
+      guestAgentContextContributeEnabled: true,
+    },
   });
   return {
     uploadFiles:
@@ -90,6 +121,9 @@ export const getBoardGuestCapabilityPolicy = async (
     viewComments:
       drawingPolicy?.guestCommentVisibilityEnabled ??
       HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+    agentContextContribute:
+      drawingPolicy?.guestAgentContextContributeEnabled ??
+      HISTORICAL_GUEST_CAPABILITY_DEFAULTS.agentContextContribute,
   };
 };
 
@@ -106,12 +140,20 @@ export const setBoardGuestCapabilityPolicy = async (
       ...(updates.viewComments !== undefined
         ? { guestCommentVisibilityEnabled: updates.viewComments }
         : {}),
+      ...(updates.agentContextContribute !== undefined
+        ? { guestAgentContextContributeEnabled: updates.agentContextContribute }
+        : {}),
     },
-    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+    select: {
+      guestUploadEnabled: true,
+      guestCommentVisibilityEnabled: true,
+      guestAgentContextContributeEnabled: true,
+    },
   });
   return {
     uploadFiles: updated.guestUploadEnabled,
     viewComments: updated.guestCommentVisibilityEnabled,
+    agentContextContribute: updated.guestAgentContextContributeEnabled,
   };
 };
 
@@ -128,6 +170,7 @@ export const combineGuestCapabilities = (
 ): EffectiveDrawingCapabilities => ({
   uploadFiles: instance.uploadFiles && board.uploadFiles,
   viewComments: instance.viewComments && board.viewComments,
+  agentContextContribute: instance.agentContextContribute && board.agentContextContribute,
 });
 
 export type DrawingCapabilityDecision = {
@@ -159,7 +202,7 @@ export const getDrawingCapabilities = async (
     return {
       access,
       isGuest: true,
-      capabilities: { uploadFiles: false, viewComments: false },
+      capabilities: { uploadFiles: false, viewComments: false, agentContextContribute: false },
     };
   }
 
@@ -182,6 +225,9 @@ export const getDrawingCapabilities = async (
       capabilities: {
         uploadFiles: canEditDrawing(access),
         viewComments: true,
+        // Not a guest: this policy only ever restricts guest-authored
+        // content, so it never applies to what a member's own content does.
+        agentContextContribute: true,
       },
     };
   }
@@ -198,6 +244,7 @@ export const getDrawingCapabilities = async (
     capabilities: {
       uploadFiles: canEditDrawing(access) && effective.uploadFiles,
       viewComments: effective.viewComments,
+      agentContextContribute: effective.agentContextContribute,
     },
   };
 };
