@@ -43,9 +43,13 @@ describe("GuestCapabilitiesSection", () => {
   });
 
   it("still lets the owner turn a board capability off while the instance ceiling is closed", async () => {
-    // Regression: the toggle must stay interactive in both directions even
-    // while instanceAllowed is false -- a CSS pointer-events lock here once
-    // blocked turning it off too, contradicting the very message displayed.
+    // Proves the handler wiring for the off-direction, but NOT reachability:
+    // fireEvent.click dispatches synthetically straight on the element and
+    // never does real hit-testing, so this stays green even if the trigger
+    // sits under a `pointer-events-none` ancestor (jsdom skips hit-testing
+    // entirely, so there is nothing for that CSS to block here). The actual
+    // regression guard is the next test, which asserts on the DOM state a
+    // real click's hit-test would depend on.
     const onToggleUploadFiles = vi.fn();
     render(
       <GuestCapabilitiesSection
@@ -67,6 +71,31 @@ describe("GuestCapabilitiesSection", () => {
     fireEvent.click(offOptions[0]);
 
     expect(onToggleUploadFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("never wraps the toggle in a pointer-events lock, even while the instance ceiling is closed", () => {
+    // The actual regression guard for the Hans-Friedrich finding on #233:
+    // a click-based test can't tell a reachable control from one buried
+    // under `pointer-events-none` (see the test above). This asserts
+    // directly on the DOM state that determines whether a real click would
+    // land -- no ancestor of the toggle carries a class that blocks pointer
+    // events -- which is exactly what the old, buggy version of this
+    // component violated.
+    const { container } = render(
+      <GuestCapabilitiesSection
+        settings={settingsWith({
+          board: { uploadFiles: true, viewComments: true },
+          instance: { uploadFiles: false, viewComments: true },
+          effective: { uploadFiles: false, viewComments: true },
+        })}
+        onToggleUploadFiles={vi.fn()}
+        onToggleViewComments={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector(".pointer-events-none")).toBeNull();
+    const onTriggers = screen.getAllByRole("button", { name: "On" });
+    expect(onTriggers[0].closest(".pointer-events-none")).toBeNull();
   });
 
   it("shows that the instance ceiling blocks the board even though the board opted in", () => {
