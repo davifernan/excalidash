@@ -28,6 +28,24 @@ const serverAt = async (handler: (socket: net.Socket) => void) => {
   return socketPath;
 };
 
+const withWatchdog = <T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => void) =>
+  new Promise<T>((resolve, reject) => {
+    const watchdog = setTimeout(() => {
+      onTimeout();
+      reject(new Error("Transport exceeded the test watchdog."));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(watchdog);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(watchdog);
+        reject(error);
+      },
+    );
+  });
+
 describe("Herdr Unix socket transport", () => {
   it("sends one newline-delimited request and accepts one bounded response", async () => {
     const socketPath = await serverAt((socket) => {
@@ -63,5 +81,85 @@ describe("Herdr Unix socket transport", () => {
     });
     await expect(event).resolves.toMatchObject({ event: "pane.agent_status_changed" });
     expect(serverSocket).not.toBeNull();
+  });
+
+  it("applies an absolute request deadline even while the runtime trickles bytes", async () => {
+    const deadlineMs = 500;
+    let runtimeSocket: net.Socket | null = null;
+    const socketPath = await serverAt((socket) => {
+      runtimeSocket = socket;
+      socket.on("error", () => {});
+      const trickle = setInterval(() => socket.write(" "), 100);
+      socket.once("close", () => {
+        clearInterval(trickle);
+      });
+    });
+
+    await expect(
+      withWatchdog(
+        new UnixHerdrTransport(deadlineMs).request(socketPath, "ping", {}),
+        deadlineMs * 2,
+        () => runtimeSocket?.destroy(),
+      ),
+    ).rejects.toMatchObject({
+      code: "RUNTIME_NOT_CONNECTED",
+      message: "Runtime request timed out.",
+    });
+  });
+
+  it("applies the same absolute deadline while a subscription awaits its acknowledgement", async () => {
+    const deadlineMs = 500;
+    let runtimeSocket: net.Socket | null = null;
+    const socketPath = await serverAt((socket) => {
+      runtimeSocket = socket;
+      socket.on("error", () => {});
+      const trickle = setInterval(() => socket.write(" "), 100);
+      socket.once("close", () => {
+        clearInterval(trickle);
+      });
+    });
+
+    await expect(
+      withWatchdog(
+        new UnixHerdrTransport(deadlineMs).subscribe(socketPath, [], () => {}),
+        deadlineMs * 2,
+        () => runtimeSocket?.destroy(),
+      ),
+    ).rejects.toMatchObject({
+      code: "RUNTIME_NOT_CONNECTED",
+      message: "Runtime subscription timed out.",
+    });
+  });
+
+  it("keeps an acknowledged subscription alive while no events arrive", async () => {
+    const deadlineMs = 40;
+    let emitLateEvent!: () => void;
+    const socketPath = await serverAt((socket) => {
+      socket.once("data", (bytes) => {
+        const request = JSON.parse(bytes.toString("utf8"));
+        socket.write(
+          `${JSON.stringify({ id: request.id, ok: true, result: { type: "subscription_started" } })}\n`,
+        );
+        emitLateEvent = () => {
+          socket.write(
+            `${JSON.stringify({ event: "pane.agent_status_changed", data: { agent_status: "done" } })}\n`,
+          );
+        };
+      });
+    });
+    const transport = new UnixHerdrTransport(deadlineMs);
+    let resolveEvent!: (event: Record<string, unknown>) => void;
+    const event = new Promise<Record<string, unknown>>((resolve) => {
+      resolveEvent = resolve;
+    });
+    const subscription = await transport.subscribe(socketPath, [], resolveEvent);
+
+    await new Promise((resolve) => setTimeout(resolve, deadlineMs * 2));
+    emitLateEvent();
+    await expect(event).resolves.toMatchObject({
+      event: "pane.agent_status_changed",
+      data: { agent_status: "done" },
+    });
+    subscription.close();
   });
 });

@@ -57,6 +57,8 @@ export interface HerdrTransport {
 
 /** Newline-delimited JSON over Herdr's owner-only Unix socket. */
 export class UnixHerdrTransport implements HerdrTransport {
+  constructor(private readonly requestDeadlineMs = DEFAULT_TIMEOUT_MS) {}
+
   async request(
     socketPath: string,
     method: string,
@@ -67,15 +69,18 @@ export class UnixHerdrTransport implements HerdrTransport {
       const request = requestLine(method, params);
       let settled = false;
       let buffered = "";
+      let deadline: NodeJS.Timeout;
       const finish = (error?: unknown, result?: HerdrResult) => {
         if (settled) return;
         settled = true;
+        clearTimeout(deadline);
         socket.destroy();
         if (error) reject(error);
         else resolve(result!);
       };
-      socket.setTimeout(DEFAULT_TIMEOUT_MS, () =>
-        finish(new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "Runtime request timed out.")),
+      deadline = setTimeout(
+        () => finish(new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "Runtime request timed out.")),
+        this.requestDeadlineMs,
       );
       socket.once("error", () =>
         finish(new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "Runtime is not connected.")),
@@ -114,16 +119,21 @@ export class UnixHerdrTransport implements HerdrTransport {
       const request = requestLine("events.subscribe", { subscriptions });
       let acknowledged = false;
       let buffered = "";
-      const failBeforeAck = () => {
+      let acknowledgementDeadline: NodeJS.Timeout;
+      const failBeforeAck = (error?: unknown) => {
         if (!acknowledged) {
-          reject(new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "Runtime is not connected."));
+          clearTimeout(acknowledgementDeadline);
+          reject(
+            error ?? new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "Runtime is not connected."),
+          );
         }
         socket.destroy();
       };
-      socket.setTimeout(DEFAULT_TIMEOUT_MS, () => {
-        if (!acknowledged) failBeforeAck();
-        else socket.setTimeout(0);
-      });
+      acknowledgementDeadline = setTimeout(() => {
+        failBeforeAck(
+          new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "Runtime subscription timed out."),
+        );
+      }, this.requestDeadlineMs);
       socket.once("error", failBeforeAck);
       socket.once("close", resolveClosed);
       socket.on("data", (chunk) => {
@@ -147,11 +157,10 @@ export class UnixHerdrTransport implements HerdrTransport {
                 );
               }
               acknowledged = true;
-              socket.setTimeout(0);
+              clearTimeout(acknowledgementDeadline);
               resolve({ close: () => socket.destroy(), closed });
             } catch (error) {
-              reject(error);
-              socket.destroy();
+              failBeforeAck(error);
             }
             continue;
           }

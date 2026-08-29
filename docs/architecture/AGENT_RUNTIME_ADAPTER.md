@@ -66,9 +66,14 @@ the optional first prompt. Status is normalized to `working`, `idle`, `blocked`,
 `unknown`; subscriptions listen only for the started pane. A failed partial start closes the
 new workspace best-effort.
 
-Transport responses are bounded to 1 MiB and requests time out after ten seconds. Socket paths,
-workspace IDs, pane IDs and raw runtime errors are never returned to clients. A disconnected or
-unconfigured runtime disables only agent start/status; the board and canvas remain available.
+Transport responses are bounded to 1 MiB. Requests and the acknowledgement phase of a
+subscription have an absolute ten-second deadline that incoming bytes cannot extend. After a
+valid subscription acknowledgement, no inactivity or total-duration deadline applies: this is
+the deliberately long-lived status channel, and a quiet run is valid. It closes with its owning
+SSE response, on failed periodic authorization, on runtime disconnect, or when the caller closes
+it. Socket paths, workspace IDs, pane IDs and raw runtime errors are never returned to clients. A
+disconnected or unconfigured runtime disables only agent start/status; the board and canvas remain
+available.
 
 ## Configuration and unresolved topology
 
