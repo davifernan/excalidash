@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { API_URL, createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
+import { createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
 import { openEditor } from "./helpers/editor";
 
 /**
@@ -136,10 +136,9 @@ test.describe("the hamburger carries the board's identity and the way back", () 
       await expect(page.getByTestId("command-palette-button")).toBeVisible();
       await expect(page.getByTestId("search-menu-button")).toBeVisible();
 
-      const initialPreferenceResponse = await api.get(`${API_URL}/auth/preferences`);
-      expect(initialPreferenceResponse.ok()).toBe(true);
-      const initialGridModeEnabled =
-        (await initialPreferenceResponse.json()).gridModeEnabled === true;
+      const initialGridModeEnabled = await page.evaluate(
+        () => (window as any).__EXCALIDASH_TEST__.getAppState().gridModeEnabled === true,
+      );
 
       await page.getByTestId("command-palette-button").click();
       const palette = page.locator(".command-palette-dialog");
@@ -147,14 +146,15 @@ test.describe("the hamburger carries the board's identity and the way back", () 
       await palette.locator("input").fill("grid");
       await expect(palette.locator(".item-selected")).toContainText("Toggle grid");
       await page.keyboard.press("Enter");
-      // The selected native command changes the rendered grid and the signed-in
-      // user's preference. It must not write gridModeEnabled to the shared
-      // board state: another user's view must remain independent.
+      // The selected native command changes Excalidraw's rendered grid. Its
+      // persistence is independently covered by the grid-preference hook tests;
+      // gridModeEnabled itself must not be written to shared board state.
       await expect
-        .poll(async () => {
-          const response = await api.get(`${API_URL}/auth/preferences`);
-          return (await response.json()).gridModeEnabled === true;
-        })
+        .poll(() =>
+          page.evaluate(
+            () => (window as any).__EXCALIDASH_TEST__.getAppState().gridModeEnabled === true,
+          ),
+        )
         .toBe(!initialGridModeEnabled);
 
       await openMenu(page);
