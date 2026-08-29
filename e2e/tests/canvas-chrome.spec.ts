@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
+import { API_URL, createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
 import { openEditor } from "./helpers/editor";
 
 /**
@@ -136,6 +136,11 @@ test.describe("the hamburger carries the board's identity and the way back", () 
       await expect(page.getByTestId("command-palette-button")).toBeVisible();
       await expect(page.getByTestId("search-menu-button")).toBeVisible();
 
+      const initialPreferenceResponse = await api.get(`${API_URL}/auth/preferences`);
+      expect(initialPreferenceResponse.ok()).toBe(true);
+      const initialGridModeEnabled =
+        (await initialPreferenceResponse.json()).gridModeEnabled === true;
+
       await page.getByTestId("command-palette-button").click();
       const palette = page.locator(".command-palette-dialog");
       await expect(palette).toBeVisible();
@@ -147,10 +152,10 @@ test.describe("the hamburger carries the board's identity and the way back", () 
       // board state: another user's view must remain independent.
       await expect
         .poll(async () => {
-          const response = await api.get("/auth/preferences");
-          return (await response.json()).gridModeEnabled;
+          const response = await api.get(`${API_URL}/auth/preferences`);
+          return (await response.json()).gridModeEnabled === true;
         })
-        .toBe(true);
+        .toBe(!initialGridModeEnabled);
 
       await openMenu(page);
       await page.getByTestId("search-menu-button").click();
