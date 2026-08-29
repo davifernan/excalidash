@@ -77,6 +77,7 @@ ruleset_payload() {
           { "context": "Dead Code" },
           { "context": "Delivery Contract Tests" },
           { "context": "E2E Browser Tests" },
+          { "context": "E2E Built Image Smoke (NIL-649)" },
           { "context": "Frontend Format" },
           { "context": "Frontend Typecheck" },
           { "context": "Frontend Unit Tests" },
