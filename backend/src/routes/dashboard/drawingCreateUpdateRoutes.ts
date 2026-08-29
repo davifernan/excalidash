@@ -32,6 +32,10 @@ import {
   AgentContextValidationError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
+import {
+  diffSceneElementIds,
+  recordSuccessfulElementMutation,
+} from "../../agent/elementGuestProvenance";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -324,7 +328,11 @@ export const registerDrawingCreateUpdateRoutes = (
       }
 
       const versionConflictError = new Error("VERSION_CONFLICT");
+      const accessRevokedError = new Error("ACCESS_REVOKED");
       let updatedDrawing: typeof existingDrawing | null = null;
+      const elementMutation = payload.elements
+        ? diffSceneElementIds(parseJsonField(existingDrawing.elements, []), payload.elements)
+        : null;
 
       try {
         if (isSceneUpdate) {
@@ -340,6 +348,17 @@ export const registerDrawingCreateUpdateRoutes = (
             async (tx) => {
               if (payload.elements !== undefined) {
                 await assertPersistedAgentContextFrames(tx, id, payload.elements);
+              }
+              const transactionDecision = elementMutation
+                ? await getDrawingCapabilities({
+                    prisma: tx as any,
+                    principal,
+                    drawingId: id,
+                    shareToken: getShareToken(req),
+                  })
+                : decision;
+              if (!canEditDrawing(transactionDecision.access)) {
+                throw accessRevokedError;
               }
               const compress = config.enableSnapshotCompression;
               const snapshot = await tx.drawingSnapshot.create({
@@ -358,6 +377,17 @@ export const registerDrawingCreateUpdateRoutes = (
               });
               if (updateResult.count === 0) {
                 throw versionConflictError;
+              }
+
+              if (elementMutation) {
+                await recordSuccessfulElementMutation({
+                  prisma: tx,
+                  drawingId: id,
+                  // A role transition cannot wash either side of the check:
+                  // guest before OR during the write remains guest provenance.
+                  isGuest: decision.isGuest || transactionDecision.isGuest,
+                  ...elementMutation,
+                });
               }
 
               // The version being replaced keeps whatever documents it used, so
@@ -394,6 +424,9 @@ export const registerDrawingCreateUpdateRoutes = (
           });
         }
       } catch (error) {
+        if (error === accessRevokedError) {
+          return res.status(404).json({ error: "Drawing not found" });
+        }
         if (error instanceof AgentContextValidationError) {
           return res.status(409).json({
             error: "Invalid Context map",

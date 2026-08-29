@@ -20,6 +20,11 @@ type CoreRoomEventDeps = {
   allowCursorMove: () => boolean;
   allowElementUpdate: (drawingId: string, serializedBytes: number) => boolean;
   authorizeFileDelta: (drawingId: string) => Promise<boolean>;
+  recordElementProvenance: (payload: {
+    drawingId: string;
+    elements: unknown[];
+    elementOrder?: string[];
+  }) => Promise<void>;
 };
 
 type ActivityPayload = RoomEventPayload & { isActive: boolean };
@@ -45,6 +50,7 @@ export const registerCoreRoomEvents = ({
   allowCursorMove,
   allowElementUpdate,
   authorizeFileDelta,
+  recordElementProvenance,
 }: CoreRoomEventDeps): void => {
   registerAuthorizedRoomEvent({
     socket,
@@ -91,6 +97,14 @@ export const registerCoreRoomEvents = ({
           },
         };
       }
+      // This is part of admitting the write, not eventual bookkeeping. A
+      // guest mutation must be durably marked before another member can
+      // receive and later persist it under their own identity.
+      await recordElementProvenance({
+        drawingId: payload.drawingId,
+        elements: payload.elements,
+        elementOrder: payload.elementOrder,
+      });
       socket.to(roomName(payload.drawingId)).emit("element-update", {
         elements: payload.elements,
         files: payload.files,

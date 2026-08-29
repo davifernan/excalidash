@@ -122,6 +122,7 @@ model Drawing {
   snapshots                     DrawingSnapshot[]
   assets                        DrawingAsset[]
   pageViews                     DocumentPageView[]
+  elementGuestProvenance        DrawingElementGuestProvenance[]
   comments                      Comment[]
   activityEvents                ActivityEvent[]
   visits                        DrawingVisit[]
@@ -827,6 +828,30 @@ model DocumentPageView {
 
   @@id([drawingId, elementId])
   @@index([assetId])
+}
+
+/// Whether an element has definitely been changed by a link-only guest.
+///
+/// Absence is deliberately NOT equivalent to false: elements that predate
+/// this table have unknown provenance. `false` is only written for a
+/// server-observed member creation or an explicit member confirmation;
+/// `true` is monotonic across ordinary writes and is only cleared by that
+/// explicit, audited confirmation path.
+///
+/// `elementId` is not a foreign key because elements live in Drawing.elements
+/// JSON rather than in their own table (the same boundary as DocumentPageView).
+model DrawingElementGuestProvenance {
+  drawingId        String
+  elementId        String
+  everGuestTouched Boolean
+  /// Optimistic guard for the explicit reset: a concurrent guest touch wins.
+  revision         Int      @default(1)
+  updatedAt        DateTime @updatedAt
+
+  drawing Drawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+
+  @@id([drawingId, elementId])
+  @@index([drawingId, everGuestTouched])
 }
 
 /// Which documents a snapshot needs, so restoring an old version still finds

@@ -1,7 +1,16 @@
+import { elementIdsInContextFrame, readElementGuestProvenance } from "./elementGuestProvenance";
+
 export type ContextIdentity = {
   id: string;
   frameElementId: string;
   pinned: boolean;
+};
+
+export type ContextRegistration = ContextIdentity & {
+  provenanceReview: {
+    confirmationRequired: boolean;
+    unknownElementIds: string[];
+  };
 };
 
 type Element = Record<string, unknown>;
@@ -139,7 +148,7 @@ export const registerAgentContext = async (params: {
   drawingId: string;
   frameElementId: string;
   pinned?: boolean;
-}): Promise<ContextIdentity> =>
+}): Promise<ContextRegistration> =>
   params.prisma.$transaction(async (tx: any) => {
     await lockContextDrawing(tx, params.drawingId);
     const drawing = await tx.drawing.findUnique({
@@ -160,7 +169,7 @@ export const registerAgentContext = async (params: {
       pinned: params.pinned ?? false,
     };
     validateContextFrames(elements, [...existing, candidate]);
-    return tx.agentContext.create({
+    const created = await tx.agentContext.create({
       data: {
         drawingId: params.drawingId,
         frameElementId: params.frameElementId,
@@ -168,6 +177,18 @@ export const registerAgentContext = async (params: {
       },
       select: { id: true, frameElementId: true, pinned: true },
     });
+    const contextElementIds = elementIdsInContextFrame(elements, params.frameElementId);
+    const provenance = await readElementGuestProvenance(tx, params.drawingId, contextElementIds);
+    const unknownElementIds = provenance
+      .filter((entry) => entry.status === "unknown")
+      .map((entry) => entry.elementId);
+    return {
+      ...created,
+      provenanceReview: {
+        confirmationRequired: unknownElementIds.length > 0,
+        unknownElementIds,
+      },
+    };
   });
 
 /** Reject a scene mutation that would invalidate already registered Contexts. */
