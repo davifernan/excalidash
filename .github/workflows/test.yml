@@ -1226,6 +1226,136 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # NIL-649: every job above tests `npm run dev`, the Vite dev server -- never
+  # what production actually serves (`npm run build` output behind nginx,
+  # frontend/Dockerfile). That gap let comment-writing ship broken in the real
+  # 0.13 image (NIL-644) while `comments-two-account.spec.ts` stayed green
+  # here, and let the frontend image go unbuildable for two days (NIL-643)
+  # with no CI signal either way, since nothing here ever built it.
+  #
+  # Deliberately a small fixed flow, not the whole suite run a second time:
+  # see built-image-smoke.spec.ts's own header for what it covers and why.
+  # Doubling 15+ minutes of E2E onto every PR for a second full pass would
+  # buy repetition, not a different error class -- this exists to catch what
+  # only differs between dev server and built bundle (minification,
+  # tree-shaking, `import.meta.env` branches, build-time asset copying, the
+  # nginx `/api/` rewrite), which one real flow through the built artifact
+  # already exercises.
+  #
+  # Not yet in ops/repository-rules.sh's required_status_checks -- same
+  # ordering as Env Boundary and CORS Header Boundary above: a brand new job
+  # name is never made a required check before it has run green on main at
+  # least once. NIL-666 tracks adding it once that has happened.
+  e2e-built-image-smoke:
+    name: E2E Built Image Smoke (NIL-649)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the frontend and backend images
+        # Same images `docker-compose.prod.yml` runs in production, with
+        # exactly one difference: the frontend is built with
+        # VITE_E2E_HARNESS_ENABLED=true, so window.__EXCALIDASH_TEST__
+        # exists for Playwright to drive the board through (see Editor.tsx's
+        # harness effect). A real published image never sets that build arg.
+        #
+        # docker-compose.e2e-smoke.yml is a standalone file, not layered
+        # onto docker-compose.yml with `-f` -- see its own header comment
+        # for why (a review finding on this ticket's own PR: Compose merges
+        # `ports` across `-f` files by concatenating them rather than
+        # replacing them, and both docker-compose.yml and
+        # docker-compose.prod.yml hard-code the same container names).
+        run: |
+          docker compose -f docker-compose.e2e-smoke.yml build backend frontend
+
+      - name: Start the built image
+        run: |
+          docker compose -f docker-compose.e2e-smoke.yml up -d backend frontend
+
+      - name: Wait for the built image to answer
+        run: |
+          echo "Waiting for the built frontend/backend..."
+          for i in {1..60}; do
+            # `-f`, not just `-s`: nginx answers immediately once it's up,
+            # with a 502 for as long as the backend behind it is still
+            # migrating/generating its Prisma client. Plain `curl -s`
+            # returns exit 0 for that 502 too (curl only fails on a
+            # transport error, not an HTTP error status), so without `-f`
+            # this loop broke on attempt 1 every time -- caught in CI on
+            # NIL-649's own PR (run 33195824353): "Built image is ready!"
+            # printed immediately, then the strict check right after it
+            # failed because the backend genuinely wasn't ready yet.
+            if curl -sf http://localhost:16767/api/health > /dev/null; then
+              echo "Built image is ready!"
+              break
+            fi
+            echo "Attempt $i: not ready yet..."
+            sleep 2
+          done
+          curl -sf http://localhost:16767/api/health > /dev/null || {
+            echo "Built image never became ready. Backend log:"
+            docker compose -f docker-compose.e2e-smoke.yml logs backend
+            exit 1
+          }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install E2E test dependencies
+        run: |
+          cd e2e
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          cd e2e
+          npx playwright install chromium --with-deps
+
+      - name: Run the built-image smoke spec
+        run: |
+          cd e2e
+          TEST_EXIT_CODE=0
+          NO_SERVER=true CI=true \
+            API_URL="http://localhost:16767/api" \
+            BASE_URL="http://localhost:16767" \
+            timeout --signal=INT --kill-after=30s --preserve-status 300 \
+            npx playwright test --project=built-image \
+            || TEST_EXIT_CODE=$?
+          exit "$TEST_EXIT_CODE"
+
+      - name: Container logs (always, for diagnosis)
+        if: always()
+        run: |
+          docker compose -f docker-compose.e2e-smoke.yml logs
+
+      - name: Tear down the built image
+        if: always()
+        run: |
+          docker compose -f docker-compose.e2e-smoke.yml down -v
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-built-image-smoke
+          path: e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-built-image-smoke
+          path: e2e/test-results/
+          retention-days: 7
+          if-no-files-found: error
+
   # Carries the name the branch ruleset requires. The shards run under their
   # own names, so without this the required context 'E2E Browser Tests' would
   # never report again and every pull request would block forever.
