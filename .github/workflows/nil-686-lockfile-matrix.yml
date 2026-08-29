@@ -272,7 +272,20 @@ jobs:
           node-version: "24"
 
       - name: Install from this ref's own lockfile
-        run: npm ci
+        # main predates NIL-636's root Workspace: no root package.json, two
+        # standalone lockfiles instead. `npm ci` at the root only works on
+        # the branch side; main needs each package installed separately, the
+        # same way it always has.
+        env:
+          SIDE: ${{ matrix.side }}
+        run: |
+          set -euo pipefail
+          if [ "$SIDE" = "main" ]; then
+            npm ci --prefix backend
+            npm ci --prefix frontend
+          else
+            npm ci
+          fi
 
       - name: Install E2E dependencies and prepare the database
         run: |
