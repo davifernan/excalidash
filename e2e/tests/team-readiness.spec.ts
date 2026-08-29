@@ -234,6 +234,10 @@ const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID
   : null;
 const HANG_STEP = process.env.SOAK_HANG_STEP || null;
 const HANG_PAGE_SWITCH_PHASE = process.env.SOAK_HANG_PAGE_SWITCH_PHASE || null;
+const PAGE_SWITCH_HANG_PHASES = new Set(["activate_document_widget", "button_enabled", "click"]);
+if (HANG_PAGE_SWITCH_PHASE && !PAGE_SWITCH_HANG_PHASES.has(HANG_PAGE_SWITCH_PHASE)) {
+  throw new Error(`SOAK_HANG_PAGE_SWITCH_PHASE must be one of ${[...PAGE_SWITCH_HANG_PHASES].join(", ")}.`);
+}
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
 // NIL-639: a GitHub-hosted job cannot run this spec's own 8h default in one
@@ -454,6 +458,7 @@ const drawRect = (page: Page) =>
  * of its own; the roll is the only randomness.
  */
 const decideStep = (actor: Actor, roll: number): string => {
+  if (actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE) return "page_switch";
   if (roll < 0.4) return "draw";
   if (roll < 0.55) return "image_ok";
   // Above the live-collaboration ceiling on purpose -- the same guardrail
