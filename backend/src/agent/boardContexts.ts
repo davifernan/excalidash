@@ -113,6 +113,23 @@ export const validateContextFrames = (
 };
 
 /**
+ * Serialize Context registration and scene replacement on the Drawing row.
+ * The no-op update acquires SQLite's write lock and PostgreSQL's row lock
+ * without changing the board's version, timestamp, or content. Callers must
+ * pass the transaction client that will perform the related read/write.
+ */
+const lockContextDrawing = async (prisma: any, drawingId: string): Promise<void> => {
+  const affected = await prisma.$executeRaw`
+    UPDATE "Drawing"
+    SET "id" = "id"
+    WHERE "id" = ${drawingId}
+  `;
+  if (affected !== 1) {
+    throw new AgentContextValidationError("CONTEXT_FRAME_MISSING", "Drawing does not exist.");
+  }
+};
+
+/**
  * The sole context-registration write seam for later UI work (NIL-675).
  * Authorization deliberately remains at the calling route; this function
  * owns identity and geometric invariants, not who may edit a drawing.
@@ -124,6 +141,7 @@ export const registerAgentContext = async (params: {
   pinned?: boolean;
 }): Promise<ContextIdentity> =>
   params.prisma.$transaction(async (tx: any) => {
+    await lockContextDrawing(tx, params.drawingId);
     const drawing = await tx.drawing.findUnique({
       where: { id: params.drawingId },
       select: { elements: true },
@@ -158,6 +176,7 @@ export const assertPersistedAgentContextFrames = async (
   drawingId: string,
   elements: readonly unknown[],
 ): Promise<void> => {
+  await lockContextDrawing(prisma, drawingId);
   const contexts = (await prisma.agentContext.findMany({
     where: { drawingId },
     select: { id: true, frameElementId: true, pinned: true },

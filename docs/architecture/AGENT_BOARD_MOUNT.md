@@ -19,6 +19,11 @@ are allowed; an overlap with positive area is not. A live element belongs to a C
 its explicit `frameId` ancestry reaches that Context frame. Geometry does not create membership,
 so an element without that ancestry belongs to no Context and is not an error.
 
+Context registration and every scene-replacement path take the same no-op Drawing-row lock inside
+their write transaction before reading the scene or Context map. This serializes the two sides on
+SQLite and PostgreSQL, so a registration cannot validate an old scene while a concurrent save,
+restore, trim, import, or agent operation removes its frame.
+
 An `AgentBoardRevision` stores the canonical scene, app state, file map, Context map, and immutable
 asset bindings independently of ordinary `DrawingSnapshot` retention. `Drawing.version` is only
 recorded as `sourceDrawingVersion`. The revision's content hash covers the actual mounted state;

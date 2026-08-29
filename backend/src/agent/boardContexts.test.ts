@@ -52,12 +52,20 @@ describe("authoritative Agent Context frames", () => {
   });
 
   it("guards later scene mutations using the persisted Context map", async () => {
+    const calls: string[] = [];
     const prisma = {
+      $executeRaw: async () => {
+        calls.push("lock-drawing");
+        return 1;
+      },
       agentContext: {
-        findMany: async () => [
-          { id: "context-a", frameElementId: "frame-a", pinned: false },
-          { id: "context-b", frameElementId: "frame-b", pinned: false },
-        ],
+        findMany: async () => {
+          calls.push("read-contexts");
+          return [
+            { id: "context-a", frameElementId: "frame-a", pinned: false },
+            { id: "context-b", frameElementId: "frame-b", pinned: false },
+          ];
+        },
       },
     };
     await expect(
@@ -66,5 +74,16 @@ describe("authoritative Agent Context frames", () => {
         frame("frame-b", 50),
       ]),
     ).rejects.toMatchObject({ code: "CONTEXT_FRAMES_OVERLAP" });
+    expect(calls).toEqual(["lock-drawing", "read-contexts"]);
+  });
+
+  it("fails closed when the shared Drawing lock cannot find the board", async () => {
+    const prisma = {
+      $executeRaw: async () => 0,
+      agentContext: { findMany: async () => [] },
+    };
+    await expect(
+      assertPersistedAgentContextFrames(prisma, "missing", [frame("frame-a", 0)]),
+    ).rejects.toMatchObject({ code: "CONTEXT_FRAME_MISSING" });
   });
 });

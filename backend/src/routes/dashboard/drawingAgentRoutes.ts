@@ -230,18 +230,12 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
       }
       const newElements = result.elements;
 
-      try {
-        await assertPersistedAgentContextFrames(prisma, id, newElements);
-      } catch (error) {
-        if (respondWithMountError(res, error)) return;
-        throw error;
-      }
-
       const versionConflictError = new Error("VERSION_CONFLICT");
       let updatedDrawing: typeof existingDrawing | null = null;
 
       try {
         updatedDrawing = await prisma.$transaction(async (tx) => {
+          await assertPersistedAgentContextFrames(tx, id, newElements);
           const compress = config.enableSnapshotCompression;
           const snapshot = await tx.drawingSnapshot.create({
             data: {
@@ -274,6 +268,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           return tx.drawing.findFirst({ where: { id } });
         });
       } catch (error) {
+        if (respondWithMountError(res, error)) return;
         if (error instanceof InvalidDocumentWidgetStateError) {
           return res.status(400).json({
             error: "Invalid document widgets",
