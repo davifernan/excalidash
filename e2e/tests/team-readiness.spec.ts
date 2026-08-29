@@ -235,6 +235,15 @@ const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID
 const HANG_STEP = process.env.SOAK_HANG_STEP || null;
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
+// NIL-639: a GitHub-hosted job cannot run this spec's own 8h default in one
+// piece (GitHub's 6h hard job ceiling -- see docs/architecture/
+// SOAK_RUNNER_DECISION.md). The nightly workflow instead chains several
+// shorter jobs against the SAME shared board, so the scene this spec grows
+// keeps accumulating across parts even though each part is a fresh process.
+// Both are no-ops for a normal manual run: unset, this spec creates and
+// deletes its own board exactly as before.
+const EXISTING_BOARD_ID = process.env.SOAK_EXISTING_BOARD_ID || null;
+const SKIP_TEARDOWN = process.env.SOAK_SKIP_TEARDOWN === "true";
 
 // This spec launches browsers directly with `chromium.launch()` instead of
 // through the `browser`/`page` fixtures (it needs several engines at once,
@@ -826,11 +835,13 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
     test.setTimeout(0);
     expect(ENGINE_NAMES.length).toBeGreaterThanOrEqual(2);
 
-    const drawing = await createDrawing(request, {
-      name: `NIL330_TeamReadiness_${Date.now()}`,
-      elements: [],
-      files: {},
-    });
+    const drawing = EXISTING_BOARD_ID
+      ? { id: EXISTING_BOARD_ID }
+      : await createDrawing(request, {
+          name: `NIL330_TeamReadiness_${Date.now()}`,
+          elements: [],
+          files: {},
+        });
 
     const actors: Actor[] = [];
     const serverHealth: ServerHealthEntry[] = [];
@@ -1120,7 +1131,13 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           `browser close for actor ${actor.id}`,
         ).catch(() => {});
       }
-      await deleteDrawing(request, drawing.id).catch(() => {});
+      // SKIP_TEARDOWN protects only the shared board across parts (it is the
+      // continuity artifact restored by the next part) -- an isolated actor's
+      // own board is never reused by any later part, in this run or the next
+      // one, so it is deleted every time regardless of SKIP_TEARDOWN.
+      if (!SKIP_TEARDOWN) {
+        await deleteDrawing(request, drawing.id).catch(() => {});
+      }
       for (const actor of actors) {
         if (actor.boardId !== drawing.id) {
           await deleteDrawing(request, actor.boardId).catch(() => {});

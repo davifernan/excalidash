@@ -63,6 +63,8 @@ export interface UserPreferences {
   theme?: "light" | "dark";
   dashboardSortField?: DrawingSortField;
   dashboardSortDirection?: SortDirection;
+  /** Which feature-registry entries this viewer keeps in the toolbar (NIL-655). */
+  toolbarFeatureIds?: string[];
 }
 
 export interface ApiKeyMetadata {

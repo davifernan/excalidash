@@ -31,7 +31,9 @@ test("a started timer counts down for everyone in the room", async ({ browser, r
   await hostPage.waitForTimeout(300);
   const minutes = hostPage.locator(".workshop-timer input");
   await minutes.fill("2");
-  await hostPage.getByRole("button", { name: /start/i }).click();
+  // Scoped to the timer's own expanded panel -- NIL-655 put "Start a vote"
+  // in the same corner, and a page-wide /start/i match now resolves both.
+  await hostPage.locator(".workshop-timer__panel").getByRole("button", { name: /start/i }).click();
 
   // Both sides must show a countdown, not just the one who pressed start.
   await expect(summary(hostPage)).toContainText(/0[12]:\d\d/, { timeout: 8000 });
