@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { storeBlob } from "../assets/assetService";
 import { freeDiskPercent } from "../assets/pageCache";
 import { BoundedTaskQueue } from "../utils/boundedTaskQueue";
+import { createInFlightCoalescer } from "../utils/inFlightCoalescer";
 import type { LinkPreviewConfig } from "../config";
 import {
   evictLinkPreviewCache,
@@ -271,41 +272,42 @@ async function buildPreview(deps: ServiceDeps, key: string, url: URL, userId: st
 export function createLinkPreviewService(deps: ServiceDeps) {
   const queue = new BoundedTaskQueue();
   const activeByUser = new Map<string, number>();
-  const inFlight = new Map<string, Promise<LinkPreviewResult>>();
+  const inFlight = createInFlightCoalescer<LinkPreviewResult>();
 
   return async (userId: string, rawUrl: string): Promise<LinkPreviewResult> => {
     const url = canonicalUrl(rawUrl);
     const key = cacheKeyFor(userId, url);
     const cached = await freshCached(deps, key);
     if (cached) return publicResult(cached);
-    const existing = inFlight.get(key);
-    if (existing) return existing;
 
-    const active = activeByUser.get(userId) ?? 0;
-    if (active >= deps.config.maxConcurrentPerUser) throw new LinkPreviewBusyError();
-    activeByUser.set(userId, active + 1);
-    const work = queue
-      .run(
-        {
-          concurrency: deps.config.maxConcurrentInstance,
-          maxWaiting: deps.config.maxQueueSize,
-        },
-        async () =>
-          publicResult(
-            (await freshCached(deps, key)) ?? (await buildPreview(deps, key, url, userId)),
-          ),
-      )
-      .then(async (result) => {
-        await evictLinkPreviewCache(deps, userId);
-        return result;
-      })
-      .finally(() => {
-        const remaining = (activeByUser.get(userId) ?? 1) - 1;
-        if (remaining > 0) activeByUser.set(userId, remaining);
-        else activeByUser.delete(userId);
-        inFlight.delete(key);
-      });
-    inFlight.set(key, work);
-    return work;
+    return inFlight.run(key, () => {
+      // Only reached when actually starting fresh work, never when joining
+      // an already in-flight request for the same key -- a caller who is
+      // simply sharing someone else's in-flight fetch must not be refused
+      // for being over their own concurrency budget.
+      const active = activeByUser.get(userId) ?? 0;
+      if (active >= deps.config.maxConcurrentPerUser) throw new LinkPreviewBusyError();
+      activeByUser.set(userId, active + 1);
+      return queue
+        .run(
+          {
+            concurrency: deps.config.maxConcurrentInstance,
+            maxWaiting: deps.config.maxQueueSize,
+          },
+          async () =>
+            publicResult(
+              (await freshCached(deps, key)) ?? (await buildPreview(deps, key, url, userId)),
+            ),
+        )
+        .then(async (result) => {
+          await evictLinkPreviewCache(deps, userId);
+          return result;
+        })
+        .finally(() => {
+          const remaining = (activeByUser.get(userId) ?? 1) - 1;
+          if (remaining > 0) activeByUser.set(userId, remaining);
+          else activeByUser.delete(userId);
+        });
+    });
   };
 }

@@ -2,6 +2,8 @@ import express from "express";
 import { z } from "zod";
 import { canViewDrawing, getDrawingAccess, type DrawingPrincipal } from "../../authz/sharing";
 import { AGENT_RUNTIME_CAPABILITIES, AgentRuntimeError } from "../../agent/runtime/contracts";
+import { loadBoardAgentRunPresence } from "../../agent/boardMount";
+import { publishBoardAgentRuntime } from "../../server/socketPresence";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
 const startSchema = z.object({
@@ -53,7 +55,59 @@ export const registerDrawingRuntimeRoutes = (
     respondWithAuthErrorIfPresent,
     prisma,
     agentRuntimeGateway,
+    io,
+    presences,
   } = context;
+
+  const runtimePresenceQueues = new Map<string, Promise<void>>();
+  const projectRuntimePresence = async (
+    drawingId: string,
+    event: {
+      id: string;
+      status: "working" | "idle" | "blocked" | "done" | "unknown";
+      displayName?: string;
+    },
+    occurredAt = new Date().toISOString(),
+  ): Promise<void> => {
+    const mounted = await loadBoardAgentRunPresence(prisma, drawingId, event.id);
+    if (!mounted) return;
+    publishBoardAgentRuntime({
+      io,
+      presences,
+      event: {
+        agentId: mounted.runId,
+        runId: mounted.runId,
+        drawingId: mounted.drawingId,
+        revisionId: mounted.revisionId,
+        // The runtime may report its own mutable label, but the board-facing
+        // participant identity is part of the immutable per-run mount.
+        displayName: mounted.displayName,
+        status: event.status,
+        audience: mounted.audience,
+        occurredAt,
+      },
+    });
+  };
+  const publishRuntimePresence = (
+    drawingId: string,
+    event: {
+      id: string;
+      status: "working" | "idle" | "blocked" | "done" | "unknown";
+      displayName?: string;
+    },
+  ): Promise<void> => {
+    const occurredAt = new Date().toISOString();
+    const queueKey = `${drawingId}\u0000${event.id}`;
+    const previous = runtimePresenceQueues.get(queueKey) ?? Promise.resolve();
+    const queued = previous
+      .catch(() => undefined)
+      .then(() => projectRuntimePresence(drawingId, event, occurredAt))
+      .finally(() => {
+        if (runtimePresenceQueues.get(queueKey) === queued) runtimePresenceQueues.delete(queueKey);
+      });
+    runtimePresenceQueues.set(queueKey, queued);
+    return queued;
+  };
 
   const authorize = async (
     req: express.Request,
@@ -127,14 +181,14 @@ export const registerDrawingRuntimeRoutes = (
         return res.status(403).json({ error: "Forbidden", message: "Run capability required" });
       }
       try {
-        return res.json(
-          await agentRuntimeGateway.status({
-            drawingId: req.params.id,
-            access: authorized.access,
-            principal: authorized.principal,
-            runCapability: parsed.data.runCapability,
-          }),
-        );
+        const status = await agentRuntimeGateway.status({
+          drawingId: req.params.id,
+          access: authorized.access,
+          principal: authorized.principal,
+          runCapability: parsed.data.runCapability,
+        });
+        await publishRuntimePresence(req.params.id, status);
+        return res.json(status);
       } catch (error) {
         return respondRuntimeError(res, error);
       }
@@ -154,15 +208,15 @@ export const registerDrawingRuntimeRoutes = (
           .json({ error: "Validation error", message: "Invalid prompt request" });
       }
       try {
-        return res.json(
-          await agentRuntimeGateway.prompt({
-            drawingId: req.params.id,
-            access: authorized.access,
-            principal: authorized.principal,
-            runCapability: parsed.data.runCapability,
-            text: parsed.data.text,
-          }),
-        );
+        const status = await agentRuntimeGateway.prompt({
+          drawingId: req.params.id,
+          access: authorized.access,
+          principal: authorized.principal,
+          runCapability: parsed.data.runCapability,
+          text: parsed.data.text,
+        });
+        await publishRuntimePresence(req.params.id, status);
+        return res.json(status);
       } catch (error) {
         return respondRuntimeError(res, error);
       }
@@ -201,8 +255,15 @@ export const registerDrawingRuntimeRoutes = (
           runCapability: parsed.data.runCapability,
         };
         const current = await agentRuntimeGateway.status(runParams);
+        await publishRuntimePresence(req.params.id, current);
         const pendingEvents: unknown[] = [];
         let streamReady = false;
+        // Deliberately NOT built on backend/src/utils/inFlightCoalescer.ts:
+        // this is a plain re-entrancy guard for a periodic side effect
+        // (deciding whether to buffer an incoming event while a
+        // reauthorization check is running), never a stored/awaited Promise
+        // that callers share a result from. There is no "start work, return
+        // its promise to concurrent callers" here to coalesce (see NIL-693).
         let reauthorizationInFlight = false;
         const flushPendingEvents = () => {
           if (!streamReady || streamClosed || res.writableEnded) return;
@@ -211,11 +272,15 @@ export const registerDrawingRuntimeRoutes = (
           }
         };
         subscription = await agentRuntimeGateway.subscribe(runParams, (event) => {
+          const presencePublished = publishRuntimePresence(req.params.id, event).catch(
+            () => undefined,
+          );
           if (!streamReady || reauthorizationInFlight) {
             pendingEvents.push(event);
           } else if (!streamClosed && !res.writableEnded) {
             res.write(`data: ${JSON.stringify(event)}\n\n`);
           }
+          return presencePublished;
         });
         void subscription.closed.then(() => {
           if (!res.writableEnded) endStream();

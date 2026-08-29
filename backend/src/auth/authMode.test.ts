@@ -105,6 +105,30 @@ describe("authMode service", () => {
     );
   });
 
+  it("shares the bootstrap-user write across simultaneous disabled-auth requests", async () => {
+    const prisma = createPrismaMock();
+    const userUpsert = prisma.user.upsert as unknown as ReturnType<typeof vi.fn>;
+    userUpsert.mockResolvedValue({
+      id: BOOTSTRAP_USER_ID,
+      email: "bootstrap@excalidash.local",
+      name: "Bootstrap Admin",
+      role: "ADMIN",
+      isActive: false,
+      mustResetPassword: true,
+      username: null,
+    });
+    const service = createAuthModeService(prisma);
+
+    await Promise.all([
+      service.getBootstrapActingUser(),
+      service.getBootstrapActingUser(),
+      service.getBootstrapActingUser(),
+      service.getBootstrapActingUser(),
+    ]);
+
+    expect(userUpsert).toHaveBeenCalledTimes(1);
+  });
+
   it("ensures system config defaults", async () => {
     const prisma = createPrismaMock();
     const upsert = prisma.systemConfig.upsert as unknown as ReturnType<typeof vi.fn>;

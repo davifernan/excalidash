@@ -110,6 +110,8 @@ type EditorViewProps = {
    * useOffscreenPresence.tsx.
    */
   offscreenPresenceOverlay?: React.ReactNode;
+  /** Named Agent Presence projected onto the exact elements it reads. */
+  agentPresenceOverlay?: React.ReactNode;
 };
 
 export const EditorView: React.FC<EditorViewProps> = ({
@@ -168,6 +170,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onHistoryOpen,
   commentsOverlay,
   offscreenPresenceOverlay,
+  agentPresenceOverlay,
   isCommentsOpen,
   unresolvedCommentCount,
   onToggleComments,
@@ -388,6 +391,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
           {stickyOverlay}
           {mindMapOverlay}
           {commentsOverlay}
+          {agentPresenceOverlay}
           {offscreenPresenceOverlay}
         </>
       ) : (

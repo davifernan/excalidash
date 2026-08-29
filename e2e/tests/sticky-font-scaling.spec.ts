@@ -380,6 +380,18 @@ test.describe("sticky note font scaling (NIL-630)", () => {
           const label = elements.find((element: any) => element.containerId === note?.id);
           return [note?.x, note?.y, note?.width, note?.height, label?.fontSize] as const;
         });
+      // NIL-689: the note's own `boundElements` reference to its label, as the
+      // spectator sees it -- not just the label's `containerId` used above.
+      // `deriveStickyFontState` reads the note side of that link
+      // (`note.boundElements?.find(el => el.type === "text")`); a spectator
+      // that never sees the note's own boundElements update never fits the
+      // font locally, regardless of whether the label content itself arrived.
+      const noteBoundLabelId = () =>
+        spectator.evaluate(() => {
+          const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+          const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+          return note?.boundElements?.find((bound: any) => bound?.type === "text")?.id ?? null;
+        });
 
       await writer
         .locator("canvas")
@@ -418,6 +430,16 @@ test.describe("sticky note font scaling (NIL-630)", () => {
         before,
       );
       const after = await snapshot();
+      // NIL-689 regression: the spectator's own note element must carry a
+      // `boundElements` reference to the label it is currently displaying --
+      // not just the label existing with the right text via `containerId`.
+      const spectatorLabelId = await spectator.evaluate(() => {
+        const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+        const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+        return elements.find((element: any) => element.containerId === note?.id)?.id ?? null;
+      });
+      expect(spectatorLabelId).not.toBeNull();
+      expect(await noteBoundLabelId()).toBe(spectatorLabelId);
       const states = samples.filter(
         (sample, index) =>
           index === 0 || sample.some((value, field) => value !== samples[index - 1][field]),

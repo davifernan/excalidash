@@ -33,6 +33,7 @@ import {
   setAuthCookies,
 } from "./auth/cookies";
 import { isNonBrowserApiKeyBearerRequest } from "./auth/apiKeys";
+import { createInFlightCoalescer } from "./utils/inFlightCoalescer";
 interface JwtPayload {
   userId: string;
   email: string;
@@ -90,13 +91,13 @@ const isAllowedAuthOrigin = (origin?: string): boolean => {
   if (isDev && isLocalDevOrigin(origin)) return true;
   return false;
 };
-type CreateAuthRouterDeps = {
+export type CreateAuthRouterDeps = {
   prisma: PrismaClient;
   requireAuth: express.RequestHandler;
   optionalAuth: express.RequestHandler;
   authModeService: AuthModeService;
 };
-const createAuthRouter = (deps: CreateAuthRouterDeps): express.Router => {
+export const createAuthRouter = (deps: CreateAuthRouterDeps): express.Router => {
   const { prisma, requireAuth, optionalAuth, authModeService } = deps;
   const router = express.Router();
   const ensureSystemConfig = authModeService.ensureSystemConfig;
@@ -117,7 +118,8 @@ const createAuthRouter = (deps: CreateAuthRouterDeps): express.Router => {
   };
   let loginRateLimitConfig: LoginRateLimitConfig = { ...DEFAULT_LOGIN_RATE_LIMIT };
   let loginAttemptLimiter: ReturnType<typeof rateLimit> | null = null;
-  let loginLimiterInitPromise: Promise<void> | null = null;
+  const loginLimiterInit = createInFlightCoalescer<void>();
+  const LOGIN_LIMITER_INIT_KEY = "login-attempt-limiter";
   let loginIdentifierKeyIndex = new Map<string, Set<string>>();
   // Only these three fields are read below. Typing the parameter as the full
   // `Awaited<ReturnType<typeof ensureSystemConfig>>` (as it used to be)
@@ -214,12 +216,7 @@ const createAuthRouter = (deps: CreateAuthRouterDeps): express.Router => {
   };
   const ensureLoginAttemptLimiter = async () => {
     if (loginAttemptLimiter) return;
-    if (!loginLimiterInitPromise) {
-      loginLimiterInitPromise = initLoginAttemptLimiter().finally(() => {
-        loginLimiterInitPromise = null;
-      });
-    }
-    await loginLimiterInitPromise;
+    await loginLimiterInit.run(LOGIN_LIMITER_INIT_KEY, initLoginAttemptLimiter);
   };
   const applyLoginRateLimitConfig = (
     systemConfig: LoginRateLimitSystemConfig,

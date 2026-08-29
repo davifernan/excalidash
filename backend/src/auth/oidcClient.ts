@@ -107,6 +107,13 @@ export const createOidcClientFactory = (config: RegisterOidcRoutesDeps["config"]
     }
     return new clientIssuer.Client(clientConfig as any);
   };
+  // Deliberately NOT built on backend/src/utils/inFlightCoalescer.ts despite
+  // the matching shape: that helper always clears its slot once the work
+  // settles, success or failure, so the next call starts fresh work. This
+  // needs the opposite success behavior -- the client is built once and
+  // cached forever, only retried after a failure. Folding this into the
+  // shared helper would silently turn "build once" into "rebuild on every
+  // call" (see NIL-693).
   const getOidcClient = async () => {
     if (!oidcClientPromise) {
       oidcClientPromise = buildOidcClient();

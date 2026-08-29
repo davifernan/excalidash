@@ -1,3 +1,9 @@
+import type {
+  BoardAgentFocusEvent,
+  BoardAgentRunAudience,
+  BoardAgentRuntimePresenceEvent,
+} from "../agent/presence";
+
 /**
  * Who is connected to which board, right now.
  *
@@ -18,6 +24,8 @@ export type PresenceEntry = {
   isActive: boolean;
   selectedElementIds: Record<string, true>;
   allSelected?: boolean;
+  /** API-key sockets collaborate with data but do not receive social UI. */
+  receivesAgentEvents?: boolean;
 };
 
 /**
@@ -32,15 +40,42 @@ export type PresenceEntry = {
  */
 export type PublicPresenceEntry = Omit<
   PresenceEntry,
-  "accountId" | "selectedElementIds" | "allSelected"
+  "accountId" | "selectedElementIds" | "allSelected" | "receivesAgentEvents"
 >;
 
 export const toPublicPresence = ({
   accountId: _accountId,
   selectedElementIds: _selectedElementIds,
   allSelected: _allSelected,
+  receivesAgentEvents: _receivesAgentEvents,
   ...rest
 }: PresenceEntry): PublicPresenceEntry => rest;
+
+export type BoardAgentPresenceEntry = {
+  agentId: string;
+  runId: string;
+  drawingId: string;
+  revisionId: string;
+  displayName: string;
+  color: string;
+  status: "working" | "idle" | "blocked" | "done" | "unknown";
+  targetIds: readonly string[];
+  focusActive: boolean;
+  audience: BoardAgentRunAudience;
+  lastEventAt: number;
+  /** Server-only ordering key for runtime events; never sent to viewers. */
+  runtimeOccurredAt: number;
+};
+
+export type PublicBoardAgentPresenceEntry = Omit<
+  BoardAgentPresenceEntry,
+  "audience" | "lastEventAt" | "runtimeOccurredAt"
+> & { visibility: BoardAgentRunAudience["kind"] };
+
+export type StaleBoardAgentPresence = {
+  drawingId: string;
+  audience: BoardAgentRunAudience;
+};
 
 export type SelectionSnapshotEntry = { presenceId: string } & (
   { selectedElementIds: string[] } | { allSelected: true }
@@ -66,6 +101,7 @@ export type PresenceSummary = {
 
 export class PresenceRegistry {
   private readonly byDrawing = new Map<string, Map<string, PresenceEntry>>();
+  private readonly agentsByDrawing = new Map<string, Map<string, BoardAgentPresenceEntry>>();
 
   join(drawingId: string, entry: PresenceEntry): void {
     const entries = this.byDrawing.get(drawingId) || new Map<string, PresenceEntry>();
@@ -140,6 +176,123 @@ export class PresenceRegistry {
     return Array.from(this.byDrawing.keys());
   }
 
+  applyAgentFocus(event: BoardAgentFocusEvent, now = Date.now()): BoardAgentPresenceEntry {
+    const entries = this.agentsByDrawing.get(event.drawingId) ?? new Map();
+    const existing = entries.get(event.runId);
+    const entry: BoardAgentPresenceEntry = {
+      agentId: event.agentId,
+      runId: event.runId,
+      drawingId: event.drawingId,
+      revisionId: event.revisionId,
+      displayName: event.displayName,
+      color: deriveAgentPresenceColor(event.runId),
+      status: existing?.status ?? "working",
+      focusActive: event.phase === "started",
+      targetIds:
+        event.phase === "started"
+          ? [...event.targetIds]
+          : event.targetIds.length > 0
+            ? [...event.targetIds]
+            : (existing?.targetIds ?? []),
+      audience: event.audience,
+      lastEventAt: now,
+      runtimeOccurredAt: existing?.runtimeOccurredAt ?? Number.NEGATIVE_INFINITY,
+    };
+    entries.set(event.runId, entry);
+    this.agentsByDrawing.set(event.drawingId, entries);
+    return entry;
+  }
+
+  applyAgentRuntime(
+    event: BoardAgentRuntimePresenceEvent,
+    now = Date.now(),
+  ): { entry: BoardAgentPresenceEntry | null; applied: boolean } {
+    const runtimeOccurredAt = Date.parse(event.occurredAt);
+    const orderedAt = Number.isFinite(runtimeOccurredAt) ? runtimeOccurredAt : now;
+    const existing = this.agentsByDrawing.get(event.drawingId)?.get(event.runId);
+    // The stream queue preserves arrival order for equal millisecond stamps;
+    // only a strictly older event may never replace the current runtime state.
+    if (existing && orderedAt < existing.runtimeOccurredAt) {
+      return { entry: existing, applied: false };
+    }
+    if (event.status === "done") {
+      this.removeAgent(event.drawingId, event.runId);
+      return { entry: null, applied: true };
+    }
+    const entries = this.agentsByDrawing.get(event.drawingId) ?? new Map();
+    const entry: BoardAgentPresenceEntry = {
+      agentId: event.agentId,
+      runId: event.runId,
+      drawingId: event.drawingId,
+      revisionId: event.revisionId,
+      displayName: event.displayName,
+      color: deriveAgentPresenceColor(event.runId),
+      status: event.status,
+      focusActive: existing?.focusActive ?? false,
+      targetIds: existing?.targetIds ?? [],
+      audience: event.audience,
+      lastEventAt: now,
+      runtimeOccurredAt: orderedAt,
+    };
+    entries.set(event.runId, entry);
+    this.agentsByDrawing.set(event.drawingId, entries);
+    return { entry, applied: true };
+  }
+
+  removeAgent(drawingId: string, runId: string): void {
+    const entries = this.agentsByDrawing.get(drawingId);
+    if (!entries) return;
+    entries.delete(runId);
+    if (entries.size === 0) this.agentsByDrawing.delete(drawingId);
+  }
+
+  agentRecipientIds(drawingId: string, audience: BoardAgentRunAudience): string[] {
+    return this.list(drawingId)
+      .filter((entry) => entry.receivesAgentEvents !== false)
+      .filter((entry) => audience.kind === "drawing" || entry.accountId === audience.userId)
+      .map((entry) => entry.presenceId);
+  }
+
+  listAgentsForViewer(
+    drawingId: string,
+    viewerAccountId: string | null,
+  ): PublicBoardAgentPresenceEntry[] {
+    return Array.from(this.agentsByDrawing.get(drawingId)?.values() ?? [])
+      .filter(
+        (entry) => entry.audience.kind === "drawing" || entry.audience.userId === viewerAccountId,
+      )
+      .sort((left, right) => left.runId.localeCompare(right.runId))
+      .map(
+        ({
+          audience,
+          lastEventAt: _lastEventAt,
+          runtimeOccurredAt: _runtimeOccurredAt,
+          ...entry
+        }) => ({
+          ...entry,
+          visibility: audience.kind,
+        }),
+      );
+  }
+
+  /** Returns the exact audiences whose viewers need a clearing snapshot. */
+  pruneStaleAgents(cutoff: number): StaleBoardAgentPresence[] {
+    const changed: StaleBoardAgentPresence[] = [];
+    for (const [drawingId, entries] of this.agentsByDrawing) {
+      let removed = false;
+      for (const [runId, entry] of entries) {
+        if (entry.lastEventAt < cutoff) {
+          entries.delete(runId);
+          changed.push({ drawingId, audience: entry.audience });
+          removed = true;
+        }
+      }
+      if (!removed) continue;
+      if (entries.size === 0) this.agentsByDrawing.delete(drawingId);
+    }
+    return changed;
+  }
+
   /**
    * What a board looks like from the outside: one entry per person rather than
    * per connection, because two tabs are still one colleague, and guests as a
@@ -173,3 +326,20 @@ export class PresenceRegistry {
     };
   }
 }
+
+const AGENT_PRESENCE_COLORS = [
+  "#7c3aed",
+  "#2563eb",
+  "#0891b2",
+  "#059669",
+  "#d97706",
+  "#dc2626",
+] as const;
+
+const deriveAgentPresenceColor = (runId: string): string => {
+  let hash = 0;
+  for (let index = 0; index < runId.length; index += 1) {
+    hash = runId.charCodeAt(index) + ((hash << 5) - hash);
+  }
+  return AGENT_PRESENCE_COLORS[Math.abs(hash) % AGENT_PRESENCE_COLORS.length];
+};
