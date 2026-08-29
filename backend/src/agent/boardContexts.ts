@@ -1,3 +1,4 @@
+import { resolveAgentContextContributePolicy } from "../authz/capabilities";
 import {
   elementIdsInContextFrame,
   markUnknownElementProvenanceGuestTouched,
@@ -236,13 +237,17 @@ export class AgentContextGuestWriteDeniedError extends Error {
 /**
  * NIL-677 `agent_context:write`, Gate 1 (preventive). A guest may never
  * change an element that resolves -- directly or through its frame's own
- * frameId ancestry -- into a registered Agent Context frame. There is no
- * settable policy for this: unlike `agent_context:contribute`, it is a hard
- * downgrade from ordinary edit access, not a capability a board owner can
- * grant back. Checked against the RESULTING scene (the `elements` argument),
- * not the prior one, because the exact attack this exists to stop is a guest
- * dragging an element INTO the frame -- the frameId that matters is the one
- * the write is trying to produce.
+ * frameId ancestry -- into a registered Agent Context frame, UNLESS the
+ * board's `agentContextContribute` policy is on. NIL-677's own "Fertig,
+ * wenn" criterion requires that one setting to govern both enforcement
+ * layers, not just `agent_context:contribute` (Gate 2) -- so this reads the
+ * exact same `resolveAgentContextContributePolicy` Gate 2 does, rather than
+ * carrying its own copy of "is this on" that could drift from Gate 2's.
+ * When the policy is off (the default), this stays the hard, unconditional
+ * deny it always was. Checked against the RESULTING scene (the `elements`
+ * argument), not the prior one, because the exact attack this exists to
+ * stop is a guest dragging an element INTO the frame -- the frameId that
+ * matters is the one the write is trying to produce.
  *
  * This is prevention, not the guarantee: a socket race, an old client, or an
  * overlooked sixth mutation path can still slip an element into a frame's
@@ -264,6 +269,7 @@ export const assertGuestElementWriteAllowed = async (params: {
     select: { frameElementId: true },
   })) as { frameElementId: string }[];
   if (contexts.length === 0) return;
+  if (await resolveAgentContextContributePolicy(params.prisma, params.drawingId)) return;
   const records = params.elements.filter(
     (element): element is Element =>
       typeof element === "object" && element !== null && !Array.isArray(element),

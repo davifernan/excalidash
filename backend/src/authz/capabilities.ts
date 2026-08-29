@@ -30,12 +30,16 @@ export type EffectiveDrawingCapabilities = {
   uploadFiles: boolean;
   viewComments: boolean;
   /**
-   * Whether a guest's own content (see elementGuestProvenance.ts's
-   * `guest-touched`/`unknown` statuses) may be admitted into a compiled
-   * Agent Context. This is `agent_context:contribute` from NIL-677 -- a
-   * separate question from `agent_context:write` (NIL-677's other scope),
-   * which has no capability column at all: it is a hard, non-configurable
-   * "no" enforced at every element-mutation path, not a settable policy.
+   * NIL-677's single guest-facing switch for Agent Contexts, backing BOTH of
+   * its enforcement layers (its own "Fertig, wenn" criterion): whether a
+   * guest may write directly into a registered Agent Context frame
+   * (`assertGuestElementWriteAllowed`, boardContexts.ts) and whether a
+   * guest's own content -- see elementGuestProvenance.ts's
+   * `guest-touched`/`unknown` statuses -- may be admitted into a compiled
+   * context (`isEligibleForAgentContribution`, elementGuestProvenance.ts).
+   * There is no column for `write` alone: it is this same value or nothing.
+   * Off by default: a guest cannot write into the frame, and existing
+   * guest-touched/unknown content stays excluded from what an agent reads.
    */
   agentContextContribute: boolean;
 };
@@ -172,6 +176,29 @@ export const combineGuestCapabilities = (
   viewComments: instance.viewComments && board.viewComments,
   agentContextContribute: instance.agentContextContribute && board.agentContextContribute,
 });
+
+/**
+ * NIL-677's single answer to "does 'allow guest contribution' currently
+ * apply to this board" -- the one thing both enforcement layers need and
+ * must never compute independently. `agent_context:write` (boardContexts.ts's
+ * `assertGuestElementWriteAllowed`) and `agent_context:contribute`
+ * (elementGuestProvenance.ts's `isEligibleForAgentContribution`, called from
+ * boardMount.ts) answer different questions, but NIL-677's own "Fertig,
+ * wenn" criterion requires the SAME setting to govern both: call this,
+ * don't re-derive combineGuestCapabilities(...).agentContextContribute at
+ * each call site, or the two layers can silently drift onto different
+ * policy reads.
+ */
+export const resolveAgentContextContributePolicy = async (
+  prisma: PrismaClient,
+  drawingId: string,
+): Promise<boolean> => {
+  const [board, instance] = await Promise.all([
+    getBoardGuestCapabilityPolicy(prisma, drawingId),
+    getInstanceGuestCapabilities(prisma),
+  ]);
+  return combineGuestCapabilities(instance, board).agentContextContribute;
+};
 
 export type DrawingCapabilityDecision = {
   access: DrawingAccess;

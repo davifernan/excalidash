@@ -195,6 +195,54 @@ describe("agent context guest access (NIL-677)", () => {
       expect(persisted.find((element: any) => element.id === "outside-note").frameId).toBeNull();
     });
 
+    it("allows a guest write into the frame once agentContextContribute is enabled for both instance and board", async () => {
+      const { drawingId, shareToken } = await buildDrawing();
+      await prisma.systemConfig.update({
+        where: { id: "default" },
+        data: { guestAgentContextContributeEnabled: true },
+      });
+      await prisma.drawing.update({
+        where: { id: drawingId },
+        data: { guestAgentContextContributeEnabled: true },
+      });
+      const movedIn = { ...outsideNote, frameId: frame.id, x: 30, y: 30 };
+      const response = await putScene({
+        id: drawingId,
+        shareToken,
+        asUser: guestAccount,
+        version: 1,
+        elements: [frame, insideNote, movedIn],
+      });
+
+      expect(response.status).toBe(200);
+      const persisted = JSON.parse(
+        (await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).elements,
+      );
+      expect(persisted.find((element: any) => element.id === "outside-note").frameId).toBe(
+        frame.id,
+      );
+    });
+
+    it("keeps the guest write denied when only the board opts in but the instance ceiling stays closed", async () => {
+      const { drawingId, shareToken } = await buildDrawing();
+      // Instance ceiling deliberately left false (afterEach's baseline).
+      await prisma.drawing.update({
+        where: { id: drawingId },
+        data: { guestAgentContextContributeEnabled: true },
+      });
+      const movedIn = { ...outsideNote, frameId: frame.id, x: 30, y: 30 };
+      const response = await putScene({
+        id: drawingId,
+        shareToken,
+        asUser: guestAccount,
+        version: 1,
+        elements: [frame, insideNote, movedIn],
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe("AGENT_CONTEXT_GUEST_WRITE_DENIED");
+    });
+
     it("still lets the same guest write an element that stays outside the frame", async () => {
       const { drawingId, shareToken } = await buildDrawing();
       const edited = { ...outsideNote, text: "guest edited this, still outside" };
@@ -279,6 +327,10 @@ describe("agent context guest access (NIL-677)", () => {
       const elementIds = response.body.result.elements.map((element: any) => element.id);
       expect(elementIds).toContain("inside-note");
       expect(elementIds).not.toContain("outside-note");
+      // The log line alone is not enough for an agent to know its own view
+      // is incomplete -- it never sees the log. The tool result itself must
+      // carry the fact.
+      expect(response.body.excludedElementCount).toBe(1);
       expect(logSpy).toHaveBeenCalledWith(
         "NIL-677 Gate 2 excluded a Context-readable element from Agent Context",
         expect.objectContaining({ elementId: "outside-note", provenanceStatus: "guest-touched" }),
@@ -314,6 +366,7 @@ describe("agent context guest access (NIL-677)", () => {
       expect(response.status).toBe(200);
       const elementIds = response.body.result.elements.map((element: any) => element.id);
       expect(elementIds).toContain("outside-note");
+      expect(response.body.excludedElementCount).toBe(0);
     });
 
     it("keeps guest contribution closed if only the board opts in but the instance ceiling stays closed", async () => {
@@ -341,9 +394,10 @@ describe("agent context guest access (NIL-677)", () => {
       expect(response.status).toBe(200);
       const elementIds = response.body.result.elements.map((element: any) => element.id);
       expect(elementIds).not.toContain("outside-note");
+      expect(response.body.excludedElementCount).toBe(1);
     });
 
-    it("always keeps the frame's own boundary element readable regardless of its provenance", async () => {
+    it("always keeps the frame's own boundary element readable regardless of its provenance, and never counts it as excluded", async () => {
       const { drawingId } = await buildDrawing();
       // Simulate a pre-existing frame registered without ever confirming its
       // own provenance -- registerAgentContext's conservative backfill marks
@@ -360,6 +414,39 @@ describe("agent context guest access (NIL-677)", () => {
 
       expect(response.status).toBe(200);
       expect(response.body.result.frame.id).toBe(frame.id);
+      expect(response.body.excludedElementCount).toBe(0);
+    });
+
+    it("reports the excluded count when an existing board's legacy content is fail-closed at first registration", async () => {
+      // The interaction NIL-695's registration backfill creates: an owner
+      // registers a frame around content nobody ever confirmed, and that
+      // content becomes guest-touched -- not because a guest touched it, but
+      // because its provenance was unknown at registration time. Deliberately
+      // does NOT call confirmElementGuestProvenance (unlike buildDrawing),
+      // so this reproduces a real first-scharfschalten on an existing board.
+      const drawing = await prisma.drawing.create({
+        data: {
+          name: "Existing board with real history",
+          elements: JSON.stringify([frame, insideNote]),
+          appState: "{}",
+          files: "{}",
+          userId: owner.id,
+        },
+      });
+      await registerAgentContext({
+        prisma,
+        drawingId: drawing.id,
+        frameElementId: frame.id,
+      });
+
+      const response = await mountAndReadFrame(drawing.id);
+
+      expect(response.status).toBe(200);
+      // insideNote is excluded (backfilled guest-touched, unconfirmed); the
+      // frame itself is exempt (boundary marker, not admitted content).
+      const elementIds = response.body.result.elements.map((element: any) => element.id);
+      expect(elementIds).not.toContain("inside-note");
+      expect(response.body.excludedElementCount).toBe(1);
     });
   });
 });
