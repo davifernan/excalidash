@@ -320,7 +320,10 @@ type ButtonSample = {
 type PageSwitchTrace = {
   actorId: number;
   ts: number;
-  outcome: "clicked" | "not_visible" | "timeout" | "error";
+  /** Written before the first browser operation, so a non-returning call is
+   * evidence rather than an absent trace. */
+  phase: "activate_document_widget" | "button_enabled" | "click" | "complete";
+  outcome: "started" | "clicked" | "not_visible" | "timeout" | "error";
   samples: ButtonSample[];
   /** True when the first and last position samples differ by more than a
    * few pixels -- the button relocated while we were waiting on it. */
@@ -364,6 +367,9 @@ const FINAL_CHECK_TIMEOUT_MS = envInt("SOAK_FINAL_CHECK_TIMEOUT_MS", 30_000);
  * becomes a caught, recorded error instead of invisible silence.
  */
 const PAGE_SWITCH_CLICK_TIMEOUT_MS = envInt("SOAK_PAGE_SWITCH_CLICK_TIMEOUT_MS", 5_000);
+// Diagnostic, not a performance budget: normal activation is milliseconds;
+// eight seconds leaves deliberately generous headroom while naming a hang.
+const PAGE_SWITCH_PHASE_TIMEOUT_MS = envInt("SOAK_PAGE_SWITCH_PHASE_TIMEOUT_MS", 8_000);
 
 /**
  * Bounds a promise that has no timeout of its own.
@@ -474,7 +480,7 @@ const decideStep = (actor: Actor, roll: number): string => {
  * the only way to see where the button actually was during it, including on
  * the timeout path where the click itself never tells us.
  */
-const clickPageSwitchButton = async (actor: Actor, next: Locator): Promise<void> => {
+const clickPageSwitchButton = async (actor: Actor, next: Locator, trace: PageSwitchTrace): Promise<void> => {
   const samples: ButtonSample[] = [];
   const startedAt = Date.now();
   const sample = async () => {
@@ -538,14 +544,11 @@ const clickPageSwitchButton = async (actor: Actor, next: Locator): Promise<void>
       first.x !== null &&
       last.x !== null &&
       (Math.abs(first.x! - last.x!) > 2 || Math.abs(first.y! - last.y!) > 2);
-    actor.pageSwitchTraces.push({
-      actorId: actor.id,
-      ts: startedAt,
-      outcome,
-      samples,
-      moved,
-      coveredBy,
-    });
+    trace.outcome = outcome;
+    trace.samples = samples;
+    trace.moved = moved;
+    trace.coveredBy = coveredBy;
+    trace.phase = "complete";
   }
 };
 
@@ -572,7 +575,24 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       });
       break;
     case "page_switch": {
-      await activateDocumentWidget(actor.page);
+      const trace: PageSwitchTrace = {
+        actorId: actor.id,
+        ts: Date.now(),
+        phase: "activate_document_widget",
+        outcome: "started",
+        samples: [],
+        moved: false,
+        coveredBy: null,
+      };
+      actor.pageSwitchTraces.push(trace);
+      const describe = (phase: string) =>
+        `page_switch ${phase} for actor ${actor.id} (${actor.engine})`;
+      try {
+        await withDeadline(
+          activateDocumentWidget(actor.page),
+          PAGE_SWITCH_PHASE_TIMEOUT_MS,
+          describe("activate_document_widget"),
+        );
       // Paging backward sometimes, not just forward: both buttons stay
       // mounted (disabled, not hidden) at either end of the document, so an
       // actor that only ever goes forward eventually parks on the last page
@@ -590,7 +610,23 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       // disabled button too, so the precheck was passing right into the
       // actionability wait it was meant to avoid. See this file's header,
       // "Bounded is not the same as correct".
-      if (await button.isEnabled()) await clickPageSwitchButton(actor, button);
+        trace.phase = "button_enabled";
+        const enabled = await withDeadline(
+          button.isEnabled(),
+          PAGE_SWITCH_PHASE_TIMEOUT_MS,
+          describe("button_enabled"),
+        );
+        if (!enabled) {
+          trace.outcome = "not_visible";
+          trace.phase = "complete";
+          break;
+        }
+        trace.phase = "click";
+        await clickPageSwitchButton(actor, button, trace);
+      } catch (error) {
+        trace.outcome = "error";
+        throw error;
+      }
       break;
     }
     case "offline_toggle":
