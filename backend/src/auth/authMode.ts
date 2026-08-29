@@ -17,6 +17,7 @@ export const createAuthModeService = (
 ) => {
   const authEnabledTtlMs = options?.authEnabledTtlMs ?? 5000;
   let authEnabledCache: AuthEnabledCache | null = null;
+  let bootstrapUserUpsertInFlight: Promise<any> | null = null;
 
   const getSystemConfigAuthEnabled = async () => {
     return prisma.systemConfig.findUnique({
@@ -70,7 +71,8 @@ export const createAuthModeService = (
   };
 
   const getBootstrapActingUser = async () => {
-    return prisma.user.upsert({
+    if (bootstrapUserUpsertInFlight) return bootstrapUserUpsertInFlight;
+    const operation = prisma.user.upsert({
       where: { id: BOOTSTRAP_USER_ID },
       update: {},
       create: {
@@ -93,6 +95,12 @@ export const createAuthModeService = (
         isActive: true,
       },
     });
+    bootstrapUserUpsertInFlight = operation;
+    const clearBootstrapUserUpsert = () => {
+      if (bootstrapUserUpsertInFlight === operation) bootstrapUserUpsertInFlight = null;
+    };
+    void operation.then(clearBootstrapUserUpsert, clearBootstrapUserUpsert);
+    return operation;
   };
 
   return {

@@ -68,42 +68,60 @@ export const createDocumentPageManager = ({
   prisma: any;
   resolvePageCount?: (assetId: string) => Promise<number | null>;
 }) => {
+  // Joining a room is deliberately allowed to reconcile the persisted widget
+  // state: old drawings can predate documentPageView rows. Several sockets can
+  // join the same drawing in one burst, though, and repeating that write
+  // transaction does not produce a different snapshot. Share only work that
+  // is still in flight; a later join must observe a fresh persisted state.
+  const snapshotsInFlight = new Map<string, Promise<DocumentPageSnapshot>>();
+
   const snapshot = async (
     drawingId: string,
     correlationId?: string,
   ): Promise<DocumentPageSnapshot> => {
-    const reconcile = async (tx: any) => {
-      const drawing = await tx.drawing.findUnique({
-        where: { id: drawingId },
-        select: { elements: true },
-      });
-      if (!drawing) return [];
-      // Production rows always carry serialized elements. Socket-only test
-      // doubles often model access fields alone; they can still exercise the
-      // snapshot read without pretending to implement scene reconciliation.
-      if (typeof drawing.elements === "string") {
-        const elements = JSON.parse(drawing.elements);
-        if (!Array.isArray(elements)) throw new Error("Drawing elements are not an array");
-        logger.warn("NIL-601 diagnostic: snapshot reconcile reading persisted elements", {
-          drawingId,
-          correlationId,
-          elementCount: elements.length,
-          embeddableCount: elements.filter((e: any) => e?.type === "embeddable").length,
+    const existing = snapshotsInFlight.get(drawingId);
+    if (existing) return existing;
+
+    const operation = (async () => {
+      const reconcile = async (tx: any) => {
+        const drawing = await tx.drawing.findUnique({
+          where: { id: drawingId },
+          select: { elements: true },
         });
-        await syncDrawingDocumentState(tx, drawingId, elements, { correlationId });
-      }
-      if (!tx.documentPageView?.findMany) return [];
-      return tx.documentPageView.findMany({
-        where: { drawingId },
-        select: { elementId: true, assetId: true, page: true, revision: true },
-        take: DOCUMENT_PAGE_LIMITS.widgetsPerDrawing,
-      });
+        if (!drawing) return [];
+        // Production rows always carry serialized elements. Socket-only test
+        // doubles often model access fields alone; they can still exercise the
+        // snapshot read without pretending to implement scene reconciliation.
+        if (typeof drawing.elements === "string") {
+          const elements = JSON.parse(drawing.elements);
+          if (!Array.isArray(elements)) throw new Error("Drawing elements are not an array");
+          logger.warn("NIL-601 diagnostic: snapshot reconcile reading persisted elements", {
+            drawingId,
+            correlationId,
+            elementCount: elements.length,
+            embeddableCount: elements.filter((e: any) => e?.type === "embeddable").length,
+          });
+          await syncDrawingDocumentState(tx, drawingId, elements, { correlationId });
+        }
+        if (!tx.documentPageView?.findMany) return [];
+        return tx.documentPageView.findMany({
+          where: { drawingId },
+          select: { elementId: true, assetId: true, page: true, revision: true },
+          take: DOCUMENT_PAGE_LIMITS.widgetsPerDrawing,
+        });
+      };
+      const rows =
+        typeof prisma.$transaction === "function"
+          ? await prisma.$transaction(reconcile)
+          : await reconcile(prisma);
+      return { drawingId, pages: rows };
+    })();
+    snapshotsInFlight.set(drawingId, operation);
+    const clearInFlightSnapshot = () => {
+      if (snapshotsInFlight.get(drawingId) === operation) snapshotsInFlight.delete(drawingId);
     };
-    const rows =
-      typeof prisma.$transaction === "function"
-        ? await prisma.$transaction(reconcile)
-        : await reconcile(prisma);
-    return { drawingId, pages: rows };
+    void operation.then(clearInFlightSnapshot, clearInFlightSnapshot);
+    return operation;
   };
 
   const set = async (
