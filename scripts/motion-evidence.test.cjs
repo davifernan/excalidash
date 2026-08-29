@@ -13,8 +13,10 @@ const {
   rawEvidenceUrl,
   validatePublication,
 } = require("./motion-evidence.cjs");
+const { REQUIRED_GIT_IDENTITY } = require("./delivery-contracts.cjs");
 
 test("motion evidence uses bounded GIF settings and a durable evidence URL", () => {
+  assert.equal(REQUIRED_GIT_IDENTITY, "Nilo <127136134+davifernan@users.noreply.github.com>");
   assert.equal(MAX_DURATION_SECONDS, 12);
   assert.equal(MAX_BYTES, 5 * 1024 * 1024);
   assert.equal(GIF_WIDTH, 640);

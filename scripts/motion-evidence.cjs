@@ -6,6 +6,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { REQUIRED_GIT_IDENTITY } = require("./delivery-contracts.cjs");
 
 const MAX_DURATION_SECONDS = 12;
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -13,7 +14,6 @@ const GIF_WIDTH = 640;
 const GIF_FPS = 8;
 const PACKAGE_PATTERN = /^NIL-[1-9][0-9]*$/;
 const NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const NILO_IDENTITY = "Nilo <127136134+davifernan@users.noreply.github.com>";
 
 function command(command, args, options = {}) {
   return execFileSync(command, args, { encoding: "utf8", stdio: "pipe", ...options });
@@ -49,8 +49,8 @@ function gifFilename(name) {
 
 function assertNiloIdentity(cwd) {
   for (const variable of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
-    if (!command("git", ["var", variable], { cwd }).startsWith(NILO_IDENTITY)) {
-      throw new Error(`Evidence commit refused: ${variable} is not ${NILO_IDENTITY}.`);
+    if (!command("git", ["var", variable], { cwd }).startsWith(REQUIRED_GIT_IDENTITY)) {
+      throw new Error(`Evidence commit refused: ${variable} is not ${REQUIRED_GIT_IDENTITY}.`);
     }
   }
 }
@@ -94,7 +94,7 @@ function publish({ packageId, pr, input, name }) {
     const commitIdentity = command("git", ["show", "-s", "--format=author=%an <%ae>%ncommitter=%cn <%ce>", "HEAD"], {
       cwd: worktree,
     });
-    if (commitIdentity !== `author=${NILO_IDENTITY}\ncommitter=${NILO_IDENTITY}\n`) {
+    if (commitIdentity !== `author=${REQUIRED_GIT_IDENTITY}\ncommitter=${REQUIRED_GIT_IDENTITY}\n`) {
       throw new Error("Evidence commit identity verification failed.");
     }
     command("git", ["push", "fork", "HEAD:refs/heads/evidence"], { cwd: worktree });
