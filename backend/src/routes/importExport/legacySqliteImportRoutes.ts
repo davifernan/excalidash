@@ -13,6 +13,10 @@ import {
   resolveSafeUploadedFilePath,
   sanitizeDrawingData,
 } from "./shared";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../../agent/boardContexts";
 import { claimOnBoard, isBoardCreator, isCollectionCreator } from "../../authz/boards";
 import { rewritePreviewFileReferences } from "../../fileProcessing";
 export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps) => {
@@ -374,6 +378,7 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
                 continue;
               }
               if (isBoardCreator(existing, req.user!.id)) {
+                await assertPersistedAgentContextFrames(tx, existing.id, d.sanitized.elements);
                 await tx.drawing.update({
                   where: { id: existing.id },
                   data: {
@@ -467,7 +472,14 @@ export const registerLegacySqliteImportRoutes = (deps: RegisterImportExportDeps)
           }
           invalidateDrawingsCache();
           return res.json({ success: true, ...result });
-        } catch {
+        } catch (error) {
+          if (error instanceof AgentContextValidationError) {
+            return res.status(409).json({
+              error: "Invalid Context map",
+              code: error.code,
+              message: error.message,
+            });
+          }
           return res.status(500).json({
             error: "Legacy DB support unavailable",
             message:
