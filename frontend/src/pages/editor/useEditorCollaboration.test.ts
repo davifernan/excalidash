@@ -45,6 +45,7 @@ vi.mock("./socketCollaborators", () => ({
     setSelfPresenceId: vi.fn(),
     dispose: vi.fn(),
   }),
+  bindBoardAgentPresence: () => ({ reset: vi.fn(), dispose: vi.fn() }),
 }));
 vi.mock("./remoteSelection", () => ({
   bindRemoteSelection: () => ({

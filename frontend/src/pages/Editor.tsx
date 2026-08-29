@@ -31,6 +31,7 @@ import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useEditorFileUploads } from "./editor/useEditorFileUploads";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import { useOffscreenPresence } from "./editor/useOffscreenPresence";
+import { useAgentPresenceOverlay } from "./editor/useAgentPresenceOverlay";
 import { useAgentRuntimeFeature } from "./editor/useAgentRuntimeFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
@@ -352,6 +353,7 @@ export const Editor: React.FC = () => {
   }, [id, location.hash, location.pathname, location.search, navigate]);
   const {
     peers,
+    agentPresence,
     connectionStatus,
     cursorChatRef,
     cursorChatDraft,
@@ -666,6 +668,7 @@ export const Editor: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { offscreenPresenceOverlay } = useOffscreenPresence({ adapter });
+  const { agentPresenceOverlay } = useAgentPresenceOverlay({ adapter, presence: agentPresence });
   const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime } = useAgentRuntimeFeature({
     adapter,
     drawingId: id,
@@ -766,6 +769,7 @@ export const Editor: React.FC = () => {
         onOpenMindMapImport={onOpenMindMapImport}
         commentsOverlay={commentsOverlay}
         offscreenPresenceOverlay={offscreenPresenceOverlay}
+        agentPresenceOverlay={agentPresenceOverlay}
         isCommentsOpen={isCommentsOpen}
         onToggleComments={toggleComments}
         unresolvedCommentCount={unresolvedCommentCount}

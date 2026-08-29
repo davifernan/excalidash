@@ -8,8 +8,9 @@ import { bindFollowMode, getFollowInterruptionMessage, type Follower } from "./f
 import { bindCanvasWheelZoom } from "./wheelZoom";
 import { bindSocketRoomLifecycle } from "./socketRoomLifecycle";
 import { getShareLinkToken } from "../../api";
-import { bindSocketCollaborators } from "./socketCollaborators";
+import { bindBoardAgentPresence, bindSocketCollaborators } from "./socketCollaborators";
 import type { Peer } from "./socketCollaborators";
+import type { BoardAgentVisualSnapshot } from "./agentPresenceState";
 import { bindRemoteSelection } from "./remoteSelection";
 import { startCursorChat, type CursorChatController } from "./cursorChat";
 import {
@@ -114,6 +115,7 @@ export const useEditorCollaboration = ({
   onDrawingNameChange,
 }: UseEditorCollaborationInput) => {
   const [peers, setPeers] = useState<Peer[]>([]);
+  const [agentPresence, setAgentPresence] = useState<readonly BoardAgentVisualSnapshot[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "reconnecting",
   );
@@ -199,6 +201,7 @@ export const useEditorCollaboration = ({
         connected: boolean;
         roomJoined: boolean;
         dropTransport: () => void;
+        receiveTestEvent: (event: string, payload: unknown) => void;
       };
       Object.defineProperties(socketTestStatus, {
         roomJoined: {
@@ -209,6 +212,12 @@ export const useEditorCollaboration = ({
         dropTransport: {
           enumerable: false,
           value: () => socket.io.engine?.close(),
+        },
+        receiveTestEvent: {
+          enumerable: false,
+          value: (event: string, payload: unknown) => {
+            for (const listener of socket.listeners(event)) listener(payload);
+          },
         },
       });
       const updateSocketTestStatus = () => {
@@ -241,6 +250,7 @@ export const useEditorCollaboration = ({
       },
       decorateName: chat.decorateName,
     });
+    const boardAgents = bindBoardAgentPresence({ socket, onChange: setAgentPresence });
     const remoteSelection = bindRemoteSelection({
       socket,
       drawingId,
@@ -334,6 +344,7 @@ export const useEditorCollaboration = ({
       // arrives, and the same presence returns wearing what it used to say.
       cursorChat.pruneTo([]);
       collaborators.reset();
+      boardAgents.reset();
       remoteSelection.reset();
       workshopTimer.reset();
       presenterMode.reset();
@@ -735,6 +746,7 @@ export const useEditorCollaboration = ({
       cursorChatRef.current = null;
       setCursorChatDraft(null);
       collaborators.dispose();
+      boardAgents.dispose();
       remoteSelection.dispose();
       workshopTimer.dispose();
       presenterMode.dispose();
@@ -857,6 +869,7 @@ export const useEditorCollaboration = ({
 
   return {
     peers,
+    agentPresence,
     connectionStatus,
     cursorChatRef,
     cursorChatDraft,
