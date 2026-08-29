@@ -176,15 +176,72 @@ test.describe("dragging an arrow out of a note", () => {
     };
     await page.mouse.move(childPage.x, childPage.y);
     await page.mouse.down();
-    await page.mouse.move(
-      canvasBox.x + childTargetViewport.x,
-      canvasBox.y + childTargetViewport.y,
-      { steps: 12 },
-    );
+    // NIL-665: Excalidraw only commits a dragged element's position into the
+    // scene on pointerup (confirmed directly: polling getSceneElements() for
+    // this note while the button is still held never shows it move at all,
+    // even as late as several seconds in) -- so the fix cannot wait on scene
+    // state before releasing, the way NIL-664's fix waits on the document
+    // widget's load state. The actual race is upstream of that: a single
+    // `mouse.move(..., { steps: 12 })` dispatches all 12 synthetic pointer
+    // events back-to-back with no gap between them, faster than WebKit's own
+    // paint-aligned pointermove delivery can keep up with -- confirmed
+    // directly too: the flaky drop consistently lands at 10/12 of the
+    // requested distance (childY+100 of a childY+120 target), i.e. WebKit
+    // coalesces/drops the last steps rather than merely delaying them, and
+    // no number of animation-frame waits *after* the move recovers them
+    // (tried up to 6 rAFs here; still 10/12). Moving one step at a time and
+    // waiting for a real animation frame between each step, instead of
+    // between the whole move and the release, gives WebKit's own paint cycle
+    // a turn to actually deliver each intermediate pointermove before the
+    // next one is dispatched -- a wait on the browser having rendered each
+    // step, not on a guessed total duration.
+    const steps = 12;
+    for (let step = 1; step <= steps; step++) {
+      await page.mouse.move(
+        childPage.x + ((canvasBox.x + childTargetViewport.x - childPage.x) * step) / steps,
+        childPage.y + ((canvasBox.y + childTargetViewport.y - childPage.y) * step) / steps,
+      );
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    }
     await page.mouse.up();
     await settle(page);
     const movedNotes = (await notes(page)).sort((a: any, b: any) => a.x - b.x);
     expect(movedNotes[1].y).toBeGreaterThan(childY + 100);
+  });
+
+  test("creates a connected child right away, not after a stall (NIL-647)", async ({ page }) => {
+    // NIL-647: clicking a handle used to take ~1s before the child note even
+    // appeared in the scene. Root cause, measured directly: this component's
+    // `createChild` asked `interaction.setActiveToolSettled` to confirm the
+    // "selection" tool with the wrong ActiveTool shape
+    // (`{ type: "builtin", name: "selection" }` instead of `{ type:
+    // "selection" }` -- see types.ts's ActiveTool union). The tool itself
+    // switched correctly within a frame, but the settle check could never
+    // report success, so every click burned its full 1000ms timeout before
+    // `createConnectedChild` ran at all. The existing "previews a child..."
+    // test above only waits for eventual success and would pass either way
+    // (Playwright's default timeout is longer than the stall); this asserts
+    // the actual regression -- the wall-clock budget, not just the outcome.
+    await openEditor(page, drawingId);
+    await placeNote(page, { x: 400, y: 300 });
+    await escapeEditor(page);
+
+    await page.mouse.move(400, 300);
+    const handle = page.getByTestId("sticky-handle-right");
+    await expect(handle).toBeVisible();
+
+    const startedAt = Date.now();
+    await handle.click();
+    await page.waitForFunction(
+      () =>
+        (window as any).__EXCALIDASH_TEST__
+          .getSceneElements()
+          .filter((element: any) => element.customData?.excalidash?.sticky).length >= 2,
+      null,
+      { timeout: 5000 },
+    );
+    const elapsedMs = Date.now() - startedAt;
+    expect(elapsedMs).toBeLessThan(500);
   });
 
   test("treats a 150ms stationary press as a click, not a drag", async ({ page }) => {
@@ -255,6 +312,13 @@ test.describe("dragging an arrow out of a note", () => {
       // NIL-640: WebKit records the parent note late, at the END of the later child text
       // edit, and folds both changes together; Undo consequently targets the parent entry.
       // A Chromium/WebKit History dump proved this, and captureUpdate: IMMEDIATELY does not fix it.
+      //
+      // Re-checked for PR #227 (NIL-646/NIL-647), since main's Cross-Engine CI now runs each
+      // engine in its own job (NIL-652) and WebKit no longer shares a runner with the other
+      // engines. If this were a CI-timeout artifact of the old combined job, the extra headroom
+      // would let it pass. It didn't: this genuinely failed in 6/6 local WebKit repeats, in the
+      // CI run for main's NIL-652 commit, and in this PR's own CI run. The marking stays; the
+      // underlying History-ordering race is unrelated to CI scheduling.
       test.fail();
     }
     await openEditor(page, drawingId);
