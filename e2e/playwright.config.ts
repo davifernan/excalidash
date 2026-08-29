@@ -14,7 +14,10 @@ const BACKEND_URL = process.env.API_URL || `http://localhost:${BACKEND_PORT}`;
 // still satisfying the test. Normal CI keeps retain-on-failure so every suite
 // run does not retain a large collection of successful recordings.
 const MOTION_EVIDENCE = process.env.PLAYWRIGHT_MOTION_EVIDENCE === "true";
-const MOTION_EVIDENCE_SPECS = ["**/sticky-connect.spec.ts"];
+const MOTION_EVIDENCE_SPECS = [
+  "**/motion-evidence-config.spec.ts",
+  "**/sticky-connect.spec.ts",
+];
 
 /**
  * Specs that run on every engine.
