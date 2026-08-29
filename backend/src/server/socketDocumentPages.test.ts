@@ -334,6 +334,45 @@ describe("the room's shared page", () => {
       pages: [{ elementId: "widget-1", assetId: "asset-1", page: 4, revision: 8 }],
     });
   });
+
+  it("shares one reconciliation transaction across a concurrent join burst", async () => {
+    const prisma = fakePrisma({
+      asset: { pageCount: 12, status: "READY" },
+      rows: [row({ page: 4, revision: 8 })],
+    });
+    const pages = createDocumentPageManager({ io: fakeIo() as any, prisma });
+
+    const snapshots = await Promise.all([
+      pages.snapshot("board-1", "socket-1"),
+      pages.snapshot("board-1", "socket-2"),
+      pages.snapshot("board-1", "socket-3"),
+      pages.snapshot("board-1", "socket-4"),
+    ]);
+
+    expect(snapshots).toEqual(Array(4).fill(snapshots[0]));
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+
+    await pages.snapshot("board-1", "socket-later");
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries after a shared reconciliation failure instead of retaining it", async () => {
+    const prisma = fakePrisma({
+      asset: { pageCount: 12, status: "READY" },
+      rows: [row()],
+    });
+    prisma.$transaction.mockRejectedValueOnce(new Error("temporary SQLite failure"));
+    const pages = createDocumentPageManager({ io: fakeIo() as any, prisma });
+
+    await expect(
+      Promise.all([pages.snapshot("board-1", "socket-1"), pages.snapshot("board-1", "socket-2")]),
+    ).rejects.toThrow("temporary SQLite failure");
+
+    await expect(pages.snapshot("board-1", "socket-later")).resolves.toMatchObject({
+      drawingId: "board-1",
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("page-turn acknowledgements", () => {
