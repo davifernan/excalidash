@@ -1,14 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createRequire } from "node:module";
 import path from "node:path";
+import Database from "../../backend/node_modules/better-sqlite3";
 import { createDrawing, deleteDrawing } from "./helpers/api";
 import { armTool, openEditor } from "./helpers/editor";
-
-const require = createRequire(import.meta.url);
-const Database = require("../../backend/node_modules/better-sqlite3") as new (path: string) => {
-  prepare(sql: string): { run(...values: unknown[]): void };
-  close(): void;
-};
 
 const placeStickyInFrame = async (page: Page) => {
   const canvas = page.locator("canvas.excalidraw__canvas.interactive");
