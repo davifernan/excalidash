@@ -4,6 +4,7 @@ import { X, Link as LinkIcon, AlertTriangle, Check, RefreshCw } from "lucide-rea
 import * as api from "../api";
 import { useAuth } from "../context/AuthContext";
 import { GeneralAccessSection } from "./share-modal/GeneralAccessSection";
+import { GuestCapabilitiesSection } from "./share-modal/GuestCapabilitiesSection";
 import { SharePeopleSection } from "./share-modal/SharePeopleSection";
 import {
   calculateExpiresAt,
@@ -28,6 +29,9 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     linkShares: api.DrawingLinkShareRow[];
     roster: api.DrawingRosterRow[];
   } | null>(null);
+  const [guestCapabilities, setGuestCapabilities] = useState<api.GuestCapabilitySettings | null>(
+    null,
+  );
 
   const [userQuery, setUserQuery] = useState("");
   const [userResults, setUserResults] = useState<api.ShareResolvedUser[]>([]);
@@ -70,8 +74,12 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getDrawingSharing(drawingId);
+      const [data, capabilities] = await Promise.all([
+        api.getDrawingSharing(drawingId),
+        api.getGuestCapabilities(drawingId),
+      ]);
       setSharing(data);
+      setGuestCapabilities(capabilities);
     } catch (err: unknown) {
       let message = "Failed to load sharing settings";
       if (api.isAxiosError(err)) {
@@ -95,6 +103,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     setCustomExpiry("");
     setIsCopied(false);
     setCurrentLinkToken(null);
+    setGuestCapabilities(null);
     void refresh();
   }, [isOpen, refresh]);
 
@@ -239,6 +248,28 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     }
   };
 
+  const toggleGuestCapability = async (key: "uploadFiles" | "viewComments") => {
+    if (!guestCapabilities) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const updated = await api.updateGuestCapabilities(drawingId, {
+        [key]: !guestCapabilities.board[key],
+      });
+      setGuestCapabilities(updated);
+    } catch (err: unknown) {
+      let message = "Failed to update guest capability";
+      if (api.isAxiosError(err)) {
+        const serverMessage =
+          typeof err.response?.data?.message === "string" ? err.response.data.message : null;
+        if (serverMessage) message = serverMessage;
+      }
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRevokeLink = async () => {
     if (!activeLink) return;
     setIsLoading(true);
@@ -312,6 +343,12 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
             setCustomExpiry={setCustomExpiry}
             handleUpdateLink={handleUpdateLink}
             handleRevokeLink={handleRevokeLink}
+          />
+
+          <GuestCapabilitiesSection
+            settings={guestCapabilities}
+            onToggleUploadFiles={() => toggleGuestCapability("uploadFiles")}
+            onToggleViewComments={() => toggleGuestCapability("viewComments")}
           />
         </div>
 

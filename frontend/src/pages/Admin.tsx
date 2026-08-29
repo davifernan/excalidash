@@ -7,6 +7,7 @@ import { getPasswordPolicy, validatePassword } from "../utils/passwordPolicy";
 import { AccessControlCard } from "./admin/AccessControlCard";
 import { AdminHeader, AdminStatusMessages } from "./admin/AdminShell";
 import { CreateUserForm } from "./admin/CreateUserForm";
+import { GuestAccessCard } from "./admin/GuestAccessCard";
 import { LoginRateLimitCard } from "./admin/LoginRateLimitCard";
 import { UserActionModals } from "./admin/UserActionModals";
 import { UsersTable } from "./admin/UsersTable";
@@ -16,6 +17,7 @@ import type { AdminUser } from "./admin/types";
 import { getCreateUserOutcome, type CreateUserResponse } from "./admin/createUserOutcome";
 import { useAccessControlSettings } from "./admin/useAccessControlSettings";
 import { useAdminCollections } from "./admin/useAdminCollections";
+import { useGuestAccessSettings } from "./admin/useGuestAccessSettings";
 import { useLoginRateLimitSettings } from "./admin/useLoginRateLimitSettings";
 import {
   IMPERSONATION_KEY,
@@ -65,6 +67,7 @@ export const Admin: React.FC = () => {
   const [offboardConfirmation, setOffboardConfirmation] = useState("");
   const [offboarding, setOffboarding] = useState(false);
   const accessControl = useAccessControlSettings(isAdmin, setError, setSuccess);
+  const guestAccess = useGuestAccessSettings(isAdmin, setError, setSuccess);
   const loginRateLimit = useLoginRateLimitSettings({
     authEnabled,
     isAdmin,
@@ -165,6 +168,7 @@ export const Admin: React.FC = () => {
     void loadCollections();
     void loadUsers();
     void accessControl.load();
+    void guestAccess.load();
   }, [authEnabled, isAdmin]);
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,6 +380,13 @@ export const Admin: React.FC = () => {
         loading={accessControl.loading}
         onToggleRegistration={accessControl.toggleRegistration}
         onToggleOidcJitProvisioning={accessControl.toggleOidcJitProvisioning}
+      />{" "}
+      <GuestAccessCard
+        uploadFiles={guestAccess.capabilities?.uploadFiles ?? null}
+        viewComments={guestAccess.capabilities?.viewComments ?? null}
+        loading={guestAccess.loading}
+        onToggleUploadFiles={guestAccess.toggleUploadFiles}
+        onToggleViewComments={guestAccess.toggleViewComments}
       />{" "}
       <LoginRateLimitCard
         loading={loginRateLimit.loading}

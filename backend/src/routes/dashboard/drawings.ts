@@ -6,6 +6,7 @@ import { registerDrawingReadRoutes } from "./drawingReadRoutes";
 import { registerDrawingCreateUpdateRoutes } from "./drawingCreateUpdateRoutes";
 import { registerDrawingDeleteDuplicateRoutes } from "./drawingDeleteDuplicateRoutes";
 import { registerDrawingSharingRoutes } from "./drawingSharingRoutes";
+import { registerGuestCapabilityRoutes } from "./guestCapabilityRoutes";
 import { registerDrawingHistoryRoutes } from "./drawingHistoryRoutes";
 import { registerDrawingAgentRoutes } from "./drawingAgentRoutes";
 import { registerCommentRoutes } from "./commentRoutes";
@@ -23,6 +24,7 @@ export const registerDrawingRoutes = (app: express.Express, deps: DashboardRoute
   registerDrawingCreateUpdateRoutes(app, context);
   registerDrawingDeleteDuplicateRoutes(app, context);
   registerDrawingSharingRoutes(app, context);
+  registerGuestCapabilityRoutes(app, context);
   registerDrawingHistoryRoutes(app, context);
   registerDrawingAgentRoutes(app, context);
   registerCommentRoutes(app, context);
