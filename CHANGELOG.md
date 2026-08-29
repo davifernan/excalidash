@@ -48,6 +48,12 @@ fehlschlagen, und was ausgeliefert wird, wurde nie geprueft.
   twelve-minute limit; database transactions have room before they time out; and several tests
   that could never have failed now can.
 
+### Known issues
+
+- In Firefox and Safari, Undo may not remove a Sticky Note that you created by clicking a
+  connection point. It can undo the action before it instead. Select that Sticky Note and delete
+  it manually before using Undo for earlier work.
+
 ## v0.13.0 -- 2026-08-27
 
 Nachgetragen am 29.08.2026: dieser Eintrag fehlte, als v0.13.0 veroeffentlicht wurde -- genau
@@ -82,6 +88,12 @@ die Luecke, gegen die diese Datei angelegt wurde.
 - Every floating toolbar looks and behaves the same.
 - Notifications appear in one consistent stack.
 - Self-hosted error tracking uses GlitchTip with Postgres and without Redis.
+
+### Known issues
+
+- In Firefox and Safari, Undo may not remove a Sticky Note that you created by clicking a
+  connection point. It can undo the action before it instead. Select that Sticky Note and delete
+  it manually before using Undo for earlier work.
 
 ## v0.12.0 -- 2026-08-26
 
