@@ -26,6 +26,8 @@ export type InstructionClosureInput = {
   contextId: string;
   instructionElementId: string;
   elements: readonly Record<string, unknown>[];
+  /** Reused by a batch projection of one immutable revision. */
+  elementsById?: ReadonlyMap<string, Record<string, unknown>>;
   /**
    * Context membership comes from the server-authoritative Context map, never
    * from bounds or a client supplied frame guess.
@@ -79,7 +81,9 @@ const liveElementsById = (elements: readonly Element[]): Map<string, Element> =>
  * This is intentionally smaller than an Excalidraw element.  Geometry,
  * colours, font size, z-index and raw element versions are presentation or
  * mutation hints, never machine meaning.  `originalText` is the authored
- * string; Excalidraw's wrapped `text` must not make a reflow look meaningful.
+ * string; regular live Excalidraw text elements always carry it. Excalidraw's
+ * wrapped `text` must not make a reflow look meaningful; its fallback exists
+ * only for historical incomplete records.
  */
 const semanticProjection = (element: Element) => {
   const type = string(element.type) ?? "unknown";
@@ -138,7 +142,7 @@ const assertRelation = (
  * client's prior hash.
  */
 export const compileInstructionClosure = (input: InstructionClosureInput): InstructionClosure => {
-  const byId = liveElementsById(input.elements);
+  const byId = input.elementsById ?? liveElementsById(input.elements);
   const instruction = byId.get(input.instructionElementId);
   if (!instruction) {
     throw new InstructionClosureError("INSTRUCTION_MISSING", "Instruction element does not exist.");

@@ -16,6 +16,14 @@ type ContextSnapshot = {
   frameName: string | null;
 };
 
+export type PreparedInstructionApprovalRevision = {
+  revision: { elements: string; contextMap: string; semanticRelations: string };
+  elements: Element[];
+  contexts: ContextSnapshot[];
+  byId: ReadonlyMap<string, Element>;
+  resolve: ReturnType<typeof contextIndex>["resolve"];
+};
+
 export class InstructionApprovalError extends Error {
   constructor(
     public readonly code:
@@ -83,23 +91,30 @@ const relationsForContext = (value: string, contextId: string): InstructionSeman
   return relations;
 };
 
+export const prepareInstructionApprovalRevision = (
+  revision: PreparedInstructionApprovalRevision["revision"],
+): PreparedInstructionApprovalRevision => {
+  const elements = liveElements(parseJson<unknown[]>(decodeSnapshotField(revision.elements), []));
+  const contexts = parseJson<ContextSnapshot[]>(revision.contextMap, []);
+  const { byId, resolve } = contextIndex(elements, contexts);
+  return { revision, elements, contexts, byId, resolve };
+};
+
 /** Compile from an immutable revision, the only input allowed at dispatch. */
 export const compileInstructionClosureFromRevision = (params: {
   revision: { elements: string; contextMap: string; semanticRelations: string };
   contextId: string;
   elementId: string;
+  prepared?: PreparedInstructionApprovalRevision;
 }): InstructionClosure => {
-  const elements = liveElements(
-    parseJson<unknown[]>(decodeSnapshotField(params.revision.elements), []),
-  );
-  const contexts = parseJson<ContextSnapshot[]>(params.revision.contextMap, []);
+  const prepared = params.prepared ?? prepareInstructionApprovalRevision(params.revision);
+  const { elements, contexts, byId, resolve } = prepared;
   if (!contexts.some((context) => context.id === params.contextId)) {
     throw new InstructionApprovalError(
       "CONTEXT_NOT_FOUND",
       "Agent Context does not exist in revision.",
     );
   }
-  const { byId, resolve } = contextIndex(elements, contexts);
   const instruction = byId.get(params.elementId);
   if (!instruction || instruction.type !== "text") {
     throw new InstructionApprovalError(
@@ -112,6 +127,7 @@ export const compileInstructionClosureFromRevision = (params: {
       contextId: params.contextId,
       instructionElementId: params.elementId,
       elements,
+      elementsById: byId,
       relations: relationsForContext(params.revision.semanticRelations ?? "[]", params.contextId),
       resolveContextId: resolve,
     });
@@ -257,6 +273,7 @@ export const readInstructionApprovalStatus = async (params: {
   contextId: string;
   elementId: string;
   revision?: any;
+  prepared?: PreparedInstructionApprovalRevision;
   /** A caller that projects a batch may supply the one preloaded row. */
   approval?: any | null;
 }) => {
@@ -279,6 +296,7 @@ export const readInstructionApprovalStatus = async (params: {
       revision,
       contextId: params.contextId,
       elementId: params.elementId,
+      prepared: params.prepared,
     });
     const valid =
       approval.schemaVersion === closure.schemaVersion &&
@@ -303,7 +321,12 @@ export const readInstructionApprovalStatus = async (params: {
         approvedAt: approval.approvedAt.toISOString(),
       },
       revisionId: revision.id,
-      errorCode: error instanceof Error ? error.name : "INSTRUCTION_CLOSURE_INVALID",
+      errorCode:
+        error instanceof InstructionApprovalError
+          ? error.code
+          : error instanceof InstructionClosureError
+            ? error.code
+            : "INSTRUCTION_CLOSURE_INVALID",
     };
   }
 };
@@ -315,6 +338,7 @@ export const requireCurrentInstructionApproval = async (params: {
   contextId: string;
   elementId: string;
   revision: any;
+  prepared?: PreparedInstructionApprovalRevision;
   approval?: any | null;
 }) => {
   const status = await readInstructionApprovalStatus(params);

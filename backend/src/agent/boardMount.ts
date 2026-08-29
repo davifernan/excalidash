@@ -6,6 +6,7 @@ import { readWidgetRecord } from "../assets/customDataSchema";
 import { decodeSnapshotField, encodeSnapshotField } from "../snapshots/snapshotCodec";
 import {
   InstructionApprovalError,
+  prepareInstructionApprovalRevision,
   requireCurrentInstructionApproval,
 } from "./instructionApprovals";
 import {
@@ -535,6 +536,7 @@ export const executeAgentBoardTool = async (params: {
   const revisionAssetIds = new Set<string>(
     scene.revision.assets.map((asset: any) => String(asset.assetId)),
   );
+  const preparedInstructionRevision = prepareInstructionApprovalRevision(scene.revision);
   const readableTextElements = allowedElements.filter((element) => element.type === "text");
   const approvalRows =
     readableTextElements.length === 0
@@ -575,6 +577,7 @@ export const executeAgentBoardTool = async (params: {
           contextId: resolve(element)!,
           elementId: element.id,
           revision: scene.revision,
+          prepared: preparedInstructionRevision,
           approval:
             approvalByContextAndElement.get(`${resolve(element)}\u0000${element.id}`) ?? null,
         });
