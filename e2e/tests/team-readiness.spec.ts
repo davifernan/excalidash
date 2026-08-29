@@ -624,7 +624,9 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
         trace.phase = "click";
         await clickPageSwitchButton(actor, button, trace);
       } catch (error) {
-        trace.outcome = "error";
+        // clickPageSwitchButton records its own timeout and obstruction data
+        // before rethrowing. Keep that richer terminal outcome intact.
+        if (trace.outcome === "started") trace.outcome = "error";
         throw error;
       }
       break;
@@ -980,11 +982,16 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           for (const actor of actors) {
             if (actor.finished) continue;
             if (now - actor.lastHeartbeatAt > STALE_MS) {
+              const activePageSwitch = [...actor.pageSwitchTraces]
+                .reverse()
+                .find((trace) => trace.outcome === "started");
+              const diagnosticStep = actor.inFlightStep ??
+                (activePageSwitch ? `page_switch.${activePageSwitch.phase}` : "unknown");
               violations.push({
                 actorId: actor.id,
                 engine: actor.engine,
                 sinceMs: now - actor.lastHeartbeatAt,
-                inFlightStep: actor.inFlightStep,
+                inFlightStep: diagnosticStep,
               });
               if (!tripped) {
                 tripped = true;
@@ -992,7 +999,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
                   new Error(
                     `actor ${actor.id} (${actor.engine}) went silent for ` +
                       `${now - actor.lastHeartbeatAt} ms, over the ${STALE_MS} ms threshold, ` +
-                      `stuck in step "${actor.inFlightStep ?? "unknown"}". ` +
+                      `stuck in step "${diagnosticStep}". ` +
                       `Ending the run instead of waiting for a cycle that may never finish.`,
                   ),
                 );
