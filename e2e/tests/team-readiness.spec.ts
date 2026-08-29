@@ -586,17 +586,15 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
         coveredBy: null,
       };
       actor.pageSwitchTraces.push(trace);
-      if (actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === trace.phase) {
-        await new Promise<never>(() => {});
-      }
-      const describe = (phase: string) =>
-        `page_switch ${phase} for actor ${actor.id} (${actor.engine})`;
+      const enterPhase = async (phase: PageSwitchTrace["phase"]) => {
+        trace.phase = phase;
+        if (actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === phase) {
+          await new Promise<never>(() => {});
+        }
+      };
+      await enterPhase("activate_document_widget");
       try {
-        await withDeadline(
-          activateDocumentWidget(actor.page),
-          PAGE_SWITCH_PHASE_TIMEOUT_MS,
-          describe("activate_document_widget"),
-        );
+        await activateDocumentWidget(actor.page, { timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS });
       // Paging backward sometimes, not just forward: both buttons stay
       // mounted (disabled, not hidden) at either end of the document, so an
       // actor that only ever goes forward eventually parks on the last page
@@ -614,18 +612,14 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       // disabled button too, so the precheck was passing right into the
       // actionability wait it was meant to avoid. See this file's header,
       // "Bounded is not the same as correct".
-        trace.phase = "button_enabled";
-        const enabled = await withDeadline(
-          button.isEnabled(),
-          PAGE_SWITCH_PHASE_TIMEOUT_MS,
-          describe("button_enabled"),
-        );
+        await enterPhase("button_enabled");
+        const enabled = await button.isEnabled({ timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS });
         if (!enabled) {
           trace.outcome = "not_visible";
           trace.phase = "complete";
           break;
         }
-        trace.phase = "click";
+        await enterPhase("click");
         await clickPageSwitchButton(actor, button, trace);
       } catch (error) {
         // clickPageSwitchButton records its own timeout and obstruction data

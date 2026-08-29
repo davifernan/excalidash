@@ -443,15 +443,14 @@ export const waitForDocumentWidgetLoaded = (page: Page) =>
  * it, the same way it guards an embedded video. Until then the canvas swallows
  * every click, so the widget's own controls cannot be reached.
  */
-export const activateDocumentWidget = async (page: Page) => {
-  const box = await page.locator(".text-document-widget").boundingBox();
-  if (!box) throw new Error("The document widget is not on the board.");
-  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+export const activateDocumentWidget = async (page: Page, options?: { timeout?: number }) => {
+  const widget = page.locator(".text-document-widget");
+  await widget.dblclick({ timeout: options?.timeout });
   await page.waitForFunction(() => {
     const widget = document.querySelector(".text-document-widget");
     const inner = widget?.closest(".excalidraw__embeddable-container__inner");
     return inner instanceof HTMLElement && getComputedStyle(inner).pointerEvents !== "none";
-  });
+  }, undefined, { timeout: options?.timeout });
 };
 
 /** Arm the sticky-note tool and wait for the editor to confirm it, not just the click. */
