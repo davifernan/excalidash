@@ -186,8 +186,20 @@ jobs:
               pull_number: context.issue.number,
               per_page: 100,
             });
+            // Nur Hans' eigene Reviews zaehlen. Am 29.08.2026 hing #244 fest,
+            // weil hier JEDES Review-Objekt auf der Head-SHA zaehlte -- auch die
+            // leeren, die GitHub anlegt, sobald ein Agent per Inline-Kommentar auf
+            // einen Befund ANTWORTET. Damit blockierte die Antwort auf einen Befund
+            // das naechste Review, und zwar genau im normalen Ablauf: Hans findet
+            // etwas, der Agent antwortet, Hans wird nie wieder gefragt.
+            //
+            // Ausserdem wird ein leeres Review-Objekt hier nie als Review gewertet,
+            // auch nicht von Hans selbst: ein Review ohne Text hat nichts gesagt.
             const already = reviews.some(
-              (review) => review.commit_id === process.env.HEAD_SHA,
+              (review) =>
+                review.commit_id === process.env.HEAD_SHA &&
+                review.user?.login === "the-hans-friedrich[bot]" &&
+                (review.body ?? "").trim().length > 0,
             );
             core.setOutput("already", already ? "true" : "false");
             core.notice(
