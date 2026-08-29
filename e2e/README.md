@@ -143,8 +143,8 @@ node scripts/motion-evidence.cjs publish \
 ```
 
 `publish` trims to the first 12 seconds, scales to 640px wide at 8fps, rejects a GIF larger than
-5 MiB, appends it to `evidence/motion/NIL-650/`, pushes the append-only evidence commit, embeds the
-Raw GIF in the PR, and adds the `screenshot` label. It never changes `main`, force-pushes, or
+5 MiB, appends it to `evidence/motion/NIL-650/`, pushes the append-only evidence commit, embeds a
+GitHub `blob/...?raw=true` GIF in the PR, and adds the `screenshot` label. It never changes `main`, force-pushes, or
 reuses a path. Use a new descriptive `--name` for every recording.
 
 `frontend/playwright.config.ts` (NIL-418) is gone rather than decorated: its

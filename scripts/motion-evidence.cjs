@@ -39,8 +39,8 @@ function validatePublication({ packageId, name }) {
   }
 }
 
-function rawEvidenceUrl(packageId, filename) {
-  return `https://raw.githubusercontent.com/davifernan/excalidash/evidence/motion/${packageId}/${filename}`;
+function evidenceUrl(packageId, filename) {
+  return `https://github.com/davifernan/excalidash/blob/evidence/motion/${packageId}/${filename}?raw=true`;
 }
 
 function gifFilename(name) {
@@ -98,7 +98,7 @@ function publish({ packageId, pr, input, name }) {
       throw new Error("Evidence commit identity verification failed.");
     }
     command("git", ["push", "fork", "HEAD:refs/heads/evidence"], { cwd: worktree });
-    const url = rawEvidenceUrl(packageId, filename);
+    const url = evidenceUrl(packageId, filename);
     command("gh", ["pr", "comment", pr, "--repo", "davifernan/excalidash", "--body", `Motion evidence (${packageId}, targeted Playwright capture):\n\n![${name}](${url})\n\n12s maximum, 640px wide, 8fps, ${result.bytes} bytes.`], { cwd: root });
     command("gh", ["pr", "edit", pr, "--repo", "davifernan/excalidash", "--add-label", "screenshot"], { cwd: root });
     return { ...result, url, filename };
@@ -144,7 +144,7 @@ module.exports = {
   convert,
   gifFilename,
   parseOptions,
-  rawEvidenceUrl,
+  evidenceUrl,
   assertNiloIdentity,
   validatePublication,
 };

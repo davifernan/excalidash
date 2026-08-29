@@ -10,7 +10,7 @@ const {
   MAX_DURATION_SECONDS,
   gifFilename,
   parseOptions,
-  rawEvidenceUrl,
+  evidenceUrl,
   validatePublication,
 } = require("./motion-evidence.cjs");
 const { REQUIRED_GIT_IDENTITY } = require("./delivery-contracts.cjs");
@@ -23,8 +23,8 @@ test("motion evidence uses bounded GIF settings and a durable evidence URL", () 
   assert.equal(GIF_FPS, 8);
   assert.equal(gifFilename("connected-child-latency"), "connected-child-latency.gif");
   assert.equal(
-    rawEvidenceUrl("NIL-650", "connected-child-latency.gif"),
-    "https://raw.githubusercontent.com/davifernan/excalidash/evidence/motion/NIL-650/connected-child-latency.gif",
+    evidenceUrl("NIL-650", "connected-child-latency.gif"),
+    "https://github.com/davifernan/excalidash/blob/evidence/motion/NIL-650/connected-child-latency.gif?raw=true",
   );
 });
 
