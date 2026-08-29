@@ -445,7 +445,13 @@ export const waitForDocumentWidgetLoaded = (page: Page) =>
  */
 export const activateDocumentWidget = async (page: Page, options?: { timeout?: number }) => {
   const widget = page.locator(".text-document-widget");
-  await widget.dblclick({ timeout: options?.timeout });
+  // The Excalidraw canvas deliberately overlays embeddables. A locator click
+  // waits for that canvas to stop receiving pointer events, which never
+  // happens; use the widget's measured centre as the canvas seam requires.
+  await widget.waitFor({ state: "visible", timeout: options?.timeout });
+  const box = await widget.boundingBox();
+  if (!box) throw new Error("The document widget is not on the board.");
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   await page.waitForFunction(() => {
     const widget = document.querySelector(".text-document-widget");
     const inner = widget?.closest(".excalidraw__embeddable-container__inner");
