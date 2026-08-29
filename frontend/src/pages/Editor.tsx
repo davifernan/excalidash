@@ -295,6 +295,9 @@ export const Editor: React.FC = () => {
         // surface that answers `undefined` there makes a working tool look
         // like a broken one.
         activeTool: unwrap(adapter.interaction.read(), null)?.activeTool ?? null,
+        // The command-palette test observes the live Excalidraw state through
+        // the adapter, rather than inferring it from a persistence request.
+        gridModeEnabled: unwrap(adapter.boardSettings.read(), null)?.gridModeEnabled ?? false,
         collaborators: new Map(
           unwrap(adapter.collaboration.readCollaborators(), []).map((peer) => [
             String(peer.socketId),
