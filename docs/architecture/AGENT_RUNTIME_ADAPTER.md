@@ -38,9 +38,10 @@ browser history or proxy access log.
 
 The runtime panel keeps that run capability in memory only. Closing or reloading the editor
 drops it. The encrypted capability is bound to the run, drawing, connection, opaque runtime
-handle, caller identity, effective capabilities and expiry. Every later action also rechecks
-the caller's current board access, so revoking edit access revokes prompt authority even while
-the capability has time left.
+handle, caller identity, effective capabilities and expiry. Every later action also intersects
+the approved dispatch with the current Context Policy, the connection's current Runtime Policy
+and the caller's current board access. Revoking edit access or narrowing the Runtime Policy
+therefore revokes prompt authority even while the capability has time left.
 
 ## Delegated capabilities
 

@@ -1,7 +1,21 @@
 import { API_URL, api } from "./client";
 import { currentCsrfHeader } from "./auth";
 
-export type AgentRuntimeStatus = "working" | "idle" | "blocked" | "done" | "unknown";
+declare const boardAgentRunStateBrand: unique symbol;
+
+/** Validated board-gateway projection; provider states stay behind the backend adapter. */
+export type BoardAgentRunState = ("working" | "idle" | "blocked" | "done" | "unknown") & {
+  readonly [boardAgentRunStateBrand]: true;
+};
+
+const BOARD_AGENT_RUN_STATES = new Set(["working", "idle", "blocked", "done", "unknown"]);
+
+const parseBoardAgentRunState = (value: unknown): BoardAgentRunState => {
+  if (typeof value !== "string" || !BOARD_AGENT_RUN_STATES.has(value)) {
+    throw new Error("Agent runtime returned an invalid run state");
+  }
+  return value as BoardAgentRunState;
+};
 
 export type AgentRuntimeConnection = {
   id: string;
@@ -14,9 +28,16 @@ export type AgentRuntimeConnection = {
 export type AgentRuntimeRun = {
   id: string;
   displayName: string;
-  status: AgentRuntimeStatus;
+  status: BoardAgentRunState;
   capabilities: string[];
 };
+
+type AgentRuntimeRunWire = Omit<AgentRuntimeRun, "status"> & { status: unknown };
+
+const parseAgentRuntimeRun = (run: AgentRuntimeRunWire): AgentRuntimeRun => ({
+  ...run,
+  status: parseBoardAgentRunState(run.status),
+});
 
 export const getAgentRuntimeConnections = async (
   drawingId: string,
@@ -36,11 +57,15 @@ export const startAgentRuntimeRun = async (
     initialPrompt?: string;
   },
 ): Promise<{ run: AgentRuntimeRun; runCapability: string; expiresAt: string }> => {
-  const response = await api.post(`/drawings/${drawingId}/agent/run`, {
+  const response = await api.post<{
+    run: AgentRuntimeRunWire;
+    runCapability: string;
+    expiresAt: string;
+  }>(`/drawings/${drawingId}/agent/run`, {
     ...input,
     approvedCapabilities: ["agent:read", "agent:run", "agent:prompt"],
   });
-  return response.data;
+  return { ...response.data, run: parseAgentRuntimeRun(response.data.run) };
 };
 
 export const promptAgentRuntimeRun = async (
@@ -48,11 +73,14 @@ export const promptAgentRuntimeRun = async (
   runCapability: string,
   text: string,
 ): Promise<Pick<AgentRuntimeRun, "id" | "status">> => {
-  const response = await api.post(`/drawings/${drawingId}/agent/prompt`, {
-    runCapability,
-    text,
-  });
-  return response.data;
+  const response = await api.post<{ id: string; status: unknown }>(
+    `/drawings/${drawingId}/agent/prompt`,
+    {
+      runCapability,
+      text,
+    },
+  );
+  return { ...response.data, status: parseBoardAgentRunState(response.data.status) };
 };
 
 /**
@@ -62,7 +90,9 @@ export const promptAgentRuntimeRun = async (
 export const subscribeAgentRuntimeRun = (
   drawingId: string,
   runCapability: string,
-  listener: (event: Pick<AgentRuntimeRun, "id" | "status" | "displayName">) => void,
+  listener: (
+    event: Pick<AgentRuntimeRun, "id" | "status"> & Partial<Pick<AgentRuntimeRun, "displayName">>,
+  ) => void,
   onDisconnect: () => void,
 ): (() => void) => {
   const controller = new AbortController();
@@ -93,8 +123,14 @@ export const subscribeAgentRuntimeRun = (
             ?.slice(6);
           if (data) {
             const event = JSON.parse(data);
-            if (event && typeof event.id === "string" && typeof event.status === "string") {
-              listener(event);
+            if (event && typeof event.id === "string") {
+              listener({
+                id: event.id,
+                status: parseBoardAgentRunState(event.status),
+                ...(typeof event.displayName === "string"
+                  ? { displayName: event.displayName }
+                  : {}),
+              });
             }
           }
           boundary = buffered.indexOf("\n\n");

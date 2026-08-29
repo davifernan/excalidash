@@ -108,4 +108,37 @@ describe("runtime-neutral gateway seam", () => {
     ).rejects.toMatchObject({ code: "RUN_CAPABILITY_FORBIDDEN" });
     expect(adapter.prompt).not.toHaveBeenCalled();
   });
+
+  it("revalidates the connection runtime policy before a later prompt", async () => {
+    const adapter = new StubAdapter("policy-revoked");
+    const runtimeConnection = connection(adapter.id);
+    const policyCapabilities = [...runtimeConnection.policyCapabilities];
+    runtimeConnection.policyCapabilities = policyCapabilities;
+    const gateway = new AgentRuntimeGateway(
+      new AgentRuntimeRegistry({ adapters: [adapter], connections: [runtimeConnection] }),
+      "secret",
+    );
+    const started = await gateway.start({
+      drawingId: "drawing-1",
+      access: "edit",
+      principal: { kind: "user", userId: "user-1" },
+      connectionId: runtimeConnection.id,
+      profileId: "default",
+      displayName: "Research",
+      approvedCapabilities: ["agent:read", "agent:run", "agent:prompt"],
+    });
+
+    policyCapabilities.splice(policyCapabilities.indexOf("agent:prompt"), 1);
+
+    await expect(
+      gateway.prompt({
+        drawingId: "drawing-1",
+        access: "edit",
+        principal: { kind: "user", userId: "user-1" },
+        runCapability: started.runCapability,
+        text: "continue",
+      }),
+    ).rejects.toMatchObject({ code: "RUN_CAPABILITY_FORBIDDEN" });
+    expect(adapter.prompt).not.toHaveBeenCalled();
+  });
 });

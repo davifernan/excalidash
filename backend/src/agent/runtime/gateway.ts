@@ -108,12 +108,13 @@ export class AgentRuntimeGateway {
       subject: runtimeSubject(params.principal),
       requiredCapability: params.requiredCapability,
     });
+    const resolved = this.registry.resolve(claims.connectionId, params.principal.userId);
     const stillEffective = resolveAgentRuntimeCapabilities({
       access: params.access,
       principal: params.principal,
       approvedDispatch: claims.capabilities,
-      contextPolicy: claims.capabilities,
-      runtimePolicy: claims.capabilities,
+      contextPolicy: CONTEXT_POLICY,
+      runtimePolicy: resolved.connection.policyCapabilities,
     });
     if (!stillEffective.includes(params.requiredCapability)) {
       throw new AgentRuntimeError(
@@ -123,7 +124,7 @@ export class AgentRuntimeGateway {
     }
     return {
       claims,
-      ...this.registry.resolve(claims.connectionId, params.principal.userId),
+      ...resolved,
     };
   }
 
