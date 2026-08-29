@@ -1,0 +1,202 @@
+name: Nightly Team-Readiness Soak
+
+# NIL-639: operationalize NIL-330's team-readiness soak
+# (e2e/tests/team-readiness.spec.ts) as a recurring, GitHub-hosted check,
+# after docs/architecture/SOAK_RUNNER_DECISION.md established that:
+#   - a GitHub-hosted job cannot run the spec's own 8h/10-context default in
+#     one piece (GitHub caps every hosted job at 6h), and
+#   - the production host this repo also runs on must never be a soak
+#     target -- a 10-context attempt there once drove swap to 8191/8191 MB
+#     while production containers were still running.
+#
+# The decision that unblocked this (recorded on NIL-330, since it was never
+# written down before): split the 8h/10-context profile into four ~2h parts,
+# chained as separate GitHub Actions jobs, each well under the 6h ceiling.
+#
+# A naive split -- four independent 2h/10-context runs against four fresh,
+# empty databases -- would not answer the question NIL-330's acceptance
+# criterion actually asks: does the system hold up under SUSTAINED
+# accumulation over ~8h, not four unrelated half-hours. So each part after
+# the first restores the previous part's SQLite database and asset storage
+# directory from an artifact before starting its own backend, and reuses the
+# same shared board id (SOAK_EXISTING_BOARD_ID) -- the scene, comments and
+# uploaded assets keep growing across all four parts exactly as they would
+# in one continuous run. What this design does NOT cover, and does not claim
+# to: an in-process leak that only shows up inside a single browser tab kept
+# open for 8h straight, since each part launches fresh browser processes.
+# That gap is unchanged from before this workflow existed -- NIL-330's own
+# manually-triggered full profile (still supported, unmodified) is the tool
+# for it, on a dedicated non-production host, not here.
+#
+# A part failing stops the chain (GitHub's default `needs:` behavior -- there
+# is no point building three more hours on a run that already went red) and
+# is made visible immediately via a comment on a pinned tracking issue,
+# rather than waiting for someone to notice a silent red night in the Actions
+# tab. The summary job runs regardless (`if: always()`), reports what
+# actually finished, and appends this run's raw numbers to a durable log on
+# the `evidence` branch -- median and p95 are only computed once that log
+# holds at least three same-profile runs (SOAK_RUNNER_DECISION.md's own
+# rule: one run is a data point, not a metric).
+
+on:
+  schedule:
+    # 02:00 UTC. Four parts at ~2h/part plus setup/teardown land comfortably
+    # before normal daytime PR traffic resumes.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      context_count:
+        description: "SOAK_CONTEXT_COUNT per part"
+        default: "10"
+      part_duration_minutes:
+        description: "Test duration per part, in minutes (job timeout gives ~35 extra minutes for install/start/teardown)"
+        default: "115"
+      cycle_ms:
+        description: "SOAK_CYCLE_MS"
+        default: "15000"
+      engines:
+        description: "SOAK_ENGINES (comma-separated)"
+        default: "chromium,firefox"
+
+# One nightly soak at a time. A second overlapping run (manual dispatch
+# during the scheduled window) would fight the first over ports/CPU inside
+# each job's own runner -- unlikely to matter since each job gets its own
+# VM, but the four parts are NOT independent (they share DB/asset state
+# through artifacts keyed only by workflow run), so two concurrent runs
+# would corrupt each other's artifact chain. Queue, don't cancel: a soak
+# that gets killed mid-run should not silently disappear.
+concurrency:
+  group: nightly-team-readiness-soak
+  cancel-in-progress: false
+
+# The summary job needs both: `contents: write` for the evidence-branch PUT
+# in soak-nightly-aggregate.cjs (appends this run's raw numbers), `issues:
+# write` for soak-nightly-notify.cjs's tracking-issue comment/create. Without
+# this the default token can be read-only depending on repo settings, and a
+# 403 on the evidence PUT used to be swallowed silently (fixed separately in
+# soak-nightly-aggregate.cjs -- see its own comment on that PUT).
+permissions:
+  contents: write
+  issues: write
+
+env:
+  CONTEXT_COUNT: ${{ github.event.inputs.context_count || '10' }}
+  PART_DURATION_MINUTES: ${{ github.event.inputs.part_duration_minutes || '115' }}
+  ENGINES: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+
+jobs:
+  part_1:
+    name: Soak part 1/4
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 1
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 0
+      skip_teardown: true
+
+  part_2:
+    name: Soak part 2/4
+    needs: part_1
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 2
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 1
+      board_id: ${{ needs.part_1.outputs.board_id }}
+      skip_teardown: true
+
+  part_3:
+    name: Soak part 3/4
+    needs: part_2
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 3
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 2
+      # GitHub only fills needs.<job> for a job's DIRECT dependencies --
+      # part_3 only lists `needs: part_2`, so needs.part_1 is empty here
+      # even though part_1 ran earlier in the chain. Each part's own
+      # board_id output already carries the same shared id forward (it
+      # reuses whatever board_id it was given as its own SOAK_EXISTING_
+      # BOARD_ID and reports that back, see _soak-part.yml's board_id
+      # output and team-readiness.spec.ts's report.sharedBoardId), so
+      # reading it from the direct predecessor is both correct and requires
+      # no needs: change. soak-nightly-board-id-chain.test.cjs asserts every
+      # part_N>1's board_id input names a job actually listed in its own
+      # needs:.
+      board_id: ${{ needs.part_2.outputs.board_id }}
+      skip_teardown: true
+
+  part_4:
+    name: Soak part 4/4
+    needs: part_3
+    uses: ./.github/workflows/_soak-part.yml
+    with:
+      part: 4
+      context_count: ${{ github.event.inputs.context_count || '10' }}
+      part_duration_minutes: ${{ github.event.inputs.part_duration_minutes || '115' }}
+      cycle_ms: ${{ github.event.inputs.cycle_ms || '15000' }}
+      engines: ${{ github.event.inputs.engines || 'chromium,firefox' }}
+      restore_from_part: 3
+      # Same reasoning as part_3 above: part_4 only lists `needs: part_3`,
+      # so it must read board_id from part_3's own output, not part_1's.
+      board_id: ${{ needs.part_3.outputs.board_id }}
+      skip_teardown: false
+
+  summary:
+    name: Aggregate + report
+    needs: [part_1, part_2, part_3, part_4]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download per-part results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: soak-part-*-results
+          path: /tmp/soak-results
+          merge-multiple: false
+
+      - name: Aggregate this run's parts and append to the evidence log
+        id: aggregate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/soak-nightly-aggregate.cjs
+
+      - name: Comment nightly result (pass or fail) on the tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Hans-Friedrich finding on #223: this status used to come ONLY
+          # from the four part jobs' results, never from whether the
+          # "Aggregate..." step (id: aggregate) itself succeeded. All four
+          # parts passing while the evidence-branch write 403s used to still
+          # post "PASSED" here -- the exact silent-failure channel this
+          # tracking issue exists to close. steps.aggregate.outcome is
+          # 'failure' whenever that step's script exits non-zero (see its
+          # own comment on the evidence PUT), independent of the parts.
+          node scripts/soak-nightly-notify.cjs \
+            --status="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || steps.aggregate.outcome == 'failure') && 'failed' || 'passed' }}" \
+            --summary-file=/tmp/soak-results/summary.md \
+            --run-url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Upload aggregated summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak-nightly-summary
+          path: /tmp/soak-results/summary.md
+          retention-days: 90
