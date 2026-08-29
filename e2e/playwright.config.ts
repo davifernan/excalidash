@@ -18,6 +18,7 @@ const MOTION_EVIDENCE_SPECS = [
   "**/motion-evidence-config.spec.ts",
   "**/sticky-connect.spec.ts",
 ];
+const MOTION_EVIDENCE_CONTRACT_SPECS = ["**/motion-evidence-config.spec.ts"];
 
 /**
  * Specs that run on every engine.
@@ -239,6 +240,7 @@ export default defineConfig({
         ...SOAK_SPECS,
         ...TEAM_ACCEPTANCE_SPECS,
         ...BUILT_IMAGE_SMOKE_SPECS,
+        ...MOTION_EVIDENCE_CONTRACT_SPECS,
       ],
     },
     {

@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-test("motion evidence project retains successful video", ({}, testInfo) => {
-  expect(testInfo.project.name).toBe("motion-evidence");
-  expect(testInfo.project.use.video).toBe("on");
+test("resolved project video mode closes without motion evidence", ({}, testInfo) => {
+  const motionEnabled = process.env.PLAYWRIGHT_MOTION_EVIDENCE === "true";
+  const isMotionProject = testInfo.project.name === "motion-evidence";
+
+  if (!motionEnabled) expect(isMotionProject).toBe(false);
+  expect(testInfo.project.use.video).toBe(isMotionProject ? "on" : "retain-on-failure");
 });
