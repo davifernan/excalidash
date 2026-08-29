@@ -47,6 +47,18 @@ describe("useGridModePreference", () => {
     expect(api.updateUserPreferences).not.toHaveBeenCalled();
   });
 
+  it("does not request authenticated preferences for an inactive guest editor", () => {
+    const capabilities = makeCapabilities(false);
+    renderHook(() =>
+      useGridModePreference({
+        active: false,
+        boardSettings: capabilities.boardSettings as any,
+        scene: capabilities.scene as any,
+      }),
+    );
+    expect(api.getUserPreferences).not.toHaveBeenCalled();
+  });
+
   it("does not overwrite a stored choice when a toggle lands before loading", async () => {
     let resolvePreferences: (value: { gridModeEnabled: boolean }) => void;
     vi.mocked(api.getUserPreferences).mockReturnValue(

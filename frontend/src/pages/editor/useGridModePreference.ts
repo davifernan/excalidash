@@ -27,17 +27,16 @@ export const useGridModePreference = ({
   const applyingStoredRef = useRef<boolean | null>(null);
   const writeInFlightRef = useRef(false);
 
-  if (loadRef.current === null) {
-    loadRef.current = api
-      .getUserPreferences()
-      .then((preferences) =>
-        typeof preferences.gridModeEnabled === "boolean" ? preferences.gridModeEnabled : null,
-      )
-      .catch(() => null);
-  }
-
   useEffect(() => {
     if (!active) return;
+    if (loadRef.current === null) {
+      loadRef.current = api
+        .getUserPreferences()
+        .then((preferences) =>
+          typeof preferences.gridModeEnabled === "boolean" ? preferences.gridModeEnabled : null,
+        )
+        .catch(() => null);
+    }
     const initial = boardSettings.read();
     observedRef.current = initial.ok ? initial.value.gridModeEnabled : null;
     const persistLatestChange = () => {
