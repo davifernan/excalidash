@@ -309,7 +309,10 @@ const loadMountedScene = async (params: {
   };
 };
 
-export const contextIndex = (elements: readonly Element[], contexts: readonly ContextSnapshot[]) => {
+export const contextIndex = (
+  elements: readonly Element[],
+  contexts: readonly ContextSnapshot[],
+) => {
   const byId = new Map(elements.map((element) => [element.id as string, element]));
   const contextByFrame = new Map(contexts.map((context) => [context.frameElementId, context.id]));
   const cache = new Map<string, string | null>();
