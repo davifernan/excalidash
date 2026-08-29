@@ -309,7 +309,28 @@ test.describe("dragging an arrow out of a note", () => {
     expect((await scene(page)).filter((element: any) => element.type === "arrow")).toHaveLength(1);
   });
 
-  test("undoes a click-created note and arrow as one gesture", async ({ page }) => {
+  test("undoes a click-created note and arrow as one gesture", async ({ page }, testInfo) => {
+    if (testInfo.project.name === "firefox" || testInfo.project.name === "webkit") {
+      // NIL-640: WebKit records the parent note late, at the END of the later child text
+      // edit, and folds both changes together; Undo consequently targets the parent entry.
+      // A Chromium/WebKit History dump proved this, and captureUpdate: IMMEDIATELY does not fix it.
+      //
+      // NIL-640 originally marked this with test.fail(), reasoning that the failure was
+      // deterministic (6/6 local WebKit repeats, plus the CI runs it checked at the time).
+      // Measured against 40 real CI runs on 28.-29.08.2026 (`gh run list`/`gh run view
+      // --log-failed`, counting each engine's own line for this test): it fails as expected in
+      // 39/40 and unexpectedly PASSES in 1/40 (run 33222721834, which is exactly what blocked
+      // #233). test.fail() inverts pass/fail, so that one rare pass is what turned CI red --
+      // a marking meant to suppress noise from a known race instead becomes its own source of
+      // random failures the moment the race isn't 100% deterministic. Per Davi (29.08.2026):
+      // test.fail() is only correct for a truly deterministic failure; anything less needs
+      // either a real fix or test.skip() with a reason, never test.fail() at less than 100%.
+      // The underlying History-ordering race itself is still unfixed, so skip until it is.
+      test.skip(
+        true,
+        "NIL-640: WebKit/Firefox History-ordering race, not 100% deterministic (39/40 CI runs fail, 1/40 passes) -- see comment above",
+      );
+    }
     await openEditor(page, drawingId);
     await placeNote(page, { x: 400, y: 300 });
     await escapeEditor(page);
