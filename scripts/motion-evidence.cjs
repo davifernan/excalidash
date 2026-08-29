@@ -97,10 +97,10 @@ function publish({ packageId, pr, input, name }) {
     if (commitIdentity !== `author=${REQUIRED_GIT_IDENTITY}\ncommitter=${REQUIRED_GIT_IDENTITY}\n`) {
       throw new Error("Evidence commit identity verification failed.");
     }
-    command("git", ["push", "fork", "HEAD:refs/heads/evidence"], { cwd: worktree });
     const url = evidenceUrl(packageId, filename);
     command("gh", ["pr", "comment", pr, "--repo", "davifernan/excalidash", "--body", `Motion evidence (${packageId}, targeted Playwright capture):\n\n![${name}](${url})\n\n12s maximum, 640px wide, 8fps, ${result.bytes} bytes.`], { cwd: root });
     command("gh", ["pr", "edit", pr, "--repo", "davifernan/excalidash", "--add-label", "screenshot"], { cwd: root });
+    command("git", ["push", "fork", "HEAD:refs/heads/evidence"], { cwd: worktree });
     return { ...result, url, filename };
   } finally {
     try {

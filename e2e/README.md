@@ -134,8 +134,8 @@ ss -tlnp | grep :6650
 cd e2e
 FRONTEND_PORT=6650 PORT=8650 PLAYWRIGHT_OUTPUT_DIR=motion-results \
   PLAYWRIGHT_MOTION_EVIDENCE=true npx playwright test \
-  tests/sticky-connect.spec.ts -g 'creates a connected child right away'
-MOTION_VIDEO=$(find motion-results -name video.webm -print -quit)
+  --project=chromium tests/sticky-connect.spec.ts -g 'creates a connected child right away'
+MOTION_VIDEO=$(find motion-results -path '*chromium*/video.webm' -print -quit)
 cd ..
 node scripts/motion-evidence.cjs publish \
   --package NIL-650 --pr <PR-number> --input "$MOTION_VIDEO" \
@@ -143,8 +143,9 @@ node scripts/motion-evidence.cjs publish \
 ```
 
 `publish` trims to the first 12 seconds, scales to 640px wide at 8fps, rejects a GIF larger than
-5 MiB, appends it to `evidence/motion/NIL-650/`, pushes the append-only evidence commit, embeds a
-GitHub `blob/...?raw=true` GIF in the PR, and adds the `screenshot` label. It never changes `main`, force-pushes, or
+5 MiB, adds its PR comment and label before pushing an append-only evidence commit to
+`evidence/motion/NIL-650/`, and embeds a GitHub `blob/...?raw=true` GIF. A failed GitHub comment
+therefore cannot leave a new, permanently unreachable Evidence file behind. It never changes `main`, force-pushes, or
 reuses a path. Use a new descriptive `--name` for every recording.
 
 `frontend/playwright.config.ts` (NIL-418) is gone rather than decorated: its
