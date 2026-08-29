@@ -6,7 +6,7 @@ import { useGridModePreference } from "./useGridModePreference";
 vi.mock("../../api");
 
 const makeCapabilities = (initial: boolean) => {
-  let settings = { gridModeEnabled: initial };
+  let settings = { gridModeEnabled: initial, objectsSnapModeEnabled: true };
   let listener: ((next: typeof settings) => void) | null = null;
   return {
     boardSettings: {
@@ -41,7 +41,10 @@ describe("useGridModePreference", () => {
     );
     await waitFor(() =>
       expect(capabilities.scene.apply).toHaveBeenCalledWith([
-        { kind: "settings", settings: { gridModeEnabled: true } },
+        {
+          kind: "settings",
+          settings: { gridModeEnabled: true, objectsSnapModeEnabled: false },
+        },
       ]),
     );
     expect(api.updateUserPreferences).not.toHaveBeenCalled();

@@ -81,7 +81,15 @@ export const useGridModePreference = ({
       const current = boardSettings.read();
       if (!current.ok || current.value.gridModeEnabled === stored) return;
       applyingStoredRef.current = stored;
-      scene.apply([{ kind: "settings", settings: { gridModeEnabled: stored } }]);
+      // Mirror Excalidraw's native grid action: changing grid mode always
+      // disables object snapping, so restoring this preference cannot create
+      // a canvas-state combination the native command cannot produce.
+      scene.apply([
+        {
+          kind: "settings",
+          settings: { gridModeEnabled: stored, objectsSnapModeEnabled: false },
+        },
+      ]);
     });
     return () => {
       cancelled = true;
