@@ -152,10 +152,36 @@ describe("preserveUnchangedElements (NIL-690)", () => {
       updated: 2000,
     });
     const result = preserveUnchangedElements([echoed], new Map([["label-1", previous]]));
-    expect(result[0]).toBe(previous);
+    // Content comes from the INCOMING element, never the previous object
+    // wholesale (see this function's own comment on why) -- here they are
+    // the same content anyway, so this only pins down the bookkeeping.
+    expect(result[0]).not.toBe(previous);
     expect(result[0].version).toBe(350);
     expect(result[0].versionNonce).toBe(111);
     expect(result[0].updated).toBe(1000);
+  });
+
+  it("a same-signature opacity change still reaches the other client (Hans-Friedrich's finding)", () => {
+    // opacity is not one of elementContentSignature's covered fields, so an
+    // opacity-only edit has an identical signature to the untouched element.
+    // Returning the previous object wholesale (the original, buggy version
+    // of this function) would silently drop this edit. Returning the
+    // incoming element with only its bookkeeping rolled back must not.
+    const previous = el("rect-1", { opacity: 100, version: 350 });
+    const echoed = el("rect-1", { opacity: 50, version: 351 });
+    const result = preserveUnchangedElements([echoed], new Map([["rect-1", previous]]));
+    expect(result[0].opacity).toBe(50);
+  });
+
+  it("a same-signature boundElements change still reaches the other client (NIL-689's relationship)", () => {
+    // boundElements is also not covered by elementContentSignature.
+    const previous = el("note-1", { boundElements: [], version: 350 });
+    const echoed = el("note-1", {
+      boundElements: [{ id: "label-1", type: "text" }],
+      version: 351,
+    });
+    const result = preserveUnchangedElements([echoed], new Map([["note-1", previous]]));
+    expect(result[0].boundElements).toEqual([{ id: "label-1", type: "text" }]);
   });
 
   it("a genuine content change still applies its own bookkeeping", () => {
