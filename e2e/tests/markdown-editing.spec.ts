@@ -125,7 +125,16 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     await writer.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
     await expect(writer.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
     await waitForDocumentWidgetLoaded(writer);
-    await expect(writer.getByRole("heading", { name: "Persisted notes" })).toBeVisible();
+    // NIL-664: this follows a full page navigation (reload) plus a fresh
+    // asset/content fetch and off-thread pagination -- heavier than the
+    // socket-pushed re-renders at lines 111/119 above, which already get an
+    // explicit 30_000ms here instead of the file's 10_000ms default
+    // (playwright.config.ts's `expect.timeout`). This assertion was the one
+    // case of that same "wait for content to survive a reload/save" pattern
+    // left on the short default, and is exactly where CI measured it fail.
+    await expect(writer.getByRole("heading", { name: "Persisted notes" })).toBeVisible({
+      timeout: 30_000,
+    });
     await activateDocumentWidget(writer);
     await expect(writer.getByRole("button", { name: "Edit Markdown" })).toBeEnabled();
     await writer.screenshot({ path: "test-results/nil567-persisted-after-reload.png" });
