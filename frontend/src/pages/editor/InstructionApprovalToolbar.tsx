@@ -134,9 +134,12 @@ export const InstructionApprovalToolbar = ({
       <div className="instruction-approval-toolbar__row">
         {preview ? (
           <>
-            <span className="instruction-approval-toolbar__preview" title={preview.closureHash}>
-              Geprüfte Fassung · {preview.closureHash.slice(0, 12)}
-            </span>
+            <div className="instruction-approval-toolbar__preview">
+              <span title={preview.closureHash}>
+                Geprüfte Fassung · {preview.closureHash.slice(0, 12)}
+              </span>
+              <pre aria-label="Kanonische Anweisungsfassung">{preview.canonical}</pre>
+            </div>
             <button type="button" disabled={pending} onClick={() => void confirmApproval()}>
               Diese Fassung freigeben
             </button>
