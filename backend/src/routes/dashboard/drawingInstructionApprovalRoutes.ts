@@ -67,7 +67,7 @@ export const registerDrawingInstructionApprovalRoutes = (
   };
 
   app.get(
-    "/drawings/:id/agent/instruction-contexts",
+    "/drawings/:id/instruction-contexts",
     optionalAuth,
     asyncHandler(async (req, res) => {
       if (!(await load(req, res, false))) return;
@@ -81,7 +81,7 @@ export const registerDrawingInstructionApprovalRoutes = (
   );
 
   app.get(
-    "/drawings/:id/agent/contexts/:contextId/instructions/:elementId/approval",
+    "/drawings/:id/instruction-contexts/:contextId/instructions/:elementId/approval",
     optionalAuth,
     asyncHandler(async (req, res) => {
       if (!(await load(req, res, false))) return;
@@ -102,7 +102,7 @@ export const registerDrawingInstructionApprovalRoutes = (
   );
 
   app.put(
-    "/drawings/:id/agent/contexts/:contextId/semantic-relations",
+    "/drawings/:id/instruction-contexts/:contextId/semantic-relations",
     optionalAuth,
     asyncHandler(async (req, res) => {
       if (!(await load(req, res, true))) return;
@@ -132,7 +132,7 @@ export const registerDrawingInstructionApprovalRoutes = (
   );
 
   app.post(
-    "/drawings/:id/agent/contexts/:contextId/instructions/:elementId/approval",
+    "/drawings/:id/instruction-contexts/:contextId/instructions/:elementId/approval",
     optionalAuth,
     asyncHandler(async (req, res) => {
       if (!(await load(req, res, true))) return;
@@ -160,7 +160,7 @@ export const registerDrawingInstructionApprovalRoutes = (
   );
 
   app.get(
-    "/drawings/:id/agent/contexts/:contextId/instructions/:elementId/approval-preview",
+    "/drawings/:id/instruction-contexts/:contextId/instructions/:elementId/approval-preview",
     optionalAuth,
     asyncHandler(async (req, res) => {
       if (!(await load(req, res, true))) return;
