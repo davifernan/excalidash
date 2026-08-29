@@ -46,12 +46,18 @@ export class ContextThreadCorruptionError extends Error {
   }
 }
 
-const corruptRow = (row: any, reason: string, metadata?: { parserErrorType?: string }): never => {
+type CorruptionMetadata = {
+  eventKind?: EventKind;
+  parserErrorType?: string;
+  allowedValues?: readonly string[];
+  allowedTypes?: readonly string[];
+};
+
+const corruptRow = (row: any, reason: string, metadata?: CorruptionMetadata): never => {
   logger.error("Stored Agent Context event is corrupt", {
     contextId: row?.contextId,
     eventId: row?.id,
     sequence: row?.sequence,
-    eventKind: row?.eventKind,
     createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : undefined,
     reason,
     ...metadata,
@@ -65,7 +71,7 @@ const parsePayload = (row: any): Record<string, unknown> => {
   try {
     const parsed = JSON.parse(row.payload);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return corruptRow(row, "payload is not a JSON object");
+      return corruptRow(row, "payload is not a JSON object", { eventKind: row.eventKind });
     }
     return parsed;
   } catch (error) {
@@ -73,6 +79,7 @@ const parsePayload = (row: any): Record<string, unknown> => {
     return corruptRow(row, "payload is not valid JSON", {
       // Parser messages and stacks can echo the malformed payload. The type
       // identifies this failure class without forwarding any stored content.
+      eventKind: row.eventKind,
       parserErrorType: error instanceof Error ? error.name : typeof error,
     });
   }
@@ -80,10 +87,20 @@ const parsePayload = (row: any): Record<string, unknown> => {
 
 const toEntry = (row: any): ContextThreadEntry => {
   if (!(ACTORS as readonly unknown[]).includes(row.actorKind)) {
-    return corruptRow(row, `unknown actor kind ${JSON.stringify(row.actorKind)}`);
+    return corruptRow(row, "actor kind is outside the allowed set", {
+      allowedValues: ACTORS,
+    });
   }
   if (!(EVENTS as readonly unknown[]).includes(row.eventKind)) {
-    return corruptRow(row, `unknown event kind ${JSON.stringify(row.eventKind)}`);
+    return corruptRow(row, "event kind is outside the allowed set", {
+      allowedValues: EVENTS,
+    });
+  }
+  if (row.actorId !== null && typeof row.actorId !== "string") {
+    return corruptRow(row, "actor id has an invalid stored type", {
+      eventKind: row.eventKind,
+      allowedTypes: ["string", "null"],
+    });
   }
   return {
     id: row.id,
@@ -91,7 +108,7 @@ const toEntry = (row: any): ContextThreadEntry => {
     sequence: row.sequence,
     actor: {
       kind: row.actorKind,
-      id: typeof row.actorId === "string" ? row.actorId : null,
+      id: row.actorId,
       displayName: row.actorDisplayName,
     },
     kind: row.eventKind,

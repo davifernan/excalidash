@@ -59,6 +59,31 @@ describe("context thread: append-only event log", () => {
       payload,
     });
 
+  const readStoredRow = (overrides: Record<string, unknown>) =>
+    listContextThreadEvents({
+      prisma: {
+        agentContext: { findFirst: async () => ({ id: contextId }) },
+        agentContextEvent: {
+          findMany: async () => [
+            {
+              id: "stored-event-1",
+              contextId,
+              sequence: 1,
+              actorKind: "agent",
+              actorId: null,
+              actorDisplayName: "Research Agent",
+              eventKind: "message",
+              payload: '{"text":"hello"}',
+              createdAt: new Date("2026-08-29T18:00:00.000Z"),
+              ...overrides,
+            },
+          ],
+        },
+      },
+      drawingId,
+      contextId,
+    });
+
   it("assigns a strictly increasing sequence, shared with concurrent appends", async () => {
     const [a, b, c, d] = await Promise.all([
       append("message", { text: "one" }),
@@ -229,5 +254,35 @@ describe("context thread: append-only event log", () => {
     } finally {
       stderr.mockRestore();
     }
+  });
+
+  it("reports invalid kind fields without echoing their stored values", async () => {
+    for (const [field, marker] of [
+      ["actorKind", "LEAKME-ACTOR-KIND"],
+      ["eventKind", "LEAKME-EVENT-KIND"],
+    ] as const) {
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      let caught: unknown;
+      let logged = "";
+      try {
+        await readStoredRow({ [field]: marker });
+      } catch (error) {
+        caught = error;
+      } finally {
+        logged = stderr.mock.calls.map(([chunk]) => String(chunk)).join("\n");
+        stderr.mockRestore();
+      }
+
+      expect(caught).toBeInstanceOf(ContextThreadCorruptionError);
+      const observable = `${logged}\n${String(caught)}`;
+      expect(observable).toContain("Stored Agent Context event is corrupt");
+      expect(observable).not.toContain(marker);
+    }
+  });
+
+  it("rejects an invalid stored actorId type instead of silently treating it as null", async () => {
+    await expect(readStoredRow({ actorId: { forged: "system" } })).rejects.toThrow(
+      ContextThreadCorruptionError,
+    );
   });
 });
