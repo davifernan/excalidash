@@ -101,6 +101,8 @@ type EditorViewProps = {
   isCommentsOpen: boolean;
   unresolvedCommentCount: number;
   onToggleComments: () => void;
+  isAgentRuntimeOpen: boolean;
+  onToggleAgentRuntime: () => void;
   /**
    * Direction-hint arrows for collaborators whose cursor is currently
    * outside the viewport (NIL-590) -- same free-floating overlayRoot()
@@ -169,6 +171,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
   isCommentsOpen,
   unresolvedCommentCount,
   onToggleComments,
+  isAgentRuntimeOpen,
+  onToggleAgentRuntime,
 }) => {
   const excalidrawRoot = useExcalidrawRoot(editorContainerRef);
   // Zen mode is handled by Excalidraw itself for everything rendered through
@@ -195,6 +199,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     langCode,
     isCommentsOpen,
     unresolvedCommentCount,
+    isAgentRuntimeOpen,
     presenting: {
       status: presenting.snapshot.status,
       isSelf: presenting.isSelf,
@@ -216,6 +221,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     onHistoryOpen,
     onSetLangCode,
     onToggleComments,
+    onToggleAgentRuntime,
   };
 
   return (

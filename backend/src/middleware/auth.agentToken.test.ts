@@ -1,6 +1,13 @@
 import type { NextFunction } from "express";
 import { describe, expect, it, vi } from "vitest";
-import { generateApiKey, serializeApiKeyScopes, DRAWING_OPS_SCOPE } from "../auth/apiKeys";
+import {
+  AGENT_PROMPT_SCOPE,
+  AGENT_READ_SCOPE,
+  AGENT_RUN_SCOPE,
+  generateApiKey,
+  serializeApiKeyScopes,
+  DRAWING_OPS_SCOPE,
+} from "../auth/apiKeys";
 import { createAuthMiddleware } from "./auth";
 import { createDeps, createRequest, createResponse } from "./authTestHelpers";
 
@@ -68,6 +75,40 @@ describe("agent API key authorization (NIL-382)", () => {
     const { req, next } = await runAgentTokenRequest(AGENT_TOKEN_ROUTE);
     expect(req.user?.authCredentialType).toBe("apiKey");
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("lets agent:run start work but does not infer drawing:ops or board write", async () => {
+    const allowed = await runAgentTokenRequest(
+      { method: "POST", originalUrl: "/drawings/drawing-A/agent/run" },
+      { scopes: [AGENT_RUN_SCOPE] },
+    );
+    expect(allowed.req.principal).toMatchObject({
+      apiKey: { id: "agent-key-1", scopes: [AGENT_RUN_SCOPE] },
+    });
+    expect(allowed.next).toHaveBeenCalledOnce();
+
+    const refused = await runAgentTokenRequest(AGENT_TOKEN_ROUTE, {
+      scopes: [AGENT_RUN_SCOPE],
+    });
+    expect(refused.res.status).toHaveBeenCalledWith(403);
+    expect(refused.next).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [AGENT_READ_SCOPE, "GET", "/drawings/drawing-A/agent/runtime"],
+    [AGENT_READ_SCOPE, "GET", "/drawings/drawing-A/agent/run"],
+    [AGENT_READ_SCOPE, "POST", "/drawings/drawing-A/agent/events"],
+    [AGENT_PROMPT_SCOPE, "POST", "/drawings/drawing-A/agent/prompt"],
+  ])("requires the exact %s scope for %s %s", async (scope, method, originalUrl) => {
+    const allowed = await runAgentTokenRequest({ method, originalUrl }, { scopes: [scope] });
+    expect(allowed.next).toHaveBeenCalledOnce();
+
+    const refused = await runAgentTokenRequest(
+      { method, originalUrl },
+      { scopes: [scope === AGENT_READ_SCOPE ? AGENT_PROMPT_SCOPE : AGENT_READ_SCOPE] },
+    );
+    expect(refused.res.status).toHaveBeenCalledWith(403);
+    expect(refused.next).not.toHaveBeenCalled();
   });
 
   it("reaches its own board's summary and elements routes with drawing:read only", async () => {

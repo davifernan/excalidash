@@ -56,6 +56,7 @@ import {
   resolveReadinessDiskPath,
 } from "./server/operationalHealth";
 import { registerLinkPreviewRoutes } from "./linkPreviews/routes";
+import { createConfiguredAgentRuntimeGateway } from "./agent/runtime/configuredGateway";
 import { collectExpiredLinkPreviews } from "./linkPreviews/cache";
 import { createLinkPreviewService } from "./linkPreviews/service";
 import { getOwnedCollection } from "./authz/collections";
@@ -256,6 +257,7 @@ app.use(
       "x-share-token",
       "if-match",
       "x-document-edit-token",
+      "x-agent-run-capability",
     ],
     exposedHeaders: ["x-csrf-token", "x-request-id"],
   }),
@@ -555,6 +557,10 @@ if (enableOnboardingGate) {
   });
 }
 registerSystemRoutes(app, { asyncHandler, getBackendVersion });
+const agentRuntimeGateway = createConfiguredAgentRuntimeGateway(
+  config.agentRuntime,
+  config.jwtSecret,
+);
 registerDashboardRoutes(app, {
   prisma,
   requireAuth,
@@ -591,6 +597,7 @@ registerDashboardRoutes(app, {
       userId,
       drawingId,
     ),
+  agentRuntimeGateway,
 });
 registerFileRoutes(app, {
   prisma,

@@ -5,6 +5,7 @@ import { apiKeyCreateSchema } from "./schemas";
 import {
   AGENT_TOKEN_MAX_TTL_MS,
   AGENT_TOKEN_SCOPES,
+  DEFAULT_AGENT_TOKEN_SCOPES,
   DEFAULT_API_KEY_SCOPES,
   DRAWINGS_HISTORY_SCOPE,
   DRAWINGS_SHARE_SCOPE,
@@ -66,7 +67,7 @@ const normalizeAccountApiKeyScopes = (scopes: string[] | undefined): string[] | 
  * or vice versa.
  */
 const normalizeAgentApiKeyScopes = (scopes: string[] | undefined): string[] | null => {
-  const requested = scopes ?? [...AGENT_TOKEN_SCOPES];
+  const requested = scopes ?? [...DEFAULT_AGENT_TOKEN_SCOPES];
   const allowedScopes = new Set<string>(AGENT_TOKEN_SCOPES);
   const normalized = Array.from(new Set(requested.map((scope) => scope.trim()).filter(Boolean)));
   if (normalized.length === 0 || normalized.some((scope) => !allowedScopes.has(scope))) {

@@ -496,6 +496,9 @@ Backend base variables:
 - `UPDATE_CHECK_GITHUB_TOKEN` (optional token for GitHub API)
 - `GITHUB_TOKEN` (fallback token if update token missing)
 - `DRAWINGS_CACHE_TTL_MS` (ms, default `5000`)
+- `AGENT_RUNTIME_HERDR_SOCKET_PATH`, `AGENT_RUNTIME_HERDR_WORKING_DIRECTORY`, and
+  `AGENT_RUNTIME_HERDR_PROFILES` (optional all-or-none co-located Herdr adapter; see
+  `docs/architecture/AGENT_RUNTIME_ADAPTER.md`; no shared-server/laptop topology is implied)
 - `DEBUG_CSRF` (`true` enables debug logs)
 - `LOG_LEVEL` (`silent`/`info`/`debug`, default `debug` in development and `info`
   otherwise) — controls request-logging volume; see `backend/src/middleware/requestLog.ts`

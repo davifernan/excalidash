@@ -1,0 +1,88 @@
+# Agent Runtime Adapter
+
+Status: runtime seam and first Herdr adapter for NIL-673. The Agent Context contracts in
+[`AGENT_CONTEXT.md`](AGENT_CONTEXT.md) remain authoritative.
+
+## Boundary
+
+ExcaliDash owns authorization, delegation, connection visibility and the board-facing API.
+An `AgentRuntimeAdapter` owns only runtime lifecycle operations: health, start, prompt, status
+and status subscription. Its public contract contains no Herdr method names, socket paths,
+workspace IDs or pane IDs. Runtime-specific configuration and handles remain opaque behind the
+adapter and the authenticated, encrypted run capability.
+
+Connections have a server-enforced audience: either the whole installation or one user. The
+registry applies that audience before a connection can be listed or resolved. This deliberately
+keeps both answers to NIL-683 possible. The first concrete connection talks to a co-located
+Herdr Unix socket; a future paired/outbound transport can register user-audienced connections
+without changing the board routes or adapter contract.
+
+No Herdr socket is exposed to the browser. ExcaliDash does not proxy arbitrary Herdr methods,
+terminal input or filesystem access.
+
+## Board API and authentication
+
+The UI uses five narrowly scoped drawing routes:
+
+- `GET /drawings/:id/agent/runtime` lists visible connections and health.
+- `POST /drawings/:id/agent/run` starts one approved profile.
+- `GET /drawings/:id/agent/run` reads one run's status.
+- `POST /drawings/:id/agent/prompt` sends one prompt.
+- `POST /drawings/:id/agent/events` opens an authenticated status stream.
+
+All routes run through the existing drawing authorization boundary. Cookie sessions and the
+existing board-scoped API keys are the only credentials; there is no second token system for
+agents. API-key route access requires the exact `agent:read`, `agent:run` or `agent:prompt`
+scope. The event stream is a POST so its short-lived run capability never appears in a URL,
+browser history or proxy access log.
+
+The runtime panel keeps that run capability in memory only. Closing or reloading the editor
+drops it. The encrypted capability is bound to the run, drawing, connection, opaque runtime
+handle, caller identity, effective capabilities and expiry. Every later action also rechecks
+the caller's current board access, so revoking edit access revokes prompt authority even while
+the capability has time left.
+
+## Delegated capabilities
+
+The canonical vocabulary is:
+
+`board:read`, `agent:read`, `agent:run`, `agent:prompt`, `artifact:publish`, `board:write`,
+`terminal:read`, `terminal:input`.
+
+The effective set is always:
+
+`current human rights ∩ approved dispatch ∩ context policy ∩ runtime policy`.
+
+Unknown strings are discarded. `agent:run` never implies `board:write`. The Herdr connection
+in this slice permits only `agent:read`, `agent:run` and `agent:prompt`; terminal capabilities
+are defined for a stable future contract but are not exposed by any route or UI.
+
+## Herdr lifecycle
+
+The Herdr adapter connects to its owner-only newline-delimited JSON Unix socket. Starting a run
+creates an unfocused workspace, starts one configured agent profile in that workspace and sends
+the optional first prompt. Status is normalized to `working`, `idle`, `blocked`, `done` or
+`unknown`; subscriptions listen only for the started pane. A failed partial start closes the
+new workspace best-effort.
+
+Transport responses are bounded to 1 MiB and requests time out after ten seconds. Socket paths,
+workspace IDs, pane IDs and raw runtime errors are never returned to clients. A disconnected or
+unconfigured runtime disables only agent start/status; the board and canvas remain available.
+
+## Configuration and unresolved topology
+
+The direct Herdr connection is enabled only when all three variables are present:
+
+```dotenv
+AGENT_RUNTIME_HERDR_SOCKET_PATH=/run/user/1000/herdr.sock
+AGENT_RUNTIME_HERDR_WORKING_DIRECTORY=/srv/excalidash-agent-workspace
+AGENT_RUNTIME_HERDR_PROFILES='[{"id":"codex","label":"Codex","agentKind":"codex","args":[]}]'
+```
+
+Profiles are an administrator allowlist; callers choose an ID, not an executable or arbitrary
+arguments. Between one and twenty profiles are accepted.
+
+NIL-683 is still undecided. This package therefore does **not** select, document as supported,
+or silently implement any socket mount, SSH tunnel, remote TCP listener, laptop discovery,
+pairing flow or outbound bridge. A shared deployment must not treat a server-local Herdr socket
+as a user's laptop. Choosing and securing that topology remains a separate Davi decision.

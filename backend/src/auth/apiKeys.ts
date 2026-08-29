@@ -42,7 +42,22 @@ export const DEFAULT_API_KEY_SCOPES = [
  */
 export const DRAWING_READ_SCOPE = "drawing:read";
 export const DRAWING_OPS_SCOPE = "drawing:ops";
-export const AGENT_TOKEN_SCOPES = [DRAWING_READ_SCOPE, DRAWING_OPS_SCOPE] as const;
+export const AGENT_READ_SCOPE = "agent:read";
+export const AGENT_RUN_SCOPE = "agent:run";
+export const AGENT_PROMPT_SCOPE = "agent:prompt";
+export const ARTIFACT_PUBLISH_SCOPE = "artifact:publish";
+export const TERMINAL_READ_SCOPE = "terminal:read";
+export const TERMINAL_INPUT_SCOPE = "terminal:input";
+export const DEFAULT_AGENT_TOKEN_SCOPES = [DRAWING_READ_SCOPE, DRAWING_OPS_SCOPE] as const;
+export const AGENT_TOKEN_SCOPES = [
+  ...DEFAULT_AGENT_TOKEN_SCOPES,
+  AGENT_READ_SCOPE,
+  AGENT_RUN_SCOPE,
+  AGENT_PROMPT_SCOPE,
+  ARTIFACT_PUBLISH_SCOPE,
+  TERMINAL_READ_SCOPE,
+  TERMINAL_INPUT_SCOPE,
+] as const;
 
 /** Enforced (not advisory) upper bound on an agent token's lifetime, and its default when none shorter is requested. */
 export const AGENT_TOKEN_MAX_TTL_MS = 30 * 24 * 60 * 60 * 1000;

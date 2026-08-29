@@ -82,7 +82,14 @@ describe("auth middleware API key authentication", () => {
       email: "user-1@test.local",
       authCredentialType: "apiKey",
     });
-    expect(req.principal).toEqual({ kind: "user", userId: "user-1" });
+    expect(req.principal).toEqual({
+      kind: "user",
+      userId: "user-1",
+      apiKey: {
+        id: "api-key-1",
+        scopes: ["drawings:read", "drawings:write", "collections:read", "collections:write"],
+      },
+    });
     expect(prisma.apiKey.update).toHaveBeenCalledWith({
       where: { id: "api-key-1" },
       data: { lastUsedAt: expect.any(Date) },
