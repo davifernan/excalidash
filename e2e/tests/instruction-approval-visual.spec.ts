@@ -44,7 +44,14 @@ const placeStickyInFrame = async (page: Page) => {
 const seedContext = (drawingId: string, frameElementId: string) => {
   // NIL-675 owns the human Context-creation UI. This test seeds only the
   // already-authoritative server row so NIL-676 can exercise its own UI seam.
-  const database = new Database(path.resolve(process.cwd(), "../backend/prisma/dev.db"));
+  // CI gives each suite its own DATABASE_URL. Locally, Playwright's webServer
+  // uses backend/prisma/dev.db, so retain that as the explicit fallback.
+  const databaseUrl =
+    process.env.DATABASE_URL ?? `file:${path.resolve(process.cwd(), "../backend/prisma/dev.db")}`;
+  if (!databaseUrl.startsWith("file:")) {
+    throw new Error("Instruction approval visual test requires a SQLite DATABASE_URL.");
+  }
+  const database = new Database(databaseUrl.slice("file:".length));
   try {
     database
       .prepare(
