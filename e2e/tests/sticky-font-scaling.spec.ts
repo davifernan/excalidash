@@ -31,9 +31,14 @@ const settle = async (page: Page) => {
  * "nothing changed across exactly this one gap" -- a same-content echo that
  * lands a beat after the gap ends is invisible to it, which is exactly how
  * the late version/versionNonce/updated bump this guards against first
- * surfaced. Polling for confirmed stability, with a timeout well past the
- * fixed sleep it replaces, is strictly more sensitive to a late echo, not
- * less.
+ * surfaced. Polling for confirmed stability catches a SINGLE late echo
+ * followed by calm, because the final poll is compared against a baseline
+ * captured before polling started, not merely "did it stabilize to
+ * something" -- verified directly against a scripted read sequence, not
+ * assumed (see this package's PR body). It does NOT catch a bookkeeping
+ * round-trip that returns to the original value before the last poll
+ * (`350 -> 351 -> 350`); a fixed sleep does not catch that either -- both
+ * designs compare two point-in-time snapshots and share that blind spot.
  */
 const waitForStable = async <T>(
   read: () => Promise<T>,
