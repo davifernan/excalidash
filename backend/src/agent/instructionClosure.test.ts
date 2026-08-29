@@ -197,6 +197,22 @@ describe("Instruction Semantic Closure", () => {
     ).toThrow(/may not expand/);
   });
 
+  it("ignores a stale relation outside this instruction's closure", () => {
+    const approved = closure();
+    const withUnrelatedStaleRelation = closure(scene(), [
+      { fromElementId: "unrelated", toElementId: "deleted-target", kind: "references" },
+    ]);
+    expect(withUnrelatedStaleRelation.closureHash).toBe(approved.closureHash);
+  });
+
+  it("names a stale relation that is inside this instruction's closure", () => {
+    expect(() =>
+      closure(scene(), [
+        { fromElementId: "instruction", toElementId: "deleted-target", kind: "references" },
+      ]),
+    ).toThrow(/instruction -> deleted-target \(references\)/);
+  });
+
   it("refuses a freedraw element as an instruction even when it is inside the Context", () => {
     const revision = {
       elements: JSON.stringify(

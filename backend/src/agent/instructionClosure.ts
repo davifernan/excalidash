@@ -151,9 +151,6 @@ export const compileInstructionClosure = (input: InstructionClosureInput): Instr
   }
 
   const relations = [...input.relations].sort(relationOrder);
-  relations.forEach((relation) =>
-    assertRelation(relation, byId, input.contextId, input.resolveContextId),
-  );
 
   const outgoing = new Map<string, InstructionSemanticRelation[]>();
   for (const relation of relations) {
@@ -170,11 +167,35 @@ export const compileInstructionClosure = (input: InstructionClosureInput): Instr
   };
   visit(input.instructionElementId);
 
+  // A Context may retain stale declarations for unrelated, deleted work.
+  // They must not block approval of this instruction; validate only relations
+  // that its closure actually traverses.
+  const reachableRelations = () =>
+    relations.filter((relation) => reachable.has(relation.fromElementId));
+
+  const validatedRelations = new Set<InstructionSemanticRelation>();
+  const validateReachableRelation = (relation: InstructionSemanticRelation) => {
+    if (validatedRelations.has(relation)) return;
+    try {
+      assertRelation(relation, byId, input.contextId, input.resolveContextId);
+      validatedRelations.add(relation);
+    } catch (error) {
+      if (error instanceof InstructionClosureError) {
+        throw new InstructionClosureError(
+          error.code,
+          `Relation ${relation.fromElementId} -> ${relation.toElementId} (${relation.kind}) is invalid: ${error.message}`,
+        );
+      }
+      throw error;
+    }
+  };
+
   // A whole-frame relation means the authored instruction explicitly says
   // that the frame's complete current content is meaningful.  Its direct
   // members are therefore closure nodes; unrelated frames remain absent.
-  for (const relation of relations) {
+  for (const relation of reachableRelations()) {
     if (relation.kind !== "whole_frame" || !reachable.has(relation.fromElementId)) continue;
+    validateReachableRelation(relation);
     const frame = byId.get(relation.toElementId)!;
     if (frame.type !== "frame") {
       throw new InstructionClosureError(
@@ -192,10 +213,12 @@ export const compileInstructionClosure = (input: InstructionClosureInput): Instr
     }
   }
 
+  reachableRelations().forEach(validateReachableRelation);
+
   const nodes = [...reachable]
     .sort((left, right) => left.localeCompare(right))
     .map((id) => semanticProjection(byId.get(id)!));
-  const edges = relations
+  const edges = reachableRelations()
     .filter(
       (relation) => reachable.has(relation.fromElementId) && reachable.has(relation.toElementId),
     )
