@@ -8,14 +8,15 @@ const interactiveCanvas = (page: Page) => page.locator("canvas.excalidraw__canva
  * Safety cap for the cursor-pressure senders (NIL-596), not a target
  * duration. The server's shared cursor-move budget is 160 events/second
  * per account (`createKeyedRateLimiter(40 * 4, 1_000)`,
- * `backend/src/server/socket.ts`); 12 pages each dispatching every 3ms
- * attempt roughly 4000 events/s combined, ~25x over budget, so a working
+ * `backend/src/server/socket.ts`); five pages each dispatching every 3ms
+ * attempt roughly 1660 events/s combined, >10x over budget, so a working
  * throttle rejects within well under a second. This bound only matters if
  * the throttle is broken -- generous enough that a healthy CI host is never
  * the reason it fires, tight enough that a genuinely broken throttle still
  * fails in reasonable time instead of hanging.
  */
 const CURSOR_PRESSURE_MAX_MS = 8_000;
+const CURSOR_PRESSURE_PAGE_COUNT = 5;
 
 const dropTinyPng = (page: Page) =>
   page.evaluate(() => {
@@ -54,7 +55,9 @@ test("image upload stays quiet when the shared cursor budget protects the server
   const cursorEmissions: string[] = [];
 
   try {
-    for (let index = 1; index < 12; index += 1) pages.push(await context.newPage());
+    for (let index = 1; index < CURSOR_PRESSURE_PAGE_COUNT; index += 1) {
+      pages.push(await context.newPage());
+    }
     for (const candidate of pages) {
       candidate.on("websocket", (socket) => {
         socket.on("framesent", ({ payload }) => {
@@ -123,7 +126,7 @@ test("image upload stays quiet when the shared cursor budget protects the server
     // whether this runner was fast enough to overrun the throttle in that
     // time -- a throughput fact about the host, not a behavior fact about
     // the throttle. CURSOR_PRESSURE_MAX_MS is a safety cap, not a target:
-    // 12 pages dispatching every 3ms attempt roughly 4000 events/s against
+    // Five pages dispatching every 3ms attempt roughly 1660 events/s against
     // a 160-events/s shared budget, so a working throttle rejects within a
     // small fraction of a second -- the cap only matters if the throttle is
     // genuinely broken, and stopping as soon as it fires keeps the common

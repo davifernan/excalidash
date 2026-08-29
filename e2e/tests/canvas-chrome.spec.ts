@@ -142,11 +142,14 @@ test.describe("the hamburger carries the board's identity and the way back", () 
       await palette.locator("input").fill("grid");
       await expect(palette.locator(".item-selected")).toContainText("Toggle grid");
       await page.keyboard.press("Enter");
-      // The selected native command changes the board state and the rendered
-      // grid; waiting for persistence proves this was the real Excalidraw
-      // action, not a lookalike palette row that only closed the dialog.
+      // The selected native command changes the rendered grid and the signed-in
+      // user's preference. It must not write gridModeEnabled to the shared
+      // board state: another user's view must remain independent.
       await expect
-        .poll(async () => (await getDrawing(api, drawingId)).appState?.gridModeEnabled)
+        .poll(async () => {
+          const response = await api.get("/auth/preferences");
+          return (await response.json()).gridModeEnabled;
+        })
         .toBe(true);
 
       await openMenu(page);
