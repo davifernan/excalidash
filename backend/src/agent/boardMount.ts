@@ -4,6 +4,10 @@ import { readStoredBytes } from "../assets/assetStorage";
 import { readWidgetRecord } from "../assets/customDataSchema";
 import { decodeSnapshotField, encodeSnapshotField } from "../snapshots/snapshotCodec";
 import {
+  InstructionApprovalError,
+  requireCurrentInstructionApproval,
+} from "./instructionApprovals";
+import {
   AGENT_ASSET_READ,
   AGENT_BOARD_EXPLORE,
   AGENT_BOARD_RENDER,
@@ -466,8 +470,47 @@ export const executeAgentBoardTool = async (params: {
   const revisionAssetIds = new Set<string>(
     scene.revision.assets.map((asset: any) => String(asset.assetId)),
   );
-  const project = (element: Element) =>
-    projectElement(element, allowedElementIds, resolve(element)!, revisionAssetIds);
+  const instructionByElementId = new Map<
+    string,
+    { closureHash: string; schemaVersion: number } | null
+  >();
+  const project = async (element: Element) => {
+    const projected = projectElement(
+      element,
+      allowedElementIds,
+      resolve(element)!,
+      revisionAssetIds,
+    );
+    if (element.type !== "text") return projected;
+
+    let instruction = instructionByElementId.get(element.id);
+    if (!instructionByElementId.has(element.id)) {
+      try {
+        const approval = await requireCurrentInstructionApproval({
+          prisma: params.prisma,
+          drawingId: params.drawingId,
+          contextId: resolve(element)!,
+          elementId: element.id,
+          revision: scene.revision,
+        });
+        instruction = {
+          closureHash: approval.closure.closureHash,
+          schemaVersion: approval.closure.schemaVersion,
+        };
+      } catch (error) {
+        if (
+          !(error instanceof InstructionApprovalError) ||
+          (error.code !== "APPROVAL_NOT_FOUND" && error.code !== "APPROVAL_EXPIRED")
+        ) {
+          throw error;
+        }
+        instruction = null;
+      }
+      instructionByElementId.set(element.id, instruction);
+    }
+
+    return instruction ? { ...projected, instruction } : projected;
+  };
   const requireReadableElement = (
     id: string,
     code: "ELEMENT_NOT_READABLE" | "FRAME_NOT_READABLE",
@@ -567,10 +610,12 @@ export const executeAgentBoardTool = async (params: {
           }));
         break;
       case "listFrames":
-        result = allowedElements
-          .filter((element) => element.type === "frame")
-          .slice(0, boundedLimit(args, 100))
-          .map(project);
+        result = await Promise.all(
+          allowedElements
+            .filter((element) => element.type === "frame")
+            .slice(0, boundedLimit(args, 100))
+            .map(project),
+        );
         break;
       case "readFrame": {
         const frame = requireReadableElement(
@@ -582,11 +627,13 @@ export const executeAgentBoardTool = async (params: {
         }
         const contextId = resolve(frame)!;
         result = {
-          frame: project(frame),
-          elements: allowedElements
-            .filter((element) => element.id !== frame.id && resolve(element) === contextId)
-            .slice(0, boundedLimit(args, 100))
-            .map(project),
+          frame: await project(frame),
+          elements: await Promise.all(
+            allowedElements
+              .filter((element) => element.id !== frame.id && resolve(element) === contextId)
+              .slice(0, boundedLimit(args, 100))
+              .map(project),
+          ),
         };
         break;
       }
@@ -597,24 +644,26 @@ export const executeAgentBoardTool = async (params: {
             "ids must contain between one and 100 element ids.",
           );
         }
-        result = args.ids.map((id) =>
-          project(requireReadableElement(String(id), "ELEMENT_NOT_READABLE")),
+        result = await Promise.all(
+          args.ids.map((id) => project(requireReadableElement(String(id), "ELEMENT_NOT_READABLE"))),
         );
         break;
       }
       case "search": {
         const query = stringArg(args, "query").toLocaleLowerCase();
         const limit = boundedLimit(args, 20);
-        result = allowedElements
-          .filter(
-            (element) =>
-              (typeof element.text === "string" &&
-                element.text.toLocaleLowerCase().includes(query)) ||
-              (typeof element.name === "string" &&
-                element.name.toLocaleLowerCase().includes(query)),
-          )
-          .slice(0, limit)
-          .map(project);
+        result = await Promise.all(
+          allowedElements
+            .filter(
+              (element) =>
+                (typeof element.text === "string" &&
+                  element.text.toLocaleLowerCase().includes(query)) ||
+                (typeof element.name === "string" &&
+                  element.name.toLocaleLowerCase().includes(query)),
+            )
+            .slice(0, limit)
+            .map(project),
+        );
         break;
       }
       case "neighbors": {
@@ -637,10 +686,12 @@ export const executeAgentBoardTool = async (params: {
             related.add(element.id);
           }
         }
-        result = [...related]
-          .sort()
-          .slice(0, boundedLimit(args, 100))
-          .map((id) => project(byId.get(id)!));
+        result = await Promise.all(
+          [...related]
+            .sort()
+            .slice(0, boundedLimit(args, 100))
+            .map((id) => project(byId.get(id)!)),
+        );
         break;
       }
       case "followEdge": {
@@ -654,15 +705,15 @@ export const executeAgentBoardTool = async (params: {
             "The requested element is not an edge.",
           );
         }
-        const endpoint = (binding: any) => {
+        const endpoint = async (binding: any) => {
           const id = typeof binding?.elementId === "string" ? binding.elementId : null;
           return id && allowedElementIds.has(id) ? project(byId.get(id)!) : null;
         };
         result = {
-          edge: project(edge),
+          edge: await project(edge),
           semantics: { kind: "unspecified" },
-          start: endpoint(edge.startBinding),
-          end: endpoint(edge.endBinding),
+          start: await endpoint(edge.startBinding),
+          end: await endpoint(edge.endBinding),
         };
         break;
       }

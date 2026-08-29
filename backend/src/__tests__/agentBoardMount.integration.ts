@@ -7,6 +7,7 @@ import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { registerAgentContext } from "../agent/boardContexts";
 import { executeAgentBoardTool } from "../agent/boardMount";
+import { approveInstruction, previewInstructionApproval } from "../agent/instructionApprovals";
 import { getTestPrisma, setupTestDb } from "./testUtils";
 
 describe("immutable Agent Board Mount (NIL-671)", () => {
@@ -17,6 +18,7 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
   let contextAId: string;
   let contextBId: string;
   let agentToken: string;
+  let ownerId: string;
   let ownerToken: string;
   let ownerAgent: any;
   let ownerCsrfHeaderName: string;
@@ -150,6 +152,7 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
       },
       select: { id: true, email: true },
     });
+    ownerId = owner.id;
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
     ownerToken = jwt.sign(
       { userId: owner.id, email: owner.email, type: "access" },
@@ -270,6 +273,35 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     expect(status.body.revisionId).toBe(mount.revisionId);
     expect(status.body.result).toMatchObject({ changed: true });
     expect(status.body.result.latestRevisionId).not.toBe(mount.revisionId);
+  });
+
+  it("marks only a currently human-approved text element as an Agent instruction", async () => {
+    const mount = await createMount({ runId: "instruction-approval-projection" });
+    const beforeApproval = await tool(mount, "readElements", { ids: ["answer-a"] });
+    expect(beforeApproval.status).toBe(200);
+    expect(beforeApproval.body.result[0].instruction).toBeUndefined();
+
+    const preview = await previewInstructionApproval({
+      prisma,
+      drawingId,
+      contextId: contextAId,
+      elementId: "answer-a",
+    });
+    await approveInstruction({
+      prisma,
+      drawingId,
+      contextId: contextAId,
+      elementId: "answer-a",
+      approvedByUserId: ownerId,
+      expectedClosureHash: preview.closure.closureHash,
+    });
+
+    const afterApproval = await tool(mount, "readElements", { ids: ["answer-a"] });
+    expect(afterApproval.status).toBe(200);
+    expect(afterApproval.body.result[0].instruction).toEqual({
+      closureHash: preview.closure.closureHash,
+      schemaVersion: 1,
+    });
   });
 
   it("enforces allowedContextIds transitively across ids, edges, search, render, and assets", async () => {
