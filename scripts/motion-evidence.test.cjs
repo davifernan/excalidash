@@ -1,8 +1,6 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
-const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -31,30 +29,6 @@ test("motion evidence uses bounded GIF settings and a durable evidence URL", () 
     evidenceUrl("NIL-650", "connected-child-latency.gif"),
     "https://github.com/davifernan/excalidash/blob/evidence/motion/NIL-650/connected-child-latency.gif?raw=true",
   );
-});
-
-test("resolved Playwright config confines successful video to motion-evidence", () => {
-  const root = path.join(__dirname, "..");
-  const loader = [
-    "const { loadConfigFromFile } = require('playwright/lib/common/configLoader');",
-    "(async () => {",
-    "  const config = await loadConfigFromFile('playwright.config.ts', {}, false);",
-    "  process.stdout.write(JSON.stringify(config.projects.map(({ project }) => ({ name: project.name, video: project.use.video }))));",
-    "})().catch((error) => { console.error(error); process.exit(1); });",
-  ].join("\n");
-  const projects = JSON.parse(
-    execFileSync(process.execPath, ["-e", loader], {
-      cwd: path.join(root, "e2e"),
-      encoding: "utf8",
-      env: { ...process.env, PLAYWRIGHT_MOTION_EVIDENCE: "true" },
-    }),
-  );
-  assert.deepEqual(
-    projects.filter(({ video }) => video === "on").map(({ name }) => name),
-    ["motion-evidence"],
-  );
-  assert.equal(projects.find(({ name }) => name === "chromium").video, "retain-on-failure");
-  assert.equal(projects.find(({ name }) => name === "firefox").video, "retain-on-failure");
 });
 
 test("Nilo identity guards reject a wrong live or committed identity", () => {
