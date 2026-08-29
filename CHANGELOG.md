@@ -19,9 +19,9 @@ Release tags follow `vX.Y.Z` -- see
 
 ## v0.14.0 -- 2026-08-29
 
-Das meiste an diesem Release ist Reparatur: was beim Testen von 0.13 aufgefallen ist, ist
-behoben. Dazu eine Runde an der Pruefung selbst -- mehrere Tests konnten bisher gar nicht
-fehlschlagen, und was ausgeliefert wird, wurde nie geprueft.
+Most of this release is repair: what turned up while testing 0.13 has been fixed. Alongside
+that, a round on the checking itself -- several tests could not have failed even if the code
+was broken, and what actually ships was never being tested.
 
 ### Added
 
@@ -56,8 +56,8 @@ fehlschlagen, und was ausgeliefert wird, wurde nie geprueft.
 
 ## v0.13.0 -- 2026-08-27
 
-Nachgetragen am 29.08.2026: dieser Eintrag fehlte, als v0.13.0 veroeffentlicht wurde -- genau
-die Luecke, gegen die diese Datei angelegt wurde.
+Added on 2026-08-29: this entry was missing when v0.13.0 was published -- exactly the gap this
+file exists to close.
 
 ### Added
 
