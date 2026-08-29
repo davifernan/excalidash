@@ -95,42 +95,45 @@ model Collection {
 }
 
 model Drawing {
-  id              String              @id @default(uuid())
-  name            String
-  elements        String
-  appState        String
-  files           String              @default("{}")
-  preview         String?
-  version         Int                 @default(1)
-  guestUploadEnabled               Boolean             @default(false)
-  guestCommentVisibilityEnabled    Boolean             @default(true)
+  id                            String               @id @default(uuid())
+  name                          String
+  elements                      String
+  appState                      String
+  files                         String               @default("{}")
+  preview                       String?
+  version                       Int                  @default(1)
+  guestUploadEnabled            Boolean              @default(false)
+  guestCommentVisibilityEnabled Boolean              @default(true)
   /// Monotonic ordering marker for persisted name snapshots and broadcasts.
-  nameRevision    Int                 @default(1)
+  nameRevision                  Int                  @default(1)
   /// Who controls the board: shares it, moves it, deletes it, and carries its
   /// storage quota. For a board drawn inside someone else's collection this is
   /// the collection's owner, not the person who drew it.
-  userId          String
-  user            User                @relation("DrawingOwner", fields: [userId], references: [id], onDelete: Cascade)
+  userId                        String
+  user                          User                 @relation("DrawingOwner", fields: [userId], references: [id], onDelete: Cascade)
   /// Who drew it. Kept apart from control so a team board can say where it came
   /// from without that deciding who may give it away.
-  createdByUserId String?
-  createdBy       User?               @relation("DrawingCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  collectionId    String?
-  collection      Collection?         @relation(fields: [collectionId], references: [id])
-  permissions     DrawingPermission[]
-  linkShares      DrawingLinkShare[]
-  snapshots       DrawingSnapshot[]
-  assets          DrawingAsset[]
-  pageViews       DocumentPageView[]
-  comments        Comment[]
-  activityEvents  ActivityEvent[]
-  visits          DrawingVisit[]
-  favoritedBy     DrawingFavorite[]
-  apiKeys         ApiKey[]
+  createdByUserId               String?
+  createdBy                     User?                @relation("DrawingCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  collectionId                  String?
+  collection                    Collection?          @relation(fields: [collectionId], references: [id])
+  permissions                   DrawingPermission[]
+  linkShares                    DrawingLinkShare[]
+  snapshots                     DrawingSnapshot[]
+  assets                        DrawingAsset[]
+  pageViews                     DocumentPageView[]
+  comments                      Comment[]
+  activityEvents                ActivityEvent[]
+  visits                        DrawingVisit[]
+  favoritedBy                   DrawingFavorite[]
+  apiKeys                       ApiKey[]
+  agentContexts                 AgentContext[]
+  agentRevisions                AgentBoardRevision[]
+  agentRunMounts                AgentRunMount[]
   /// Not named `files` -- the scalar `files` column below is Drawing's own
   /// JSON blob of embedded Excalidraw file entries, an unrelated field this
   /// relation would collide with.
-  drawingFiles    DrawingFile[]
+  drawingFiles                  DrawingFile[]
   /// Set when the board is archived (NIL-365): excluded from Team Home, the
   /// default drawing lists, and search by default, but not deleted -- an
   /// authorized viewer can still find and restore it from the Archive view.
@@ -139,7 +142,7 @@ model Drawing {
   /// staging for permanent deletion by the board's own owner, Archive is a
   /// reversible team-visible lifecycle state that does not change ownership
   /// or collection membership.
-  archivedAt      DateTime?
+  archivedAt                    DateTime?
   /// Denormalized, lowercased plain text extracted from the board's name and
   /// its visible text-element content, recomputed on every save
   /// (`searchIndex.ts`). Existing purely so `contains` search has one column
@@ -148,9 +151,9 @@ model Drawing {
   /// is). SQLite `LIKE`-based, not FTS5: at ~10 accounts and their boards
   /// this is cheap enough that a second, rebuildable virtual index is not
   /// worth the dual-write hazard it would add.
-  searchText      String              @default("")
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  searchText                    String               @default("")
+  createdAt                     DateTime             @default(now())
+  updatedAt                     DateTime             @updatedAt
 
   @@index([userId, updatedAt])
   @@index([userId, collectionId, updatedAt])
@@ -171,6 +174,85 @@ model DrawingSnapshot {
 
   @@index([drawingId, createdAt])
   @@index([createdAt])
+}
+
+/// The server-authoritative identity of a board Context. The frame is an
+/// Excalidraw element id rather than a foreign key because elements live in
+/// Drawing.elements JSON. A frame can identify at most one Context.
+model AgentContext {
+  id             String   @id @default(uuid())
+  drawingId      String
+  frameElementId String
+  pinned         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  drawing Drawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+
+  @@unique([drawingId, frameElementId])
+  @@index([drawingId, createdAt])
+}
+
+/// A full, immutable source image for agent exploration. Unlike ordinary
+/// DrawingSnapshot history, these rows are retained for as long as a run
+/// mount needs them and store the Context identity captured with the scene.
+model AgentBoardRevision {
+  id                   String   @id @default(uuid())
+  drawingId            String
+  sourceDrawingVersion Int
+  contentHash          String
+  elements             String
+  appState             String
+  files                String
+  contextMap           String
+  createdAt            DateTime @default(now())
+
+  drawing Drawing                   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  mounts  AgentRunMount[]
+  assets  AgentBoardRevisionAsset[]
+  audits  AgentToolAudit[]
+
+  @@unique([drawingId, contentHash])
+  @@index([drawingId, createdAt])
+}
+
+/// The per-run pin. The opaque capability token is returned once and only its
+/// SHA-256 is stored; every tool request must present it as well as pass the
+/// normal board authorization boundary.
+model AgentRunMount {
+  runId               String   @id
+  drawingId           String
+  revisionId          String
+  allowedContextIds   String
+  capabilities        String
+  capabilityTokenHash String   @unique
+  createdAt           DateTime @default(now())
+
+  drawing  Drawing            @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  revision AgentBoardRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  audits   AgentToolAudit[]
+
+  @@index([drawingId, createdAt])
+  @@index([revisionId])
+}
+
+/// Hash-only audit trail for the public exploration surface. It proves which
+/// pinned revision and projection produced an answer without persisting a
+/// second copy of that answer.
+model AgentToolAudit {
+  id         String   @id @default(uuid())
+  runId      String
+  revisionId String
+  tool       String
+  argsHash   String
+  resultHash String
+  createdAt  DateTime @default(now())
+
+  mount    AgentRunMount      @relation(fields: [runId], references: [runId], onDelete: Cascade)
+  revision AgentBoardRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([runId, createdAt])
+  @@index([revisionId])
 }
 
 model DrawingPermission {
@@ -248,36 +330,36 @@ model CollectionShare {
 /// degrades the thread to board-level context; it does not delete the
 /// comment.
 model Comment {
-  id              String    @id @default(uuid())
-  drawingId       String
-  drawing         Drawing   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  id               String    @id @default(uuid())
+  drawingId        String
+  drawing          Drawing   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
   /// Null on a thread root. Points at the root on every reply.
-  rootId          String?
-  root            Comment?  @relation("CommentReplies", fields: [rootId], references: [id], onDelete: Cascade)
-  replies         Comment[] @relation("CommentReplies")
+  rootId           String?
+  root             Comment?  @relation("CommentReplies", fields: [rootId], references: [id], onDelete: Cascade)
+  replies          Comment[] @relation("CommentReplies")
   /// Set once, from the server's own session/auth read -- never from the
   /// request body. A guest holding only an unauthenticated link cannot
   /// author a comment at all (see docs/architecture/... HANDOFF for the
   /// Gastpfad decision); every row here has a real account behind it.
-  authorUserId    String
-  author          User      @relation("CommentAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
-  body            String
-  elementId       String?
-  anchorX         Float?
-  anchorY         Float?
+  authorUserId     String
+  author           User      @relation("CommentAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+  body             String
+  elementId        String?
+  anchorX          Float?
+  anchorY          Float?
   /// Root-only. A reply's resolved state is read off its root.
-  resolvedAt      DateTime?
+  resolvedAt       DateTime?
   resolvedByUserId String?
-  resolvedBy      User?     @relation("CommentResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
-  editedAt        DateTime?
-  deletedAt       DateTime?
-  deletedByUserId String?
-  deletedBy       User?     @relation("CommentDeleter", fields: [deletedByUserId], references: [id], onDelete: SetNull)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  resolvedBy       User?     @relation("CommentResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  editedAt         DateTime?
+  deletedAt        DateTime?
+  deletedByUserId  String?
+  deletedBy        User?     @relation("CommentDeleter", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  mentions        Mention[]
-  activityEvents  ActivityEvent[]
+  mentions       Mention[]
+  activityEvents ActivityEvent[]
 
   @@index([drawingId, rootId, createdAt])
   @@index([drawingId, resolvedAt])
@@ -292,12 +374,12 @@ model Comment {
 /// it is never trusted for who actually gets notified (NIL-353: no
 /// information about people who cannot see the board).
 model Mention {
-  id               String   @id @default(uuid())
-  commentId        String
-  comment          Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  mentionedUserId  String
-  mentionedUser    User     @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
-  createdAt        DateTime @default(now())
+  id              String   @id @default(uuid())
+  commentId       String
+  comment         Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  mentionedUserId String
+  mentionedUser   User     @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
 
   @@unique([commentId, mentionedUserId])
   @@index([mentionedUserId])
@@ -311,21 +393,21 @@ model Mention {
 /// `summary` are a snapshot taken at event time so an edit made an hour later
 /// does not silently rewrite what the feed already showed.
 model ActivityEvent {
-  id           String    @id @default(uuid())
-  drawingId    String
-  drawing      Drawing   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  actorUserId  String
-  actor        User      @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid())
+  drawingId   String
+  drawing     Drawing  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  actorUserId String
+  actor       User     @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: Cascade)
   /// "comment.created" | "comment.edited" | "comment.resolved" |
   /// "comment.reopened" | "comment.deleted" | "mention.created"
-  verb         String
-  commentId    String?
-  comment      Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  elementId    String?
-  anchorX      Float?
-  anchorY      Float?
-  summary      String
-  createdAt    DateTime  @default(now())
+  verb        String
+  commentId   String?
+  comment     Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  elementId   String?
+  anchorX     Float?
+  anchorY     Float?
+  summary     String
+  createdAt   DateTime @default(now())
 
   notifications Notification[]
 
@@ -659,12 +741,13 @@ model Asset {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  owner      User                   @relation("AssetOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  uploadedBy User?                  @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
-  blob       StoredBlob             @relation(fields: [blobId], references: [id], onDelete: Restrict)
-  drawings   DrawingAsset[]
-  snapshots  DrawingSnapshotAsset[]
-  pageViews  DocumentPageView[]
+  owner          User                      @relation("AssetOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  uploadedBy     User?                     @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  blob           StoredBlob                @relation(fields: [blobId], references: [id], onDelete: Restrict)
+  drawings       DrawingAsset[]
+  snapshots      DrawingSnapshotAsset[]
+  agentRevisions AgentBoardRevisionAsset[]
+  pageViews      DocumentPageView[]
 
   @@index([ownerUserId, createdAt])
   @@index([blobId])
@@ -726,5 +809,24 @@ model DrawingSnapshotAsset {
   asset    Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@id([snapshotId, assetId])
+  @@index([assetId])
+}
+
+/// An immutable asset binding captured with an AgentBoardRevision. Metadata is
+/// copied so a later rename cannot change a mounted tool result; Asset keeps
+/// the underlying immutable StoredBlob alive.
+model AgentBoardRevisionAsset {
+  revisionId   String
+  assetId      String
+  contentHash  String
+  kind         String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+
+  revision AgentBoardRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  asset    Asset              @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([revisionId, assetId])
   @@index([assetId])
 }

@@ -58,6 +58,7 @@ export function buildApp(options: { userId?: string } = {}) {
       update: vi.fn(),
       delete: vi.fn(),
     },
+    agentContext: { findMany: vi.fn().mockResolvedValue([]) },
     documentPageView: {
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       findMany: vi.fn().mockResolvedValue([]),

@@ -6,6 +6,10 @@ import { referencedAssetIds, syncDrawingDocumentState } from "../../assets/docum
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
 import { requestIdOf } from "../../middleware/requestId";
 import type { DrawingRouteContext } from "./drawingRouteContext";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../../agent/boardContexts";
 
 export const registerDrawingHistoryRoutes = (
   app: express.Express,
@@ -125,7 +129,23 @@ export const registerDrawingHistoryRoutes = (
       const restoredElements = decodeSnapshotField(snapshot.elements);
       const restoredAppState = decodeSnapshotField(snapshot.appState);
       const restoredFiles = decodeSnapshotField(snapshot.files);
-      const wantedAssetIds = referencedAssetIds(parseJsonField(restoredElements, []));
+      const parsedRestoredElements = parseJsonField<Record<string, unknown>[]>(
+        restoredElements,
+        [],
+      );
+      try {
+        await assertPersistedAgentContextFrames(prisma, id, parsedRestoredElements);
+      } catch (error) {
+        if (error instanceof AgentContextValidationError) {
+          return res.status(409).json({
+            error: "Invalid Context map",
+            code: error.code,
+            message: error.message,
+          });
+        }
+        throw error;
+      }
+      const wantedAssetIds = referencedAssetIds(parsedRestoredElements);
 
       const updated = await prisma.$transaction(async (tx) => {
         const current = await tx.drawing.findUnique({ where: { id } });
@@ -162,7 +182,7 @@ export const registerDrawingHistoryRoutes = (
             update: { state: "ACTIVE", expiresAt: null },
           });
         }
-        await syncDrawingDocumentState(tx, id, parseJsonField(restoredElements, []), {
+        await syncDrawingDocumentState(tx, id, parsedRestoredElements, {
           correlationId: requestIdOf(req),
         });
 

@@ -19,6 +19,10 @@ import { deleteS3KeysInBatches } from "./storage/s3Delete";
 import { syncDrawingDocumentState } from "../assets/documentWidgetState";
 import { getOwnedBoard } from "../authz/boards";
 import { requestIdOf } from "../middleware/requestId";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../agent/boardContexts";
 
 export type StorageRouteDeps = {
   prisma: PrismaClient;
@@ -114,6 +118,18 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
 
       // 7. Update drawing — bump version so concurrent editors get a VERSION_CONFLICT
       // and reload, instead of having their newer version silently overwritten.
+      try {
+        await assertPersistedAgentContextFrames(prisma, id, trimPlan.activeElements);
+      } catch (error) {
+        if (error instanceof AgentContextValidationError) {
+          return res.status(409).json({
+            error: "Invalid Context map",
+            code: error.code,
+            message: error.message,
+          });
+        }
+        throw error;
+      }
       await prisma.$transaction(async (tx) => {
         await tx.drawing.update({
           where: { id },

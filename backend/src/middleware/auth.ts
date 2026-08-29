@@ -214,8 +214,8 @@ export const getRequiredApiKeyScopes = (req: Request): string[] => {
 
 /**
  * The exclusive, exhaustive route surface a drawing-bound agent token
- * (NIL-382) may ever reach: `GET .../agent/summary`, `GET .../agent/elements`,
- * `POST .../agent/ops`, on its own board only. Returns null for every other
+ * token may ever reach: immutable mount creation/tool calls plus the existing
+ * semantic `POST .../agent/ops`, on its own board only. Returns null for every other
  * request -- including `/drawings/:id` itself, the full scene PUT, history,
  * sharing, and every other drawing sub-resource -- so that surface cannot
  * grow by a route elsewhere in this file happening to match a loose pattern.
@@ -229,14 +229,20 @@ const getAgentRouteDrawingId = (
   req: Request,
 ): { drawingId: string; scope: typeof DRAWING_READ_SCOPE | typeof DRAWING_OPS_SCOPE } | null => {
   const segments = normalizeRequestPath(req).split("/").filter(Boolean);
-  if (segments[0] !== "drawings" || segments.length !== 4 || segments[2] !== "agent") return null;
+  if (segments[0] !== "drawings" || segments[2] !== "agent") return null;
   const drawingId = segments[1];
-  const action = segments[3];
   const method = req.method;
-  if (action === "summary" && isReadMethod(method)) return { drawingId, scope: DRAWING_READ_SCOPE };
-  if (action === "elements" && isReadMethod(method))
+  if (
+    segments.length === 7 &&
+    segments[3] === "mounts" &&
+    segments[5] === "tools" &&
+    method === "POST"
+  ) {
     return { drawingId, scope: DRAWING_READ_SCOPE };
-  if (action === "ops" && method === "POST") return { drawingId, scope: DRAWING_OPS_SCOPE };
+  }
+  if (segments.length === 4 && segments[3] === "ops" && method === "POST") {
+    return { drawingId, scope: DRAWING_OPS_SCOPE };
+  }
   return null;
 };
 
