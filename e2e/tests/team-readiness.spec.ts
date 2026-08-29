@@ -233,6 +233,7 @@ const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID
   ? Number.parseInt(process.env.SOAK_HANG_ACTOR_ID, 10)
   : null;
 const HANG_STEP = process.env.SOAK_HANG_STEP || null;
+const HANG_PAGE_SWITCH_PHASE = process.env.SOAK_HANG_PAGE_SWITCH_PHASE || null;
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
 // NIL-639: a GitHub-hosted job cannot run this spec's own 8h default in one
@@ -585,6 +586,9 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
         coveredBy: null,
       };
       actor.pageSwitchTraces.push(trace);
+      if (actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === trace.phase) {
+        await new Promise<never>(() => {});
+      }
       const describe = (phase: string) =>
         `page_switch ${phase} for actor ${actor.id} (${actor.engine})`;
       try {
@@ -695,7 +699,8 @@ const runCycle = async (actor: Actor) => {
   actor.inFlightStep = step;
 
   const shouldHang =
-    actor.id === HANG_ACTOR_ID && (forcedHangStep !== null || (!HANG_STEP && actor.cycles >= 1));
+    actor.id === HANG_ACTOR_ID && !HANG_PAGE_SWITCH_PHASE &&
+    (forcedHangStep !== null || (!HANG_STEP && actor.cycles >= 1));
 
   try {
     if (shouldHang) {
@@ -985,8 +990,11 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
               const activePageSwitch = [...actor.pageSwitchTraces]
                 .reverse()
                 .find((trace) => trace.outcome === "started");
-              const diagnosticStep = actor.inFlightStep ??
-                (activePageSwitch ? `page_switch.${activePageSwitch.phase}` : "unknown");
+              // An unfinished trace is more precise than the outer step. It
+              // exists only while page_switch is in flight, so prefer it.
+              const diagnosticStep = actor.inFlightStep === "page_switch" && activePageSwitch
+                ? `page_switch.${activePageSwitch.phase}`
+                : actor.inFlightStep ?? "unknown";
               violations.push({
                 actorId: actor.id,
                 engine: actor.engine,
