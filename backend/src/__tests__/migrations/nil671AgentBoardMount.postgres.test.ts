@@ -57,6 +57,7 @@ if (process.env.CI === "true" && !getPostgresTestUrl()) {
       const second = await createPostgresClient();
       clients.push(first, second);
       await resetPostgresSchema(first, "nil671_agent_context_lock_test");
+      await second.query(`SET search_path TO "nil671_agent_context_lock_test"`);
       await applyPostgresMigrationsBefore(first, TARGET);
       await first.query(
         `INSERT INTO "User" (id,email,"passwordHash",name,role,"createdAt","updatedAt")
