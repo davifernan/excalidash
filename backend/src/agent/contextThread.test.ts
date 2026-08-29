@@ -3,6 +3,7 @@ import type { PrismaClient } from "../generated/client";
 import { cleanupTestDb, createTestUser, getTestPrisma, setupTestDb } from "../__tests__/testUtils";
 import {
   ContextThreadError,
+  ContextThreadCorruptionError,
   appendContextThreadEvent,
   listContextThreadEvents,
   listResolvedContextThreadEvents,
@@ -154,7 +155,20 @@ describe("context thread: append-only event log", () => {
         createdAt: new Date().toISOString(),
       };
       const events = [
-        { ...base, id: "root-1", sequence: 1, kind: "message" as const, payload: { text: "a" } },
+        {
+          ...base,
+          id: "edit-2",
+          sequence: 5,
+          kind: "edit" as const,
+          payload: { supersedes: "root-1", text: "c" },
+        },
+        {
+          ...base,
+          id: "root-2",
+          sequence: 3,
+          kind: "status" as const,
+          payload: { status: "working" },
+        },
         {
           ...base,
           id: "edit-1",
@@ -162,11 +176,31 @@ describe("context thread: append-only event log", () => {
           kind: "edit" as const,
           payload: { supersedes: "root-1", text: "b" },
         },
+        { ...base, id: "root-1", sequence: 1, kind: "message" as const, payload: { text: "a" } },
       ];
       const resolvedAsIs = resolveThreadState(events);
       const resolvedShuffled = resolveThreadState([...events].reverse());
       expect(resolvedAsIs).toEqual(resolvedShuffled);
-      expect(resolvedAsIs[0]!.currentEdit?.payload.text).toBe("b");
+      expect(resolvedAsIs.map((entry) => entry.original.id)).toEqual(["root-1", "root-2"]);
+      expect(resolvedAsIs[0]!.edits.map((entry) => entry.id)).toEqual(["edit-1", "edit-2"]);
+      expect(resolvedAsIs[0]!.currentEdit?.payload.text).toBe("c");
     });
+  });
+
+  it("fails loudly when a persisted row is corrupt instead of inventing a placeholder event", async () => {
+    await prisma.agentContextEvent.create({
+      data: {
+        contextId,
+        sequence: 1,
+        actorKind: "agent",
+        actorDisplayName: "Research Agent",
+        eventKind: "message",
+        payload: "{not-json",
+      },
+    });
+
+    await expect(listContextThreadEvents({ prisma, drawingId, contextId })).rejects.toThrow(
+      ContextThreadCorruptionError,
+    );
   });
 });

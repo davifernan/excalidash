@@ -1,4 +1,5 @@
 import { canonicalJson } from "./canonicalJson";
+import { logger } from "../logger";
 
 const ACTORS = ["user", "agent", "system"] as const;
 /**
@@ -38,28 +39,60 @@ export class ContextThreadError extends Error {
   }
 }
 
-const parsePayload = (value: string): Record<string, unknown> => {
+export class ContextThreadCorruptionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextThreadCorruptionError";
+  }
+}
+
+const corruptRow = (row: any, reason: string, cause?: unknown): never => {
+  logger.error("Stored Agent Context event is corrupt", {
+    contextId: row?.contextId,
+    eventId: row?.id,
+    sequence: row?.sequence,
+    reason,
+    ...(cause ? { error: cause } : {}),
+  });
+  throw new ContextThreadCorruptionError(
+    `Stored Agent Context event ${String(row?.id ?? "<unknown>")} is corrupt: ${reason}`,
+  );
+};
+
+const parsePayload = (row: any): Record<string, unknown> => {
   try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
+    const parsed = JSON.parse(row.payload);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return corruptRow(row, "payload is not a JSON object");
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof ContextThreadCorruptionError) throw error;
+    return corruptRow(row, "payload is not valid JSON", error);
   }
 };
 
-const toEntry = (row: any): ContextThreadEntry => ({
-  id: row.id,
-  contextId: row.contextId,
-  sequence: row.sequence,
-  actor: {
-    kind: ACTORS.includes(row.actorKind) ? row.actorKind : "system",
-    id: typeof row.actorId === "string" ? row.actorId : null,
-    displayName: row.actorDisplayName,
-  },
-  kind: EVENTS.includes(row.eventKind) ? row.eventKind : "status",
-  payload: parsePayload(row.payload),
-  createdAt: row.createdAt.toISOString(),
-});
+const toEntry = (row: any): ContextThreadEntry => {
+  if (!(ACTORS as readonly unknown[]).includes(row.actorKind)) {
+    return corruptRow(row, `unknown actor kind ${JSON.stringify(row.actorKind)}`);
+  }
+  if (!(EVENTS as readonly unknown[]).includes(row.eventKind)) {
+    return corruptRow(row, `unknown event kind ${JSON.stringify(row.eventKind)}`);
+  }
+  return {
+    id: row.id,
+    contextId: row.contextId,
+    sequence: row.sequence,
+    actor: {
+      kind: row.actorKind,
+      id: typeof row.actorId === "string" ? row.actorId : null,
+      displayName: row.actorDisplayName,
+    },
+    kind: row.eventKind,
+    payload: parsePayload(row),
+    createdAt: row.createdAt.toISOString(),
+  };
+};
 
 const validatePayload = (kind: EventKind, payload: Record<string, unknown>): void => {
   const bounded = (value: unknown, maximum: number): value is string =>
