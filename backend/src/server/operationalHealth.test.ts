@@ -6,6 +6,7 @@ import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertDatabaseWritable,
+  createReadinessProbe,
   registerOperationalHealthRoutes,
   type DatabaseWriteClient,
 } from "./operationalHealth";
@@ -189,5 +190,40 @@ describe("operational health endpoints", () => {
     expect(response.status).toBe(200);
     expect(response.body.status).toBe("warning");
     expect(response.body.checks.backup.status).toBe("missing");
+  });
+});
+
+describe("readiness probe measurement coalescing", () => {
+  it("shares one measurement across concurrent callers past the cache TTL (NIL-693)", async () => {
+    let releaseCheck: (() => void) | undefined;
+    const checkHeld = new Promise<void>((resolve) => {
+      releaseCheck = resolve;
+    });
+    const executeRawUnsafe = vi.fn().mockImplementation(async () => {
+      await checkHeld;
+      return 0;
+    });
+    const probe = createReadinessProbe({
+      database: { $executeRawUnsafe: executeRawUnsafe },
+      diskPath: "/data",
+      minFreeDiskPercent: 20,
+      backupSchedule: null,
+      backupDir: "/backups",
+      backupMaxAgeMs: 48 * 60 * 60 * 1000,
+      cacheTtlMs: 30_000,
+      readFreeDiskPercent: vi.fn().mockResolvedValue(55),
+      now: () => Date.parse("2026-08-22T12:00:00.000Z"),
+    });
+
+    // Calling the probe is synchronous up to its first await, so both calls
+    // below have already decided whether to start a fresh measurement or
+    // join the one already in flight before either can proceed further --
+    // no timing race to win.
+    const first = probe();
+    const second = probe();
+    releaseCheck?.();
+    await Promise.all([first, second]);
+
+    expect(executeRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });
