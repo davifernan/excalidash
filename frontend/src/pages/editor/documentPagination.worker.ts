@@ -24,21 +24,24 @@ const isPaginationRequest = (data: unknown): data is DocumentPaginationRequest =
 };
 
 self.onmessage = ({ data }: MessageEvent<unknown>) => {
-  let response: DocumentPaginationResponse;
   try {
     if (!isPaginationRequest(data)) {
       throw new Error("Invalid document pagination request.");
     }
     const request = data;
-    response = {
-      ok: true,
-      pages: paginateDocumentSource(request.source, request.kind, request.budget),
-    };
+    // A single response with every page structured-clones the whole document
+    // back onto the UI thread in one task. Each page is bounded by the
+    // pagination budget, so stream them as independent tasks and only commit
+    // React state when the explicit completion message arrives.
+    for (const page of paginateDocumentSource(request.source, request.kind, request.budget)) {
+      self.postMessage({ ok: true, type: "page", page } satisfies DocumentPaginationResponse);
+    }
+    self.postMessage({ ok: true, type: "complete" } satisfies DocumentPaginationResponse);
   } catch (error) {
-    response = {
+    const response: DocumentPaginationResponse = {
       ok: false,
       error: error instanceof Error ? error.message : "Document pagination failed.",
     };
+    self.postMessage(response);
   }
-  self.postMessage(response);
 };

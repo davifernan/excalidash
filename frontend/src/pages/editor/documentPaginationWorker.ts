@@ -3,7 +3,9 @@ import type { DocumentPaginationRequest } from "@excalidash/domain/documents";
 export type { DocumentPaginationRequest } from "@excalidash/domain/documents";
 
 export type DocumentPaginationResponse =
-  { ok: true; pages: string[] } | { ok: false; error: string };
+  | { ok: true; type: "page"; page: string }
+  | { ok: true; type: "complete" }
+  | { ok: false; error: string };
 
 const abortError = () => new DOMException("Document pagination was cancelled.", "AbortError");
 
@@ -22,6 +24,7 @@ export const paginateDocumentOffThread = (
   if (signal?.aborted) return Promise.reject(abortError());
 
   return new Promise((resolve, reject) => {
+    const pages: string[] = [];
     let worker: Worker;
     try {
       worker = new Worker(new URL("./documentPagination.worker.ts", import.meta.url), {
@@ -42,11 +45,14 @@ export const paginateDocumentOffThread = (
     };
 
     worker.onmessage = ({ data }: MessageEvent<DocumentPaginationResponse>) => {
-      finish();
-      if (data.ok) {
-        resolve(data.pages);
-      } else {
+      if (!data.ok) {
+        finish();
         reject(new Error(data.error));
+      } else if (data.type === "page") {
+        pages.push(data.page);
+      } else {
+        finish();
+        resolve(pages);
       }
     };
     worker.onerror = (event) => {

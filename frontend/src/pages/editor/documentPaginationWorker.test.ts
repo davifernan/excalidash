@@ -47,11 +47,11 @@ describe("document pagination worker client", () => {
         new MessageEvent("message", { data: { source: "x".repeat(50_000), kind } }),
       );
 
-      expect(postMessage).toHaveBeenCalledOnce();
-      expect(postMessage.mock.calls[0][0]).toMatchObject({ ok: true });
-      const response = postMessage.mock.calls[0][0];
-      if (!response.ok) throw new Error(response.error);
-      expect(response.pages).toHaveLength(3);
+      const responses = postMessage.mock.calls.map(([response]) => response);
+      expect(responses.at(-1)).toEqual({ ok: true, type: "complete" });
+      expect(responses.filter((response) => response.ok && response.type === "page")).toHaveLength(
+        3,
+      );
     },
   );
 
@@ -80,8 +80,12 @@ describe("document pagination worker client", () => {
     expect(worker.options).toEqual({ type: "module" });
     expect(worker.postMessage).toHaveBeenCalledWith({ source: "one\ntwo", kind: "TEXT" });
     worker.onmessage?.(
-      new MessageEvent("message", { data: { ok: true, pages: ["one\n", "two"] } }),
+      new MessageEvent("message", { data: { ok: true, type: "page", page: "one\n" } }),
     );
+    worker.onmessage?.(
+      new MessageEvent("message", { data: { ok: true, type: "page", page: "two" } }),
+    );
+    worker.onmessage?.(new MessageEvent("message", { data: { ok: true, type: "complete" } }));
 
     await expect(result).resolves.toEqual(["one\n", "two"]);
     expect(worker.terminate).toHaveBeenCalledOnce();
