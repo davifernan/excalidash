@@ -104,6 +104,25 @@ export const recordSuccessfulElementMutation = async (params: {
   );
 };
 
+/**
+ * Materialize unknown legacy content at the explicit Context-registration
+ * boundary. Registration cannot reconstruct authorship, so every missing row
+ * in that existing frame becomes conservatively guest-touched. This is not an
+ * inferred guest identity; it is the fail-closed persistence of uncertainty.
+ */
+export const markUnknownElementProvenanceGuestTouched = async (params: {
+  prisma: ProvenancePrisma;
+  drawingId: string;
+  elementIds: readonly string[];
+}): Promise<void> =>
+  recordSuccessfulElementMutation({
+    prisma: params.prisma,
+    drawingId: params.drawingId,
+    isGuest: true,
+    changedElementIds: params.elementIds,
+    createdElementIds: [],
+  });
+
 /** The sole deliberate reset seam. Callers authorize and audit the member. */
 export const confirmElementGuestProvenance = async (
   prisma: ProvenancePrisma,

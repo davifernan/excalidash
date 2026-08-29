@@ -36,6 +36,10 @@ import {
   diffSceneElementIds,
   recordSuccessfulElementMutation,
 } from "../../agent/elementGuestProvenance";
+import {
+  assertDrawingStillEditable,
+  DrawingAccessRevokedError,
+} from "./drawingTransactionAuthorization";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -328,7 +332,6 @@ export const registerDrawingCreateUpdateRoutes = (
       }
 
       const versionConflictError = new Error("VERSION_CONFLICT");
-      const accessRevokedError = new Error("ACCESS_REVOKED");
       let updatedDrawing: typeof existingDrawing | null = null;
       const elementMutation = payload.elements
         ? diffSceneElementIds(parseJsonField(existingDrawing.elements, []), payload.elements)
@@ -349,17 +352,12 @@ export const registerDrawingCreateUpdateRoutes = (
               if (payload.elements !== undefined) {
                 await assertPersistedAgentContextFrames(tx, id, payload.elements);
               }
-              const transactionDecision = elementMutation
-                ? await getDrawingCapabilities({
-                    prisma: tx as any,
-                    principal,
-                    drawingId: id,
-                    shareToken: getShareToken(req),
-                  })
-                : decision;
-              if (!canEditDrawing(transactionDecision.access)) {
-                throw accessRevokedError;
-              }
+              const transactionDecision = await assertDrawingStillEditable({
+                prisma: tx,
+                principal,
+                drawingId: id,
+                shareToken: getShareToken(req),
+              });
               const compress = config.enableSnapshotCompression;
               const snapshot = await tx.drawingSnapshot.create({
                 data: {
@@ -424,7 +422,7 @@ export const registerDrawingCreateUpdateRoutes = (
           });
         }
       } catch (error) {
-        if (error === accessRevokedError) {
+        if (error instanceof DrawingAccessRevokedError) {
           return res.status(404).json({ error: "Drawing not found" });
         }
         if (error instanceof AgentContextValidationError) {

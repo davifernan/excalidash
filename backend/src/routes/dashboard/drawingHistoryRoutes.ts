@@ -15,6 +15,10 @@ import {
   diffSceneElementIds,
   recordSuccessfulElementMutation,
 } from "../../agent/elementGuestProvenance";
+import {
+  assertDrawingStillEditable,
+  DrawingAccessRevokedError,
+} from "./drawingTransactionAuthorization";
 
 export const registerDrawingHistoryRoutes = (
   app: express.Express,
@@ -140,20 +144,15 @@ export const registerDrawingHistoryRoutes = (
         [],
       );
       const wantedAssetIds = referencedAssetIds(parsedRestoredElements);
-      const accessRevokedError = new Error("ACCESS_REVOKED");
-
       const updated = await prisma
         .$transaction(async (tx) => {
           await assertPersistedAgentContextFrames(tx, id, parsedRestoredElements);
-          const transactionDecision = await getDrawingCapabilities({
-            prisma: tx as any,
+          const transactionDecision = await assertDrawingStillEditable({
+            prisma: tx,
             principal,
             drawingId: id,
             shareToken: getShareToken(req),
           });
-          if (!canEditDrawing(transactionDecision.access)) {
-            throw accessRevokedError;
-          }
           const current = await tx.drawing.findUnique({ where: { id } });
           if (!current) throw new Error("Drawing disappeared during restore");
           const elementMutation = diffSceneElementIds(
@@ -222,7 +221,7 @@ export const registerDrawingHistoryRoutes = (
           return restored;
         })
         .catch((error) => {
-          if (error === accessRevokedError) {
+          if (error instanceof DrawingAccessRevokedError) {
             res.status(404).json({ error: "Drawing not found" });
             return null;
           }

@@ -1,4 +1,8 @@
-import { elementIdsInContextFrame, readElementGuestProvenance } from "./elementGuestProvenance";
+import {
+  elementIdsInContextFrame,
+  markUnknownElementProvenanceGuestTouched,
+  readElementGuestProvenance,
+} from "./elementGuestProvenance";
 
 export type ContextIdentity = {
   id: string;
@@ -9,7 +13,7 @@ export type ContextIdentity = {
 export type ContextRegistration = ContextIdentity & {
   provenanceReview: {
     confirmationRequired: boolean;
-    unknownElementIds: string[];
+    elementIdsRequiringConfirmation: string[];
   };
 };
 
@@ -182,11 +186,22 @@ export const registerAgentContext = async (params: {
     const unknownElementIds = provenance
       .filter((entry) => entry.status === "unknown")
       .map((entry) => entry.elementId);
+    const elementIdsRequiringConfirmation = provenance
+      .filter((entry) => entry.status !== "confirmed-clean")
+      .map((entry) => entry.elementId);
+    // Context registration is the explicit boundary at which legacy absence
+    // stops being ephemeral. Unknown content is persisted fail-closed as
+    // guest-touched; only the audited human confirmation seam may clear it.
+    await markUnknownElementProvenanceGuestTouched({
+      prisma: tx,
+      drawingId: params.drawingId,
+      elementIds: unknownElementIds,
+    });
     return {
       ...created,
       provenanceReview: {
-        confirmationRequired: unknownElementIds.length > 0,
-        unknownElementIds,
+        confirmationRequired: elementIdsRequiringConfirmation.length > 0,
+        elementIdsRequiringConfirmation,
       },
     };
   });

@@ -29,6 +29,10 @@ import {
   diffSceneElementIds,
   recordSuccessfulElementMutation,
 } from "../../agent/elementGuestProvenance";
+import {
+  assertDrawingStillEditable,
+  DrawingAccessRevokedError,
+} from "./drawingTransactionAuthorization";
 
 /**
  * The exclusive route surface a drawing-bound agent token (NIL-382) may
@@ -262,21 +266,17 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
       const elementMutation = diffSceneElementIds(currentElements, newElements);
 
       const versionConflictError = new Error("VERSION_CONFLICT");
-      const accessRevokedError = new Error("ACCESS_REVOKED");
       let updatedDrawing: typeof existingDrawing | null = null;
 
       try {
         updatedDrawing = await prisma.$transaction(async (tx) => {
           await assertPersistedAgentContextFrames(tx, id, newElements);
-          const transactionDecision = await getDrawingCapabilities({
-            prisma: tx as any,
+          const transactionDecision = await assertDrawingStillEditable({
+            prisma: tx,
             principal: loaded.principal,
             drawingId: id,
             shareToken: getShareToken(req),
           });
-          if (!canEditDrawing(transactionDecision.access)) {
-            throw accessRevokedError;
-          }
           const compress = config.enableSnapshotCompression;
           const snapshot = await tx.drawingSnapshot.create({
             data: {
@@ -316,7 +316,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           return tx.drawing.findFirst({ where: { id } });
         });
       } catch (error) {
-        if (error === accessRevokedError) {
+        if (error instanceof DrawingAccessRevokedError) {
           return res.status(404).json({ error: "Drawing not found" });
         }
         if (respondWithMountError(res, error)) return;

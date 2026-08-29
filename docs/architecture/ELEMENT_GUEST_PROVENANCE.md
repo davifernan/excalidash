@@ -36,8 +36,12 @@ does not backfill `false`: existing authorship cannot be reconstructed.
 - A history restore never treats a reappearing element as member-created. If it has no row, it
   stays `unknown`; restoring an old snapshot cannot manufacture clean provenance for content
   whose author the snapshot does not record.
-- Context registration returns every still-unknown element in that frame as
-  `provenanceReview.unknownElementIds`. It does not invent guest contact or clean authorship.
+- Context registration is the deliberate materialization boundary for legacy uncertainty. Every
+  still-unknown element in the registered frame is persisted as `guest-touched`, and the response
+  names all non-clean elements as `provenanceReview.elementIdsRequiringConfirmation`. This does
+  not claim a known guest identity; it fixes the unknown fact in its conservative authorization
+  state so absence can never later be mistaken for clean. Only the audited human reset may clear
+  it.
 - The only reset is the human endpoint
   `POST /drawings/:id/element-guest-provenance/confirm-clean`. It requires a current, non-guest
   editor, accepts only live elements in a registered Agent Context, rejects agent API keys, and

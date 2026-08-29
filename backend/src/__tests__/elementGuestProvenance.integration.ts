@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../generated/client";
 import request from "supertest";
 import jwt, { type SignOptions } from "jsonwebtoken";
@@ -15,6 +15,7 @@ import { buildShareLinkToken, hashShareLinkToken } from "../authz/sharing";
 import { config } from "../config";
 import { FakeIo } from "./socketTestDoubles";
 import { registerSocketHandlers } from "../server/socket";
+import * as drawingCapabilities from "../authz/capabilities";
 
 const frame = {
   id: "frame-1",
@@ -103,7 +104,7 @@ describe("element guest provenance (NIL-695)", () => {
     await prisma.$disconnect();
   });
 
-  it("keeps absence as explicit unknown and surfaces it when an existing frame is registered", async () => {
+  it("keeps absence unknown until registration conservatively fixes the existing frame as guest-touched", async () => {
     expect(
       await readElementGuestProvenance(prisma, drawingId, ["legacy-in-frame", "note-1"]),
     ).toEqual([
@@ -119,10 +120,13 @@ describe("element guest provenance (NIL-695)", () => {
 
     expect(registered.provenanceReview).toEqual({
       confirmationRequired: true,
-      unknownElementIds: ["frame-1", "legacy-in-frame"],
+      elementIdsRequiringConfirmation: ["frame-1", "legacy-in-frame"],
     });
     expect(await readElementGuestProvenance(prisma, drawingId, ["legacy-in-frame"])).toEqual([
-      { elementId: "legacy-in-frame", status: "unknown" },
+      { elementId: "legacy-in-frame", status: "guest-touched" },
+    ]);
+    expect(await readElementGuestProvenance(prisma, drawingId, ["note-1"])).toEqual([
+      { elementId: "note-1", status: "unknown" },
     ]);
   });
 
@@ -261,6 +265,66 @@ describe("element guest provenance (NIL-695)", () => {
     ]);
   });
 
+  it("rejects an appState-only save when link edit access is revoked after the initial check", async () => {
+    const drawing = await prisma.drawing.create({
+      data: {
+        name: "Revoked appState board",
+        elements: "[]",
+        appState: JSON.stringify({ theme: "light" }),
+        files: "{}",
+        userId: owner.id,
+      },
+    });
+    const shareToken = buildShareLinkToken();
+    const link = await prisma.drawingLinkShare.create({
+      data: {
+        drawingId: drawing.id,
+        permission: "edit",
+        tokenHash: hashShareLinkToken(shareToken),
+        createdByUserId: owner.id,
+      },
+    });
+    const resolveCapabilities = drawingCapabilities.getDrawingCapabilities;
+    let targetChecks = 0;
+    const capabilitySpy = vi
+      .spyOn(drawingCapabilities, "getDrawingCapabilities")
+      .mockImplementation(async (params) => {
+        const decision = await resolveCapabilities(params);
+        if (params.drawingId === drawing.id) {
+          targetChecks += 1;
+          if (targetChecks === 1) {
+            await prisma.drawingLinkShare.update({
+              where: { id: link.id },
+              data: { revokedAt: new Date() },
+            });
+          }
+        }
+        return decision;
+      });
+
+    try {
+      const guestAgent = request.agent(app);
+      const csrf = await guestAgent.get("/csrf-token").set("User-Agent", "nil695-race-test");
+      const response = await guestAgent
+        .put(`/drawings/${drawing.id}`)
+        .set("User-Agent", "nil695-race-test")
+        .set("Authorization", `Bearer ${sign(stranger)}`)
+        .set("x-share-token", shareToken)
+        .set(csrf.body.header, csrf.body.token)
+        .send({ version: drawing.version, appState: { theme: "dark" } });
+
+      expect(response.status).toBe(404);
+      expect(targetChecks).toBe(2);
+      expect(
+        JSON.parse(
+          (await prisma.drawing.findUniqueOrThrow({ where: { id: drawing.id } })).appState,
+        ),
+      ).toEqual({ theme: "light" });
+    } finally {
+      capabilitySpy.mockRestore();
+    }
+  });
+
   it("tracks the real guest save, survives member moves, refuses guest clearance, and audits owner clearance", async () => {
     const scene = [
       { ...frame, id: "http-frame" },
@@ -350,11 +414,12 @@ describe("element guest provenance (NIL-695)", () => {
       .set("User-Agent", "nil695-test")
       .set("Authorization", `Bearer ${sign(owner)}`)
       .set(ownerCsrf.body.header, ownerCsrf.body.token)
-      .send({ elementIds: ["http-note"] });
+      .send({ elementIds: ["http-note", "refused-note"] });
     config.enableAuditLogging = previousAuditSetting;
     expect(ownerClear.status).toBe(200);
     expect(ownerClear.body.elements).toEqual([
       { elementId: "http-note", status: "confirmed-clean" },
+      { elementId: "refused-note", status: "confirmed-clean" },
     ]);
     expect(
       await prisma.auditLog.findFirst({
@@ -365,7 +430,10 @@ describe("element guest provenance (NIL-695)", () => {
         },
       }),
     ).toMatchObject({
-      details: JSON.stringify({ drawingId: drawing.id, elementIds: ["http-note"] }),
+      details: JSON.stringify({
+        drawingId: drawing.id,
+        elementIds: ["http-note", "refused-note"],
+      }),
     });
 
     live = await prisma.drawing.findUniqueOrThrow({ where: { id: drawing.id } });
@@ -381,7 +449,7 @@ describe("element guest provenance (NIL-695)", () => {
     });
     expect(refused.status).toBe(409);
     expect(await readElementGuestProvenance(prisma, drawing.id, ["refused-note"])).toEqual([
-      { elementId: "refused-note", status: "unknown" },
+      { elementId: "refused-note", status: "confirmed-clean" },
     ]);
   });
 
