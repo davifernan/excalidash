@@ -80,6 +80,13 @@ export const createDocumentPageManager = ({
     correlationId?: string,
   ): Promise<DocumentPageSnapshot> => {
     const existing = snapshotsInFlight.get(drawingId);
+    if (correlationId) {
+      logger.warn("NIL-601 diagnostic: document-page snapshot requested", {
+        drawingId,
+        correlationId,
+        coalesced: Boolean(existing),
+      });
+    }
     if (existing) return existing;
 
     const operation = (async () => {
