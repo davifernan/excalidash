@@ -362,6 +362,7 @@ export const Editor: React.FC = () => {
     socketRef,
     roomJoinedRef,
     isSyncing,
+    pendingSyncFingerprintRef,
     onPointerUpdate,
     onSelectionChange,
     inviteHere,
@@ -563,6 +564,7 @@ export const Editor: React.FC = () => {
       initialSceneElements: initialSceneElementsRef,
       isBootstrappingScene,
       isSyncing,
+      pendingSyncFingerprint: pendingSyncFingerprintRef,
       isHistoryPreviewing,
       isUnmounting,
       lastLocalChangeAt: lastLocalChangeAtRef,
@@ -572,7 +574,7 @@ export const Editor: React.FC = () => {
       latestFiles: latestFilesRef,
       suspiciousBlankLoad: suspiciousBlankLoadRef,
     }),
-    [isSyncing],
+    [isSyncing, pendingSyncFingerprintRef],
   );
   const { handleCanvasChange, handleCanvasDropCapture } = useEditorCanvasHandlers({
     canEdit,

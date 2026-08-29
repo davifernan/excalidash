@@ -30,6 +30,7 @@ type CanvasHandlerRefs = {
   initialSceneElements: MutableRefObject<readonly any[]>;
   isBootstrappingScene: MutableRefObject<boolean>;
   isSyncing: MutableRefObject<boolean>;
+  pendingSyncFingerprint: MutableRefObject<Map<string, string> | null>;
   isHistoryPreviewing: MutableRefObject<boolean>;
   isUnmounting: MutableRefObject<boolean>;
   lastLocalChangeAt: MutableRefObject<number>;
@@ -90,6 +91,7 @@ export const useEditorCanvasHandlers = ({
     initialSceneElements: initialSceneElementsRef,
     isBootstrappingScene: isBootstrappingSceneRef,
     isSyncing: isSyncingRef,
+    pendingSyncFingerprint: pendingSyncFingerprintRef,
     isHistoryPreviewing: isHistoryPreviewingRef,
     isUnmounting: isUnmountingRef,
     lastLocalChangeAt: lastLocalChangeAtRef,
@@ -118,7 +120,62 @@ export const useEditorCanvasHandlers = ({
     (elements: readonly any[], appState: any, files?: Record<string, any>) => {
       if (!canEdit) return;
       if (isUnmountingRef.current) return;
-      if (isSyncingRef.current) return;
+      // NIL-685: `isSyncingRef` closes as soon as the remote-driven scene
+      // update this guard is waiting for is actually visible in THIS
+      // `onChange` call -- fact, not a frame-count guess. Consume the
+      // fingerprint (useEditorCollaboration.ts sets it right after a
+      // successful `scene.apply()`) the moment every element it names
+      // matches.
+      //
+      // "Matches" requires every id NAMED IN the fingerprint to actually be
+      // SEEN in `elements`, not just the absence of a mismatch among the ids
+      // that happen to appear (Hans-Friedrich finding on PR #249, Question,
+      // confirmed as a real bug: see this file's own test for the
+      // constructed case). The original loop only skipped ids absent from
+      // the fingerprint; an id absent from `elements` instead -- e.g. a
+      // fingerprinted element this same instant got removed from the array
+      // outright, not merely `isDeleted` -- was never visited at all, and
+      // `settled` defaulted to `true` with that entry never actually
+      // confirmed. That is the timing gap this guard exists to close, just
+      // reopened in the opposite direction: reporting "settled" before the
+      // state it names was ever observed, instead of never observing it.
+      // `matchedCount === expectedFingerprint.size` is the missing check.
+      //
+      // Consuming the fingerprint does NOT `return` here (Hans-Friedrich
+      // finding on PR #249, High/Medium, the same shape twice): the same
+      // `onChange` call can carry a genuine, concurrent local edit to a
+      // DIFFERENT element alongside the still-unsettled or just-settled
+      // remote one -- React can batch a user's own pointer-driven change
+      // into the same commit as the tail end of a remote apply, or an
+      // unrelated edit can land in the very call whose fingerprint hasn't
+      // matched yet. Returning unconditionally -- on `settled` being true
+      // OR on `isSyncingRef` still being true -- silently dropped that local
+      // edit; it never reached `broadcastChanges` below and no collaborator
+      // ever saw it. Falling through in both cases instead lets the normal
+      // path run: `hasElementChanged` (fed by `recordElementVersion`, which
+      // now records the as-applied element -- see useEditorCollaboration.ts)
+      // correctly reports the just-settled elements as unchanged and skips
+      // re-broadcasting them, while anything else that genuinely changed in
+      // this same `onChange` -- settled or not -- still goes out.
+      const expectedFingerprint = pendingSyncFingerprintRef.current;
+      if (expectedFingerprint) {
+        let settled = true;
+        let matchedCount = 0;
+        for (const el of elements) {
+          const id = el?.id;
+          if (typeof id !== "string" || !expectedFingerprint.has(id)) continue;
+          matchedCount += 1;
+          const actual = `${el?.version ?? 0}:${el?.versionNonce ?? 0}`;
+          if (expectedFingerprint.get(id) !== actual) {
+            settled = false;
+            break;
+          }
+        }
+        if (settled && matchedCount === expectedFingerprint.size) {
+          pendingSyncFingerprintRef.current = null;
+          isSyncingRef.current = false;
+        }
+      }
       // History preview is a read-only projection over the live canvas. Its
       // updateScene call still fires Excalidraw's onChange callback, so this
       // explicit gate must stay active for the whole preview session.
@@ -168,6 +225,7 @@ export const useEditorCanvasHandlers = ({
       initialSceneElementsRef,
       isBootstrappingSceneRef,
       isSyncingRef,
+      pendingSyncFingerprintRef,
       isHistoryPreviewingRef,
       isUnmountingRef,
       lastPersistedAppStateSigRef,
