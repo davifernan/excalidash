@@ -37,6 +37,18 @@ jobs:
             variant: full
           - label: dev-transform-rollback-2
             variant: rollback
+          - label: full-lock-3
+            variant: full
+          - label: dev-transform-rollback-3
+            variant: rollback
+          - label: full-lock-4
+            variant: full
+          - label: dev-transform-rollback-4
+            variant: rollback
+          - label: full-lock-5
+            variant: full
+          - label: dev-transform-rollback-5
+            variant: rollback
 
     steps:
       - name: Checkout the measured NIL-636 head
