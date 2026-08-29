@@ -9,7 +9,7 @@
   "scripts": {
     "prepare:excalidraw": "node scripts/expose-excalidraw-command-palette.mjs",
     "postinstall": "npm run prepare:excalidraw",
-    "predev": "npm run build --workspace @excalidash/domain && npm run prepare:excalidraw",
+    "predev": "npm run prepare:excalidraw",
     "dev": "node scripts/copy-excalidraw-assets.mjs --public && vite --port 6767",
     "pretypecheck": "npm run build --workspace @excalidash/domain && npm run prepare:excalidraw",
     "typecheck": "node ../scripts/notification-boundary.cjs && tsc -b",

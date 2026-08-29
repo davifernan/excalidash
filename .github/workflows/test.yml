@@ -467,10 +467,6 @@ jobs:
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-test.db
       
-      - name: Install frontend dependencies
-        run: |
-          npm ci
-      
       - name: Install E2E test dependencies
         run: |
           cd e2e
@@ -649,10 +645,6 @@ jobs:
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-cross.db
       
-      - name: Install frontend dependencies
-        run: |
-          npm ci
-      
       - name: Install E2E test dependencies
         run: |
           cd e2e
@@ -812,10 +804,6 @@ jobs:
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-two-account.db
 
-      - name: Install frontend dependencies
-        run: |
-          npm ci
-
       - name: Install E2E test dependencies
         run: |
           cd e2e
@@ -967,10 +955,6 @@ jobs:
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-permission-matrix.db
 
-      - name: Install frontend dependencies
-        run: |
-          npm ci
-
       - name: Install E2E test dependencies
         run: |
           cd e2e
@@ -1111,10 +1095,6 @@ jobs:
           node scripts/provider-prisma.cjs migrate deploy
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-presence-two-account.db
-
-      - name: Install frontend dependencies
-        run: |
-          npm ci
 
       - name: Install E2E test dependencies
         run: |

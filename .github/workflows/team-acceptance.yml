@@ -71,10 +71,6 @@ jobs:
         env:
           DATABASE_URL: file:${{ github.workspace }}/backend/prisma/e2e-team-acceptance.db
 
-      - name: Install frontend dependencies
-        run: |
-          npm ci
-
       - name: Install E2E test dependencies
         run: |
           cd e2e

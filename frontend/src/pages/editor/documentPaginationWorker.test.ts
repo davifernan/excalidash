@@ -65,9 +65,7 @@ describe("document pagination worker client", () => {
     vi.resetModules();
 
     await import("./documentPagination.worker");
-    workerScope.onmessage?.(
-      new MessageEvent("message", { data: { source: 42, kind: "TEXT" } }),
-    );
+    workerScope.onmessage?.(new MessageEvent("message", { data: { source: 42, kind: "TEXT" } }));
 
     expect(postMessage).toHaveBeenCalledWith({
       ok: false,
