@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../generated/client";
+import { DEFAULT_SYSTEM_CONFIG_ID } from "../auth/authMode";
 import { getDrawingMembership } from "./membership";
 import {
   canEditDrawing,
@@ -25,6 +26,109 @@ export type EffectiveDrawingCapabilities = {
   uploadFiles: boolean;
   viewComments: boolean;
 };
+
+/**
+ * The instance-wide ceiling, read straight from the singleton SystemConfig
+ * row. A board cannot raise what this returns -- see combineGuestCapabilities.
+ */
+export const getInstanceGuestCapabilities = async (
+  prisma: PrismaClient,
+  systemConfigId: string = DEFAULT_SYSTEM_CONFIG_ID,
+): Promise<EffectiveDrawingCapabilities> => {
+  const instancePolicy = await prisma.systemConfig.findUnique({
+    where: { id: systemConfigId },
+    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+  });
+  return {
+    uploadFiles:
+      instancePolicy?.guestUploadEnabled ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.uploadFiles,
+    viewComments:
+      instancePolicy?.guestCommentVisibilityEnabled ??
+      HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+  };
+};
+
+/** Admin-only write. Callers authorize before calling this. */
+export const setInstanceGuestCapabilities = async (
+  prisma: PrismaClient,
+  updates: Partial<EffectiveDrawingCapabilities>,
+  systemConfigId: string = DEFAULT_SYSTEM_CONFIG_ID,
+): Promise<EffectiveDrawingCapabilities> => {
+  const updated = await prisma.systemConfig.upsert({
+    where: { id: systemConfigId },
+    update: {
+      ...(updates.uploadFiles !== undefined ? { guestUploadEnabled: updates.uploadFiles } : {}),
+      ...(updates.viewComments !== undefined
+        ? { guestCommentVisibilityEnabled: updates.viewComments }
+        : {}),
+    },
+    create: {
+      id: systemConfigId,
+      guestUploadEnabled: updates.uploadFiles ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.uploadFiles,
+      guestCommentVisibilityEnabled:
+        updates.viewComments ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+    },
+  });
+  return {
+    uploadFiles: updated.guestUploadEnabled,
+    viewComments: updated.guestCommentVisibilityEnabled,
+  };
+};
+
+/** The board's own policy, before it is capped by the instance ceiling. */
+export const getBoardGuestCapabilityPolicy = async (
+  prisma: PrismaClient,
+  drawingId: string,
+): Promise<EffectiveDrawingCapabilities> => {
+  const drawingPolicy = await prisma.drawing.findUnique({
+    where: { id: drawingId },
+    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+  });
+  return {
+    uploadFiles:
+      drawingPolicy?.guestUploadEnabled ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.uploadFiles,
+    viewComments:
+      drawingPolicy?.guestCommentVisibilityEnabled ??
+      HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments,
+  };
+};
+
+/** Board-owner-only write. Callers authorize (controlsDrawing) before calling this. */
+export const setBoardGuestCapabilityPolicy = async (
+  prisma: PrismaClient,
+  drawingId: string,
+  updates: Partial<EffectiveDrawingCapabilities>,
+): Promise<EffectiveDrawingCapabilities> => {
+  const updated = await prisma.drawing.update({
+    where: { id: drawingId },
+    data: {
+      ...(updates.uploadFiles !== undefined ? { guestUploadEnabled: updates.uploadFiles } : {}),
+      ...(updates.viewComments !== undefined
+        ? { guestCommentVisibilityEnabled: updates.viewComments }
+        : {}),
+    },
+    select: { guestUploadEnabled: true, guestCommentVisibilityEnabled: true },
+  });
+  return {
+    uploadFiles: updated.guestUploadEnabled,
+    viewComments: updated.guestCommentVisibilityEnabled,
+  };
+};
+
+/**
+ * The one place that turns an instance ceiling and a board policy into what a
+ * guest actually gets: AND, per function. Routes and the settings UI both
+ * read this instead of each re-deriving the same two booleans -- the UI's
+ * "the board cannot raise the instance ceiling" copy would otherwise be a
+ * second, driftable copy of this rule.
+ */
+export const combineGuestCapabilities = (
+  instance: EffectiveDrawingCapabilities,
+  board: EffectiveDrawingCapabilities,
+): EffectiveDrawingCapabilities => ({
+  uploadFiles: instance.uploadFiles && board.uploadFiles,
+  viewComments: instance.viewComments && board.viewComments,
+});
 
 export type DrawingCapabilityDecision = {
   access: DrawingAccess;
@@ -82,40 +186,18 @@ export const getDrawingCapabilities = async (
     };
   }
 
-  const [drawingPolicy, instancePolicy] = await Promise.all([
-    params.prisma.drawing.findUnique({
-      where: { id: params.drawingId },
-      select: {
-        guestUploadEnabled: true,
-        guestCommentVisibilityEnabled: true,
-      },
-    }),
-    params.prisma.systemConfig.findUnique({
-      where: { id: "default" },
-      select: {
-        guestUploadEnabled: true,
-        guestCommentVisibilityEnabled: true,
-      },
-    }),
+  const [boardPolicy, instancePolicy] = await Promise.all([
+    getBoardGuestCapabilityPolicy(params.prisma, params.drawingId),
+    getInstanceGuestCapabilities(params.prisma),
   ]);
-
-  const instanceUpload =
-    instancePolicy?.guestUploadEnabled ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.uploadFiles;
-  const instanceComments =
-    instancePolicy?.guestCommentVisibilityEnabled ??
-    HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments;
-  const boardUpload =
-    drawingPolicy?.guestUploadEnabled ?? HISTORICAL_GUEST_CAPABILITY_DEFAULTS.uploadFiles;
-  const boardComments =
-    drawingPolicy?.guestCommentVisibilityEnabled ??
-    HISTORICAL_GUEST_CAPABILITY_DEFAULTS.viewComments;
+  const effective = combineGuestCapabilities(instancePolicy, boardPolicy);
 
   return {
     access,
     isGuest: true,
     capabilities: {
-      uploadFiles: canEditDrawing(access) && instanceUpload && boardUpload,
-      viewComments: instanceComments && boardComments,
+      uploadFiles: canEditDrawing(access) && effective.uploadFiles,
+      viewComments: effective.viewComments,
     },
   };
 };

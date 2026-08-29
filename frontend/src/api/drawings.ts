@@ -225,6 +225,42 @@ export const revokeLinkShare = async (
   return response.data;
 };
 
+/**
+ * NIL-633: the two guest capabilities NIL-615 enforces server-side --
+ * uploading files and seeing comments. `board` is this drawing's own opt-in;
+ * `instance` is the admin-set ceiling a board can never raise; `effective` is
+ * what a guest actually gets (`combineGuestCapabilities` on the server --
+ * this response mirrors it rather than recomputing the AND here).
+ */
+export type GuestCapabilities = {
+  uploadFiles: boolean;
+  viewComments: boolean;
+};
+
+export type GuestCapabilitySettings = {
+  board: GuestCapabilities;
+  instance: GuestCapabilities;
+  effective: GuestCapabilities;
+};
+
+export const getGuestCapabilities = async (drawingId: string): Promise<GuestCapabilitySettings> => {
+  const response = await api.get<GuestCapabilitySettings>(
+    `/drawings/${drawingId}/guest-capabilities`,
+  );
+  return response.data;
+};
+
+export const updateGuestCapabilities = async (
+  drawingId: string,
+  updates: Partial<GuestCapabilities>,
+): Promise<GuestCapabilitySettings> => {
+  const response = await api.put<GuestCapabilitySettings>(
+    `/drawings/${drawingId}/guest-capabilities`,
+    updates,
+  );
+  return response.data;
+};
+
 export const createDrawing = async (name?: string, collectionId?: string | null) => {
   const response = await api.post<{ id: string }>("/drawings", {
     name: name || "Untitled Drawing",
