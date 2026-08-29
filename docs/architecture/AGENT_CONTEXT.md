@@ -1,6 +1,6 @@
 # Agent Context: Verträge und Freigabe-Gates
 
-Status: verbindliche Planungsgrundlage für 0.15, noch keine Produktfunktion.  
+Status: verbindliche Vertragsgrundlage für 0.15; Board-Mount-Grundlage in NIL-671.
 Quelle: Planungsrunde 28./29.08.2026, NIL-669 und NIL-670. Stand: `main` bei
 `8761b253`.
 
@@ -172,9 +172,13 @@ Ereignisse und der externe Runtime-Adapter bleiben der Endzustand.
 
 ### NIL-671: Wie lebt die autoritative Context-Zuordnung?
 
-Die Paketzuordnung ist geklärt: NIL-671 besitzt `contextId → frameElementId`. Offen bleiben das
-kanonische serverseitige Modell, Persistenz und Lebenszyklus. NIL-675 darf diese Zuordnung später
-benutzen, aber keine zweite Wahrheit im Widget schaffen.
+`AgentContext` ist die kanonische serverseitige Persistenz für
+`contextId → {drawingId, frameElementId, pinned}`. `registerAgentContext()` ist die einzige
+Schreibnaht für die Identitäts- und Überlappungsinvarianten; NIL-675 darf sie aus einer
+autorisierten Route aufrufen, aber keine zweite Wahrheit im Widget schaffen. Ein
+`AgentBoardRevision` friert Zuordnung und Szene gemeinsam ein, ein `AgentRunMount` bindet sie an
+Run, erlaubte Contexts und Lesefähigkeiten. Der ausführbare Vertrag steht in
+[`AGENT_BOARD_MOUNT.md`](AGENT_BOARD_MOUNT.md).
 
 ### NIL-676: Wie wird die Semantic Closure kanonisiert?
 

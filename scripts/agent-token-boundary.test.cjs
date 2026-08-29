@@ -144,12 +144,12 @@ const accepted = [
 ];
 
 const assertKnownRouteRemovalCaught = () => {
-  const label = "the recognizer forgets a route that is still registered (removing a recognized line)";
+  const label = "the policy forgets a route that is still registered (removing a policy entry)";
   withMutatedFile(
     AUTH_MIDDLEWARE_FILE,
     (source) =>
       source.replace(
-        'if (action === "ops" && method === "POST") return { drawingId, scope: DRAWING_OPS_SCOPE };\n',
+        '  { method: "POST", path: "ops", scope: DRAWING_OPS_SCOPE },\n',
         "",
       ),
     () => {
@@ -169,14 +169,14 @@ const assertKnownRouteRemovalCaught = () => {
 };
 
 const assertStaleRecognizedCaught = () => {
-  const label = "the recognizer keeps a route nothing registers anymore (stale entry)";
+  const label = "the policy keeps a route nothing registers anymore (stale entry)";
   withMutatedFile(
     AUTH_MIDDLEWARE_FILE,
     (source) =>
       source.replace(
-        'if (action === "ops" && method === "POST") return { drawingId, scope: DRAWING_OPS_SCOPE };',
-        'if (action === "ops" && method === "POST") return { drawingId, scope: DRAWING_OPS_SCOPE };\n' +
-          '  if (action === "long-since-removed" && method === "DELETE") return { drawingId, scope: DRAWING_OPS_SCOPE };',
+        '  { method: "POST", path: "ops", scope: DRAWING_OPS_SCOPE },',
+        '  { method: "POST", path: "ops", scope: DRAWING_OPS_SCOPE },\n' +
+          '  { method: "DELETE", path: "long-since-removed", scope: DRAWING_OPS_SCOPE },',
       ),
     () => {
       const result = run();

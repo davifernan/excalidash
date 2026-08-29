@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import type { PrismaClient } from "../generated/client";
 import { getTestPrisma, setupTestDb, cleanupTestDb, createTestUser } from "../__tests__/testUtils";
+import { materializeAgentBoardRevision } from "../agent/boardMount";
 import { storedSize, originalKey, resolveStoragePath } from "./assetStorage";
 import {
   QuotaExceededError,
@@ -310,6 +311,41 @@ describe("document bookkeeping", () => {
       expect(result.blobs).toBe(1);
       expect(await storedSize(storageDir, key)).toBeNull();
       expect(await prisma.asset.findUnique({ where: { id: asset.id } })).toBeNull();
+    });
+
+    it("REAL BUG: reclaims an asset a mounted Agent Board Revision once captured (NIL-671 review)", async () => {
+      const { asset, blob } = await upload("captured-by-a-revision");
+      await syncDrawingAssets(prisma, drawingId, [asset.id]);
+      const revision = await materializeAgentBoardRevision(prisma, drawingId);
+      const capturedRow = await prisma.agentBoardRevisionAsset.findUniqueOrThrow({
+        where: { revisionId_assetId: { revisionId: revision.id, assetId: asset.id } },
+      });
+      expect(capturedRow.contentHash).toBe(blob.sha256);
+
+      // The widget is removed from the current board; the revision that once
+      // mounted it is never deleted (NIL-671 has no revision lifecycle yet).
+      await syncDrawingAssets(prisma, drawingId, []);
+      const later = Date.now() + 25 * 60 * 60 * 1000;
+      await sweepUnclaimed(deps({ now: () => later }));
+
+      // Before this fix, AgentBoardRevisionAsset.asset had onDelete: Restrict,
+      // so this threw a foreign key constraint violation instead of
+      // collecting anything -- the ordinary cleanup job could never again
+      // delete any asset any revision had ever touched.
+      const result = await collectExpired(deps({ now: () => later + 25 * 60 * 60 * 1000 }));
+      expect(result.assets).toBe(1);
+      expect(result.blobs).toBe(1);
+      expect(await prisma.asset.findUnique({ where: { id: asset.id } })).toBeNull();
+      expect(await storedSize(storageDir, originalKey(blob.id))).toBeNull();
+
+      // The revision's own record of "this revision included this asset"
+      // survives the asset's deletion -- assetId is a historical pointer, and
+      // the metadata was already copied at capture time.
+      const survivingRow = await prisma.agentBoardRevisionAsset.findUniqueOrThrow({
+        where: { revisionId_assetId: { revisionId: revision.id, assetId: asset.id } },
+      });
+      expect(survivingRow.originalName).toBe(capturedRow.originalName);
+      expect(survivingRow.contentHash).toBe(capturedRow.contentHash);
     });
 
     it("keeps the bytes while another document still shares them", async () => {

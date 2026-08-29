@@ -27,6 +27,10 @@ import {
   validateManifestReferences,
   verifyEntrySha256,
 } from "./excalidashImportSupport";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../../agent/boardContexts";
 import { claimOnBoard, claimOnCollection } from "../../authz/boards";
 import { rewritePreviewFileReferences } from "../../fileProcessing";
 
@@ -343,6 +347,7 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
               drawingsCreated += 1;
               if (boardClaim === "foreign") drawingIdConflicts += 1;
             } else {
+              await assertPersistedAgentContextFrames(tx, prepared.id, prepared.sanitized.elements);
               await tx.drawing.update({ where: { id: prepared.id }, data });
               await tx.drawingAsset.deleteMany({ where: { drawingId: prepared.id } });
               drawingsUpdated += 1;
@@ -465,6 +470,13 @@ export const registerExcalidashImportRoutes = (deps: RegisterImportExportDeps) =
         deps.invalidateDrawingsCache();
         return res.json({ success: true, message: "Backup imported successfully", ...result });
       } catch (error) {
+        if (error instanceof AgentContextValidationError) {
+          return res.status(409).json({
+            error: "Invalid Context map",
+            code: error.code,
+            message: error.message,
+          });
+        }
         if (error instanceof ImportValidationError) {
           return res.status(error.status).json({ error: "Invalid backup", message: error.message });
         }

@@ -70,15 +70,26 @@ describe("agent API key authorization (NIL-382)", () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it("reaches its own board's summary and elements routes with drawing:read only", async () => {
-    for (const action of ["summary", "elements"]) {
-      const { req, next } = await runAgentTokenRequest(
-        { method: "GET", originalUrl: `/drawings/drawing-A/agent/${action}` },
-        { scopes: ["drawing:read"] },
-      );
-      expect(req.user?.authCredentialType).toBe("apiKey");
-      expect(next).toHaveBeenCalledOnce();
-    }
+  it("reaches a mounted tool route with drawing:read only", async () => {
+    const { req, next } = await runAgentTokenRequest(
+      {
+        method: "POST",
+        originalUrl: "/drawings/drawing-A/agent/mounts/run-1/tools/overview",
+      },
+      { scopes: ["drawing:read"] },
+    );
+    expect(req.user?.authCredentialType).toBe("apiKey");
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("does not let an agent token choose its own allowedContextIds by issuing a mount", async () => {
+    const { req, res, next } = await runAgentTokenRequest(
+      { method: "POST", originalUrl: "/drawings/drawing-A/agent/mounts" },
+      { scopes: ["drawing:read"] },
+    );
+    expect(req.user).toBeUndefined();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("is refused on the ops route without drawing:ops (read-only token)", async () => {
@@ -154,7 +165,8 @@ describe("agent API key authorization (NIL-382)", () => {
     for (const request of [
       { method: "GET", originalUrl: "/drawings/drawing-A/agent" },
       { method: "GET", originalUrl: "/drawings/drawing-A/agent/ops" }, // ops is POST-only
-      { method: "POST", originalUrl: "/drawings/drawing-A/agent/summary" }, // summary is GET-only
+      { method: "GET", originalUrl: "/drawings/drawing-A/agent/mounts" },
+      { method: "GET", originalUrl: "/drawings/drawing-A/agent/mounts/run-1/tools/overview" },
       { method: "GET", originalUrl: "/drawings/drawing-A/agent/ops/extra" },
       { method: "GET", originalUrl: "/drawings/drawing-A/agent/unknown-action" },
     ]) {
