@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -27,6 +29,13 @@ test("motion evidence uses bounded GIF settings and a durable evidence URL", () 
     evidenceUrl("NIL-650", "connected-child-latency.gif"),
     "https://github.com/davifernan/excalidash/blob/evidence/motion/NIL-650/connected-child-latency.gif?raw=true",
   );
+});
+
+test("motion evidence video is confined to its own Playwright project", () => {
+  const config = fs.readFileSync(path.join(__dirname, "..", "e2e", "playwright.config.ts"), "utf8");
+  assert.match(config, /video: "retain-on-failure",\n\n    headless/);
+  assert.match(config, /name: "motion-evidence"[\s\S]*video: MOTION_EVIDENCE \? "on" : "retain-on-failure"/);
+  assert.match(config, /testMatch: MOTION_EVIDENCE \? MOTION_EVIDENCE_SPECS : \[\]/);
 });
 
 test("publication names cannot overwrite or escape the evidence tree", () => {

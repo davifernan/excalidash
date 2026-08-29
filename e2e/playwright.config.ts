@@ -14,6 +14,7 @@ const BACKEND_URL = process.env.API_URL || `http://localhost:${BACKEND_PORT}`;
 // still satisfying the test. Normal CI keeps retain-on-failure so every suite
 // run does not retain a large collection of successful recordings.
 const MOTION_EVIDENCE = process.env.PLAYWRIGHT_MOTION_EVIDENCE === "true";
+const MOTION_EVIDENCE_SPECS = ["**/sticky-connect.spec.ts"];
 
 /**
  * Specs that run on every engine.
@@ -184,7 +185,7 @@ export default defineConfig({
 
     screenshot: "only-on-failure",
 
-    video: MOTION_EVIDENCE ? "on" : "retain-on-failure",
+    video: "retain-on-failure",
 
     headless: process.env.HEADED !== "true",
   },
@@ -197,6 +198,18 @@ export default defineConfig({
    * readable here rather than scattered through tags in the specs.
    */
   projects: [
+    // Successful video is mechanically confined to this project. Setting the
+    // environment variable on any ordinary project still retains video only
+    // on failure, so a direct Playwright invocation cannot record the suite.
+    {
+      name: "motion-evidence",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+        video: MOTION_EVIDENCE ? "on" : "retain-on-failure",
+      },
+      testMatch: MOTION_EVIDENCE ? MOTION_EVIDENCE_SPECS : [],
+    },
     {
       name: "chromium",
       use: {

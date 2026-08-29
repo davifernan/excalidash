@@ -134,7 +134,7 @@ ss -tlnp | grep :6650
 cd e2e
 FRONTEND_PORT=6650 PORT=8650 PLAYWRIGHT_OUTPUT_DIR=motion-results \
   PLAYWRIGHT_MOTION_EVIDENCE=true npx playwright test \
-  --project=chromium tests/sticky-connect.spec.ts -g 'creates a connected child right away'
+  --project=motion-evidence tests/sticky-connect.spec.ts -g 'creates a connected child right away'
 MOTION_VIDEO=$(find motion-results -path '*chromium*/video.webm' -print -quit)
 cd ..
 node scripts/motion-evidence.cjs publish \
