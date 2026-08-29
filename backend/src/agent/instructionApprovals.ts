@@ -100,7 +100,7 @@ export const compileInstructionClosureFromRevision = (params: {
   }
   const { byId, resolve } = contextIndex(elements, contexts);
   const instruction = byId.get(params.elementId);
-  if (!instruction || (instruction.type !== "text" && instruction.type !== "freedraw")) {
+  if (!instruction || instruction.type !== "text") {
     throw new InstructionApprovalError(
       "INSTRUCTION_NOT_TEXT",
       "Only an authored text element may become an Agent instruction.",

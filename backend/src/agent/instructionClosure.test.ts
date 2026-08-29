@@ -141,6 +141,18 @@ describe("Instruction Semantic Closure", () => {
     expect(withUntypedArrow.closureHash).toBe(approved.closureHash);
   });
 
+  it.each(["depends_on", "group"] as const)("binds a %s relation", (kind) => {
+    const relations: InstructionSemanticRelation[] = [
+      { fromElementId: "instruction", toElementId: "plan", kind },
+    ];
+    const approved = closure(scene(), relations);
+    const changed = closure(
+      scene({ plan: { originalText: "Changed dependency", text: "Changed dependency" } }),
+      relations,
+    );
+    expect(changed.closureHash).not.toBe(approved.closureHash);
+  });
+
   it("binds every member of an explicitly referenced whole frame", () => {
     const relations: InstructionSemanticRelation[] = [
       { fromElementId: "instruction", toElementId: "frame", kind: "whole_frame" },
@@ -183,6 +195,23 @@ describe("Instruction Semantic Closure", () => {
               : null,
       }),
     ).toThrow(/may not expand/);
+  });
+
+  it("refuses a freedraw element as an instruction even when it is inside the Context", () => {
+    const revision = {
+      elements: JSON.stringify(
+        scene({ instruction: { type: "freedraw", originalText: undefined, text: undefined } }),
+      ),
+      contextMap: JSON.stringify([{ id: "context-a", frameElementId: "frame", pinned: false }]),
+      semanticRelations: "[]",
+    };
+    expect(() =>
+      compileInstructionClosureFromRevision({
+        revision,
+        contextId: "context-a",
+        elementId: "instruction",
+      }),
+    ).toThrow(/Only an authored text element may become an Agent instruction\./);
   });
 
   it("refuses dispatch status after the approved instruction was changed in the pinned revision", async () => {
