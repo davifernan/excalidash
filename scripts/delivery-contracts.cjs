@@ -679,6 +679,7 @@ function readStdin() {
 }
 
 module.exports = {
+  REQUIRED_GIT_IDENTITY,
   admitCommitContracts,
   checkCommitContracts,
   checkFixVerificationCoverage,

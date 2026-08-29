@@ -25,6 +25,50 @@ const settle = async (page: Page) => {
   await page.waitForTimeout(400);
 };
 
+/**
+ * Polls `read()` until it returns the same value for `stableReads` polls in a
+ * row, instead of a single fixed sleep (NIL-690). A fixed sleep only proves
+ * "nothing changed across exactly this one gap" -- a same-content echo that
+ * lands a beat after the gap ends is invisible to it, which is exactly how
+ * the late version/versionNonce/updated bump this guards against first
+ * surfaced. Polling for confirmed stability catches a SINGLE late echo
+ * followed by calm, because the final poll is compared against a baseline
+ * captured before polling started, not merely "did it stabilize to
+ * something" -- verified directly against a scripted read sequence, not
+ * assumed (see this package's PR body). It does NOT catch a bookkeeping
+ * round-trip that returns to the original value before the last poll
+ * (`350 -> 351 -> 350`); a fixed sleep does not catch that either -- both
+ * designs compare two point-in-time snapshots and share that blind spot.
+ */
+const waitForStable = async <T>(
+  read: () => Promise<T>,
+  options: { stableReads?: number; pollMs?: number; timeoutMs?: number } = {},
+): Promise<T> => {
+  const { stableReads = 5, pollMs = 200, timeoutMs = 8000 } = options;
+  const deadline = Date.now() + timeoutMs;
+  let lastValue = await read();
+  let lastSerialized = JSON.stringify(lastValue);
+  let stableCount = 1;
+  while (stableCount < stableReads) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Value did not stay stable for ${stableReads} consecutive reads within ${timeoutMs}ms (last=${lastSerialized})`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    const value = await read();
+    const serialized = JSON.stringify(value);
+    if (serialized === lastSerialized) {
+      stableCount += 1;
+    } else {
+      stableCount = 1;
+      lastSerialized = serialized;
+      lastValue = value;
+    }
+  }
+  return lastValue;
+};
+
 const textAt = (length: number) =>
   Array.from({ length }, (_, index) => (index % 6 === 5 ? " " : "x")).join("");
 
@@ -297,9 +341,13 @@ test.describe("sticky note font scaling (NIL-630)", () => {
         });
       const settledA = await revisions(pageA);
       const settledB = await revisions(pageB);
-      await pageA.waitForTimeout(1500);
-      expect(await revisions(pageA)).toEqual(settledA);
-      expect(await revisions(pageB)).toEqual(settledB);
+      // A single fixed sleep only proves nothing changed across exactly that
+      // one gap; polling for confirmed stability catches a same-content echo
+      // landing at any point after, not just inside one arbitrary window
+      // (NIL-690) -- and each side is checked against its OWN prior reading,
+      // so a drift is caught even if both sides drifted to the same value.
+      expect(await waitForStable(() => revisions(pageA))).toEqual(settledA);
+      expect(await waitForStable(() => revisions(pageB))).toEqual(settledB);
     } finally {
       await contextB.close();
     }
@@ -331,6 +379,18 @@ test.describe("sticky note font scaling (NIL-630)", () => {
           const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
           const label = elements.find((element: any) => element.containerId === note?.id);
           return [note?.x, note?.y, note?.width, note?.height, label?.fontSize] as const;
+        });
+      // NIL-689: the note's own `boundElements` reference to its label, as the
+      // spectator sees it -- not just the label's `containerId` used above.
+      // `deriveStickyFontState` reads the note side of that link
+      // (`note.boundElements?.find(el => el.type === "text")`); a spectator
+      // that never sees the note's own boundElements update never fits the
+      // font locally, regardless of whether the label content itself arrived.
+      const noteBoundLabelId = () =>
+        spectator.evaluate(() => {
+          const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+          const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+          return note?.boundElements?.find((bound: any) => bound?.type === "text")?.id ?? null;
         });
 
       await writer
@@ -370,6 +430,16 @@ test.describe("sticky note font scaling (NIL-630)", () => {
         before,
       );
       const after = await snapshot();
+      // NIL-689 regression: the spectator's own note element must carry a
+      // `boundElements` reference to the label it is currently displaying --
+      // not just the label existing with the right text via `containerId`.
+      const spectatorLabelId = await spectator.evaluate(() => {
+        const elements = (window as any).__EXCALIDASH_TEST__.getSceneElements();
+        const note = elements.find((element: any) => element.customData?.excalidash?.sticky);
+        return elements.find((element: any) => element.containerId === note?.id)?.id ?? null;
+      });
+      expect(spectatorLabelId).not.toBeNull();
+      expect(await noteBoundLabelId()).toBe(spectatorLabelId);
       const states = samples.filter(
         (sample, index) =>
           index === 0 || sample.some((value, field) => value !== samples[index - 1][field]),

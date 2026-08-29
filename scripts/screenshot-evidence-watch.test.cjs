@@ -96,14 +96,22 @@ test("does not fail a draft that still has time to attach its evidence", () => {
   });
 });
 
-test("accepts only durable raw image links from the permanent evidence branch", () => {
-  const url = "https://raw.githubusercontent.com/davifernan/excalidash/evidence/nil-621/light.png";
+test("accepts only renderable blob image links from the permanent evidence branch", () => {
+  const url = "https://github.com/davifernan/excalidash/blob/evidence/nil-621/light.png?raw=true";
   assert.deepEqual(
     classifyScreenshotEvidence({
       issue: issue(),
       pr: pr(),
       comments: [{ body: `![light](${url})` }],
     }),
+    { result: "satisfied", supportedUrls: [url] },
+  );
+});
+
+test("accepts an animated GIF from the permanent evidence branch", () => {
+  const url = "https://github.com/davifernan/excalidash/blob/evidence/motion/NIL-621/latency.gif?raw=true";
+  assert.deepEqual(
+    classifyScreenshotEvidence({ issue: issue(), pr: pr(), comments: [{ body: `![motion](${url})` }] }),
     { result: "satisfied", supportedUrls: [url] },
   );
 });
@@ -140,7 +148,7 @@ const adapterFor = ({ issueValue = issue(), comments = [] } = {}) => {
 };
 
 test("verified evidence turns green and adds the PR label", async () => {
-  const url = "https://raw.githubusercontent.com/davifernan/excalidash/evidence/nil-621/light.png";
+  const url = "https://github.com/davifernan/excalidash/blob/evidence/nil-621/light.png?raw=true";
   const adapter = adapterFor({ comments: [{ body: `![light](${url})` }] });
   const result = await inspectPr({
     adapter,
@@ -153,7 +161,7 @@ test("verified evidence turns green and adds the PR label", async () => {
 });
 
 test("an unreachable evidence host is reported without turning red", async () => {
-  const url = "https://raw.githubusercontent.com/davifernan/excalidash/evidence/nil-621/light.png";
+  const url = "https://github.com/davifernan/excalidash/blob/evidence/nil-621/light.png?raw=true";
   const adapter = adapterFor({ comments: [{ body: `![light](${url})` }] });
   const result = await inspectPr({
     adapter,
@@ -169,7 +177,7 @@ test("an unreachable evidence host is reported without turning red", async () =>
 });
 
 test("a reachable non-image evidence URL is a confident failure", async () => {
-  const url = "https://raw.githubusercontent.com/davifernan/excalidash/evidence/nil-621/light.png";
+  const url = "https://github.com/davifernan/excalidash/blob/evidence/nil-621/light.png?raw=true";
   const adapter = adapterFor({ comments: [{ body: `![light](${url})` }] });
   const result = await inspectPr({
     adapter,
@@ -183,7 +191,7 @@ test("a reachable non-image evidence URL is a confident failure", async () => {
 });
 
 test("an upstream server error is uncertain and therefore never red", async () => {
-  const url = "https://raw.githubusercontent.com/davifernan/excalidash/evidence/nil-621/light.png";
+  const url = "https://github.com/davifernan/excalidash/blob/evidence/nil-621/light.png?raw=true";
   const adapter = adapterFor({ comments: [{ body: `![light](${url})` }] });
   const result = await inspectPr({
     adapter,

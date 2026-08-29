@@ -105,6 +105,7 @@
 import React from "react";
 import {
   ArrowLeft,
+  Bot,
   Download,
   FileInput,
   GitBranch,
@@ -180,6 +181,8 @@ export type ChromeSlotContext = {
   onHistoryOpen: () => void;
   onSetLangCode: (langCode: string) => void;
   onToggleComments: () => void;
+  isAgentRuntimeOpen: boolean;
+  onToggleAgentRuntime: () => void;
 };
 
 type SlotEntry = {
@@ -356,6 +359,22 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
       ctx.canViewComments && ctx.accessLevel !== "none" && ctx.id ? (
         <MainMenu.Item onSelect={ctx.onToggleComments} icon={<MessageSquare size={16} />}>
           <CommentsMenuEntry ctx={ctx} />
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "agent-runtime",
+    order: 145,
+    // Runtime actions are board content work, not collaboration chrome. The
+    // panel itself is an overlay; this menu entry is its mobile-safe route.
+    render: (ctx) =>
+      ctx.canEdit && ctx.id ? (
+        <MainMenu.Item
+          onSelect={ctx.onToggleAgentRuntime}
+          icon={<Bot size={16} />}
+          data-testid="menu-agent-runtime"
+        >
+          {ctx.isAgentRuntimeOpen ? "Hide agents" : "Agents"}
         </MainMenu.Item>
       ) : null,
   },

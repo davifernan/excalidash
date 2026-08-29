@@ -16,13 +16,11 @@
  *      correctly today and drift the day someone edits it without noticing
  *      its twin.
  *
- *   2. Every route registered under `/drawings/:id/agent/...` is one
- *      middleware/auth.ts#getAgentRouteDrawingId already recognizes. A route
- *      living at that path but unknown to the recognizer is unreachable by
- *      an agent token today -- which sounds safe until the next person
- *      "fixes" that by authenticating it a different way, or until the
- *      route is meant to be agent-reachable and nobody notices it silently
- *      is not.
+ *   2. Every route registered under `/drawings/:id/agent/...` is named in
+ *      middleware/auth.ts#AGENT_ROUTE_POLICIES and that same table drives
+ *      getAgentRouteDrawingId. A policy may explicitly be controller-only;
+ *      an absent policy is accidental unreachability, which sounds safe
+ *      until the next person "fixes" it through a second auth path.
  *
  * Rule 2 is derived from the routes actually registered, not a hand-
  * maintained list of "the three agent routes" -- the same shape as
@@ -160,15 +158,21 @@ const findKeyIdLookups = (source) => {
 };
 
 /**
- * Parse getAgentRouteDrawingId's recognized (method, action) pairs out of
- * middleware/auth.ts. Each recognized line has the shape
- * `action === "NAME" && (isReadMethod(method) | method === "METHOD")`.
- * Missing the function entirely is an error, not an empty result -- a typo'd
- * rename must not silently read as "recognizes nothing", which would make
- * every registered agent route look unrecognized instead of naming the real
- * break.
+ * Parse the closed (method, complete suffix) policy inventory from
+ * middleware/auth.ts. The runtime resolver must consume the same table, so
+ * this is not a second hand-maintained allowlist. A null scope deliberately
+ * records a controller-only route; any registered route absent from the
+ * table is accidental unreachability.
  */
 const parseRecognizedAgentRoutes = (source) => {
+  const tableStart = source.indexOf("const AGENT_ROUTE_POLICIES");
+  if (tableStart === -1) {
+    throw new Error(`${AUTH_MIDDLEWARE_FILE}: AGENT_ROUTE_POLICIES not found`);
+  }
+  const tableEnd = source.indexOf("];", tableStart);
+  if (tableEnd === -1) {
+    throw new Error(`${AUTH_MIDDLEWARE_FILE}: AGENT_ROUTE_POLICIES is not a closed array`);
+  }
   const fnMatch = /const\s+getAgentRouteDrawingId\s*=\s*\(/.exec(source);
   if (!fnMatch) {
     throw new Error(`${AUTH_MIDDLEWARE_FILE}: getAgentRouteDrawingId not found -- was it renamed?`);
@@ -185,25 +189,32 @@ const parseRecognizedAgentRoutes = (source) => {
   const braceOpen = source.indexOf("{", arrowIndex);
   const block = readBlock(source, braceOpen);
   if (!block) throw new Error(`${AUTH_MIDDLEWARE_FILE}: could not read getAgentRouteDrawingId's body`);
+  if (!block.body.includes("AGENT_ROUTE_POLICIES.find")) {
+    throw new Error(
+      `${AUTH_MIDDLEWARE_FILE}: getAgentRouteDrawingId does not consume AGENT_ROUTE_POLICIES`,
+    );
+  }
 
   const recognized = new Set();
-  const lineRe =
-    /action\s*===\s*"([\w-]+)"[^;\n]*?(?:isReadMethod\(method\)|method\s*===\s*"([A-Z]+)")/g;
+  const table = source.slice(tableStart, tableEnd);
+  const entryRe =
+    /\{\s*method:\s*"([A-Z]+)"\s*,\s*path:\s*"([^"]+)"\s*,\s*scope:\s*(?:null|[A-Z_]+)\s*\}/g;
   let match;
-  while ((match = lineRe.exec(block.body)) !== null) {
-    const action = match[1];
-    if (match[2]) {
-      recognized.add(`${match[2]}:${action}`);
-    } else {
-      recognized.add(`GET:${action}`);
-      recognized.add(`HEAD:${action}`);
+  while ((match = entryRe.exec(table)) !== null) {
+    const key = `${match[1]}:${match[2]}`;
+    if (recognized.has(key)) {
+      throw new Error(`${AUTH_MIDDLEWARE_FILE}: duplicate agent route policy ${key}`);
     }
+    recognized.add(key);
+  }
+  if (recognized.size === 0) {
+    throw new Error(`${AUTH_MIDDLEWARE_FILE}: AGENT_ROUTE_POLICIES contains no readable entries`);
   }
   return recognized;
 };
 
 /**
- * Every `app.<method>("/drawings/:id/agent/<action>", ...)` (or any drawing
+ * Every `app.<method>("/drawings/:id/agent/<suffix>", ...)` (or any drawing
  * id param name -- `:id` is not the only one used in this codebase) actually
  * registered anywhere under backend/src/routes. Not scoped to
  * drawingAgentRoutes.ts on purpose: the whole point is to catch an agent
@@ -212,18 +223,18 @@ const parseRecognizedAgentRoutes = (source) => {
  */
 const findRegisteredAgentRoutes = (source, hitFile, registry) => {
   const routeRe =
-    /\bapp\s*\.\s*(get|post|put|delete|patch)\s*\(\s*["'`]\/drawings\/:\w+\/agent\/([\w-]*)["'`]/g;
+    /\bapp\s*\.\s*(get|post|put|delete|patch)\s*\(\s*["'`]\/drawings\/:\w+\/agent\/([^"'`]+)["'`]/g;
   let match;
   while ((match = routeRe.exec(source)) !== null) {
     const method = match[1].toUpperCase();
-    const action = match[2];
+    const suffix = match[2];
     // Express answers HEAD for any GET route unless a separate HEAD handler
     // exists (none do here), so an `app.get(...)` registration covers both --
     // recognizing HEAD without a route registering it as such is not stale,
     // it is Express's own routing behavior.
     const methods = method === "GET" ? ["GET", "HEAD"] : [method];
     for (const m of methods) {
-      const key = `${m}:${action}`;
+      const key = `${m}:${suffix}`;
       if (!registry.has(key)) registry.set(key, []);
       registry.get(key).push(hitFile);
     }
@@ -277,10 +288,12 @@ const main = () => {
   const unrecognizedRoutes = [];
   for (const [key, hitFiles] of registered) {
     if (!recognized.has(key)) {
-      const [method, action] = key.split(":");
+      const separator = key.indexOf(":");
+      const method = key.slice(0, separator);
+      const suffix = key.slice(separator + 1);
       unrecognizedRoutes.push(
-        `${hitFiles[0]}: registers ${method} .../agent/${action} but ` +
-          `${AUTH_MIDDLEWARE_FILE}'s getAgentRouteDrawingId does not recognize it -- ` +
+        `${hitFiles[0]}: registers ${method} .../agent/${suffix} but ` +
+          `${AUTH_MIDDLEWARE_FILE}'s AGENT_ROUTE_POLICIES does not recognize it -- ` +
           "an agent token can never reach this route today, which is only safe by accident.",
       );
     }
@@ -306,9 +319,11 @@ const main = () => {
     console.error(`STALE      ${entry}: listed as a keyId-lookup exception but no longer needs one.`);
   }
   for (const key of staleRecognized) {
-    const [method, action] = key.split(":");
+    const separator = key.indexOf(":");
+    const method = key.slice(0, separator);
+    const suffix = key.slice(separator + 1);
     console.error(
-      `STALE      ${AUTH_MIDDLEWARE_FILE}: recognizes ${method} .../agent/${action} but no route registers it.`,
+      `STALE      ${AUTH_MIDDLEWARE_FILE}: recognizes ${method} .../agent/${suffix} but no route registers it.`,
     );
   }
   process.exit(1);

@@ -86,7 +86,20 @@ type InFlightPage = {
   waiters: number;
 };
 
-/** Renders in flight, so concurrent readers of the same page share one. */
+/**
+ * Renders in flight, so concurrent readers of the same page share one.
+ *
+ * Deliberately NOT built on backend/src/utils/inFlightCoalescer.ts, despite
+ * matching that helper's per-key `Map` shape: this carries two things the
+ * shared helper does not support -- per-caller `AbortSignal` cancellation
+ * and waiter refcounting (`waiters`), so the render is only actually
+ * aborted once the *last* waiter for a page has gone, not the first. Hans
+ * cited this file as a comparison site when reviewing the coalescing
+ * pattern on #250, which is exactly why this needs saying explicitly: it
+ * looks like a sixth candidate for the shared helper and isn't one (see
+ * NIL-693) -- folding it in would either drop that cancellation semantics
+ * or force it onto the five simpler call sites that don't need it.
+ */
 const inFlight = new Map<string, InFlightPage>();
 const globalRenderQueue = new BoundedTaskQueue();
 

@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import type { PrismaClient } from "../generated/client";
+import type { BoardAgentRunAudience } from "../agent/presence";
 import type { AuthModeService } from "../auth/authMode";
 import { logger } from "../logger";
 import {
@@ -27,6 +28,9 @@ import { createSocketCredentialGuard } from "./socketCredentials";
 import {
   derivePresenceColor,
   deriveGuestName,
+  emitBoardAgentPresenceSnapshotToSocket,
+  emitBoardAgentPresenceSnapshots,
+  BOARD_AGENT_PRESENCE_STALE_MS,
   toPresenceColor,
   toPresenceInitials,
   toPresenceName,
@@ -569,12 +573,19 @@ export const registerSocketHandlers = ({
           isActive: true,
           selectedElementIds: {},
           allSelected: false,
+          receivesAgentEvents: !principal?.apiKey,
         };
         drawingBySocket.set(socket.id, drawingId);
         if (shareToken) shareTokenBySocket.set(socket.id, shareToken);
         else shareTokenBySocket.delete(socket.id);
         presences.join(drawingId, presence);
         emitPresence(drawingId);
+        emitBoardAgentPresenceSnapshotToSocket({
+          io,
+          presences,
+          drawingId,
+          presenceId: socket.id,
+        });
         socket.emit(SELECTION_SNAPSHOT_EVENT, presences.selectionSnapshot(drawingId));
         socket.emit("workshop-timer-update", workshopTimers.snapshot(drawingId));
         socket.emit(PRESENTER_STATE_EVENT, presenters.snapshot(drawingId));
@@ -693,7 +704,18 @@ export const registerSocketHandlers = ({
   registerUserSocketRechecker(controller.recheckUserAccess);
   // Expiring link shares have no route invocation at expiry time. A periodic
   // server-side sweep bounds passive clients' access even if they send nothing.
-  startNonOverlappingSocketAccessSweep(() => recheckSockets(() => true), accessRecheckIntervalMs);
+  startNonOverlappingSocketAccessSweep(async () => {
+    await recheckSockets(() => true);
+    const staleByDrawing = new Map<string, BoardAgentRunAudience[]>();
+    for (const stale of presences.pruneStaleAgents(Date.now() - BOARD_AGENT_PRESENCE_STALE_MS)) {
+      const audiences = staleByDrawing.get(stale.drawingId) ?? [];
+      audiences.push(stale.audience);
+      staleByDrawing.set(stale.drawingId, audiences);
+    }
+    for (const [drawingId, audiences] of staleByDrawing) {
+      emitBoardAgentPresenceSnapshots({ io, presences, drawingId, audiences });
+    }
+  }, accessRecheckIntervalMs);
 
   return controller;
 };

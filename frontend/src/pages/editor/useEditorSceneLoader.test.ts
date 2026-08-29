@@ -92,11 +92,11 @@ describe("the appState a board opens with", () => {
     expect((await loadScene("abc")).appState.objectsSnapModeEnabled).toBe(true);
   });
 
-  it("leaves the grid alone on a board that draws on it", async () => {
+  it("ignores a legacy board-level grid choice", async () => {
     vi.mocked(api.getDrawing).mockResolvedValue(storedDrawing({ gridModeEnabled: true }));
     const { appState } = await loadScene("abc");
-    expect(appState.objectsSnapModeEnabled).toBe(false);
-    expect(appState.gridModeEnabled).toBe(true);
+    expect(appState.objectsSnapModeEnabled).toBe(true);
+    expect(appState.gridModeEnabled).toBeUndefined();
   });
 
   it("honours a board where snapping was switched off on purpose", async () => {

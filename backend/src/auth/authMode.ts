@@ -1,5 +1,6 @@
 import { PrismaClient } from "../generated/client";
 import { config } from "../config";
+import { createInFlightCoalescer } from "../utils/inFlightCoalescer";
 
 export const BOOTSTRAP_USER_ID = "bootstrap-admin";
 export const DEFAULT_SYSTEM_CONFIG_ID = "default";
@@ -17,6 +18,7 @@ export const createAuthModeService = (
 ) => {
   const authEnabledTtlMs = options?.authEnabledTtlMs ?? 5000;
   let authEnabledCache: AuthEnabledCache | null = null;
+  const bootstrapUserUpsert = createInFlightCoalescer<any>();
 
   const getSystemConfigAuthEnabled = async () => {
     return prisma.systemConfig.findUnique({
@@ -69,31 +71,32 @@ export const createAuthModeService = (
     authEnabledCache = null;
   };
 
-  const getBootstrapActingUser = async () => {
-    return prisma.user.upsert({
-      where: { id: BOOTSTRAP_USER_ID },
-      update: {},
-      create: {
-        id: BOOTSTRAP_USER_ID,
-        email: "bootstrap@excalidash.local",
-        username: null,
-        passwordHash: "",
-        name: "Bootstrap Admin",
-        role: "ADMIN",
-        mustResetPassword: true,
-        isActive: false,
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        name: true,
-        role: true,
-        mustResetPassword: true,
-        isActive: true,
-      },
-    });
-  };
+  const getBootstrapActingUser = async () =>
+    bootstrapUserUpsert.run(BOOTSTRAP_USER_ID, () =>
+      prisma.user.upsert({
+        where: { id: BOOTSTRAP_USER_ID },
+        update: {},
+        create: {
+          id: BOOTSTRAP_USER_ID,
+          email: "bootstrap@excalidash.local",
+          username: null,
+          passwordHash: "",
+          name: "Bootstrap Admin",
+          role: "ADMIN",
+          mustResetPassword: true,
+          isActive: false,
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          name: true,
+          role: true,
+          mustResetPassword: true,
+          isActive: true,
+        },
+      }),
+    );
 
   return {
     ensureSystemConfig,

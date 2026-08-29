@@ -45,6 +45,7 @@ vi.mock("./socketCollaborators", () => ({
     setSelfPresenceId: vi.fn(),
     dispose: vi.fn(),
   }),
+  bindBoardAgentPresence: () => ({ reset: vi.fn(), dispose: vi.fn() }),
 }));
 vi.mock("./remoteSelection", () => ({
   bindRemoteSelection: () => ({
@@ -77,6 +78,7 @@ vi.mock("./inviteHere", () => ({
 vi.mock("./wheelZoom", () => ({ bindCanvasWheelZoom: () => vi.fn() }));
 
 import { useEditorCollaboration } from "./useEditorCollaboration";
+import { openSceneDocument } from "../../integrations/excalidraw/adapter";
 
 const ref = <T>(value: T) => ({ current: value }) as MutableRefObject<T>;
 const capabilities = (overrides: Record<string, any> = {}) => ({
@@ -636,5 +638,87 @@ describe("editor collaboration reconnect state", () => {
 
       unmount();
     });
+  });
+});
+
+describe("NIL-690 same-content echo (through the real flush path, not the isolated helper)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    mocks.resetConnectionState = null;
+    mocks.roomLifecycleInput = null;
+    vi.clearAllMocks();
+  });
+
+  it("keeps the previous bookkeeping when a remote update is content-identical to what is already live", () => {
+    let flush: FrameRequestCallback | null = null;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        flush = callback;
+        return 1;
+      }),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const sceneApply = vi.fn(() => ({ ok: true, value: undefined }));
+    const previous = {
+      id: "el-1",
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      angle: 0,
+      isDeleted: false,
+      version: 5,
+      versionNonce: 100,
+      updated: 1000,
+    };
+    // Bookkeeping bumped, every content field identical -- exactly the
+    // "late echo" shape from NIL-690's own finding.
+    const echoed = { ...previous, version: 6, versionNonce: 200, updated: 2000 };
+    const { unmount } = renderHook(() =>
+      useEditorCollaboration({
+        ...capabilities({ scene: { apply: sceneApply } }),
+        drawingId: "drawing-1",
+        me: { id: "user-1", name: "User", initials: "U", color: "#000" },
+        isReady: true,
+        excalidrawAPI: ref<any>({
+          getAppState: () => ({}),
+          getSceneElementsIncludingDeleted: () => [previous],
+          addFiles: vi.fn(),
+        }),
+        editorContainerRef: ref<HTMLDivElement | null>(null),
+        lastSyncedFilesRef: ref({}),
+        lastSyncedElementOrderSigRef: ref("order"),
+        latestElementsRef: ref([previous]),
+        latestFilesRef: ref({}),
+        computeElementOrderSig: () => "order",
+        recordElementVersion: vi.fn(),
+        onAccessDenied: vi.fn(),
+        onDrawingNameChange: vi.fn(),
+      }),
+    );
+    const elementUpdate = mocks.socket.on.mock.calls.find(
+      ([event]) => event === "element-update",
+    )?.[1];
+
+    act(() => elementUpdate({ elements: [echoed], files: {} }));
+    act(() => flush?.(0));
+
+    expect(sceneApply).toHaveBeenCalledTimes(1);
+    const [ops] = sceneApply.mock.calls[0]!;
+    const document = openSceneDocument((ops[0] as any).document)!;
+    const applied = document.elements.find((el: any) => el.id === "el-1");
+    // The whole point: the previous, lower version survives -- not the
+    // echo's bumped one. Reverting the fix's wiring (while leaving
+    // `preserveUnchangedElements` itself untouched in utils/sync.ts) makes
+    // this assertion fail, because nothing left in the flush path would
+    // call it any more -- see this test's own file comment.
+    expect(applied.version).toBe(5);
+    expect(applied.versionNonce).toBe(100);
+    expect(applied.updated).toBe(1000);
+
+    unmount();
   });
 });

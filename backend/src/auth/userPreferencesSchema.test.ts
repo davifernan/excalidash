@@ -14,6 +14,11 @@ describe("userPreferencesSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a per-user grid preference", () => {
+    expect(userPreferencesSchema.safeParse({ gridModeEnabled: true }).success).toBe(true);
+    expect(userPreferencesSchema.safeParse({ gridModeEnabled: false }).success).toBe(true);
+  });
+
   it("rejects a non-string entry", () => {
     const result = userPreferencesSchema.safeParse({ toolbarFeatureIds: [42] });
     expect(result.success).toBe(false);

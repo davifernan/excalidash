@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { notify } from "../../notifications";
 import { splitFilesIntoUpdatePayloads, type ElementUpdatePayload } from "./elementUpdateDelivery";
-import { boardSettingsSignature, getFilesDelta, shouldSaveBoardSettings } from "./shared";
+import {
+  boardSettingsSignature,
+  getFilesDelta,
+  shouldSaveBoardSettings,
+  type ElementVersionInfo,
+} from "./shared";
 import type { FileCapability } from "../../integrations/excalidraw/capabilities";
 
 const ELEMENT_ORDER_BYTE_LIMIT = 8 * 1024 * 1024;
@@ -41,7 +46,8 @@ type UseEditorBroadcastParams = {
     elements?: readonly any[],
     files?: Record<string, any> | null,
   ) => readonly any[];
-  recordElementVersion: (element: any) => void;
+  captureElementVersionInfo: (element: any) => ElementVersionInfo;
+  recordElementVersionInfo: (id: string, info: ElementVersionInfo) => void;
   setHasSceneChangesSinceLoad: () => void;
 };
 
@@ -153,7 +159,8 @@ export const useEditorBroadcast = ({
   computeElementOrderSig,
   hasElementChanged,
   normalizeImageElementStatus,
-  recordElementVersion,
+  captureElementVersionInfo,
+  recordElementVersionInfo,
   setHasSceneChangesSinceLoad,
 }: UseEditorBroadcastParams) => {
   const throttleTimeoutRef = useRef<number | null>(null);
@@ -498,6 +505,18 @@ export const useEditorBroadcast = ({
           .filter((id): id is string => Boolean(id))
       : undefined;
     const orderBytes = elementOrder ? elementOrderByteLength(elementOrder) : 0;
+    // Snapshot each sent element's tracked fields NOW, synchronously, before
+    // the packet goes out. `changes` holds live references to Excalidraw's
+    // own element objects, and Excalidraw is free to mutate them again
+    // in-place before the server acknowledges this packet (an internal bind
+    // completing shortly after a keystroke, for instance). Recording a fresh
+    // read of the same reference inside `acknowledge` below would then record
+    // whatever Excalidraw had mutated it to by the time the ack arrived --
+    // not what this packet actually sent -- making that real, already-applied
+    // change look "already synced" so it is never rebroadcast (NIL-689).
+    const sentVersionInfoById = new Map(
+      changes.map((element) => [element.id as string, captureElementVersionInfo(element)]),
+    );
     const packet: DeliveryPacket = {
       payload: {
         drawingId,
@@ -508,7 +527,7 @@ export const useEditorBroadcast = ({
           elementOrder && orderBytes > ELEMENT_ORDER_BYTE_LIMIT ? orderBytes : undefined,
       },
       acknowledge: () => {
-        changes.forEach((element) => recordElementVersion(element));
+        for (const [id, info] of sentVersionInfoById) recordElementVersionInfo(id, info);
         if (shouldDeliverOrder) {
           lastSyncedElementOrderSigRef.current = nextOrderSig;
         }
@@ -527,6 +546,7 @@ export const useEditorBroadcast = ({
       drainSceneDeliveryRef.current();
     });
   }, [
+    captureElementVersionInfo,
     computeElementOrderSig,
     deliverPackets,
     drawingId,
@@ -534,7 +554,7 @@ export const useEditorBroadcast = ({
     lastSyncedElementOrderSigRef,
     lastSyncedFilesRef,
     normalizeImageElementStatus,
-    recordElementVersion,
+    recordElementVersionInfo,
   ]);
 
   useEffect(() => {

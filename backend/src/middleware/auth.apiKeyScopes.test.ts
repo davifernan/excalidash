@@ -81,7 +81,11 @@ describe("API key drawing sub-resource scopes", () => {
       DRAWINGS_READ_SCOPE,
     ]);
     expect(req.user?.authCredentialType).toBe("apiKey");
-    expect(req.principal).toEqual({ kind: "user", userId: "user-1" });
+    expect(req.principal).toEqual({
+      kind: "user",
+      userId: "user-1",
+      apiKey: { id: "key-1", scopes: [DRAWINGS_READ_SCOPE] },
+    });
     expect(next).toHaveBeenCalledOnce();
   });
 

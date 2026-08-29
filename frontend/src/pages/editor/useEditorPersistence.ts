@@ -213,6 +213,27 @@ export const useEditorPersistence = ({
           throw new DrawingSaveConflictError();
         }
 
+        // NIL-690's echo (a content-identical remote/persistence copy
+        // bumping an unchanged element's version/versionNonce/updated) is
+        // fixed for the remote-flush path (useEditorCollaboration.ts,
+        // preserveUnchangedElements) but deliberately NOT wired in here.
+        // Measured, not assumed (useEditorPersistence.test.ts's "rebaseOntoLatest
+        // and NIL-690's echo" case): `elementsToSave` reaches this call
+        // already run through `normalizeImageElementStatus`
+        // (Editor.tsx's `normalizeSceneForTransport` = `canonicalizeStickyFontState`
+        // composed with image-status normalization) a few lines above, in
+        // `normalizedElementsForSave` -- the exact same reduction every save
+        // already applies before anything is sent to the server. So for an
+        // untouched Sticky label, `elementsToSave` and `latest.elements` are
+        // BOTH already canonical (reference fontSize) by the time they reach
+        // this comparison; there is no derived-vs-canonical gap left for
+        // `reconcileElements` to fall into. That gap is what let the
+        // remote-flush path adopt a bumped copy whose content only *looked*
+        // different because one side was still in its locally derived
+        // presentation form -- `rebaseOntoLatest` never holds a derived form
+        // in the first place. If this call site is ever changed to reconcile
+        // BEFORE normalization (or normalization stops running here), that
+        // guarantee breaks and preserveUnchangedElements needs wiring in.
         const mergedElements = reconcileElements(
           elementsToSave,
           Array.isArray(latest?.elements) ? latest.elements : [],

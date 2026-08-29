@@ -17,6 +17,84 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.14.0 -- 2026-08-29
+
+Most of this release is repair: what turned up while testing 0.13 has been fixed. Alongside
+that, a round on the checking itself -- several tests could not have failed even if the code
+was broken, and what actually ships was never being tested.
+
+### Added
+
+- The Timer corner is now a small, configurable toolbar. "Start a vote" and "Comments" sit next
+  to the timer, and a settings button lets you choose which of your team's features stay there.
+- Board owners can let guests upload files and see comments -- per board and instance-wide, from
+  Admin > Guest Access and each board's Share dialog.
+
+### Fixed
+
+- Comments can be written again. Enter sends, Shift+Enter inserts a new line.
+- Placing a sticky note, or connecting one to a new note, feels instant. The note's text no
+  longer keeps a stray character from the first keystroke.
+- Connected sticky-note arrows use your current arrow style instead of a fixed colour.
+- The grid choice follows you across boards instead of being forgotten on reload.
+- Pages send their intended security headers on every load -- Content-Security-Policy,
+  clickjacking and MIME-sniffing protection -- not only on some.
+
+### Changed
+
+- Nothing in how the app is used. The rest of this release is beneath the surface: the browser
+  tests now also run against the image that actually ships, not only against the development
+  server; the cross-engine suite runs one job per browser instead of racing a shared
+  twelve-minute limit; database transactions have room before they time out; and several tests
+  that could never have failed now can.
+
+### Known issues
+
+- In Firefox and Safari, Undo may not remove a Sticky Note that you created by clicking a
+  connection point. It can undo the action before it instead. Select that Sticky Note and delete
+  it manually before using Undo for earlier work.
+
+## v0.13.0 -- 2026-08-27
+
+Added on 2026-08-29: this entry was missing when v0.13.0 was published -- exactly the gap this
+file exists to close.
+
+### Added
+
+- Guest permissions, per board and per capability. Board owners decide whether link guests may
+  upload files and whether they see comments.
+- Markdown edits appear live. Everyone on the board sees changes as they are typed, not only
+  after saving.
+- Sticky Note connection points. Hover a note, click a dot on its edge, and a connected child
+  note appears with the cursor already in it.
+
+### Fixed
+
+- Markdown work is no longer lost. Saving could silently fail after a document was replaced;
+  it now recovers, and says so when it genuinely cannot save.
+- Accepting a "follow me" invitation now keeps following instead of moving the view once.
+- The collaborator bar stays compact -- avatars stack with a +N count.
+- Restarting the timer leaves it where you put it.
+- A Sticky Note stays stable while someone else types in it.
+- Connection trouble is visible without being loud, and silent while the connection is healthy.
+- Overlays keep a predictable order -- comments, widgets, menus, notifications, dialogs.
+- Excalidraw's command palette and canvas search are reachable from the hamburger menu.
+
+### Changed
+
+- Sticky Note text starts large and shrinks smoothly instead of jumping between fixed sizes.
+- Pin and Collapse are gone from the element menu.
+- Away collaborators are easier to read, with an "away" label and a muted cursor.
+- Every floating toolbar looks and behaves the same.
+- Notifications appear in one consistent stack.
+- Self-hosted error tracking uses GlitchTip with Postgres and without Redis.
+
+### Known issues
+
+- In Firefox and Safari, Undo may not remove a Sticky Note that you created by clicking a
+  connection point. It can undo the action before it instead. Select that Sticky Note and delete
+  it manually before using Undo for earlier work.
+
 ## v0.12.0 -- 2026-08-26
 
 ### Added

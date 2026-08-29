@@ -9,6 +9,17 @@ const FRONTEND_PORT = Number(process.env.FRONTEND_PORT) || 6767;
 const BACKEND_PORT = Number(process.env.PORT) || 8000;
 const FRONTEND_URL = process.env.BASE_URL || `http://localhost:${FRONTEND_PORT}`;
 const BACKEND_URL = process.env.API_URL || `http://localhost:${BACKEND_PORT}`;
+// A deliberately selected evidence run must retain a recording even when its
+// assertion is green: a timing or animation regression can look wrong while
+// still satisfying the test. Normal CI keeps retain-on-failure so every suite
+// run does not retain a large collection of successful recordings.
+const MOTION_EVIDENCE = process.env.PLAYWRIGHT_MOTION_EVIDENCE === "true";
+const MOTION_EVIDENCE_SPECS = [
+  "**/motion-evidence-config.spec.ts",
+  "**/sticky-connect.spec.ts",
+  "**/agent-presence.spec.ts",
+];
+const MOTION_EVIDENCE_CONTRACT_SPECS = ["**/motion-evidence-config.spec.ts"];
 
 /**
  * Specs that run on every engine.
@@ -207,6 +218,18 @@ export default defineConfig({
    * readable here rather than scattered through tags in the specs.
    */
   projects: [
+    // Successful video is mechanically confined to this project. Setting the
+    // environment variable on any ordinary project still retains video only
+    // on failure, so a direct Playwright invocation cannot record the suite.
+    {
+      name: "motion-evidence",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+        video: MOTION_EVIDENCE ? "on" : "retain-on-failure",
+      },
+      testMatch: MOTION_EVIDENCE ? MOTION_EVIDENCE_SPECS : [],
+    },
     {
       name: "chromium",
       use: {
@@ -218,6 +241,7 @@ export default defineConfig({
         ...SOAK_SPECS,
         ...TEAM_ACCEPTANCE_SPECS,
         ...BUILT_IMAGE_SMOKE_SPECS,
+        ...MOTION_EVIDENCE_CONTRACT_SPECS,
       ],
     },
     {

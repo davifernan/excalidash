@@ -1,0 +1,38 @@
+.agent-presence {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--excalidash-z-element-overlay);
+}
+
+.agent-presence__highlight {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed var(--agent-presence-color, var(--color-gray-60));
+  border-radius: var(--border-radius-md, 0.375rem);
+  transition: opacity 200ms ease-out;
+}
+
+.agent-presence__label {
+  position: absolute;
+  left: -2px;
+  bottom: calc(100% + 6px);
+  max-width: 220px;
+  overflow: hidden;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--agent-presence-color, var(--color-gray-60));
+  color: white;
+  font:
+    600 12px/18px system-ui,
+    sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-presence__highlight {
+    transition: none;
+  }
+}

@@ -85,6 +85,15 @@ interface UpdateCheckConfig {
   githubToken: string | null;
 }
 
+export type AgentRuntimeConfig = {
+  /** Null means the board remains fully usable with no runtime attached. */
+  herdr: {
+    socketPath: string;
+    workingDirectory: string;
+    profiles: Array<{ id: string; label: string; agentKind: string; args: string[] }>;
+  } | null;
+};
+
 interface ReadinessConfig {
   cacheTtlMs: number;
 }
@@ -147,6 +156,7 @@ interface Config {
   drawingsCacheTtlMs: number;
   apiKeyHashPepper: string;
   updateCheck: UpdateCheckConfig;
+  agentRuntime: AgentRuntimeConfig;
 }
 
 export type LogLevel = "silent" | "info" | "debug";
@@ -541,6 +551,63 @@ const resolveS3Config = (): S3Config => ({
   keyPrefix: (getOptionalEnv("S3_KEY_PREFIX", "excalidash") || "excalidash").replace(/\/+$/, ""),
 });
 
+const resolveAgentRuntimeConfig = (): AgentRuntimeConfig => {
+  const socketPath = getOptionalTrimmedEnv("AGENT_RUNTIME_HERDR_SOCKET_PATH");
+  const workingDirectory = getOptionalTrimmedEnv("AGENT_RUNTIME_HERDR_WORKING_DIRECTORY");
+  const rawProfiles = getOptionalTrimmedEnv("AGENT_RUNTIME_HERDR_PROFILES");
+  if (!socketPath && !workingDirectory && !rawProfiles) return { herdr: null };
+  if (!socketPath || !workingDirectory || !rawProfiles) {
+    throw new Error(
+      "AGENT_RUNTIME_HERDR_SOCKET_PATH, AGENT_RUNTIME_HERDR_WORKING_DIRECTORY and AGENT_RUNTIME_HERDR_PROFILES must be configured together",
+    );
+  }
+  if (!path.isAbsolute(socketPath) || !path.isAbsolute(workingDirectory)) {
+    throw new Error(
+      "AGENT_RUNTIME_HERDR_SOCKET_PATH and AGENT_RUNTIME_HERDR_WORKING_DIRECTORY must be absolute paths",
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawProfiles);
+  } catch {
+    throw new Error("AGENT_RUNTIME_HERDR_PROFILES must be valid JSON");
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 20) {
+    throw new Error("AGENT_RUNTIME_HERDR_PROFILES must contain between 1 and 20 profiles");
+  }
+  const profiles = parsed.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`AGENT_RUNTIME_HERDR_PROFILES[${index}] must be an object`);
+    }
+    const profile = entry as Record<string, unknown>;
+    const args = profile.args ?? [];
+    if (
+      typeof profile.id !== "string" ||
+      !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile.id) ||
+      typeof profile.label !== "string" ||
+      profile.label.trim().length === 0 ||
+      profile.label.length > 80 ||
+      typeof profile.agentKind !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]{0,79}$/i.test(profile.agentKind) ||
+      !Array.isArray(args) ||
+      args.length > 20 ||
+      !args.every((arg) => typeof arg === "string" && arg.length <= 500)
+    ) {
+      throw new Error(`AGENT_RUNTIME_HERDR_PROFILES[${index}] is invalid`);
+    }
+    return {
+      id: profile.id,
+      label: profile.label.trim(),
+      agentKind: profile.agentKind,
+      args: args as string[],
+    };
+  });
+  if (new Set(profiles.map((profile) => profile.id)).size !== profiles.length) {
+    throw new Error("AGENT_RUNTIME_HERDR_PROFILES ids must be unique");
+  }
+  return { herdr: { socketPath, workingDirectory, profiles } };
+};
+
 export const config: Config = {
   port: getRequiredEnvNumber("PORT", 8000),
   nodeEnv: getOptionalEnv("NODE_ENV", "development"),
@@ -572,6 +639,7 @@ export const config: Config = {
     githubToken:
       getOptionalTrimmedEnv("UPDATE_CHECK_GITHUB_TOKEN") ?? getOptionalTrimmedEnv("GITHUB_TOKEN"),
   },
+  agentRuntime: resolveAgentRuntimeConfig(),
   oidc: resolveOidcConfig(resolvedAuthMode),
   enablePasswordReset: getOptionalBoolean("ENABLE_PASSWORD_RESET", false),
   enableRefreshTokenRotation: getOptionalBoolean("ENABLE_REFRESH_TOKEN_ROTATION", true),

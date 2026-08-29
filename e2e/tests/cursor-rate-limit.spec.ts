@@ -16,6 +16,7 @@ const interactiveCanvas = (page: Page) => page.locator("canvas.excalidraw__canva
  * fails in reasonable time instead of hanging.
  */
 const CURSOR_PRESSURE_MAX_MS = 8_000;
+const CURSOR_PRESSURE_PAGE_COUNT = 12;
 
 const dropTinyPng = (page: Page) =>
   page.evaluate(() => {
@@ -54,7 +55,8 @@ test("image upload stays quiet when the shared cursor budget protects the server
   const cursorEmissions: string[] = [];
 
   try {
-    for (let index = 1; index < 12; index += 1) pages.push(await context.newPage());
+    for (let index = 1; index < CURSOR_PRESSURE_PAGE_COUNT; index += 1)
+      pages.push(await context.newPage());
     for (const candidate of pages) {
       candidate.on("websocket", (socket) => {
         socket.on("framesent", ({ payload }) => {
@@ -75,14 +77,15 @@ test("image upload stays quiet when the shared cursor budget protects the server
       });
     }
 
-    await Promise.all(
-      pages.map(async (candidate) => {
-        await openEditor(candidate, drawing.id);
-        await candidate.waitForFunction(
-          () => (window as any).__EXCALIDASH_SOCKET_STATUS__?.roomJoined === true,
-        );
-      }),
-    );
+    // Join in sequence. The pressure below needs 12 live cursor senders, but
+    // joining all of their document pages at once contends for SQLite snapshot
+    // and visit transactions before the rate-limit assertion even starts.
+    for (const candidate of pages) {
+      await openEditor(candidate, drawing.id);
+      await candidate.waitForFunction(
+        () => (window as any).__EXCALIDASH_SOCKET_STATUS__?.roomJoined === true,
+      );
+    }
 
     await dropTinyPng(page);
     await expect

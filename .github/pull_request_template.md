@@ -62,7 +62,12 @@ Use exactly one supported Visual-Evidence value above:
 - skipped: test-only frontend delta
 - skipped: no visible frontend product delta
 
-For `provided`, list the final-head Multica attachments with scenario, viewport, and expected result.
+For `provided`, list the final-head PR evidence with scenario, viewport, and expected result.
+When the changed user path includes interaction, animation, or a time budget, `provided` means a
+short animated GIF, not a still screenshot: record the focused green Playwright path with
+`PLAYWRIGHT_MOTION_EVIDENCE=true`, then use `node scripts/motion-evidence.cjs publish` to convert,
+size-limit, retain, and embed it from the permanent evidence branch. A screenshot may accompany it
+but cannot replace it.
 For a skip, explain why the generated manifest permits it.
 -->
 

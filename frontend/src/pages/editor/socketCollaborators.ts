@@ -6,6 +6,17 @@ import type {
   CollaboratorPatch,
   SocketId,
 } from "../../integrations/excalidraw/types";
+import {
+  BOARD_AGENT_FOCUS_FINISHED_EVENT,
+  BOARD_AGENT_FOCUS_STARTED_EVENT,
+  BOARD_AGENT_PRESENCE_EVENT,
+  BOARD_AGENT_RUNTIME_EVENT,
+  BoardAgentPresenceState,
+  type BoardAgentFocusWire,
+  type BoardAgentPresenceWire,
+  type BoardAgentRuntimeWire,
+  type BoardAgentVisualSnapshot,
+} from "./agentPresenceState";
 
 export interface Peer {
   presenceId: string;
@@ -374,6 +385,105 @@ export const bindSocketCollaborators = ({
       socket.off("cursor-move", onCursor);
       cancelAnimationFrame(animationFrameId);
       clearAllAwayTimers();
+    },
+  };
+};
+
+const isBoardAgentPresenceWire = (value: unknown): value is BoardAgentPresenceWire => {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Partial<BoardAgentPresenceWire>;
+  return (
+    typeof entry.runId === "string" &&
+    typeof entry.agentId === "string" &&
+    typeof entry.drawingId === "string" &&
+    typeof entry.revisionId === "string" &&
+    typeof entry.displayName === "string" &&
+    typeof entry.color === "string" &&
+    Array.isArray(entry.targetIds) &&
+    typeof entry.focusActive === "boolean" &&
+    (entry.visibility === "private" || entry.visibility === "drawing")
+  );
+};
+
+/**
+ * Agent participants ride the same joined socket and lifecycle as human
+ * collaborators. This binder owns no connection, room, or polling path.
+ */
+export const bindBoardAgentPresence = ({
+  socket,
+  onChange,
+  now = Date.now,
+  tickIntervalMs = 200,
+}: {
+  socket: Socket;
+  onChange: (presence: readonly BoardAgentVisualSnapshot[]) => void;
+  now?: () => number;
+  tickIntervalMs?: number;
+}) => {
+  const state = new BoardAgentPresenceState();
+  const emit = () => {
+    const current = now();
+    state.tick(current);
+    onChange(state.snapshot(current));
+  };
+  const onPresence = (payload: unknown) => {
+    if (!Array.isArray(payload) || !payload.every(isBoardAgentPresenceWire)) return;
+    state.replace(payload, now());
+    emit();
+  };
+  const onFocus = (phase: "started" | "finished") => (payload: unknown) => {
+    if (!payload || typeof payload !== "object") return;
+    const event = payload as Partial<BoardAgentFocusWire>;
+    if (
+      typeof event.runId !== "string" ||
+      typeof event.agentId !== "string" ||
+      typeof event.drawingId !== "string" ||
+      typeof event.revisionId !== "string" ||
+      typeof event.displayName !== "string" ||
+      !Array.isArray(event.targetIds) ||
+      (event.visibility !== "private" && event.visibility !== "drawing")
+    ) {
+      return;
+    }
+    state.applyFocus({ ...(event as BoardAgentFocusWire), phase }, now());
+    emit();
+  };
+  const onFocusStarted = onFocus("started");
+  const onFocusFinished = onFocus("finished");
+  const onRuntime = (payload: unknown) => {
+    if (!payload || typeof payload !== "object") return;
+    const event = payload as Partial<BoardAgentRuntimeWire>;
+    if (
+      typeof event.runId !== "string" ||
+      typeof event.revisionId !== "string" ||
+      typeof event.displayName !== "string" ||
+      typeof event.status !== "string" ||
+      (event.visibility !== "private" && event.visibility !== "drawing")
+    ) {
+      return;
+    }
+    state.applyRuntime(event as BoardAgentRuntimeWire, now());
+    emit();
+  };
+
+  socket.on(BOARD_AGENT_PRESENCE_EVENT, onPresence);
+  socket.on(BOARD_AGENT_FOCUS_STARTED_EVENT, onFocusStarted);
+  socket.on(BOARD_AGENT_FOCUS_FINISHED_EVENT, onFocusFinished);
+  socket.on(BOARD_AGENT_RUNTIME_EVENT, onRuntime);
+  const timer = setInterval(emit, tickIntervalMs);
+
+  return {
+    reset() {
+      state.clear();
+      onChange([]);
+    },
+    dispose() {
+      clearInterval(timer);
+      socket.off(BOARD_AGENT_PRESENCE_EVENT, onPresence);
+      socket.off(BOARD_AGENT_FOCUS_STARTED_EVENT, onFocusStarted);
+      socket.off(BOARD_AGENT_FOCUS_FINISHED_EVENT, onFocusFinished);
+      socket.off(BOARD_AGENT_RUNTIME_EVENT, onRuntime);
+      state.clear();
     },
   };
 };

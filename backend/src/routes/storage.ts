@@ -19,6 +19,10 @@ import { deleteS3KeysInBatches } from "./storage/s3Delete";
 import { syncDrawingDocumentState } from "../assets/documentWidgetState";
 import { getOwnedBoard } from "../authz/boards";
 import { requestIdOf } from "../middleware/requestId";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../agent/boardContexts";
 
 export type StorageRouteDeps = {
   prisma: PrismaClient;
@@ -114,27 +118,39 @@ export const registerStorageRoutes = (app: express.Express, deps: StorageRouteDe
 
       // 7. Update drawing — bump version so concurrent editors get a VERSION_CONFLICT
       // and reload, instead of having their newer version silently overwritten.
-      await prisma.$transaction(async (tx) => {
-        await tx.drawing.update({
-          where: { id },
-          data: {
-            elements: JSON.stringify(trimPlan.activeElements),
-            files: JSON.stringify(trimPlan.cleanedFiles),
-            version: { increment: 1 },
-          },
+      try {
+        await prisma.$transaction(async (tx) => {
+          await assertPersistedAgentContextFrames(tx, id, trimPlan.activeElements);
+          await tx.drawing.update({
+            where: { id },
+            data: {
+              elements: JSON.stringify(trimPlan.activeElements),
+              files: JSON.stringify(trimPlan.cleanedFiles),
+              version: { increment: 1 },
+            },
+          });
+          await syncDrawingDocumentState(tx, id, trimPlan.activeElements, {
+            correlationId: requestIdOf(req),
+          });
+          // DrawingFile rows (NIL-381) are this drawing's own storage-backed
+          // image references, the same relationship S3File has above --
+          // deleting the row does not delete the underlying blob immediately;
+          // collectExpired (assetService.ts) reclaims it once nothing else
+          // references it, after its own grace period.
+          await tx.drawingFile.deleteMany({
+            where: { drawingId: id, fileId: { notIn: [...trimPlan.survivingFileIds] } },
+          });
         });
-        await syncDrawingDocumentState(tx, id, trimPlan.activeElements, {
-          correlationId: requestIdOf(req),
-        });
-        // DrawingFile rows (NIL-381) are this drawing's own storage-backed
-        // image references, the same relationship S3File has above --
-        // deleting the row does not delete the underlying blob immediately;
-        // collectExpired (assetService.ts) reclaims it once nothing else
-        // references it, after its own grace period.
-        await tx.drawingFile.deleteMany({
-          where: { drawingId: id, fileId: { notIn: [...trimPlan.survivingFileIds] } },
-        });
-      });
+      } catch (error) {
+        if (error instanceof AgentContextValidationError) {
+          return res.status(409).json({
+            error: "Invalid Context map",
+            code: error.code,
+            message: error.message,
+          });
+        }
+        throw error;
+      }
       invalidateDrawingsCache();
       notifyServerStateChange(id);
 

@@ -13,6 +13,10 @@ Team Library, workshop/presentation mode for frames, mind maps, and board-scoped
 `docs/product/PRODUCT_VISION.md` for the product thesis and `FORK.md` for what's actually
 shipped versus tracked from upstream.
 
+For the 0.15 Agent Context work, read
+[`docs/architecture/AGENT_CONTEXT.md`](docs/architecture/AGENT_CONTEXT.md) before changing
+Agent Context, runtime, presence, delegation, or context-authorization contracts.
+
 ## ExcaliDash fork execution protocol
 
 The Multica project `ExcaliDash Fork` is the operational source of truth for roadmap work.
@@ -185,7 +189,8 @@ Review focus: <what an independent reviewer should attack>
   den PR verweist. Screenshots kommen nie nach `main`.** Wenn ein Multica-Ticket das Label
   `screenshot needed` traegt, werden seine Bilder append-only auf dem dauerhaften Branch
   `evidence` unter einem paketbezogenen Pfad abgelegt, im PR per
-  `raw.githubusercontent.com`-URL eingebunden und der PR erhaelt das GitHub-Label `screenshot`.
+  `github.com/davifernan/excalidash/blob/evidence/PFAD?raw=true`-URL eingebunden und der PR
+  erhaelt das GitHub-Label `screenshot`.
   Der Ticket-Kommentar enthaelt nur den PR-Link, keinen Bild-Anhang.
 - Die dauerhafte Branch-Ausnahmeliste fuer jeden lokalen oder Remote-Aufraeumlauf ist
   `main`, `nilo/live`, `evidence`. `evidence` darf weder geloescht noch force-gepusht werden;
@@ -491,6 +496,9 @@ Backend base variables:
 - `UPDATE_CHECK_GITHUB_TOKEN` (optional token for GitHub API)
 - `GITHUB_TOKEN` (fallback token if update token missing)
 - `DRAWINGS_CACHE_TTL_MS` (ms, default `5000`)
+- `AGENT_RUNTIME_HERDR_SOCKET_PATH`, `AGENT_RUNTIME_HERDR_WORKING_DIRECTORY`, and
+  `AGENT_RUNTIME_HERDR_PROFILES` (optional all-or-none co-located Herdr adapter; see
+  `docs/architecture/AGENT_RUNTIME_ADAPTER.md`; no shared-server/laptop topology is implied)
 - `DEBUG_CSRF` (`true` enables debug logs)
 - `LOG_LEVEL` (`silent`/`info`/`debug`, default `debug` in development and `info`
   otherwise) — controls request-logging volume; see `backend/src/middleware/requestLog.ts`

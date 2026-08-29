@@ -18,18 +18,24 @@ import { useEditorSceneLoader } from "./editor/useEditorSceneLoader";
 import { useEditorCollaboration } from "./editor/useEditorCollaboration";
 import { useEditorPersistence } from "./editor/useEditorPersistence";
 import { useEditorCanvasHandlers } from "./editor/useEditorCanvasHandlers";
+import { useGridModePreference } from "./editor/useGridModePreference";
 import { useStickyNotesFeature } from "../sticky";
 import { canonicalizeStickyFontState } from "../sticky/stickyDerivedState";
 import { useMindMapFeature } from "../mindMap";
 import { mindMapLayoutRunCount } from "../mindMap/mindMapScene";
 import { ambientTreeDragApplyCount, useAmbientTreeDrag } from "../ambientTree/useAmbientTreeDrag";
 import { useEditorCommands } from "./editor/useEditorCommands";
-import { useEditorElementTracking } from "./editor/useEditorElementTracking";
+import {
+  captureElementVersionInfo,
+  useEditorElementTracking,
+} from "./editor/useEditorElementTracking";
 import { useEditorBroadcast, type DeliveryState } from "./editor/useEditorBroadcast";
 import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useEditorFileUploads } from "./editor/useEditorFileUploads";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import { useOffscreenPresence } from "./editor/useOffscreenPresence";
+import { useAgentPresenceOverlay } from "./editor/useAgentPresenceOverlay";
+import { useAgentRuntimeFeature } from "./editor/useAgentRuntimeFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
@@ -73,8 +79,13 @@ export const Editor: React.FC = () => {
   useEditorChrome({ drawingName });
   const me: UserIdentity = useEditorIdentity(user);
   const [isReady, setIsReady] = useState(false);
-  const { computeElementOrderSig, elementVersionMap, hasElementChanged, recordElementVersion } =
-    useEditorElementTracking();
+  const {
+    computeElementOrderSig,
+    elementVersionMap,
+    hasElementChanged,
+    recordElementVersion,
+    recordElementVersionInfo,
+  } = useEditorElementTracking();
   const isBootstrappingScene = useRef(true);
   const hasHydratedInitialScene = useRef(false);
   const isUnmounting = useRef(false);
@@ -305,6 +316,9 @@ export const Editor: React.FC = () => {
         // surface that answers `undefined` there makes a working tool look
         // like a broken one.
         activeTool: unwrap(adapter.interaction.read(), null)?.activeTool ?? null,
+        // The command-palette test observes the live Excalidraw state through
+        // the adapter, rather than inferring it from a persistence request.
+        gridModeEnabled: unwrap(adapter.boardSettings.read(), null)?.gridModeEnabled ?? false,
         collaborators: new Map(
           unwrap(adapter.collaboration.readCollaborators(), []).map((peer) => [
             String(peer.socketId),
@@ -347,6 +361,7 @@ export const Editor: React.FC = () => {
   }, [id, location.hash, location.pathname, location.search, navigate]);
   const {
     peers,
+    agentPresence,
     connectionStatus,
     cursorChatRef,
     cursorChatDraft,
@@ -357,6 +372,7 @@ export const Editor: React.FC = () => {
     socketRef,
     roomJoinedRef,
     isSyncing,
+    pendingSyncFingerprintRef,
     onPointerUpdate,
     onSelectionChange,
     inviteHere,
@@ -489,7 +505,8 @@ export const Editor: React.FC = () => {
     computeElementOrderSig,
     hasElementChanged,
     normalizeImageElementStatus: normalizeSceneForTransport,
-    recordElementVersion,
+    captureElementVersionInfo,
+    recordElementVersionInfo,
     setHasSceneChangesSinceLoad: markSceneChangedSinceLoad,
   });
   useEffect(() => {
@@ -558,6 +575,7 @@ export const Editor: React.FC = () => {
       initialSceneElements: initialSceneElementsRef,
       isBootstrappingScene,
       isSyncing,
+      pendingSyncFingerprint: pendingSyncFingerprintRef,
       isHistoryPreviewing,
       isUnmounting,
       lastLocalChangeAt: lastLocalChangeAtRef,
@@ -567,7 +585,7 @@ export const Editor: React.FC = () => {
       latestFiles: latestFilesRef,
       suspiciousBlankLoad: suspiciousBlankLoadRef,
     }),
-    [isSyncing],
+    [isSyncing, pendingSyncFingerprintRef],
   );
   const { handleCanvasChange, handleCanvasDropCapture } = useEditorCanvasHandlers({
     canEdit,
@@ -582,6 +600,11 @@ export const Editor: React.FC = () => {
     fileCapability: adapter.files,
     scene: adapter.scene,
     viewport: adapter.viewport,
+  });
+  useGridModePreference({
+    active: isReady && !!user,
+    boardSettings: adapter.boardSettings,
+    scene: adapter.scene,
   });
   const { stickyOverlay, onCanvasChange: handleChangeWithNotes } = useStickyNotesFeature({
     containerRef: editorContainerRef,
@@ -654,6 +677,11 @@ export const Editor: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { offscreenPresenceOverlay } = useOffscreenPresence({ adapter });
+  const { agentPresenceOverlay } = useAgentPresenceOverlay({ adapter, presence: agentPresence });
+  const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime } = useAgentRuntimeFeature({
+    adapter,
+    drawingId: id,
+  });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
       drawingId: id,
@@ -750,9 +778,12 @@ export const Editor: React.FC = () => {
         onOpenMindMapImport={onOpenMindMapImport}
         commentsOverlay={commentsOverlay}
         offscreenPresenceOverlay={offscreenPresenceOverlay}
+        agentPresenceOverlay={agentPresenceOverlay}
         isCommentsOpen={isCommentsOpen}
         onToggleComments={toggleComments}
         unresolvedCommentCount={unresolvedCommentCount}
+        isAgentRuntimeOpen={isAgentRuntimeOpen}
+        onToggleAgentRuntime={toggleAgentRuntime}
         onCanvasDropCapture={handleCanvasDropCapture}
         onExportClick={handleExportClick}
         onLibraryChange={handleLibraryChange}
@@ -767,6 +798,7 @@ export const Editor: React.FC = () => {
         onShareOpen={() => setIsShareOpen(true)}
         onHistoryOpen={() => setIsHistoryOpen(true)}
       />
+      {agentRuntimeOverlay}
       {canEdit ? (
         <LaserToolbarButton containerRef={editorContainerRef} interaction={adapter.interaction} />
       ) : null}

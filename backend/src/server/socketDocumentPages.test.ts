@@ -6,6 +6,7 @@ import {
   parseDocumentPageCommand,
   registerDocumentPageRoomEvent,
 } from "./socketDocumentPages";
+import { logger } from "../logger";
 
 const command = (overrides: Record<string, unknown> = {}) => ({
   drawingId: "board-1",
@@ -333,6 +334,78 @@ describe("the room's shared page", () => {
       drawingId: "board-1",
       pages: [{ elementId: "widget-1", assetId: "asset-1", page: 4, revision: 8 }],
     });
+  });
+
+  it("shares one reconciliation transaction across a concurrent join burst", async () => {
+    const prisma = fakePrisma({
+      asset: { pageCount: 12, status: "READY" },
+      rows: [row({ page: 4, revision: 8 })],
+    });
+    const pages = createDocumentPageManager({ io: fakeIo() as any, prisma });
+
+    const snapshots = await Promise.all([
+      pages.snapshot("board-1", "socket-1"),
+      pages.snapshot("board-1", "socket-2"),
+      pages.snapshot("board-1", "socket-3"),
+      pages.snapshot("board-1", "socket-4"),
+    ]);
+
+    expect(snapshots).toEqual(Array(4).fill(snapshots[0]));
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+
+    await pages.snapshot("board-1", "socket-later");
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a distinct NIL-601 diagnostic correlation for every coalesced join", async () => {
+    const prisma = fakePrisma({
+      asset: { pageCount: 12, status: "READY" },
+      rows: [row({ page: 4, revision: 8 })],
+    });
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const pages = createDocumentPageManager({ io: fakeIo() as any, prisma });
+
+    await Promise.all([
+      pages.snapshot("board-1", "socket-1"),
+      pages.snapshot("board-1", "socket-2"),
+      pages.snapshot("board-1", "socket-3"),
+      pages.snapshot("board-1", "socket-4"),
+    ]);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    const observations = warn.mock.calls.filter(
+      ([message]) => message === "NIL-601 diagnostic: document-page snapshot requested",
+    );
+    expect(observations.map(([, fields]) => (fields as any).correlationId).sort()).toEqual([
+      "socket-1",
+      "socket-2",
+      "socket-3",
+      "socket-4",
+    ]);
+    expect(observations.map(([, fields]) => (fields as any).coalesced)).toEqual([
+      false,
+      true,
+      true,
+      true,
+    ]);
+  });
+
+  it("retries after a shared reconciliation failure instead of retaining it", async () => {
+    const prisma = fakePrisma({
+      asset: { pageCount: 12, status: "READY" },
+      rows: [row()],
+    });
+    prisma.$transaction.mockRejectedValueOnce(new Error("temporary SQLite failure"));
+    const pages = createDocumentPageManager({ io: fakeIo() as any, prisma });
+
+    await expect(
+      Promise.all([pages.snapshot("board-1", "socket-1"), pages.snapshot("board-1", "socket-2")]),
+    ).rejects.toThrow("temporary SQLite failure");
+
+    await expect(pages.snapshot("board-1", "socket-later")).resolves.toMatchObject({
+      drawingId: "board-1",
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 });
 

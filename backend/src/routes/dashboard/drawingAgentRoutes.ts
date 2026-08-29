@@ -12,12 +12,24 @@ import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
 import { requestIdOf } from "../../middleware/requestId";
 import { computeSearchText } from "../../search/searchIndex";
 import type { DrawingRouteContext } from "./drawingRouteContext";
+import {
+  AgentMountError,
+  createAgentRunMount,
+  executeAgentBoardTool,
+  isAgentToolName,
+} from "../../agent/boardMount";
+import { AgentContextAuthorizationError } from "../../authz/agentContext";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../../agent/boardContexts";
+import { publishBoardAgentFocus } from "../../server/socketPresence";
 
 /**
  * The exclusive route surface a drawing-bound agent token (NIL-382) may
- * reach: `GET .../agent/summary`, `GET .../agent/elements`,
- * `POST .../agent/ops`. `middleware/auth.ts#getAgentRouteDrawingId` names
- * these same three paths -- if this file's routes and that allow-list ever
+ * reach: the immutable mount/tool surface and `POST .../agent/ops`.
+ * `middleware/auth.ts#getAgentRouteDrawingId` names these same paths -- if
+ * this file's routes and that allow-list ever
  * disagree, either an agent token gets a 403 for a route it should reach, or
  * (the direction that matters) a route reachable by an agent token exists
  * that the allow-list never had to name. Every route here still re-checks
@@ -46,7 +58,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
     req: express.Request,
     res: express.Response,
     requireEdit: boolean,
-  ): Promise<{ id: string } | null> => {
+  ): Promise<{ id: string; principal: Awaited<ReturnType<typeof getRequestPrincipal>> } | null> => {
     const principal = await getRequestPrincipal(req);
     const { id } = req.params;
     const access = await getDrawingAccess({
@@ -61,61 +73,140 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
       res.status(404).json({ error: "Drawing not found", message: "Drawing does not exist" });
       return null;
     }
-    return { id };
+    return { id, principal };
   };
 
-  // ------------------------------------------------------------------
-  // GET /drawings/:id/agent/summary
-  // A compact scene summary -- element count by type, not the raw scene --
-  // so an agent tool loop can decide its next move without pulling the whole
-  // board (potentially megabytes of geometry) on every turn.
-  // ------------------------------------------------------------------
-  app.get(
-    "/drawings/:id/agent/summary",
+  const respondWithMountError = (res: express.Response, error: unknown): boolean => {
+    if (error instanceof AgentContextAuthorizationError) {
+      res.status(403).json({ error: "Forbidden", code: error.code, message: error.message });
+      return true;
+    }
+    if (error instanceof AgentContextValidationError) {
+      res
+        .status(409)
+        .json({ error: "Invalid Context map", code: error.code, message: error.message });
+      return true;
+    }
+    if (error instanceof AgentMountError) {
+      if (["MOUNT_NOT_FOUND", "INVALID_MOUNT_TOKEN"].includes(error.code)) {
+        res.status(404).json({
+          error: "Agent mount error",
+          code: "MOUNT_NOT_FOUND",
+          message: "Run mount is not available.",
+        });
+        return true;
+      }
+      const status = error.code === "ASSET_TOO_LARGE" ? 413 : 400;
+      res
+        .status(status)
+        .json({ error: "Agent mount error", code: error.code, message: error.message });
+      return true;
+    }
+    return false;
+  };
+
+  // A mount is the only read entry point. It captures one immutable scene and
+  // returns a second, run-bound capability credential; there is deliberately
+  // no full-scene GET and no mutable summary/elements compatibility path.
+  app.post(
+    "/drawings/:id/agent/mounts",
     optionalAuth,
     asyncHandler(async (req, res) => {
       const loaded = await loadAccessibleDrawing(req, res, false);
       if (!loaded) return;
-
-      const drawing = await prisma.drawing.findUnique({
-        where: { id: loaded.id },
-        select: { version: true, elements: true },
-      });
-      if (!drawing) return res.status(404).json({ error: "Drawing not found" });
-
-      const elements = parseJsonField(drawing.elements, []) as Array<Record<string, unknown>>;
-      const elementCountsByType: Record<string, number> = {};
-      let elementCount = 0;
-      for (const element of elements) {
-        if (element?.isDeleted) continue;
-        elementCount += 1;
-        const type = typeof element?.type === "string" ? element.type : "unknown";
-        elementCountsByType[type] = (elementCountsByType[type] ?? 0) + 1;
+      // The agent may consume a scope but must never choose or widen it. A
+      // human/controller credential creates the mount and hands the opaque
+      // capability to the already board-bound agent token.
+      if (
+        !loaded.principal ||
+        loaded.principal.apiKey ||
+        req.user?.authCredentialType === "apiKey"
+      ) {
+        return res.status(403).json({
+          error: "Forbidden",
+          code: "MOUNT_ISSUER_REQUIRED",
+          message: "An agent token cannot issue its own run mount.",
+        });
       }
-
-      return res.json({ version: drawing.version, elementCount, elementCountsByType });
+      const body =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+      if (
+        (body.runId !== undefined &&
+          (typeof body.runId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(body.runId))) ||
+        (body.allowedContextIds !== undefined &&
+          (!Array.isArray(body.allowedContextIds) ||
+            body.allowedContextIds.length > 100 ||
+            body.allowedContextIds.some((id: unknown) => typeof id !== "string"))) ||
+        (body.capabilities !== undefined &&
+          (!Array.isArray(body.capabilities) ||
+            body.capabilities.length > 10 ||
+            body.capabilities.some((capability: unknown) => typeof capability !== "string"))) ||
+        (body.displayName !== undefined &&
+          (typeof body.displayName !== "string" ||
+            body.displayName.trim().length === 0 ||
+            body.displayName.trim().length > 80 ||
+            /[\u0000-\u001f\u007f]/.test(body.displayName))) ||
+        (body.visibility !== undefined &&
+          body.visibility !== "private" &&
+          body.visibility !== "drawing")
+      ) {
+        return res.status(400).json({ error: "Invalid mount request" });
+      }
+      try {
+        const mount = await createAgentRunMount({
+          prisma,
+          drawingId: loaded.id,
+          runId: body.runId,
+          allowedContextIds: body.allowedContextIds,
+          capabilities: body.capabilities,
+          displayName:
+            typeof body.displayName === "string" ? body.displayName.trim() : "Board agent",
+          audience:
+            body.visibility === "drawing"
+              ? { kind: "drawing" }
+              : { kind: "private", userId: loaded.principal.userId },
+        });
+        return res.status(201).json(mount);
+      } catch (error: any) {
+        if (error?.code === "P2002") {
+          return res
+            .status(409)
+            .json({ error: "Run id already mounted", code: "RUN_ALREADY_MOUNTED" });
+        }
+        if (respondWithMountError(res, error)) return;
+        throw error;
+      }
     }),
   );
 
-  // ------------------------------------------------------------------
-  // GET /drawings/:id/agent/elements
-  // The full element list, lossless -- for when the agent needs exact
-  // geometry, not just counts.
-  // ------------------------------------------------------------------
-  app.get(
-    "/drawings/:id/agent/elements",
+  app.post(
+    "/drawings/:id/agent/mounts/:runId/tools/:tool",
     optionalAuth,
     asyncHandler(async (req, res) => {
       const loaded = await loadAccessibleDrawing(req, res, false);
       if (!loaded) return;
-
-      const drawing = await prisma.drawing.findUnique({
-        where: { id: loaded.id },
-        select: { version: true, elements: true },
-      });
-      if (!drawing) return res.status(404).json({ error: "Drawing not found" });
-
-      return res.json({ version: drawing.version, elements: parseJsonField(drawing.elements, []) });
+      const capabilityToken = req.header("x-agent-mount-token");
+      if (!capabilityToken || capabilityToken.length > 256 || !isAgentToolName(req.params.tool)) {
+        return res.status(400).json({ error: "Invalid tool request" });
+      }
+      const args =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+      try {
+        return res.json(
+          await executeAgentBoardTool({
+            prisma,
+            drawingId: loaded.id,
+            runId: req.params.runId,
+            capabilityToken,
+            tool: req.params.tool,
+            args,
+            onFocus: (event) => publishBoardAgentFocus({ io, presences: context.presences, event }),
+          }),
+        );
+      } catch (error) {
+        if (respondWithMountError(res, error)) return;
+        throw error;
+      }
     }),
   );
 
@@ -164,6 +255,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
 
       try {
         updatedDrawing = await prisma.$transaction(async (tx) => {
+          await assertPersistedAgentContextFrames(tx, id, newElements);
           const compress = config.enableSnapshotCompression;
           const snapshot = await tx.drawingSnapshot.create({
             data: {
@@ -196,6 +288,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           return tx.drawing.findFirst({ where: { id } });
         });
       } catch (error) {
+        if (respondWithMountError(res, error)) return;
         if (error instanceof InvalidDocumentWidgetStateError) {
           return res.status(400).json({
             error: "Invalid document widgets",

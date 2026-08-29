@@ -425,15 +425,18 @@ export const documentPageLabel = (page: Page) =>
  * `.text-document-widget` mounts before it has anything to show: the asset
  * fetch, the content fetch, and the off-thread pagination worker all still
  * have to finish before TextDocumentWidget.tsx renders its toolbar, heading,
- * or "Edit Markdown" button. The explicit product state is important here:
- * waiting for a spinner to detach can resolve before that spinner first
- * renders, which only proves its absence, not that pagination completed.
+ * or an "Edit Markdown" button (see its `loaded`/`pages` state). Waiting for
+ * the container's presence is therefore a wait on mount, not the state those
+ * elements depend on. Nor is the spinner's absence sufficient: Playwright
+ * can observe it as detached before React has committed its initial loading
+ * render. The rendered document body is the bounded readiness state the
+ * callers actually require -- NIL-664.
  */
 export const waitForDocumentWidgetLoaded = (page: Page) =>
-  page.locator('.text-document-widget[data-document-page-state="ready"]').waitFor({
-    state: "attached",
-    timeout: 30_000,
-  });
+  page
+    .locator(".text-document-widget__plain, .text-document-widget__markdown")
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
 
 /**
  * Excalidraw keeps an embedded element behind its own canvas until you click

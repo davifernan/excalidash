@@ -15,7 +15,14 @@
 import { reportFailure } from "./compatibility/diagnostics";
 import type { InteractionCapability } from "./capabilities";
 import { fail, ok, type CapabilityFailure, type CapabilityResult } from "./errors";
-import type { ActiveTool, ElementId, InteractionState, ScenePoint, Unsubscribe } from "./types";
+import type {
+  ActiveTool,
+  ArrowStyle,
+  ElementId,
+  InteractionState,
+  ScenePoint,
+  Unsubscribe,
+} from "./types";
 import { packageVersion } from "./version";
 
 export type InteractionApi = {
@@ -71,6 +78,33 @@ export const readInteraction = (appState: Record<string, unknown>): InteractionS
   };
 };
 
+const strokeStyleOf = (value: unknown): ArrowStyle["strokeStyle"] =>
+  value === "dashed" || value === "dotted" ? value : "solid";
+
+const arrowheadOf = (value: unknown): string | null =>
+  typeof value === "string" && value.length > 0 ? value : null;
+
+const roundnessOf = (value: unknown): ArrowStyle["roundness"] =>
+  // `currentItemArrowType` names an arrow's user choice ("round", "sharp",
+  // or "elbow"); an element's `roundness` field is the separate `{ type }`
+  // representation. Arrows use Excalidraw's proportional radius for "round".
+  value === "round" ? { type: 2 } : null;
+
+/** Only the app-state defaults named by Excalidraw's public API cross this seam. */
+export const readArrowStyle = (appState: Record<string, unknown>): ArrowStyle => ({
+  strokeColor:
+    typeof appState.currentItemStrokeColor === "string"
+      ? appState.currentItemStrokeColor
+      : "#1b1b1f",
+  strokeWidth:
+    typeof appState.currentItemStrokeWidth === "number" ? appState.currentItemStrokeWidth : 2,
+  strokeStyle: strokeStyleOf(appState.currentItemStrokeStyle),
+  roundness: roundnessOf(appState.currentItemArrowType),
+  startArrowhead: arrowheadOf(appState.currentItemStartArrowhead),
+  endArrowhead: arrowheadOf(appState.currentItemEndArrowhead),
+  elbowed: appState.currentItemArrowType === "elbow",
+});
+
 const sameTool = (a: ActiveTool, b: ActiveTool): boolean =>
   a.type === b.type &&
   (a.type !== "custom" || b.type !== "custom" || a.customType === b.customType) &&
@@ -91,6 +125,12 @@ export const createInteractionCapability = (
       const api = getApi();
       if (!api) return notReady("interaction.read");
       return ok(readInteraction(api.getAppState()));
+    },
+
+    readArrowStyle() {
+      const api = getApi();
+      if (!api) return notReady("interaction.readArrowStyle");
+      return ok(readArrowStyle(api.getAppState()));
     },
 
     subscribe(listener) {

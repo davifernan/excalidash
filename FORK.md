@@ -25,6 +25,11 @@ fork is being built toward. Roughly, on top of upstream's single-user dashboard,
   [docs/architecture/OWNERSHIP_MODEL.md](docs/architecture/OWNERSHIP_MODEL.md)
 - Board-scoped agent access, invite-by-email account creation, and the smaller
   reliability/UX patches below — some of which are also open upstream as separate pull requests
+- **A runtime-neutral agent seam** — authorized board routes can start and observe an allowlisted
+  profile through a replaceable adapter; the first adapter uses a co-located Herdr Unix socket,
+  while boards remain fully usable when no runtime is connected. The unresolved local-versus-
+  multi-laptop deployment choice is intentionally not made here — see
+  [docs/architecture/AGENT_RUNTIME_ADAPTER.md](docs/architecture/AGENT_RUNTIME_ADAPTER.md)
 
 This document only covers day-to-day hosting and configuration. For what's actually built and
 why, start with `docs/product/` and `docs/architecture/`; Multica project `ExcaliDash Fork` is
@@ -163,6 +168,14 @@ key to `drawing:read`/`drawing:ops` on that one board, refused on every other ro
 the websocket handshake both go through the same check), with an enforced expiry of at most 30
 days. There is no account-wide agent permission as a legacy fallback for this — a board-scoped
 key is scoped, full stop.
+
+`drawing:read` does not expose a mutable scene dump. A caller first creates an immutable run
+mount with `POST /drawings/:drawingId/agent/mounts`, then supplies the returned
+`x-agent-mount-token` to a bounded tool call under
+`POST /drawings/:drawingId/agent/mounts/:runId/tools/:tool`. Every answer names the mount's
+unchanging `revisionId` and a reproducible result hash. See
+[`docs/architecture/AGENT_BOARD_MOUNT.md`](docs/architecture/AGENT_BOARD_MOUNT.md) for the API
+and Context boundary.
 
 ### Session length
 

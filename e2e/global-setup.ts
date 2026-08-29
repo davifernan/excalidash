@@ -73,7 +73,22 @@ const completeAuthOnboardingIfNeeded = async () => {
   }
 };
 
-export default async function globalSetup(_config: FullConfig) {
+function assertMotionEvidenceVideoBoundary(config: FullConfig) {
+  if (process.env.PLAYWRIGHT_MOTION_EVIDENCE !== "true") return;
+  const projects = config.projects.map((project) => ({ name: project.name, video: project.use.video }));
+  const successfulVideoProjects = projects.filter((project) => project.video === "on").map((project) => project.name);
+  if (successfulVideoProjects.length !== 1 || successfulVideoProjects[0] !== "motion-evidence") {
+    throw new Error(`Motion evidence video must be enabled only for motion-evidence; resolved: ${JSON.stringify(projects)}`);
+  }
+  for (const project of projects.filter((project) => project.name !== "motion-evidence")) {
+    if (project.video !== "retain-on-failure") {
+      throw new Error(`Motion evidence must not enable successful video for ${project.name}; got ${project.video}`);
+    }
+  }
+}
+
+export default async function globalSetup(config: FullConfig) {
+  assertMotionEvidenceVideoBoundary(config);
   await waitForBackend();
   await completeAuthOnboardingIfNeeded();
 }

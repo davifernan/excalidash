@@ -58,6 +58,7 @@ export function buildApp(options: { userId?: string } = {}) {
       update: vi.fn(),
       delete: vi.fn(),
     },
+    agentContext: { findMany: vi.fn().mockResolvedValue([]) },
     documentPageView: {
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       findMany: vi.fn().mockResolvedValue([]),
@@ -72,6 +73,7 @@ export function buildApp(options: { userId?: string } = {}) {
     drawingLinkShare: { findMany: vi.fn().mockResolvedValue([]) },
     collection: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     collectionShare: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+    $executeRaw: vi.fn().mockResolvedValue(1),
   };
   prisma.$transaction = vi.fn(async (callback: (tx: any) => unknown) => callback(prisma));
   const emit = vi.fn();

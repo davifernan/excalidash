@@ -76,6 +76,61 @@ export const elementContentSignature = (element: any): string => {
   ].join("|");
 };
 
+/**
+ * Undoes a same-content echo's version bump (NIL-690) without ever discarding
+ * content.
+ *
+ * A remote copy can legitimately win a reconciliation on content alone (see
+ * `reconcileElements`'s own bottom branch, "bookkeeping identical but the
+ * contents differ") even when nothing a person authored actually changed --
+ * a Sticky's bound label is the clear case: its wire form always carries the
+ * canonical reference `fontSize` (`stickyDerivedState.ts`'s
+ * `canonicalizeStickyFontState`), which by construction differs from the
+ * locally *derived* fontSize this client is showing, so any resend of that
+ * label -- triggered by an edit anywhere else on the board, or a save
+ * round-trip, not by this note changing -- adopts the remote element's
+ * bumped `version`/`versionNonce`/`updated` even though re-deriving produces
+ * the exact pixels already on screen. `deriveStickyFontState` puts the
+ * fontSize back; nothing puts the bookkeeping back.
+ *
+ * `elementContentSignature` is deliberately narrow (see its own comment) --
+ * `reconcileElements` only ever consults it inside the branch where version
+ * AND versionNonce already tie, the live-frame-drag case that field list was
+ * built for. This function has no such guarantee: it compares elements whose
+ * bookkeeping can differ for any reason, so treating a signature match as
+ * proof that NOTHING changed is unsound -- an opacity-only edit, or a
+ * boundElements change (the exact relationship NIL-689 is about), has an
+ * identical signature to the untouched element and would be silently
+ * dropped entirely if this returned the previous object wholesale. An
+ * earlier version of this function did exactly that; Hans-Friedrich caught
+ * it as a real, if narrow-window, data-loss bug before it shipped.
+ *
+ * The fix: never substitute the previous *object*. Only ever copy the three
+ * bookkeeping fields backward onto the INCOMING element, whose content is
+ * always kept. A signature false-negative (a real change the narrow field
+ * list cannot see) now degrades to "this element's version looks one flush
+ * older than it should" -- cosmetic, and self-correcting the moment this
+ * client makes its own next edit to it -- never to lost content. Downstream
+ * consumers of bookkeeping (`hasElementChanged`, the NIL-685 fingerprint)
+ * only ever compare it to decide whether to re-broadcast or wait for an
+ * `onChange`; none of them read it as a proxy for "this content is correct."
+ */
+export const preserveUnchangedElements = (
+  elements: readonly any[],
+  previousById: ReadonlyMap<string, any>,
+): any[] =>
+  elements.map((element) => {
+    const previous = previousById.get(element?.id);
+    if (!previous || previous === element) return element;
+    if (elementContentSignature(element) !== elementContentSignature(previous)) return element;
+    return {
+      ...element,
+      version: previous.version,
+      versionNonce: previous.versionNonce,
+      updated: previous.updated,
+    };
+  });
+
 export type ReconcileOptions = {
   /**
    * Elements this client is in the middle of changing.

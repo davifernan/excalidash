@@ -8,8 +8,9 @@ import { bindFollowMode, getFollowInterruptionMessage, type Follower } from "./f
 import { bindCanvasWheelZoom } from "./wheelZoom";
 import { bindSocketRoomLifecycle } from "./socketRoomLifecycle";
 import { getShareLinkToken } from "../../api";
-import { bindSocketCollaborators } from "./socketCollaborators";
+import { bindBoardAgentPresence, bindSocketCollaborators } from "./socketCollaborators";
 import type { Peer } from "./socketCollaborators";
+import type { BoardAgentVisualSnapshot } from "./agentPresenceState";
 import { bindRemoteSelection } from "./remoteSelection";
 import { startCursorChat, type CursorChatController } from "./cursorChat";
 import {
@@ -44,6 +45,7 @@ import type {
 } from "../../integrations/excalidraw/capabilities";
 import { log } from "../../logging";
 import { deriveStickyFontState } from "../../sticky/stickyDerivedState";
+import { preserveUnchangedElements } from "../../utils/sync";
 export type { Peer } from "./socketCollaborators";
 
 /**
@@ -114,6 +116,7 @@ export const useEditorCollaboration = ({
   onDrawingNameChange,
 }: UseEditorCollaborationInput) => {
   const [peers, setPeers] = useState<Peer[]>([]);
+  const [agentPresence, setAgentPresence] = useState<readonly BoardAgentVisualSnapshot[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "reconnecting",
   );
@@ -159,6 +162,10 @@ export const useEditorCollaboration = ({
   const lastCursorEmit = useRef<number>(0);
   const selectionPublisherRef = useRef<((selectedIds: readonly string[]) => void) | null>(null);
   const isSyncing = useRef(false);
+  // What `handleCanvasChange` (useEditorCanvasHandlers.ts) waits for to know
+  // the guard above is safe to release -- see the reset site below (NIL-685)
+  // for why a fixed delay cannot answer that question.
+  const pendingSyncFingerprintRef = useRef<Map<string, string> | null>(null);
   const pendingRemoteElementsRef = useRef<Map<string, any>>(new Map());
   const pendingRemoteFilesRef = useRef<Record<string, any>>({});
   const pendingRemoteElementOrderRef = useRef<string[] | null>(null);
@@ -195,6 +202,7 @@ export const useEditorCollaboration = ({
         connected: boolean;
         roomJoined: boolean;
         dropTransport: () => void;
+        receiveTestEvent: (event: string, payload: unknown) => void;
       };
       Object.defineProperties(socketTestStatus, {
         roomJoined: {
@@ -205,6 +213,12 @@ export const useEditorCollaboration = ({
         dropTransport: {
           enumerable: false,
           value: () => socket.io.engine?.close(),
+        },
+        receiveTestEvent: {
+          enumerable: false,
+          value: (event: string, payload: unknown) => {
+            for (const listener of socket.listeners(event)) listener(payload);
+          },
         },
       });
       const updateSocketTestStatus = () => {
@@ -237,6 +251,7 @@ export const useEditorCollaboration = ({
       },
       decorateName: chat.decorateName,
     });
+    const boardAgents = bindBoardAgentPresence({ socket, onChange: setAgentPresence });
     const remoteSelection = bindRemoteSelection({
       socket,
       drawingId,
@@ -330,6 +345,7 @@ export const useEditorCollaboration = ({
       // arrives, and the same presence returns wearing what it used to say.
       cursorChat.pruneTo([]);
       collaborators.reset();
+      boardAgents.reset();
       remoteSelection.reset();
       workshopTimer.reset();
       presenterMode.reset();
@@ -351,6 +367,8 @@ export const useEditorCollaboration = ({
       }
       remoteFlushRafIdRef.current = null;
       remoteFlushScheduledRef.current = false;
+      pendingSyncFingerprintRef.current = null;
+      isSyncing.current = false;
     };
     const unbindSocketRoomLifecycle = bindSocketRoomLifecycle({
       socket,
@@ -409,9 +427,25 @@ export const useEditorCollaboration = ({
         return;
       }
       const protectedIds = heldElementIds(interactionState.value, latestElementsRef.current);
+      // Snapshot of what was actually on screen before this flush touches
+      // anything -- see the fingerprint-filtering comment below (NIL-685)
+      // for why a fingerprint must only be built from elements that this
+      // flush actually moved.
+      const previousElementsById = new Map(latestElementsRef.current.map((el: any) => [el.id, el]));
       isSyncing.current = true;
+      let appliedSceneMutation = false;
+      let finalElementsById: Map<string, any> | null = null;
+      let changedElementsFingerprint: Map<string, string> | null = null;
+      // Declared here, not `const` inside `try`, so the `finally` block below
+      // (which builds the fingerprint from it) can still see it -- a bare
+      // `const` there is out of scope in `finally` and throws a
+      // `ReferenceError` that silently aborts this rAF callback, leaving
+      // `isSyncing` stuck at `true` forever with no fingerprint to release it
+      // (caught directly, NIL-685: this exact bug shipped in an earlier
+      // version of this fix and reproduced as the guard never releasing).
+      let pendingElements: any[] = [];
       try {
-        const pendingElements = Array.from(pendingRemoteElementsRef.current.values());
+        pendingElements = Array.from(pendingRemoteElementsRef.current.values());
         pendingRemoteElementsRef.current.clear();
         const incomingFiles = pendingRemoteFilesRef.current || {};
         pendingRemoteFilesRef.current = {};
@@ -447,7 +481,10 @@ export const useEditorCollaboration = ({
           }
         }
         const renderedElements = mergedElements
-          ? deriveStickyFontState(mergedElements, protectedIds)
+          ? preserveUnchangedElements(
+              deriveStickyFontState(mergedElements, protectedIds),
+              previousElementsById,
+            )
           : mergedElements;
         let sceneApplied = true;
         if (filesAdded && mergedElements && sceneUpdate && "elements" in sceneUpdate) {
@@ -481,23 +518,120 @@ export const useEditorCollaboration = ({
               pendingRemoteElementOrderRef.current = elementOrder;
             }
             sceneApplied = false;
+          } else {
+            appliedSceneMutation = true;
           }
         }
         if (filesAdded && sceneApplied && mergedElements) {
           if (elementOrder) {
             lastSyncedElementOrderSigRef.current = computeElementOrderSig(mergedElements);
           }
+          // Record the version/signature of the element AS APPLIED
+          // (post-derivation), not the raw incoming one. `hasElementChanged`
+          // (useEditorElementTracking.ts, consulted by broadcastChanges) also
+          // compares a content signature, and that signature reflects
+          // whatever Excalidraw's own onChange reports next -- the locally
+          // re-derived value (e.g. a Sticky note's fitted font size), not the
+          // raw wire payload. Recording the raw element left that signature
+          // permanently mismatched against the derived one, so the correctly
+          // -derived value looked "changed" on every subsequent onChange and
+          // got broadcast right back out -- the deterministic half of
+          // NIL-685's echo loop (the timing gap below is the other half).
+          const finalElements = renderedElements ?? mergedElements;
+          finalElementsById = new Map(finalElements.map((el: any) => [el.id, el]));
           pendingElements.forEach((el: any) => {
-            recordElementVersion(el);
+            recordElementVersion(finalElementsById!.get(el.id) ?? el);
           });
-          latestElementsRef.current = renderedElements ?? mergedElements;
+          latestElementsRef.current = finalElements;
         }
         if (shouldUpdateFiles && filesAdded && sceneApplied) {
           latestFilesRef.current = nextFiles;
           lastSyncedFilesRef.current = nextFiles;
         }
+        if (appliedSceneMutation) {
+          // Only elements this flush actually moved go into the fingerprint
+          // (compared against `previousElementsById`, the pre-flush
+          // snapshot) -- not every id in `pendingElements`. `reconcileElements`
+          // can decide the LOCAL side already wins for some or all of a
+          // batch (its own version is newer than the incoming one, e.g.
+          // because this client kept editing while the remote update was in
+          // flight); `scene.apply()` still runs a `replaceDocument`, but
+          // Excalidraw has nothing new to commit and never fires a
+          // corresponding `onChange` at all. A fingerprint built from the
+          // full batch would then wait for a state that was never going to
+          // arrive, and every one of THIS client's own subsequent local
+          // edits -- typed or dragged while that dangling fingerprint sat
+          // there -- would fail to match it (confirmed directly, NIL-685:
+          // reproduced as a two-context ambient-drag test timing out because
+          // the dragging client itself stopped broadcasting its own drag,
+          // not because the guard leaked in the other direction).
+          const fingerprint = new Map<string, string>();
+          for (const el of pendingElements) {
+            const applied = finalElementsById?.get(el.id) ?? el;
+            const appliedVersion = `${applied?.version ?? 0}:${applied?.versionNonce ?? 0}`;
+            const previous = previousElementsById.get(el.id);
+            const previousVersion = previous
+              ? `${previous.version ?? 0}:${previous.versionNonce ?? 0}`
+              : null;
+            if (previousVersion === appliedVersion) continue;
+            fingerprint.set(el.id, appliedVersion);
+          }
+          if (fingerprint.size > 0) changedElementsFingerprint = fingerprint;
+        }
       } finally {
-        isSyncing.current = false;
+        // `scene.apply()` returning does not mean Excalidraw's own `onChange`
+        // for that applied update has fired yet -- it goes through
+        // `updateScene()` -> `setState()`, committed on a later render, not
+        // synchronously inside `apply()`. Resetting the guard here,
+        // synchronously, closed the window before that `onChange` arrived:
+        // `handleCanvasChange` (useEditorCanvasHandlers.ts) would then see
+        // `isSyncing.current === false` for a change this client did not
+        // make, treat it as a local edit, and re-broadcast it (confirmed
+        // directly, NIL-685: `deriveStickyFontState` computed the correct
+        // value every cycle, `scene.apply` reported `ok:true` every cycle,
+        // and `handleCanvasChange` fired with `isSyncing:false` immediately
+        // after each one).
+        //
+        // A fixed delay (N animation frames) cannot fix this correctly: too
+        // short and the race reopens under load (this is what shipped as a
+        // partial fix during the 0.14 investigation and still failed
+        // ~20-25% of runs); too long and a genuine local edit typed in that
+        // window is silently dropped. Waiting for a *fact* instead of a
+        // *guess* removes the choice: record the version/versionNonce this
+        // client expects to see echoed back, per updated element, and let
+        // `handleCanvasChange` release the guard itself the moment an
+        // `onChange` reports exactly that state -- however many frames that
+        // takes.
+        if (changedElementsFingerprint) {
+          const fingerprint = changedElementsFingerprint;
+          pendingSyncFingerprintRef.current = fingerprint;
+          window.setTimeout(() => {
+            if (pendingSyncFingerprintRef.current === fingerprint) {
+              pendingSyncFingerprintRef.current = null;
+              isSyncing.current = false;
+              log.warn(
+                "[Editor] isSyncing guard force-cleared after timeout -- expected onChange never arrived (NIL-685 fallback)",
+                {},
+              );
+            }
+          }, 2000);
+        } else if (pendingSyncFingerprintRef.current === null) {
+          // This cycle had nothing of its own to wait for (Hans-Friedrich
+          // finding on PR #249, Medium/Low: this branch previously ran
+          // unconditionally, in two separately-worded but identical copies,
+          // whenever there was no NEW fingerprint to install). But
+          // `pendingSyncFingerprintRef` may already hold one from an EARLIER,
+          // still-unconfirmed flush cycle -- this function overwrites
+          // `isSyncing.current = true` unconditionally at its own start,
+          // before knowing whether THIS cycle will have work of its own.
+          // That earlier wait is still legitimate: its own `onChange` has
+          // not arrived yet, and clearing `isSyncing`/the fingerprint here
+          // just because this cycle had nothing to add would cancel it --
+          // reopening the exact race this guard exists to close, for that
+          // earlier element, one interleaving later. Only reset when there
+          // is truly nothing outstanding.
+          isSyncing.current = false;
+        }
       }
       const moreElements = pendingRemoteElementsRef.current.size > 0;
       const moreFiles = Object.keys(pendingRemoteFilesRef.current || {}).length > 0;
@@ -616,6 +750,7 @@ export const useEditorCollaboration = ({
       cursorChatRef.current = null;
       setCursorChatDraft(null);
       collaborators.dispose();
+      boardAgents.dispose();
       remoteSelection.dispose();
       workshopTimer.dispose();
       presenterMode.dispose();
@@ -738,6 +873,7 @@ export const useEditorCollaboration = ({
 
   return {
     peers,
+    agentPresence,
     connectionStatus,
     cursorChatRef,
     cursorChatDraft,
@@ -749,6 +885,7 @@ export const useEditorCollaboration = ({
     socketRef,
     roomJoinedRef,
     isSyncing,
+    pendingSyncFingerprintRef,
     onPointerUpdate,
     onSelectionChange,
     inviteHere,

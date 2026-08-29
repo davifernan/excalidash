@@ -1,5 +1,5 @@
 import { buildElements } from "./elements";
-import type { BoundElementRef, ElementId } from "./types";
+import type { ArrowStyle, BoundElementRef, ElementId } from "./types";
 
 export type BoundBox = {
   readonly id: string;
@@ -25,7 +25,7 @@ export function createBoundArrow(
   endBox: BoundBox,
   start: ScenePoint,
   end: ScenePoint,
-  style: { readonly strokeColor: string; readonly strokeWidth: number },
+  style: Pick<ArrowStyle, "strokeColor" | "strokeWidth"> & Partial<ArrowStyle>,
 ): any {
   const [, , arrow] = buildElements(
     [
@@ -51,15 +51,26 @@ export function createBoundArrow(
 
   const dx = end.x - start.x;
   const dy = end.y - start.y;
+  // updateScene preserves supplied elbow points; unlike an interactive drag it
+  // does not reroute this freshly inserted bound arrow. Seed an orthogonal
+  // route ourselves so the elbow choice is visible immediately.
+  const points =
+    style.elbowed && dx !== 0 && dy !== 0
+      ? [
+          [0, 0],
+          [dx, 0],
+          [dx, dy],
+        ]
+      : [
+          [0, 0],
+          [dx, dy],
+        ];
   return {
     ...arrow,
     index: null,
     x: start.x,
     y: start.y,
-    points: [
-      [0, 0],
-      [dx, dy],
-    ],
+    points,
     width: Math.abs(dx),
     height: Math.abs(dy),
   };
