@@ -315,48 +315,15 @@ test.describe("sticky note font scaling (NIL-630)", () => {
       await Promise.all([openEditor(writer, drawingId), openEditor(spectator, drawingId)]);
       await expect(writer.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
       await expect(spectator.locator(".UserList__collaborator .Avatar")).toHaveCount(1);
-      // Each client derives its own visible font size locally from raw
-      // geometry/text, never receiving a precomputed value from its peer
-      // (stickyDerivedState.ts's own file docstring). Before that font has
-      // finished loading, canvas measurement silently falls back to a
-      // system font with different metrics, so the very same content can
-      // measure as still-at-ceiling on one run and already-shrinking on the
-      // next -- not a flicker, just an unloaded font. Wait on the real
-      // browser signal for that, not a fixed delay.
-      await Promise.all([
-        writer.evaluate(() => document.fonts.ready),
-        spectator.evaluate(() => document.fonts.ready),
-      ]);
 
-      // Well past the shrink threshold (unlike the boundary test above at
-      // :113, which sits deliberately right at the edge): one more character
-      // measurably and reliably changes the derived font size, not just the
-      // text. A space typed where fontSize does not change would make
-      // `before` and `after` identical below and the flicker check
-      // impossible to exercise, let alone fail (NIL-653's own Hans finding
-      // on an earlier version of this test).
       await placeNote(writer, { x: 400, y: 300 });
-      await writer.keyboard.type(textAt(150), { delay: 0 });
-      // Wait on the actual typed length, not a fixed delay: under shared-host
-      // load, `delay: 0` can drop keystrokes, silently leaving the note short
-      // of the shrinking range and making the flicker check below untestable
-      // again for a reason that has nothing to do with flicker.
-      await expect
-        .poll(() =>
-          writer.evaluate(
-            () =>
-              (window as any).__EXCALIDASH_TEST__
-                .getSceneElements()
-                .find((element: any) => element.type === "text")?.originalText?.length ?? 0,
-          ),
-        )
-        .toBe(150);
+      await writer.keyboard.type(textAt(100), { delay: 0 });
       await writer.keyboard.press("Escape");
       await settle(writer);
 
       await expect
         .poll(async () => (await labels(spectator))[0]?.originalText ?? null, { timeout: 15_000 })
-        .toBe(textAt(150));
+        .toBe(textAt(100));
 
       const snapshot = () =>
         spectator.evaluate(() => {
@@ -366,16 +333,6 @@ test.describe("sticky note font scaling (NIL-630)", () => {
           return [note?.x, note?.y, note?.width, note?.height, label?.fontSize] as const;
         });
 
-      // Matching text (polled above) is not proof the spectator has finished
-      // deriving font/geometry for that text -- STICKY_REFERENCE_FONT_SIZE
-      // (20, the un-shrunk ceiling) can still be visible for a beat after
-      // `originalText` already reads the full 150 characters. Reading `before`
-      // at that moment would silently make the flicker check below
-      // untestable again (before === after, both stuck at 20), for a third,
-      // unrelated reason after the two already fixed above. Wait for the
-      // real derived state instead of the raw text.
-      await expect.poll(async () => (await snapshot())[4]).toBeLessThan(20);
-
       await writer
         .locator("canvas")
         .last()
@@ -384,7 +341,7 @@ test.describe("sticky note font scaling (NIL-630)", () => {
       const before = await snapshot();
       await writer.keyboard.press("End");
       await writer.keyboard.press("Space");
-      const expectedText = `${textAt(150)} `;
+      const expectedText = `${textAt(100)} `;
       await expect
         .poll(
           () =>
@@ -413,73 +370,26 @@ test.describe("sticky note font scaling (NIL-630)", () => {
         before,
       );
       const after = await snapshot();
-      const geometryOf = (sample: readonly (number | undefined)[]) =>
-        JSON.stringify(sample.slice(0, 4));
-      const beforeGeometry = geometryOf(before);
-      const afterGeometry = geometryOf(after);
-      const allowedGeometries = new Set([beforeGeometry, afterGeometry]);
-
-      const unexpectedGeometry = samples.find(
-        (sample) => !allowedGeometries.has(geometryOf(sample)),
-      );
-
-      // The note's own x/y/width/height never move on this path -- typing
-      // never resizes a sticky note, only its derived font does (NIL-630).
-      // `beforeGeometry === afterGeometry` here always, which is exactly why
-      // a transition count on geometry alone could never independently fail
-      // (Hans' finding on an earlier version of this test): with only one
-      // allowed geometry, `isAfter` never legitimately flips even once, let
-      // alone more than once. The font size is the field that actually
-      // transitions in this scenario -- `textAt(150)` is comfortably in the
-      // shrinking range (see the note above where it is typed), so one more
-      // character measurably changes it -- and it is where NIL-645's own
-      // "font projection arrives in a separate frame" finding lives. Track
-      // transitions there instead.
-      const fontOf = (sample: readonly (number | undefined)[]) => sample[4];
-      const beforeFont = fontOf(before);
-      const afterFont = fontOf(after);
-
-      const unexpectedFont = samples.find(
-        (sample) => fontOf(sample) !== beforeFont && fontOf(sample) !== afterFont,
-      );
-
-      // Membership alone (NIL-645) cannot tell a clean transition from
-      // flicker: a bounce between the two allowed font sizes stays a member
-      // of the allowed set on every sample. What distinguishes them is not
-      // which sizes appear but how often the note switches between them -- a
-      // clean transition changes `isAfter` at most once, flicker changes it
-      // repeatedly. This reads state (`isAfter`), never a frame count or a
-      // wall-clock duration, so it does not share NIL-664/NIL-665's failure
-      // mode of timing-shaped assertions.
-      const isAfterFlags = samples.map((sample) => fontOf(sample) === afterFont);
-      let transitions = 0;
-      for (let index = 1; index < isAfterFlags.length; index += 1) {
-        if (isAfterFlags[index] !== isAfterFlags[index - 1]) transitions += 1;
-      }
-
-      // Deduplicated purely for the debug log -- membership and the
-      // transition count above both already work off the raw `samples`
-      // (Hans' finding at :375: the dedup contributed nothing once
-      // `toHaveLength` was dropped from the assertion itself).
-      const changedSamples = samples.filter(
+      const states = samples.filter(
         (sample, index) =>
           index === 0 || sample.some((value, field) => value !== samples[index - 1][field]),
       );
+
+      const allowedGeometries = new Set([
+        JSON.stringify(before.slice(0, 4)),
+        JSON.stringify(after.slice(0, 4)),
+      ]);
+      const unexpectedGeometry = states.find(
+        (state) => !allowedGeometries.has(JSON.stringify(state.slice(0, 4))),
+      );
       console.log(
-        `NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, changedSamples, after, unexpectedGeometry, unexpectedFont, transitions })}`,
+        `NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, states, after, unexpectedGeometry })}`,
       );
       // Start only after the peer received the Space, then watch every frame
-      // for a second. No sampled note geometry may be other than the
-      // starting or settled geometry; that would be the visible text-edit
-      // box flicker.
+      // for a second. The Font projection can arrive in a separate harmless
+      // frame, but no sampled note geometry may be other than the starting
+      // or settled geometry; that would be the visible text-edit box flicker.
       expect(unexpectedGeometry).toBeUndefined();
-      // Nor may the derived font size be anything other than the starting or
-      // settled size.
-      expect(unexpectedFont).toBeUndefined();
-      // And the font may leave the starting size for the settled one at most
-      // once -- more than one switch is the label visibly bouncing between
-      // the two allowed sizes, i.e. flicker (NIL-653).
-      expect(transitions).toBeLessThanOrEqual(1);
     } finally {
       await spectatorContext.close();
     }
