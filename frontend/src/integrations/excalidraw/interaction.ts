@@ -85,9 +85,9 @@ const arrowheadOf = (value: unknown): string | null =>
   typeof value === "string" && value.length > 0 ? value : null;
 
 const roundnessOf = (value: unknown): ArrowStyle["roundness"] =>
-  // AppState names the user choice ("round" or "sharp"); an element's
-  // `roundness` field is the separate `{ type }` representation. Arrows use
-  // Excalidraw's proportional radius for the former.
+  // `currentItemArrowType` names an arrow's user choice ("round", "sharp",
+  // or "elbow"); an element's `roundness` field is the separate `{ type }`
+  // representation. Arrows use Excalidraw's proportional radius for "round".
   value === "round" ? { type: 2 } : null;
 
 /** Only the app-state defaults named by Excalidraw's public API cross this seam. */
@@ -99,7 +99,7 @@ export const readArrowStyle = (appState: Record<string, unknown>): ArrowStyle =>
   strokeWidth:
     typeof appState.currentItemStrokeWidth === "number" ? appState.currentItemStrokeWidth : 2,
   strokeStyle: strokeStyleOf(appState.currentItemStrokeStyle),
-  roundness: roundnessOf(appState.currentItemRoundness),
+  roundness: roundnessOf(appState.currentItemArrowType),
   startArrowhead: arrowheadOf(appState.currentItemStartArrowhead),
   endArrowhead: arrowheadOf(appState.currentItemEndArrowhead),
   elbowed: appState.currentItemArrowType === "elbow",
