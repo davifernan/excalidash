@@ -128,6 +128,18 @@ export class AgentRuntimeGateway {
     };
   }
 
+  assertRunCapability(
+    params: {
+      drawingId: string;
+      access: DrawingAccess;
+      principal: DrawingPrincipal;
+      runCapability: string;
+    },
+    requiredCapability: AgentRuntimeCapability,
+  ): void {
+    this.resolveRun({ ...params, requiredCapability });
+  }
+
   async status(params: {
     drawingId: string;
     access: DrawingAccess;

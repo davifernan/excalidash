@@ -19,6 +19,7 @@ const startSchema = z.object({
 
 const capabilitySchema = z.object({ runCapability: z.string().min(1).max(16_384) });
 const promptSchema = capabilitySchema.extend({ text: z.string().trim().min(1).max(20_000) });
+export const AGENT_EVENT_REAUTHORIZE_INTERVAL_MS = 20_000;
 
 const respondRuntimeError = (res: express.Response, error: unknown) => {
   if (!(error instanceof AgentRuntimeError)) {
@@ -180,30 +181,44 @@ export const registerDrawingRuntimeRoutes = (
       }
       let subscription: Awaited<ReturnType<typeof agentRuntimeGateway.subscribe>> | null = null;
       let keepAlive: NodeJS.Timeout | null = null;
+      let streamClosed = false;
       const closeStream = () => {
+        if (streamClosed) return;
+        streamClosed = true;
         if (keepAlive) clearInterval(keepAlive);
         subscription?.close();
       };
+      const endStream = () => {
+        closeStream();
+        if (!res.writableEnded) res.end();
+      };
       res.once("close", closeStream);
       try {
-        const params = {
+        const runParams = {
           drawingId: req.params.id,
           access: authorized.access,
           principal: authorized.principal,
           runCapability: parsed.data.runCapability,
         };
-        const current = await agentRuntimeGateway.status(params);
+        const current = await agentRuntimeGateway.status(runParams);
         const pendingEvents: unknown[] = [];
         let streamReady = false;
-        subscription = await agentRuntimeGateway.subscribe(params, (event) => {
-          if (!streamReady) {
+        let reauthorizationInFlight = false;
+        const flushPendingEvents = () => {
+          if (!streamReady || streamClosed || res.writableEnded) return;
+          for (const event of pendingEvents.splice(0)) {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+          }
+        };
+        subscription = await agentRuntimeGateway.subscribe(runParams, (event) => {
+          if (!streamReady || reauthorizationInFlight) {
             pendingEvents.push(event);
-          } else if (!res.writableEnded) {
+          } else if (!streamClosed && !res.writableEnded) {
             res.write(`data: ${JSON.stringify(event)}\n\n`);
           }
         });
         void subscription.closed.then(() => {
-          if (!res.writableEnded) res.end();
+          if (!res.writableEnded) endStream();
         });
         if (res.destroyed) {
           subscription.close();
@@ -216,10 +231,28 @@ export const registerDrawingRuntimeRoutes = (
         res.flushHeaders();
         res.write(`data: ${JSON.stringify(current)}\n\n`);
         streamReady = true;
-        for (const event of pendingEvents) res.write(`data: ${JSON.stringify(event)}\n\n`);
+        flushPendingEvents();
         keepAlive = setInterval(() => {
-          if (!res.writableEnded) res.write(": keep-alive\n\n");
-        }, 20_000);
+          if (reauthorizationInFlight || streamClosed || res.writableEnded) return;
+          reauthorizationInFlight = true;
+          void getDrawingAccess({
+            prisma,
+            principal: authorized.principal,
+            drawingId: req.params.id,
+            shareToken: getShareToken(req),
+          })
+            .then((access) => {
+              agentRuntimeGateway.assertRunCapability({ ...runParams, access }, "agent:read");
+              reauthorizationInFlight = false;
+              flushPendingEvents();
+              if (!streamClosed && !res.writableEnded) res.write(": keep-alive\n\n");
+            })
+            .catch(() => {
+              reauthorizationInFlight = false;
+              pendingEvents.length = 0;
+              endStream();
+            });
+        }, AGENT_EVENT_REAUTHORIZE_INTERVAL_MS);
       } catch (error) {
         if (!res.headersSent) return respondRuntimeError(res, error);
         res.end();
