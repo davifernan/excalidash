@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { NotificationHost, notify } from "../../notifications";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { ElementStackingBoundary } from "../../integrations/excalidraw/ElementStackingBoundary";
@@ -34,6 +34,7 @@ import {
 import "./editorChrome.css";
 import { elementViewportBounds, isOnlySelectedElement } from "./floatingToolbarGeometry";
 import { readViewport } from "../../integrations/excalidraw/viewport";
+import { InstructionApprovalToolbar } from "./InstructionApprovalToolbar";
 
 type EditorViewProps = {
   id?: string;
@@ -103,6 +104,7 @@ type EditorViewProps = {
   onToggleComments: () => void;
   isAgentRuntimeOpen: boolean;
   onToggleAgentRuntime: () => void;
+  onOpenAgentRuntime: () => void;
   /**
    * Direction-hint arrows for collaborators whose cursor is currently
    * outside the viewport (NIL-590) -- same free-floating overlayRoot()
@@ -176,8 +178,13 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onToggleComments,
   isAgentRuntimeOpen,
   onToggleAgentRuntime,
+  onOpenAgentRuntime,
 }) => {
   const excalidrawRoot = useExcalidrawRoot(editorContainerRef);
+  const [approvalScene, setApprovalScene] = useState<{ elements: readonly any[]; appState: any }>({
+    elements: [],
+    appState: null,
+  });
   // Zen mode is handled by Excalidraw itself for everything rendered through
   // its own slots (MainMenu, renderTopRightUI both carry
   // `zen-mode-transition` already); this component no longer has a floating
@@ -260,7 +267,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
             theme={theme === "dark" ? "dark" : "light"}
             langCode={langCode}
             initialData={initialData}
-            onChange={onCanvasChange}
+            onChange={(elements, appState, files) => {
+              setApprovalScene({ elements, appState });
+              onCanvasChange(elements, appState, files);
+            }}
             onPointerUpdate={onPointerUpdate}
             onLibraryChange={onLibraryChange}
             excalidrawAPI={onSetExcalidrawAPI}
@@ -369,6 +379,14 @@ export const EditorView: React.FC<EditorViewProps> = ({
             timer={workshopTimer}
             onStartVote={voting.openCompose}
             onOpenComments={onToggleComments}
+          />
+          <InstructionApprovalToolbar
+            drawingId={id}
+            canEdit={canEdit}
+            host={excalidrawRoot}
+            elements={approvalScene.elements}
+            appState={approvalScene.appState}
+            onOpenDispatch={onOpenAgentRuntime}
           />
           <ConnectionStatusBadge container={excalidrawRoot} status={connectionStatus} />
           <PresentationOverlay container={excalidrawRoot} frames={frames} presenting={presenting} />

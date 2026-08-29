@@ -114,6 +114,9 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
               },
             },
           },
+          agentSemanticRelations: {
+            select: { contextId: true, fromElementId: true, toElementId: true, kind: true },
+          },
         },
       });
       if (!drawing) throw new AgentMountError("MOUNT_NOT_FOUND", "Drawing does not exist.");
@@ -134,6 +137,22 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
           sizeBytes: asset.blob.sizeBytes,
         }))
         .sort((left: any, right: any) => left.assetId.localeCompare(right.assetId));
+      // Relations are an explicit server-side semantic graph. Invalid historic
+      // rows are not silently reinterpreted as a permissive edge; later
+      // approval compilation will reject them, while the revision still makes
+      // their exact stored state auditable.
+      const semanticRelations = (drawing.agentSemanticRelations ?? [])
+        .map((relation: any) => ({
+          contextId: relation.contextId,
+          fromElementId: relation.fromElementId,
+          toElementId: relation.toElementId,
+          kind: relation.kind,
+        }))
+        .sort((left: any, right: any) =>
+          `${left.contextId}\u0000${left.kind}\u0000${left.fromElementId}\u0000${left.toElementId}`.localeCompare(
+            `${right.contextId}\u0000${right.kind}\u0000${right.fromElementId}\u0000${right.toElementId}`,
+          ),
+        );
       const parsedAppState = parseJson<Record<string, unknown>>(drawing.appState, {});
       const parsedFiles = parseJson<Record<string, unknown>>(drawing.files, {});
       const contentHash = sha256Json({
@@ -141,6 +160,7 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
         appState: parsedAppState,
         files: parsedFiles,
         contextMap,
+        semanticRelations,
         assets,
       });
       expectedContentHash = contentHash;
@@ -161,6 +181,7 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
           ),
           files: encodeSnapshotField(canonicalJson(parsedFiles), config.enableSnapshotCompression),
           contextMap: canonicalJson(contextMap),
+          semanticRelations: canonicalJson(semanticRelations),
           assets: { create: assets },
         },
       });
@@ -288,7 +309,7 @@ const loadMountedScene = async (params: {
   };
 };
 
-const contextIndex = (elements: readonly Element[], contexts: readonly ContextSnapshot[]) => {
+export const contextIndex = (elements: readonly Element[], contexts: readonly ContextSnapshot[]) => {
   const byId = new Map(elements.map((element) => [element.id as string, element]));
   const contextByFrame = new Map(contexts.map((context) => [context.frameElementId, context.id]));
   const cache = new Map<string, string | null>();
