@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import type { Mailer } from "../mail/mailer";
 import { PrismaClient } from "../generated/client";
+import { registerAdminGuestCapabilityRoutes } from "./adminGuestCapabilityRoutes";
 import { registerAdminImpersonationRoutes } from "./adminImpersonationRoutes";
 import { registerAdminSettingsRoutes } from "./adminSettingsRoutes";
 import { registerAdminUserRoutes } from "./adminUserRoutes";
@@ -78,4 +79,5 @@ export const registerAdminRoutes = (deps: RegisterAdminRoutesDeps) => {
   registerAdminSettingsRoutes(deps);
   registerAdminUserRoutes(deps);
   registerAdminImpersonationRoutes(deps);
+  registerAdminGuestCapabilityRoutes(deps);
 };

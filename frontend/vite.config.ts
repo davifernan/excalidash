@@ -35,6 +35,12 @@ export default defineConfig(({ command }) => {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
       'import.meta.env.VITE_APP_BUILD_LABEL': JSON.stringify(buildLabel),
       'import.meta.env.VITE_EXCALIDRAW_VERSION': JSON.stringify(readExcalidrawVersion()),
+      // NIL-649: unset/anything but "true" everywhere a real image gets
+      // built -- see Editor.tsx's own comment on the harness effect for why
+      // this exists and stays off by default.
+      'import.meta.env.VITE_E2E_HARNESS_ENABLED': JSON.stringify(
+        process.env.VITE_E2E_HARNESS_ENABLED === "true",
+      ),
     },
     optimizeDeps: {
       esbuildOptions: {

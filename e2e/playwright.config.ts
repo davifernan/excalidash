@@ -121,8 +121,23 @@ const SOAK_SPECS = ["**/team-readiness.spec.ts"];
 const TEAM_ACCEPTANCE_SPECS = ["**/team-acceptance.spec.ts"];
 
 /**
+ * built-image-smoke.spec.ts (NIL-649) is isolated for a different reason
+ * than every other project above: it does not need its own backend/database
+ * to avoid cross-test interference, it needs a frontend that was actually
+ * built with `vite build` and served by nginx, with
+ * `VITE_E2E_HARNESS_ENABLED=true` so the E2E harness exists at all (see
+ * Editor.tsx's harness effect). Running it under `chromium` against the
+ * ordinary dev server would either hang forever waiting for a harness that
+ * `import.meta.env.DEV` already provides for free, or silently stop testing
+ * what it exists to test. Only ever invoked explicitly
+ * (`--project=built-image`) against a container
+ * docker-compose.e2e-smoke.yml built and started.
+ */
+const BUILT_IMAGE_SMOKE_SPECS = ["**/built-image-smoke.spec.ts"];
+
+/**
  * Playwright configuration for E2E browser testing
- * 
+ *
  * Environment variables:
  * - BASE_URL: Frontend URL (default: http://localhost:6767)
  * - API_URL: Backend API URL (default: http://localhost:8000)
@@ -216,7 +231,12 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
       },
-      testIgnore: [...REAL_AUTH_SPECS, ...SOAK_SPECS, ...TEAM_ACCEPTANCE_SPECS],
+      testIgnore: [
+        ...REAL_AUTH_SPECS,
+        ...SOAK_SPECS,
+        ...TEAM_ACCEPTANCE_SPECS,
+        ...BUILT_IMAGE_SMOKE_SPECS,
+      ],
     },
     {
       // Isolated on purpose: see REAL_AUTH_SPECS above. Only ever invoked
@@ -262,6 +282,15 @@ export default defineConfig({
         viewport: { width: 1280, height: 720 },
       },
       testMatch: TEAM_ACCEPTANCE_SPECS,
+    },
+    {
+      // Isolated on purpose: see BUILT_IMAGE_SMOKE_SPECS above.
+      name: "built-image",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: BUILT_IMAGE_SMOKE_SPECS,
     },
     {
       name: "firefox",
