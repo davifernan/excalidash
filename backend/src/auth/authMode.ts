@@ -17,7 +17,6 @@ export const createAuthModeService = (
 ) => {
   const authEnabledTtlMs = options?.authEnabledTtlMs ?? 5000;
   let authEnabledCache: AuthEnabledCache | null = null;
-  let systemConfigUpsertInFlight: Promise<any> | null = null;
   let bootstrapUserUpsertInFlight: Promise<any> | null = null;
 
   const getSystemConfigAuthEnabled = async () => {
@@ -28,8 +27,7 @@ export const createAuthModeService = (
   };
 
   const ensureSystemConfig = async () => {
-    if (systemConfigUpsertInFlight) return systemConfigUpsertInFlight;
-    const operation = prisma.systemConfig.upsert({
+    return prisma.systemConfig.upsert({
       where: { id: DEFAULT_SYSTEM_CONFIG_ID },
       update: {},
       create: {
@@ -43,12 +41,6 @@ export const createAuthModeService = (
         authLoginRateLimitMax: 20,
       },
     });
-    systemConfigUpsertInFlight = operation;
-    const clearSystemConfigUpsert = () => {
-      if (systemConfigUpsertInFlight === operation) systemConfigUpsertInFlight = null;
-    };
-    void operation.then(clearSystemConfigUpsert, clearSystemConfigUpsert);
-    return operation;
   };
 
   const getAuthEnabled = async (): Promise<boolean> => {

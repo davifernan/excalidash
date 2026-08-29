@@ -76,23 +76,6 @@ describe("authMode service", () => {
     expect(upsert).toHaveBeenCalledTimes(1);
   });
 
-  it("shares the missing-config upsert across concurrent local-auth requests", async () => {
-    const prisma = createPrismaMock();
-    const findUnique = prisma.systemConfig.findUnique as unknown as ReturnType<typeof vi.fn>;
-    const upsert = prisma.systemConfig.upsert as unknown as ReturnType<typeof vi.fn>;
-    findUnique.mockResolvedValue(null);
-    upsert.mockResolvedValue({ authEnabled: false });
-    const service = createAuthModeService(prisma);
-
-    await Promise.all([
-      service.getAuthEnabled(),
-      service.getAuthEnabled(),
-      service.getAuthEnabled(),
-    ]);
-
-    expect(upsert).toHaveBeenCalledTimes(1);
-  });
-
   it("creates/bootstrap user via upsert", async () => {
     const prisma = createPrismaMock();
     const userUpsert = prisma.user.upsert as unknown as ReturnType<typeof vi.fn>;
