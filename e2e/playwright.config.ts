@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
+import { videoModeForProject } from "./motion-evidence-config.cjs";
 
 // Overridable so a run can stand beside a live instance instead of taking its
 // port out from under it. A dev server that grabs the port production is on
@@ -221,7 +222,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 720 },
-        video: MOTION_EVIDENCE ? "on" : "retain-on-failure",
+        video: videoModeForProject("motion-evidence", MOTION_EVIDENCE),
       },
       testMatch: MOTION_EVIDENCE ? MOTION_EVIDENCE_SPECS : [],
     },

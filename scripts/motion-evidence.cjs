@@ -48,16 +48,16 @@ function gifFilename(name) {
   return `${name}.gif`;
 }
 
-function assertNiloIdentity(cwd) {
+function assertNiloIdentity(cwd, run = command) {
   for (const variable of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
-    if (!command("git", ["var", variable], { cwd }).startsWith(REQUIRED_GIT_IDENTITY)) {
+    if (!run("git", ["var", variable], { cwd }).startsWith(REQUIRED_GIT_IDENTITY)) {
       throw new Error(`Evidence commit refused: ${variable} is not ${REQUIRED_GIT_IDENTITY}.`);
     }
   }
 }
 
-function assertCommittedNiloIdentity(cwd) {
-  const commitIdentity = command(
+function assertCommittedNiloIdentity(cwd, run = command) {
+  const commitIdentity = run(
     "git",
     ["show", "-s", "--format=author=%an <%ae>%ncommitter=%cn <%ce>", "HEAD"],
     {

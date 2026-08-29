@@ -1,9 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
+const { videoModeForProject } = require("../e2e/motion-evidence-config.cjs");
 
 const {
   GIF_FPS,
@@ -13,6 +12,8 @@ const {
   gifFilename,
   parseOptions,
   evidenceUrl,
+  assertNiloIdentity,
+  assertCommittedNiloIdentity,
   pushEvidenceWithRetry,
   validatePublication,
 } = require("./motion-evidence.cjs");
@@ -32,10 +33,25 @@ test("motion evidence uses bounded GIF settings and a durable evidence URL", () 
 });
 
 test("motion evidence video is confined to its own Playwright project", () => {
-  const config = fs.readFileSync(path.join(__dirname, "..", "e2e", "playwright.config.ts"), "utf8");
-  assert.match(config, /video: "retain-on-failure",\n\n    headless/);
-  assert.match(config, /name: "motion-evidence"[\s\S]*video: MOTION_EVIDENCE \? "on" : "retain-on-failure"/);
-  assert.match(config, /testMatch: MOTION_EVIDENCE \? MOTION_EVIDENCE_SPECS : \[\]/);
+  assert.equal(videoModeForProject("motion-evidence", true), "on");
+  assert.equal(videoModeForProject("chromium", true), "retain-on-failure");
+  assert.equal(videoModeForProject("firefox", true), "retain-on-failure");
+  assert.equal(videoModeForProject("motion-evidence", false), "retain-on-failure");
+});
+
+test("Nilo identity guards reject a wrong live or committed identity", () => {
+  const live = (executable, args) => {
+    assert.equal(executable, "git");
+    return args[1] === "GIT_AUTHOR_IDENT"
+      ? REQUIRED_GIT_IDENTITY
+      : "Nilo <me@nilo.live> 1 +0000";
+  };
+  assert.throws(() => assertNiloIdentity("/evidence", live), /GIT_COMMITTER_IDENT/);
+
+  const committed = () => "author=Nilo <127136134+davifernan@users.noreply.github.com>\ncommitter=Nilo <me@nilo.live>\n";
+  assert.throws(() => assertCommittedNiloIdentity("/evidence", committed), /identity verification failed/);
+  const exact = () => `author=${REQUIRED_GIT_IDENTITY}\ncommitter=${REQUIRED_GIT_IDENTITY}\n`;
+  assert.doesNotThrow(() => assertCommittedNiloIdentity("/evidence", exact));
 });
 
 test("publication names cannot overwrite or escape the evidence tree", () => {
