@@ -17,8 +17,20 @@ const findLoginRateLimiter = (router: express.Router): express.RequestHandler =>
     (candidate: any) => candidate.route?.path === "/login" && candidate.route.methods.post,
   );
   if (!layer) throw new Error("POST /login route not found on the auth router");
-  // router.post("/login", loginAttemptRateLimiter, async (req, res) => {...})
-  const [rateLimiter] = layer.route.stack;
+  // Found by the middleware's own function name, not by stack position: a
+  // later reorder of router.post("/login", ...) must make this test fail
+  // loudly (name not found among /login's handlers) instead of silently
+  // measuring whatever now happens to sit first.
+  const rateLimiter = layer.route.stack.find(
+    (candidate: any) => candidate.handle?.name === "loginAttemptRateLimiter",
+  );
+  if (!rateLimiter) {
+    throw new Error(
+      "loginAttemptRateLimiter not found among POST /login's handlers -- " +
+        "either it was renamed (update this test's name check) or removed " +
+        "from the route (this test's premise no longer holds).",
+    );
+  }
   return rateLimiter.handle;
 };
 
