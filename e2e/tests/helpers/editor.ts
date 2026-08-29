@@ -418,23 +418,25 @@ export type DeliveryState = {
 export const deliveryState = (page: Page): Promise<DeliveryState | null> =>
   page.evaluate(() => (window as any).__EXCALIDASH_TEST__?.getDeliveryState?.() ?? null);
 
-export const documentPageLabel = (page: Page) => page.locator(".element-floating-toolbar__page-number");
+export const documentPageLabel = (page: Page) =>
+  page.locator(".element-floating-toolbar__page-number");
 
 /**
  * `.text-document-widget` mounts before it has anything to show: the asset
  * fetch, the content fetch, and the off-thread pagination worker all still
- * have to finish before TextDocumentWidget.tsx renders its toolbar, its
- * heading, or an "Edit Markdown" button (see its `loaded`/`pages` state and
- * the `Loader2 aria-label="Loading document"` it renders until both are set).
- * Waiting for the container's presence, as the tests here used to, is a wait
- * on mount, not on the state those elements actually depend on -- NIL-664.
- * `waitFor({ state: "detached" })` resolves immediately when the spinner
- * never existed in the first place, so this is safe to call unconditionally.
+ * have to finish before TextDocumentWidget.tsx renders its toolbar, heading,
+ * or an "Edit Markdown" button (see its `loaded`/`pages` state). Waiting for
+ * the container's presence is therefore a wait on mount, not the state those
+ * elements depend on. Nor is the spinner's absence sufficient: Playwright
+ * can observe it as detached before React has committed its initial loading
+ * render. The rendered document body is the bounded readiness state the
+ * callers actually require -- NIL-664.
  */
 export const waitForDocumentWidgetLoaded = (page: Page) =>
   page
-    .locator('.text-document-widget [aria-label="Loading document"]')
-    .waitFor({ state: "detached", timeout: 30_000 });
+    .locator(".text-document-widget__plain, .text-document-widget__markdown")
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
 
 /**
  * Excalidraw keeps an embedded element behind its own canvas until you click
