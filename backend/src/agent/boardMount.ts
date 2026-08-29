@@ -450,16 +450,23 @@ export const executeAgentBoardTool = async (params: {
   // allowedElements, so this is the single chokepoint, not N lookups. The
   // exact same policy read Gate 1 (assertGuestElementWriteAllowed) uses --
   // see resolveAgentContextContributePolicy's own comment for why neither
-  // gate may carry its own copy of "is this on".
-  const agentContextContributeEnabled = await resolveAgentContextContributePolicy(
-    params.prisma,
-    params.drawingId,
-  );
-  const provenance = await readElementGuestProvenance(
-    params.prisma,
-    params.drawingId,
-    inAllowedContext.map((element) => element.id as string),
-  );
+  // gate may carry its own copy of "is this on". Skipped entirely when
+  // nothing is Context-readable in the first place (no registered Context,
+  // or none in this mount's allowedContextIds) -- the common case for most
+  // tool calls, and Gate 1 already makes the same early exit for the same
+  // reason.
+  const agentContextContributeEnabled =
+    inAllowedContext.length > 0
+      ? await resolveAgentContextContributePolicy(params.prisma, params.drawingId)
+      : false;
+  const provenance =
+    inAllowedContext.length > 0
+      ? await readElementGuestProvenance(
+          params.prisma,
+          params.drawingId,
+          inAllowedContext.map((element) => element.id as string),
+        )
+      : [];
   const provenanceByElementId = new Map(provenance.map((entry) => [entry.elementId, entry.status]));
   // A Context's own frame is the boundary marker, not admitted content --
   // registration conservatively backfills its provenance the same as any

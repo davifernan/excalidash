@@ -21,6 +21,13 @@ export type ContextRegistration = ContextIdentity & {
 type Element = Record<string, unknown>;
 type Bounds = { x: number; y: number; width: number; height: number };
 
+/** A raw scene entry as a plain, non-array object -- the shape every element record filter here needs. */
+const asElementRecords = (elements: readonly unknown[]): Element[] =>
+  elements.filter(
+    (element): element is Element =>
+      typeof element === "object" && element !== null && !Array.isArray(element),
+  );
+
 export class AgentContextValidationError extends Error {
   constructor(
     public readonly code:
@@ -218,11 +225,7 @@ export const assertPersistedAgentContextFrames = async (
     where: { drawingId },
     select: { id: true, frameElementId: true, pinned: true },
   })) as ContextIdentity[];
-  const records = elements.filter(
-    (element): element is Element =>
-      typeof element === "object" && element !== null && !Array.isArray(element),
-  );
-  if (contexts.length > 0) validateContextFrames(records, contexts);
+  if (contexts.length > 0) validateContextFrames(asElementRecords(elements), contexts);
 };
 
 export class AgentContextGuestWriteDeniedError extends Error {
@@ -270,10 +273,7 @@ export const assertGuestElementWriteAllowed = async (params: {
   })) as { frameElementId: string }[];
   if (contexts.length === 0) return;
   if (await resolveAgentContextContributePolicy(params.prisma, params.drawingId)) return;
-  const records = params.elements.filter(
-    (element): element is Element =>
-      typeof element === "object" && element !== null && !Array.isArray(element),
-  );
+  const records = asElementRecords(params.elements);
   const protectedElementIds = new Set<string>();
   for (const context of contexts) {
     for (const id of elementIdsInContextFrame(records, context.frameElementId)) {
