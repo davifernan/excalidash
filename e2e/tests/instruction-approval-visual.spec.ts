@@ -97,12 +97,22 @@ test("instruction approval keeps preview, re-approval, and dispatch visibly sepa
     await expect(toolbar.getByText("Geprüfte Fassung", { exact: false })).toBeVisible();
     await expect(toolbar.getByRole("button", { name: "Diese Fassung freigeben" })).toBeVisible();
     await expect(toolbar.getByRole("button", { name: "Agent-Dispatch öffnen" })).toHaveCount(0);
-    await page.screenshot({ path: testInfo.outputPath("instruction-approval-preview.png") });
+    const previewScreenshot = testInfo.outputPath("instruction-approval-preview.png");
+    await page.screenshot({ path: previewScreenshot });
+    await testInfo.attach("instruction-approval-preview", {
+      path: previewScreenshot,
+      contentType: "image/png",
+    });
 
     await toolbar.getByRole("button", { name: "Diese Fassung freigeben" }).click();
     await expect(toolbar.getByText("Anweisung · freigegeben")).toBeVisible();
     await expect(toolbar.getByRole("button", { name: "Agent-Dispatch öffnen" })).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("instruction-approval-approved.png") });
+    const approvedScreenshot = testInfo.outputPath("instruction-approval-approved.png");
+    await page.screenshot({ path: approvedScreenshot });
+    await testInfo.attach("instruction-approval-approved", {
+      path: approvedScreenshot,
+      contentType: "image/png",
+    });
   } finally {
     await deleteDrawing(request, drawing.id).catch(() => undefined);
   }
