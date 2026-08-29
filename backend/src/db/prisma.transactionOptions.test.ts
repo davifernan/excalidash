@@ -104,10 +104,19 @@ describe("prisma.ts SQLite transaction timeout margin", () => {
 
   it("applies transactionOptions when DATABASE_URL is unset (SQLite is the default)", async () => {
     delete process.env.DATABASE_URL;
-    await loadPrismaModule();
+    const { SQLITE_TRANSACTION_TIMEOUT_MS, SQLITE_TRANSACTION_MAX_WAIT_MS } =
+      await loadPrismaModule();
 
     expect(constructorCalls).toHaveLength(1);
-    expect(constructorCalls[0]).not.toBeUndefined();
+    // Hans-Friedrich finding on #237: `not.toBeUndefined()` would not catch
+    // a wrong options object on this path -- assert the actual values, the
+    // same way the file: URL case above does.
+    expect(constructorCalls[0]).toEqual({
+      transactionOptions: {
+        maxWait: SQLITE_TRANSACTION_MAX_WAIT_MS,
+        timeout: SQLITE_TRANSACTION_TIMEOUT_MS,
+      },
+    });
   });
 
   it("never applies SQLite transactionOptions for a PostgreSQL DATABASE_URL", async () => {
