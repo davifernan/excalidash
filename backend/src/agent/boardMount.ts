@@ -13,11 +13,7 @@ import {
   requireAgentMountCapability,
   resolveEffectiveAgentContextIds,
 } from "../authz/agentContext";
-import {
-  type ContextIdentity,
-  contextFrameBounds,
-  validateContextFrames,
-} from "./boardContexts";
+import { type ContextIdentity, contextFrameBounds, validateContextFrames } from "./boardContexts";
 import { canonicalJson, secretsEqual, sha256Json, sha256Text } from "./canonicalJson";
 
 type Element = Record<string, any>;

@@ -214,8 +214,10 @@ export const getRequiredApiKeyScopes = (req: Request): string[] => {
 
 /**
  * The exclusive, exhaustive route surface a drawing-bound agent token
- * token may ever reach: immutable mount creation/tool calls plus the existing
- * semantic `POST .../agent/ops`, on its own board only. Returns null for every other
+ * may ever reach: immutable mount tool calls plus the existing semantic
+ * `POST .../agent/ops`, on its own board only. The mount issuer is recorded as
+ * controller-only in the same closed policy table, so an agent credential is
+ * rejected here before it reaches that handler. Returns null for every other
  * request -- including `/drawings/:id` itself, the full scene PUT, history,
  * sharing, and every other drawing sub-resource -- so that surface cannot
  * grow by a route elsewhere in this file happening to match a loose pattern.
@@ -225,25 +227,42 @@ export const getRequiredApiKeyScopes = (req: Request): string[] => {
  * `authorizeApiKeyRequest` below, which refuses unconditionally when this
  * returns null instead of falling back to the account-wide scope check).
  */
+type AgentRoutePolicy = {
+  method: "POST";
+  path: string;
+  scope: typeof DRAWING_READ_SCOPE | typeof DRAWING_OPS_SCOPE | null;
+};
+
+/**
+ * Closed route inventory shared by the runtime decision above and
+ * scripts/agent-token-boundary.cjs. `null` means the route exists but is
+ * deliberately controller-only, rather than accidentally unreachable.
+ */
+const AGENT_ROUTE_POLICIES: readonly AgentRoutePolicy[] = [
+  { method: "POST", path: "mounts", scope: null },
+  { method: "POST", path: "mounts/:runId/tools/:tool", scope: DRAWING_READ_SCOPE },
+  { method: "POST", path: "ops", scope: DRAWING_OPS_SCOPE },
+];
+
+const routePathMatches = (pattern: string, actual: string[]): boolean => {
+  const expected = pattern.split("/");
+  return (
+    expected.length === actual.length &&
+    expected.every((segment, index) => segment.startsWith(":") || segment === actual[index])
+  );
+};
+
 const getAgentRouteDrawingId = (
   req: Request,
 ): { drawingId: string; scope: typeof DRAWING_READ_SCOPE | typeof DRAWING_OPS_SCOPE } | null => {
   const segments = normalizeRequestPath(req).split("/").filter(Boolean);
   if (segments[0] !== "drawings" || segments[2] !== "agent") return null;
   const drawingId = segments[1];
-  const method = req.method;
-  if (
-    segments.length === 7 &&
-    segments[3] === "mounts" &&
-    segments[5] === "tools" &&
-    method === "POST"
-  ) {
-    return { drawingId, scope: DRAWING_READ_SCOPE };
-  }
-  if (segments.length === 4 && segments[3] === "ops" && method === "POST") {
-    return { drawingId, scope: DRAWING_OPS_SCOPE };
-  }
-  return null;
+  const policy = AGENT_ROUTE_POLICIES.find(
+    (candidate) =>
+      candidate.method === req.method && routePathMatches(candidate.path, segments.slice(3)),
+  );
+  return policy?.scope ? { drawingId, scope: policy.scope } : null;
 };
 
 /**
