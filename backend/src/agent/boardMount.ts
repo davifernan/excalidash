@@ -454,6 +454,7 @@ export const executeAgentBoardTool = async (params: {
     }
     return element;
   };
+  let deferredFocusFallbackTargets: readonly string[] = [];
   const requestedFocusTargets = (): readonly string[] => {
     switch (params.tool) {
       case "readFrame":
@@ -463,12 +464,19 @@ export const executeAgentBoardTool = async (params: {
         return args.ids
           .map((id) => requireReadableElement(String(id), "ELEMENT_NOT_READABLE"))
           .map((element) => element.id);
-      case "neighbors":
-        return [requireReadableElement(stringArg(args, "elementId"), "ELEMENT_NOT_READABLE").id];
-      case "followEdge":
-        return [
-          requireReadableElement(stringArg(args, "edgeElementId"), "ELEMENT_NOT_READABLE").id,
-        ];
+      case "neighbors": {
+        const source = requireReadableElement(stringArg(args, "elementId"), "ELEMENT_NOT_READABLE");
+        deferredFocusFallbackTargets = [source.id];
+        return [];
+      }
+      case "followEdge": {
+        const edge = requireReadableElement(
+          stringArg(args, "edgeElementId"),
+          "ELEMENT_NOT_READABLE",
+        );
+        deferredFocusFallbackTargets = [edge.id];
+        return [];
+      }
       case "render": {
         if (typeof args.contextId !== "string" || args.contextId.length === 0) return [];
         if (!scene.allowedContextIds.has(args.contextId)) {
@@ -751,8 +759,10 @@ export const executeAgentBoardTool = async (params: {
     }
 
     const projectedTargets = boardAgentFocusTargetsFromResult(params.tool, result);
-    if (!focusStarted && projectedTargets.length > 0) {
-      focusTargets = projectedTargets;
+    const resolvedFocusTargets =
+      projectedTargets.length > 0 ? projectedTargets : deferredFocusFallbackTargets;
+    if (!focusStarted && resolvedFocusTargets.length > 0) {
+      focusTargets = resolvedFocusTargets;
       focusStarted = true;
       emitFocus("started", focusTargets);
     }
@@ -775,6 +785,11 @@ export const executeAgentBoardTool = async (params: {
       result,
     };
   } catch (error) {
+    if (!focusStarted && deferredFocusFallbackTargets.length > 0) {
+      focusTargets = deferredFocusFallbackTargets;
+      focusStarted = true;
+      emitFocus("started", focusTargets);
+    }
     if (focusStarted) emitFocus("finished", focusTargets);
     throw error;
   }

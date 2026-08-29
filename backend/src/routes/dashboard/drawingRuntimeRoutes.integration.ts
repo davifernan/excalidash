@@ -19,6 +19,36 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
   let mountedRunId: string | null = null;
   const emissions: Array<{ presenceId: string; event: string; payload: unknown }> = [];
   const subscriptionClose = vi.fn();
+  let subscriptionListener: ((event: { status: "working" | "idle" }) => unknown) | null = null;
+  let finishSubscription!: () => void;
+  const subscriptionClosed = new Promise<void>((resolve) => {
+    finishSubscription = resolve;
+  });
+  type LookupBarrier = {
+    entered: Promise<void>;
+    isEntered: () => boolean;
+    release: () => void;
+  };
+  const lookupBarriers: Array<{
+    markEntered: () => void;
+    waitForRelease: Promise<void>;
+  }> = [];
+  const delayNextMountLookup = (): LookupBarrier => {
+    let entered = false;
+    let markEntered!: () => void;
+    let release!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => {
+      markEntered = () => {
+        entered = true;
+        resolve();
+      };
+    });
+    const waitForRelease = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    lookupBarriers.push({ markEntered, waitForRelease });
+    return { entered: enteredPromise, isEntered: () => entered, release };
+  };
   const start = vi.fn(async (_connection: AgentRuntimeConnection, input: any) => ({
     handle: "opaque",
     status: "working" as const,
@@ -30,10 +60,13 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
     start,
     prompt: vi.fn(async () => ({ status: "working" as const })),
     status: vi.fn(async () => ({ status: "idle" as const })),
-    subscribe: vi.fn(async () => ({
-      close: subscriptionClose,
-      closed: new Promise<void>(() => undefined),
-    })),
+    subscribe: vi.fn(async (_connection, _handle, listener) => {
+      subscriptionListener = listener;
+      return {
+        close: subscriptionClose,
+        closed: subscriptionClosed,
+      };
+    }),
   };
   const connection: AgentRuntimeConnection = {
     id: "runtime",
@@ -78,8 +111,13 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
     },
     drawingLinkShare: { findFirst: vi.fn(async () => null) },
     agentRunMount: {
-      findUnique: vi.fn(async ({ where }: any) =>
-        where.runId === mountedRunId
+      findUnique: vi.fn(async ({ where }: any) => {
+        const barrier = lookupBarriers.shift();
+        if (barrier) {
+          barrier.markEntered();
+          await barrier.waitForRelease;
+        }
+        return where.runId === mountedRunId
           ? {
               runId: mountedRunId,
               drawingId: "drawing-1",
@@ -88,8 +126,8 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
               audienceKind: "private",
               audienceUserId: "user-1",
             }
-          : null,
-      ),
+          : null;
+      }),
     },
   };
   const { optionalAuth } = createAuthMiddleware({
@@ -153,6 +191,12 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
     setMountedRun: (runId: string) => {
       mountedRunId = runId;
     },
+    delayNextMountLookup,
+    emitRuntime: (status: "working" | "idle"): Promise<unknown> => {
+      if (!subscriptionListener) throw new Error("Runtime subscription is not open");
+      return Promise.resolve(subscriptionListener({ status }));
+    },
+    finishSubscription,
     emissions,
   };
 };
@@ -237,6 +281,67 @@ describe("authenticated agent runtime gateway", () => {
       }),
     ]);
     expect(runtimeEvents.some((emission) => emission.presenceId === "foreign-socket")).toBe(false);
+  });
+
+  it("keeps runtime Presence ordered when mount lookups complete out of order", async () => {
+    const harness = build({
+      scopes: ["agent:read", "agent:run"],
+      drawingAccess: "owner",
+    });
+    const started = await request(harness.app)
+      .post("/drawings/drawing-1/agent/run")
+      .set("Authorization", `Bearer ${harness.token}`)
+      .send({
+        ...runBody,
+        approvedCapabilities: ["agent:read", "agent:run"],
+      })
+      .expect(201);
+    harness.setMountedRun(started.body.run.id);
+
+    let opened!: () => void;
+    const streamOpened = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const streamFinished = new Promise<void>((resolve, reject) => {
+      request(harness.app)
+        .post("/drawings/drawing-1/agent/events")
+        .set("Authorization", `Bearer ${harness.token}`)
+        .send({ runCapability: started.body.runCapability })
+        .buffer(false)
+        .parse((response, done) => {
+          response.on("data", opened);
+          response.on("end", () => done(null, undefined));
+        })
+        .end((error) => (error ? reject(error) : resolve()));
+    });
+    await streamOpened;
+
+    const older = harness.delayNextMountLookup();
+    const newer = harness.delayNextMountLookup();
+    const olderPublished = harness.emitRuntime("idle");
+    await older.entered;
+    const newerPublished = harness.emitRuntime("working");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    if (newer.isEntered()) {
+      newer.release();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      older.release();
+    } else {
+      older.release();
+      await newer.entered;
+      newer.release();
+    }
+    await Promise.all([olderPublished, newerPublished]);
+
+    const statuses = harness.emissions
+      .filter((emission) => emission.event === BOARD_AGENT_RUNTIME_EVENT)
+      .map((emission) => (emission.payload as { status: string }).status);
+    expect(statuses).toHaveLength(3);
+    expect(statuses.slice(-2)).toEqual(["idle", "working"]);
+
+    harness.finishSubscription();
+    await streamFinished;
   });
 
   it("closes an open event stream after the board access is revoked", async () => {

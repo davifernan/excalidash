@@ -383,6 +383,37 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
       ["finished", ["answer-a"]],
     ]);
     expect(events.every((event) => event.revisionId === mount.revisionId)).toBe(true);
+
+    events.length = 0;
+    await executeAgentBoardTool({
+      prisma,
+      drawingId,
+      runId: mount.runId,
+      capabilityToken: mount.capabilityToken,
+      tool: "neighbors",
+      args: { elementId: "answer-a" },
+      onFocus: (event) => events.push(event),
+    });
+    expect(events.map((event) => [event.phase, event.targetIds])).toEqual([
+      ["started", ["edge-cross", "frame-a"]],
+      ["finished", ["edge-cross", "frame-a"]],
+    ]);
+
+    events.length = 0;
+    await executeAgentBoardTool({
+      prisma,
+      drawingId,
+      runId: mount.runId,
+      capabilityToken: mount.capabilityToken,
+      tool: "followEdge",
+      args: { edgeElementId: "edge-cross" },
+      onFocus: (event) => events.push(event),
+    });
+    expect(events.map((event) => [event.phase, event.targetIds])).toEqual([
+      ["started", ["edge-cross", "answer-a"]],
+      ["finished", ["edge-cross", "answer-a"]],
+    ]);
+    expect(events.every((event) => event.revisionId === mount.revisionId)).toBe(true);
   });
 
   it("does not let a run lacking render capability call render", async () => {

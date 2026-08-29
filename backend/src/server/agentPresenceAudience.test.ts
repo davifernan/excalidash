@@ -146,4 +146,50 @@ describe("private Agent Presence audience", () => {
     ]);
     expect(deliveredTo("foreign-socket")).toEqual([]);
   });
+
+  it("does not let a late runtime lookup overwrite a newer board status", () => {
+    const io = new FakeIo();
+    const presences = new PresenceRegistry();
+    presences.join("drawing-1", {
+      presenceId: "owner-socket",
+      accountId: "owner-user",
+      name: "Owner",
+      initials: "OW",
+      color: "#2563eb",
+      kind: "owner",
+      isActive: true,
+      selectedElementIds: {},
+    });
+    const common = {
+      agentId: "run-ordered",
+      runId: "run-ordered",
+      drawingId: "drawing-1",
+      revisionId: "immutable-revision-17",
+      displayName: "Research",
+      audience: { kind: "drawing" } as const,
+    };
+    const publish = (status: BoardAgentRuntimePresenceEvent["status"], occurredAt: string) =>
+      publishBoardAgentRuntime({
+        io: io as any,
+        presences,
+        event: { ...common, status, occurredAt } satisfies BoardAgentRuntimePresenceEvent,
+      });
+
+    // These are the completion order of three stream-event mount lookups:
+    // working, later working, then the older idle event. The registry, not a
+    // particular route writer, must keep the original event order.
+    publish("working", "2026-08-29T15:00:01.000Z");
+    publish("working", "2026-08-29T15:00:03.000Z");
+    publish("idle", "2026-08-29T15:00:02.000Z");
+
+    expect(presences.listAgentsForViewer("drawing-1", "owner-user")).toEqual([
+      expect.objectContaining({ runId: "run-ordered", status: "working" }),
+    ]);
+    expect(
+      io.emissions.filter(
+        (emission) =>
+          emission.scope === "owner-socket" && emission.event === BOARD_AGENT_RUNTIME_EVENT,
+      ),
+    ).toHaveLength(2);
+  });
 });

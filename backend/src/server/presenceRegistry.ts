@@ -63,11 +63,13 @@ export type BoardAgentPresenceEntry = {
   focusActive: boolean;
   audience: BoardAgentRunAudience;
   lastEventAt: number;
+  /** Server-only ordering key for runtime events; never sent to viewers. */
+  runtimeOccurredAt: number;
 };
 
 export type PublicBoardAgentPresenceEntry = Omit<
   BoardAgentPresenceEntry,
-  "audience" | "lastEventAt"
+  "audience" | "lastEventAt" | "runtimeOccurredAt"
 > & { visibility: BoardAgentRunAudience["kind"] };
 
 export type StaleBoardAgentPresence = {
@@ -194,6 +196,7 @@ export class PresenceRegistry {
             : (existing?.targetIds ?? []),
       audience: event.audience,
       lastEventAt: now,
+      runtimeOccurredAt: existing?.runtimeOccurredAt ?? Number.NEGATIVE_INFINITY,
     };
     entries.set(event.runId, entry);
     this.agentsByDrawing.set(event.drawingId, entries);
@@ -203,13 +206,20 @@ export class PresenceRegistry {
   applyAgentRuntime(
     event: BoardAgentRuntimePresenceEvent,
     now = Date.now(),
-  ): BoardAgentPresenceEntry | null {
+  ): { entry: BoardAgentPresenceEntry | null; applied: boolean } {
+    const runtimeOccurredAt = Date.parse(event.occurredAt);
+    const orderedAt = Number.isFinite(runtimeOccurredAt) ? runtimeOccurredAt : now;
+    const existing = this.agentsByDrawing.get(event.drawingId)?.get(event.runId);
+    // The stream queue preserves arrival order for equal millisecond stamps;
+    // only a strictly older event may never replace the current runtime state.
+    if (existing && orderedAt < existing.runtimeOccurredAt) {
+      return { entry: existing, applied: false };
+    }
     if (event.status === "done") {
       this.removeAgent(event.drawingId, event.runId);
-      return null;
+      return { entry: null, applied: true };
     }
     const entries = this.agentsByDrawing.get(event.drawingId) ?? new Map();
-    const existing = entries.get(event.runId);
     const entry: BoardAgentPresenceEntry = {
       agentId: event.agentId,
       runId: event.runId,
@@ -222,10 +232,11 @@ export class PresenceRegistry {
       targetIds: existing?.targetIds ?? [],
       audience: event.audience,
       lastEventAt: now,
+      runtimeOccurredAt: orderedAt,
     };
     entries.set(event.runId, entry);
     this.agentsByDrawing.set(event.drawingId, entries);
-    return entry;
+    return { entry, applied: true };
   }
 
   removeAgent(drawingId: string, runId: string): void {
@@ -251,10 +262,17 @@ export class PresenceRegistry {
         (entry) => entry.audience.kind === "drawing" || entry.audience.userId === viewerAccountId,
       )
       .sort((left, right) => left.runId.localeCompare(right.runId))
-      .map(({ audience, lastEventAt: _lastEventAt, ...entry }) => ({
-        ...entry,
-        visibility: audience.kind,
-      }));
+      .map(
+        ({
+          audience,
+          lastEventAt: _lastEventAt,
+          runtimeOccurredAt: _runtimeOccurredAt,
+          ...entry
+        }) => ({
+          ...entry,
+          visibility: audience.kind,
+        }),
+      );
   }
 
   /** Returns the exact audiences whose viewers need a clearing snapshot. */

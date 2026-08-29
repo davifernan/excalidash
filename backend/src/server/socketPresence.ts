@@ -86,7 +86,8 @@ export const publishBoardAgentRuntime = (params: {
   presences: PresenceRegistry;
   event: BoardAgentRuntimePresenceEvent;
 }): void => {
-  params.presences.applyAgentRuntime(params.event);
+  const update = params.presences.applyAgentRuntime(params.event);
+  if (!update.applied) return;
   for (const presenceId of params.presences.agentRecipientIds(
     params.event.drawingId,
     params.event.audience,

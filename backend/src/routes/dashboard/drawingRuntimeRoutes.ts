@@ -59,13 +59,15 @@ export const registerDrawingRuntimeRoutes = (
     presences,
   } = context;
 
-  const publishRuntimePresence = async (
+  const runtimePresenceQueues = new Map<string, Promise<void>>();
+  const projectRuntimePresence = async (
     drawingId: string,
     event: {
       id: string;
       status: "working" | "idle" | "blocked" | "done" | "unknown";
       displayName?: string;
     },
+    occurredAt = new Date().toISOString(),
   ): Promise<void> => {
     const mounted = await loadBoardAgentRunPresence(prisma, drawingId, event.id);
     if (!mounted) return;
@@ -82,9 +84,29 @@ export const registerDrawingRuntimeRoutes = (
         displayName: mounted.displayName,
         status: event.status,
         audience: mounted.audience,
-        occurredAt: new Date().toISOString(),
+        occurredAt,
       },
     });
+  };
+  const publishRuntimePresence = (
+    drawingId: string,
+    event: {
+      id: string;
+      status: "working" | "idle" | "blocked" | "done" | "unknown";
+      displayName?: string;
+    },
+  ): Promise<void> => {
+    const occurredAt = new Date().toISOString();
+    const queueKey = `${drawingId}\u0000${event.id}`;
+    const previous = runtimePresenceQueues.get(queueKey) ?? Promise.resolve();
+    const queued = previous
+      .catch(() => undefined)
+      .then(() => projectRuntimePresence(drawingId, event, occurredAt))
+      .finally(() => {
+        if (runtimePresenceQueues.get(queueKey) === queued) runtimePresenceQueues.delete(queueKey);
+      });
+    runtimePresenceQueues.set(queueKey, queued);
+    return queued;
   };
 
   const authorize = async (
@@ -244,12 +266,15 @@ export const registerDrawingRuntimeRoutes = (
           }
         };
         subscription = await agentRuntimeGateway.subscribe(runParams, (event) => {
-          void publishRuntimePresence(req.params.id, event);
+          const presencePublished = publishRuntimePresence(req.params.id, event).catch(
+            () => undefined,
+          );
           if (!streamReady || reauthorizationInFlight) {
             pendingEvents.push(event);
           } else if (!streamClosed && !res.writableEnded) {
             res.write(`data: ${JSON.stringify(event)}\n\n`);
           }
+          return presencePublished;
         });
         void subscription.closed.then(() => {
           if (!res.writableEnded) endStream();
