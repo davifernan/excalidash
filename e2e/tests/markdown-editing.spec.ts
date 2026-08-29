@@ -127,7 +127,7 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     await waitForDocumentWidgetLoaded(writer);
     // NIL-664: this follows a full page navigation (reload) plus a fresh
     // asset/content fetch and off-thread pagination -- heavier than the
-    // socket-pushed re-renders at lines 111/119 above, which already get an
+    // socket-pushed re-renders at lines 116/119 above, which already get an
     // explicit 30_000ms here instead of the file's 10_000ms default
     // (playwright.config.ts's `expect.timeout`). This assertion was the one
     // case of that same "wait for content to survive a reload/save" pattern
