@@ -58,15 +58,17 @@ export const InstructionApprovalToolbar = ({
   const candidateKey = candidate
     ? `${candidate.contextId}:${candidate.element.id}:${candidate.element.originalText ?? candidate.element.text ?? ""}:${candidate.element.frameId ?? ""}`
     : null;
+  const contextId = candidate?.contextId ?? null;
+  const elementId = candidate?.element.id ?? null;
 
   useEffect(() => {
     setPreview(null);
     setStatus("none");
-    if (!drawingId || !candidate) return;
-    void getInstructionApproval(drawingId, candidate.contextId, candidate.element.id)
+    if (!drawingId || !contextId || !elementId) return;
+    void getInstructionApproval(drawingId, contextId, elementId)
       .then(({ status: nextStatus }) => setStatus(nextStatus))
       .catch(() => notify("error", "Freigabestatus konnte nicht geladen werden."));
-  }, [candidate, candidateKey, drawingId]);
+  }, [candidateKey, contextId, drawingId, elementId]);
 
   if (!drawingId || !host || !candidate) return null;
   const target = {
