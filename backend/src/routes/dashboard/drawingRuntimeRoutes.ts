@@ -2,6 +2,8 @@ import express from "express";
 import { z } from "zod";
 import { canViewDrawing, getDrawingAccess, type DrawingPrincipal } from "../../authz/sharing";
 import { AGENT_RUNTIME_CAPABILITIES, AgentRuntimeError } from "../../agent/runtime/contracts";
+import { loadBoardAgentRunPresence } from "../../agent/boardMount";
+import { publishBoardAgentRuntime } from "../../server/socketPresence";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
 const startSchema = z.object({
@@ -53,7 +55,37 @@ export const registerDrawingRuntimeRoutes = (
     respondWithAuthErrorIfPresent,
     prisma,
     agentRuntimeGateway,
+    io,
+    presences,
   } = context;
+
+  const publishRuntimePresence = async (
+    drawingId: string,
+    event: {
+      id: string;
+      status: "working" | "idle" | "blocked" | "done" | "unknown";
+      displayName?: string;
+    },
+  ): Promise<void> => {
+    const mounted = await loadBoardAgentRunPresence(prisma, drawingId, event.id);
+    if (!mounted) return;
+    publishBoardAgentRuntime({
+      io,
+      presences,
+      event: {
+        agentId: mounted.runId,
+        runId: mounted.runId,
+        drawingId: mounted.drawingId,
+        revisionId: mounted.revisionId,
+        // The runtime may report its own mutable label, but the board-facing
+        // participant identity is part of the immutable per-run mount.
+        displayName: mounted.displayName,
+        status: event.status,
+        audience: mounted.audience,
+        occurredAt: new Date().toISOString(),
+      },
+    });
+  };
 
   const authorize = async (
     req: express.Request,
@@ -127,14 +159,14 @@ export const registerDrawingRuntimeRoutes = (
         return res.status(403).json({ error: "Forbidden", message: "Run capability required" });
       }
       try {
-        return res.json(
-          await agentRuntimeGateway.status({
-            drawingId: req.params.id,
-            access: authorized.access,
-            principal: authorized.principal,
-            runCapability: parsed.data.runCapability,
-          }),
-        );
+        const status = await agentRuntimeGateway.status({
+          drawingId: req.params.id,
+          access: authorized.access,
+          principal: authorized.principal,
+          runCapability: parsed.data.runCapability,
+        });
+        await publishRuntimePresence(req.params.id, status);
+        return res.json(status);
       } catch (error) {
         return respondRuntimeError(res, error);
       }
@@ -154,15 +186,15 @@ export const registerDrawingRuntimeRoutes = (
           .json({ error: "Validation error", message: "Invalid prompt request" });
       }
       try {
-        return res.json(
-          await agentRuntimeGateway.prompt({
-            drawingId: req.params.id,
-            access: authorized.access,
-            principal: authorized.principal,
-            runCapability: parsed.data.runCapability,
-            text: parsed.data.text,
-          }),
-        );
+        const status = await agentRuntimeGateway.prompt({
+          drawingId: req.params.id,
+          access: authorized.access,
+          principal: authorized.principal,
+          runCapability: parsed.data.runCapability,
+          text: parsed.data.text,
+        });
+        await publishRuntimePresence(req.params.id, status);
+        return res.json(status);
       } catch (error) {
         return respondRuntimeError(res, error);
       }
@@ -201,6 +233,7 @@ export const registerDrawingRuntimeRoutes = (
           runCapability: parsed.data.runCapability,
         };
         const current = await agentRuntimeGateway.status(runParams);
+        await publishRuntimePresence(req.params.id, current);
         const pendingEvents: unknown[] = [];
         let streamReady = false;
         let reauthorizationInFlight = false;
@@ -211,6 +244,7 @@ export const registerDrawingRuntimeRoutes = (
           }
         };
         subscription = await agentRuntimeGateway.subscribe(runParams, (event) => {
+          void publishRuntimePresence(req.params.id, event);
           if (!streamReady || reauthorizationInFlight) {
             pendingEvents.push(event);
           } else if (!streamClosed && !res.writableEnded) {

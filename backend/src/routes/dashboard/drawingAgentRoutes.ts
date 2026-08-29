@@ -23,6 +23,7 @@ import {
   AgentContextValidationError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
+import { publishBoardAgentFocus } from "../../server/socketPresence";
 
 /**
  * The exclusive route surface a drawing-bound agent token (NIL-382) may
@@ -57,7 +58,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
     req: express.Request,
     res: express.Response,
     requireEdit: boolean,
-  ): Promise<{ id: string } | null> => {
+  ): Promise<{ id: string; principal: Awaited<ReturnType<typeof getRequestPrincipal>> } | null> => {
     const principal = await getRequestPrincipal(req);
     const { id } = req.params;
     const access = await getDrawingAccess({
@@ -72,7 +73,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
       res.status(404).json({ error: "Drawing not found", message: "Drawing does not exist" });
       return null;
     }
-    return { id };
+    return { id, principal };
   };
 
   const respondWithMountError = (res: express.Response, error: unknown): boolean => {
@@ -116,7 +117,11 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
       // The agent may consume a scope but must never choose or widen it. A
       // human/controller credential creates the mount and hands the opaque
       // capability to the already board-bound agent token.
-      if (req.user?.authCredentialType === "apiKey") {
+      if (
+        !loaded.principal ||
+        loaded.principal.apiKey ||
+        req.user?.authCredentialType === "apiKey"
+      ) {
         return res.status(403).json({
           error: "Forbidden",
           code: "MOUNT_ISSUER_REQUIRED",
@@ -135,7 +140,15 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
         (body.capabilities !== undefined &&
           (!Array.isArray(body.capabilities) ||
             body.capabilities.length > 10 ||
-            body.capabilities.some((capability: unknown) => typeof capability !== "string")))
+            body.capabilities.some((capability: unknown) => typeof capability !== "string"))) ||
+        (body.displayName !== undefined &&
+          (typeof body.displayName !== "string" ||
+            body.displayName.trim().length === 0 ||
+            body.displayName.trim().length > 80 ||
+            /[\u0000-\u001f\u007f]/.test(body.displayName))) ||
+        (body.visibility !== undefined &&
+          body.visibility !== "private" &&
+          body.visibility !== "drawing")
       ) {
         return res.status(400).json({ error: "Invalid mount request" });
       }
@@ -146,6 +159,12 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           runId: body.runId,
           allowedContextIds: body.allowedContextIds,
           capabilities: body.capabilities,
+          displayName:
+            typeof body.displayName === "string" ? body.displayName.trim() : "Board agent",
+          audience:
+            body.visibility === "drawing"
+              ? { kind: "drawing" }
+              : { kind: "private", userId: loaded.principal.userId },
         });
         return res.status(201).json(mount);
       } catch (error: any) {
@@ -181,6 +200,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
             capabilityToken,
             tool: req.params.tool,
             args,
+            onFocus: (event) => publishBoardAgentFocus({ io, presences: context.presences, event }),
           }),
         );
       } catch (error) {

@@ -6,6 +6,7 @@ import type { StringValue } from "ms";
 import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { registerAgentContext } from "../agent/boardContexts";
+import { executeAgentBoardTool } from "../agent/boardMount";
 import { getTestPrisma, setupTestDb } from "./testUtils";
 
 describe("immutable Agent Board Mount (NIL-671)", () => {
@@ -313,6 +314,75 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     expect(audit.revisionId).toBe(mount.revisionId);
     expect(audit.resultHash).toBe(accepted.body.resultHash);
     expect(audit.argsHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("emits no target before authorization and closes an authorized failed read on the pinned revision", async () => {
+    const mount = await createMount({
+      runId: "focus-after-authorization",
+      displayName: "Research",
+      visibility: "drawing",
+    });
+    const events: any[] = [];
+
+    await expect(
+      executeAgentBoardTool({
+        prisma,
+        drawingId,
+        runId: mount.runId,
+        capabilityToken: mount.capabilityToken,
+        tool: "readElements",
+        args: { ids: ["secret-b"] },
+        onFocus: (event) => events.push(event),
+      }),
+    ).rejects.toMatchObject({ code: "ELEMENT_NOT_READABLE" });
+    expect(events).toEqual([]);
+
+    await expect(
+      executeAgentBoardTool({
+        prisma,
+        drawingId,
+        runId: mount.runId,
+        capabilityToken: mount.capabilityToken,
+        tool: "readFrame",
+        args: { frameElementId: "answer-a" },
+        onFocus: (event) => events.push(event),
+      }),
+    ).rejects.toMatchObject({ code: "FRAME_NOT_READABLE" });
+    expect(events.map((event) => event.phase)).toEqual(["started", "finished"]);
+    expect(events.map((event) => event.revisionId)).toEqual([mount.revisionId, mount.revisionId]);
+    expect(events.every((event) => event.targetIds.join(",") === "answer-a")).toBe(true);
+
+    events.length = 0;
+    await executeAgentBoardTool({
+      prisma,
+      drawingId,
+      runId: mount.runId,
+      capabilityToken: mount.capabilityToken,
+      tool: "readFrame",
+      args: { frameElementId: "frame-a" },
+      onFocus: (event) => events.push(event),
+    });
+    expect(events.map((event) => [event.phase, event.targetIds])).toEqual([
+      ["started", ["frame-a"]],
+      ["finished", ["frame-a"]],
+    ]);
+    expect(events.every((event) => event.revisionId === mount.revisionId)).toBe(true);
+
+    events.length = 0;
+    await executeAgentBoardTool({
+      prisma,
+      drawingId,
+      runId: mount.runId,
+      capabilityToken: mount.capabilityToken,
+      tool: "search",
+      args: { query: "Launch answer" },
+      onFocus: (event) => events.push(event),
+    });
+    expect(events.map((event) => [event.phase, event.targetIds])).toEqual([
+      ["started", ["answer-a"]],
+      ["finished", ["answer-a"]],
+    ]);
+    expect(events.every((event) => event.revisionId === mount.revisionId)).toBe(true);
   });
 
   it("does not let a run lacking render capability call render", async () => {

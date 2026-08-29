@@ -15,6 +15,12 @@ import {
 } from "../authz/agentContext";
 import { type ContextIdentity, contextFrameBounds, validateContextFrames } from "./boardContexts";
 import { canonicalJson, secretsEqual, sha256Json, sha256Text } from "./canonicalJson";
+import {
+  boardAgentAudienceFromMount,
+  boardAgentFocusTargetsFromResult,
+  type BoardAgentFocusEvent,
+  type BoardAgentRunAudience,
+} from "./presence";
 
 type Element = Record<string, any>;
 type ContextSnapshot = ContextIdentity & { frameName: string | null };
@@ -179,6 +185,8 @@ export const createAgentRunMount = async (params: {
   runId?: string;
   allowedContextIds?: string[];
   capabilities?: string[];
+  displayName: string;
+  audience: BoardAgentRunAudience;
 }) => {
   const revision = await materializeAgentBoardRevision(params.prisma, params.drawingId);
   const contexts = parseJson<ContextSnapshot[]>(revision.contextMap, []);
@@ -208,6 +216,9 @@ export const createAgentRunMount = async (params: {
       allowedContextIds: canonicalJson(allowedContextIds),
       capabilities: canonicalJson([...new Set(capabilities)].sort()),
       capabilityTokenHash: sha256Text(capabilityToken),
+      displayName: params.displayName,
+      audienceKind: params.audience.kind,
+      audienceUserId: params.audience.kind === "private" ? params.audience.userId : null,
     },
   });
   return {
@@ -217,8 +228,27 @@ export const createAgentRunMount = async (params: {
     sourceDrawingVersion: revision.sourceDrawingVersion,
     allowedContextIds,
     capabilities: parseJson<string[]>(mount.capabilities, []),
+    displayName: mount.displayName,
+    visibility: mount.audienceKind,
     capabilityToken,
   };
+};
+
+export const loadBoardAgentRunPresence = async (prisma: any, drawingId: string, runId: string) => {
+  const mount = await prisma.agentRunMount.findUnique({
+    where: { runId },
+    select: {
+      runId: true,
+      drawingId: true,
+      revisionId: true,
+      displayName: true,
+      audienceKind: true,
+      audienceUserId: true,
+    },
+  });
+  if (!mount || mount.drawingId !== drawingId) return null;
+  const audience = boardAgentAudienceFromMount(mount);
+  return audience ? { ...mount, audience } : null;
 };
 
 const loadMountedScene = async (params: {
@@ -400,6 +430,7 @@ export const executeAgentBoardTool = async (params: {
   capabilityToken: string;
   tool: AgentToolName;
   args?: Record<string, unknown>;
+  onFocus?: (event: BoardAgentFocusEvent) => void;
 }) => {
   const scene = await loadMountedScene(params);
   const args = params.args ?? {};
@@ -423,6 +454,48 @@ export const executeAgentBoardTool = async (params: {
     }
     return element;
   };
+  const requestedFocusTargets = (): readonly string[] => {
+    switch (params.tool) {
+      case "readFrame":
+        return [requireReadableElement(stringArg(args, "frameElementId"), "FRAME_NOT_READABLE").id];
+      case "readElements":
+        if (!Array.isArray(args.ids) || args.ids.length === 0 || args.ids.length > 100) return [];
+        return args.ids
+          .map((id) => requireReadableElement(String(id), "ELEMENT_NOT_READABLE"))
+          .map((element) => element.id);
+      case "neighbors":
+        return [requireReadableElement(stringArg(args, "elementId"), "ELEMENT_NOT_READABLE").id];
+      case "followEdge":
+        return [
+          requireReadableElement(stringArg(args, "edgeElementId"), "ELEMENT_NOT_READABLE").id,
+        ];
+      case "render": {
+        if (typeof args.contextId !== "string" || args.contextId.length === 0) return [];
+        if (!scene.allowedContextIds.has(args.contextId)) {
+          throw new AgentMountError("FRAME_NOT_READABLE", "The requested Context is not readable.");
+        }
+        const context = scene.contexts.find((candidate) => candidate.id === args.contextId);
+        return context ? [context.frameElementId] : [];
+      }
+      default:
+        return [];
+    }
+  };
+  const audience = boardAgentAudienceFromMount(scene.mount);
+  const emitFocus = (phase: "started" | "finished", targetIds: readonly string[]) => {
+    if (!audience || !params.onFocus || targetIds.length === 0) return;
+    params.onFocus({
+      phase,
+      agentId: scene.mount.runId,
+      runId: scene.mount.runId,
+      drawingId: scene.mount.drawingId,
+      revisionId: scene.revision.id,
+      displayName: scene.mount.displayName,
+      targetIds: [...new Set(targetIds)].slice(0, 50),
+      audience,
+      occurredAt: new Date().toISOString(),
+    });
+  };
   let result: unknown;
 
   if (params.tool === "render") requireAgentMountCapability(scene.capabilities, AGENT_BOARD_RENDER);
@@ -430,255 +503,281 @@ export const executeAgentBoardTool = async (params: {
     requireAgentMountCapability(scene.capabilities, AGENT_ASSET_READ);
   else requireAgentMountCapability(scene.capabilities, AGENT_BOARD_EXPLORE);
 
-  switch (params.tool) {
-    case "overview": {
-      const countsByType: Record<string, number> = {};
-      for (const element of allowedElements) {
-        const type = typeof element.type === "string" ? element.type : "unknown";
-        countsByType[type] = (countsByType[type] ?? 0) + 1;
-      }
-      result = {
-        contextCount: scene.contexts.filter((context) => scene.allowedContextIds.has(context.id))
-          .length,
-        elementCount: allowedElements.length,
-        countsByType,
-      };
-      break;
-    }
-    case "listContexts":
-      result = scene.contexts
-        .filter((context) => scene.allowedContextIds.has(context.id))
-        .map((context) => ({
-          contextId: context.id,
-          frameElementId: context.frameElementId,
-          name: context.frameName,
-          pinned: context.pinned,
-          bounds: contextFrameBounds(byId.get(context.frameElementId)!)!,
-        }));
-      break;
-    case "listFrames":
-      result = allowedElements
-        .filter((element) => element.type === "frame")
-        .slice(0, boundedLimit(args, 100))
-        .map(project);
-      break;
-    case "readFrame": {
-      const frame = requireReadableElement(stringArg(args, "frameElementId"), "FRAME_NOT_READABLE");
-      if (frame.type !== "frame") {
-        throw new AgentMountError("FRAME_NOT_READABLE", "The requested element is not a frame.");
-      }
-      const contextId = resolve(frame)!;
-      result = {
-        frame: project(frame),
-        elements: allowedElements
-          .filter((element) => element.id !== frame.id && resolve(element) === contextId)
-          .slice(0, boundedLimit(args, 100))
-          .map(project),
-      };
-      break;
-    }
-    case "readElements": {
-      if (!Array.isArray(args.ids) || args.ids.length === 0 || args.ids.length > 100) {
-        throw new AgentMountError(
-          "INVALID_TOOL_ARGUMENTS",
-          "ids must contain between one and 100 element ids.",
-        );
-      }
-      result = args.ids.map((id) =>
-        project(requireReadableElement(String(id), "ELEMENT_NOT_READABLE")),
-      );
-      break;
-    }
-    case "search": {
-      const query = stringArg(args, "query").toLocaleLowerCase();
-      const limit = boundedLimit(args, 20);
-      result = allowedElements
-        .filter(
-          (element) =>
-            (typeof element.text === "string" &&
-              element.text.toLocaleLowerCase().includes(query)) ||
-            (typeof element.name === "string" && element.name.toLocaleLowerCase().includes(query)),
-        )
-        .slice(0, limit)
-        .map(project);
-      break;
-    }
-    case "neighbors": {
-      const source = requireReadableElement(stringArg(args, "elementId"), "ELEMENT_NOT_READABLE");
-      const related = new Set<string>();
-      for (const candidate of [source.containerId, source.frameId]) {
-        if (typeof candidate === "string" && allowedElementIds.has(candidate))
-          related.add(candidate);
-      }
-      for (const binding of Array.isArray(source.boundElements) ? source.boundElements : []) {
-        if (typeof binding?.id === "string" && allowedElementIds.has(binding.id))
-          related.add(binding.id);
-      }
-      for (const element of allowedElements) {
-        if (
-          element.startBinding?.elementId === source.id ||
-          element.endBinding?.elementId === source.id ||
-          element.containerId === source.id
-        ) {
-          related.add(element.id);
-        }
-      }
-      result = [...related]
-        .sort()
-        .slice(0, boundedLimit(args, 100))
-        .map((id) => project(byId.get(id)!));
-      break;
-    }
-    case "followEdge": {
-      const edge = requireReadableElement(stringArg(args, "edgeElementId"), "ELEMENT_NOT_READABLE");
-      if (edge.type !== "arrow" && edge.type !== "line") {
-        throw new AgentMountError(
-          "INVALID_TOOL_ARGUMENTS",
-          "The requested element is not an edge.",
-        );
-      }
-      const endpoint = (binding: any) => {
-        const id = typeof binding?.elementId === "string" ? binding.elementId : null;
-        return id && allowedElementIds.has(id) ? project(byId.get(id)!) : null;
-      };
-      result = {
-        edge: project(edge),
-        semantics: { kind: "unspecified" },
-        start: endpoint(edge.startBinding),
-        end: endpoint(edge.endBinding),
-      };
-      break;
-    }
-    case "render": {
-      const requestedContext =
-        typeof args.contextId === "string" && args.contextId.length > 0 ? args.contextId : null;
-      if (requestedContext && !scene.allowedContextIds.has(requestedContext)) {
-        throw new AgentMountError("FRAME_NOT_READABLE", "The requested Context is not readable.");
-      }
-      const renderedElements = requestedContext
-        ? allowedElements.filter((element) => resolve(element) === requestedContext)
-        : allowedElements;
-      const referencedAssetIds = new Set(
-        renderedElements
-          .map((element) => readWidgetRecord(element)?.assetId)
-          .filter((id): id is string => Boolean(id)),
-      );
-      const assetHashes = scene.revision.assets
-        .filter((asset: any) => referencedAssetIds.has(asset.assetId))
-        .map((asset: any) => ({ assetId: asset.assetId, sha256: asset.contentHash }))
-        .concat(
-          renderedElements.flatMap((element) => {
-            const fileId = typeof element.fileId === "string" ? element.fileId : null;
-            return fileId && scene.files[fileId]
-              ? [{ assetId: `file:${fileId}`, sha256: sha256Json(scene.files[fileId]) }]
-              : [];
-          }),
-        )
-        .sort((left: any, right: any) => left.assetId.localeCompare(right.assetId));
-      result = { rendererVersion: "agent-svg-v1", assetHashes, svg: renderSvg(renderedElements) };
-      break;
-    }
-    case "readAsset": {
-      const assetId = stringArg(args, "assetId");
-      const referencedByReadableElement = allowedElements.some(
-        (element) => readWidgetRecord(element)?.assetId === assetId,
-      );
-      const revisionAsset = scene.revision.assets.find((asset: any) => asset.assetId === assetId);
-      if (!referencedByReadableElement || !revisionAsset) {
-        throw new AgentMountError("ASSET_NOT_READABLE", "The requested asset is not readable.");
-      }
-      const mode = args.mode ?? "metadata";
-      if (mode !== "metadata" && mode !== "content") {
-        throw new AgentMountError("INVALID_TOOL_ARGUMENTS", "mode must be metadata or content.");
-      }
-      const metadata = {
-        assetId,
-        kind: revisionAsset.kind,
-        name: revisionAsset.originalName,
-        mimeType: revisionAsset.mimeType,
-        sizeBytes: revisionAsset.sizeBytes,
-        sha256: revisionAsset.contentHash,
-      };
-      if (mode === "metadata") {
-        result = metadata;
-        break;
-      }
-      if (revisionAsset.sizeBytes > 1024 * 1024) {
-        throw new AgentMountError("ASSET_TOO_LARGE", "Asset content exceeds the 1 MiB tool limit.");
-      }
-      // assetId is a historical pointer, not an enforced foreign key (see the
-      // AgentBoardRevisionAsset schema comment): the asset the revision once
-      // captured may have since been reclaimed by the ordinary cleanup job.
-      // Metadata above never needed the live row; only fetching bytes does.
-      const liveAsset = await params.prisma.asset.findUnique({
-        where: { id: assetId },
-        select: { blob: { select: { storageKey: true, contentEncoding: true } } },
-      });
-      if (!liveAsset) {
-        throw new AgentMountError(
-          "ASSET_NO_LONGER_AVAILABLE",
-          "This revision recorded the asset, but it no longer exists.",
-        );
-      }
-      const bytes = await readStoredBytes(config.assets.storageDir, liveAsset.blob);
-      if (createHash("sha256").update(bytes).digest("hex") !== revisionAsset.contentHash) {
-        throw new AgentMountError("ASSET_NOT_READABLE", "Mounted asset bytes no longer match.");
-      }
-      result = {
-        ...metadata,
-        encoding: revisionAsset.mimeType.startsWith("text/") ? "utf8" : "base64",
-        content: revisionAsset.mimeType.startsWith("text/")
-          ? bytes.toString("utf8")
-          : bytes.toString("base64"),
-      };
-      break;
-    }
-    case "revisionStatus": {
-      const latest = await materializeAgentBoardRevision(params.prisma, params.drawingId);
-      if (latest.id === scene.revision.id) {
-        result = { changed: false, latestRevisionId: scene.revision.id };
-        break;
-      }
-      const latestElements = liveElements(
-        parseJson<unknown[]>(decodeSnapshotField(latest.elements), []),
-      );
-      const latestContexts = parseJson<ContextSnapshot[]>(latest.contextMap, []);
-      const latestIndex = contextIndex(latestElements, latestContexts);
-      const scoped = latestElements.filter((element) =>
-        canReadAgentContext(scene.allowedContextIds, latestIndex.resolve(element)),
-      );
-      const countsByType: Record<string, number> = {};
-      for (const element of scoped) {
-        const type = typeof element.type === "string" ? element.type : "unknown";
-        countsByType[type] = (countsByType[type] ?? 0) + 1;
-      }
-      result = {
-        changed: true,
-        latestRevisionId: latest.id,
-        sourceDrawingVersion: latest.sourceDrawingVersion,
-        scopedSummary: { elementCount: scoped.length, countsByType },
-      };
-      break;
-    }
-  }
+  let focusTargets = requestedFocusTargets();
+  let focusStarted = focusTargets.length > 0;
+  if (focusStarted) emitFocus("started", focusTargets);
 
-  const resultHash = sha256Json(result);
-  await params.prisma.agentToolAudit.create({
-    data: {
+  try {
+    switch (params.tool) {
+      case "overview": {
+        const countsByType: Record<string, number> = {};
+        for (const element of allowedElements) {
+          const type = typeof element.type === "string" ? element.type : "unknown";
+          countsByType[type] = (countsByType[type] ?? 0) + 1;
+        }
+        result = {
+          contextCount: scene.contexts.filter((context) => scene.allowedContextIds.has(context.id))
+            .length,
+          elementCount: allowedElements.length,
+          countsByType,
+        };
+        break;
+      }
+      case "listContexts":
+        result = scene.contexts
+          .filter((context) => scene.allowedContextIds.has(context.id))
+          .map((context) => ({
+            contextId: context.id,
+            frameElementId: context.frameElementId,
+            name: context.frameName,
+            pinned: context.pinned,
+            bounds: contextFrameBounds(byId.get(context.frameElementId)!)!,
+          }));
+        break;
+      case "listFrames":
+        result = allowedElements
+          .filter((element) => element.type === "frame")
+          .slice(0, boundedLimit(args, 100))
+          .map(project);
+        break;
+      case "readFrame": {
+        const frame = requireReadableElement(
+          stringArg(args, "frameElementId"),
+          "FRAME_NOT_READABLE",
+        );
+        if (frame.type !== "frame") {
+          throw new AgentMountError("FRAME_NOT_READABLE", "The requested element is not a frame.");
+        }
+        const contextId = resolve(frame)!;
+        result = {
+          frame: project(frame),
+          elements: allowedElements
+            .filter((element) => element.id !== frame.id && resolve(element) === contextId)
+            .slice(0, boundedLimit(args, 100))
+            .map(project),
+        };
+        break;
+      }
+      case "readElements": {
+        if (!Array.isArray(args.ids) || args.ids.length === 0 || args.ids.length > 100) {
+          throw new AgentMountError(
+            "INVALID_TOOL_ARGUMENTS",
+            "ids must contain between one and 100 element ids.",
+          );
+        }
+        result = args.ids.map((id) =>
+          project(requireReadableElement(String(id), "ELEMENT_NOT_READABLE")),
+        );
+        break;
+      }
+      case "search": {
+        const query = stringArg(args, "query").toLocaleLowerCase();
+        const limit = boundedLimit(args, 20);
+        result = allowedElements
+          .filter(
+            (element) =>
+              (typeof element.text === "string" &&
+                element.text.toLocaleLowerCase().includes(query)) ||
+              (typeof element.name === "string" &&
+                element.name.toLocaleLowerCase().includes(query)),
+          )
+          .slice(0, limit)
+          .map(project);
+        break;
+      }
+      case "neighbors": {
+        const source = requireReadableElement(stringArg(args, "elementId"), "ELEMENT_NOT_READABLE");
+        const related = new Set<string>();
+        for (const candidate of [source.containerId, source.frameId]) {
+          if (typeof candidate === "string" && allowedElementIds.has(candidate))
+            related.add(candidate);
+        }
+        for (const binding of Array.isArray(source.boundElements) ? source.boundElements : []) {
+          if (typeof binding?.id === "string" && allowedElementIds.has(binding.id))
+            related.add(binding.id);
+        }
+        for (const element of allowedElements) {
+          if (
+            element.startBinding?.elementId === source.id ||
+            element.endBinding?.elementId === source.id ||
+            element.containerId === source.id
+          ) {
+            related.add(element.id);
+          }
+        }
+        result = [...related]
+          .sort()
+          .slice(0, boundedLimit(args, 100))
+          .map((id) => project(byId.get(id)!));
+        break;
+      }
+      case "followEdge": {
+        const edge = requireReadableElement(
+          stringArg(args, "edgeElementId"),
+          "ELEMENT_NOT_READABLE",
+        );
+        if (edge.type !== "arrow" && edge.type !== "line") {
+          throw new AgentMountError(
+            "INVALID_TOOL_ARGUMENTS",
+            "The requested element is not an edge.",
+          );
+        }
+        const endpoint = (binding: any) => {
+          const id = typeof binding?.elementId === "string" ? binding.elementId : null;
+          return id && allowedElementIds.has(id) ? project(byId.get(id)!) : null;
+        };
+        result = {
+          edge: project(edge),
+          semantics: { kind: "unspecified" },
+          start: endpoint(edge.startBinding),
+          end: endpoint(edge.endBinding),
+        };
+        break;
+      }
+      case "render": {
+        const requestedContext =
+          typeof args.contextId === "string" && args.contextId.length > 0 ? args.contextId : null;
+        if (requestedContext && !scene.allowedContextIds.has(requestedContext)) {
+          throw new AgentMountError("FRAME_NOT_READABLE", "The requested Context is not readable.");
+        }
+        const renderedElements = requestedContext
+          ? allowedElements.filter((element) => resolve(element) === requestedContext)
+          : allowedElements;
+        const referencedAssetIds = new Set(
+          renderedElements
+            .map((element) => readWidgetRecord(element)?.assetId)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const assetHashes = scene.revision.assets
+          .filter((asset: any) => referencedAssetIds.has(asset.assetId))
+          .map((asset: any) => ({ assetId: asset.assetId, sha256: asset.contentHash }))
+          .concat(
+            renderedElements.flatMap((element) => {
+              const fileId = typeof element.fileId === "string" ? element.fileId : null;
+              return fileId && scene.files[fileId]
+                ? [{ assetId: `file:${fileId}`, sha256: sha256Json(scene.files[fileId]) }]
+                : [];
+            }),
+          )
+          .sort((left: any, right: any) => left.assetId.localeCompare(right.assetId));
+        result = { rendererVersion: "agent-svg-v1", assetHashes, svg: renderSvg(renderedElements) };
+        break;
+      }
+      case "readAsset": {
+        const assetId = stringArg(args, "assetId");
+        const referencedByReadableElement = allowedElements.some(
+          (element) => readWidgetRecord(element)?.assetId === assetId,
+        );
+        const revisionAsset = scene.revision.assets.find((asset: any) => asset.assetId === assetId);
+        if (!referencedByReadableElement || !revisionAsset) {
+          throw new AgentMountError("ASSET_NOT_READABLE", "The requested asset is not readable.");
+        }
+        const mode = args.mode ?? "metadata";
+        if (mode !== "metadata" && mode !== "content") {
+          throw new AgentMountError("INVALID_TOOL_ARGUMENTS", "mode must be metadata or content.");
+        }
+        const metadata = {
+          assetId,
+          kind: revisionAsset.kind,
+          name: revisionAsset.originalName,
+          mimeType: revisionAsset.mimeType,
+          sizeBytes: revisionAsset.sizeBytes,
+          sha256: revisionAsset.contentHash,
+        };
+        if (mode === "metadata") {
+          result = metadata;
+          break;
+        }
+        if (revisionAsset.sizeBytes > 1024 * 1024) {
+          throw new AgentMountError(
+            "ASSET_TOO_LARGE",
+            "Asset content exceeds the 1 MiB tool limit.",
+          );
+        }
+        // assetId is a historical pointer, not an enforced foreign key (see the
+        // AgentBoardRevisionAsset schema comment): the asset the revision once
+        // captured may have since been reclaimed by the ordinary cleanup job.
+        // Metadata above never needed the live row; only fetching bytes does.
+        const liveAsset = await params.prisma.asset.findUnique({
+          where: { id: assetId },
+          select: { blob: { select: { storageKey: true, contentEncoding: true } } },
+        });
+        if (!liveAsset) {
+          throw new AgentMountError(
+            "ASSET_NO_LONGER_AVAILABLE",
+            "This revision recorded the asset, but it no longer exists.",
+          );
+        }
+        const bytes = await readStoredBytes(config.assets.storageDir, liveAsset.blob);
+        if (createHash("sha256").update(bytes).digest("hex") !== revisionAsset.contentHash) {
+          throw new AgentMountError("ASSET_NOT_READABLE", "Mounted asset bytes no longer match.");
+        }
+        result = {
+          ...metadata,
+          encoding: revisionAsset.mimeType.startsWith("text/") ? "utf8" : "base64",
+          content: revisionAsset.mimeType.startsWith("text/")
+            ? bytes.toString("utf8")
+            : bytes.toString("base64"),
+        };
+        break;
+      }
+      case "revisionStatus": {
+        const latest = await materializeAgentBoardRevision(params.prisma, params.drawingId);
+        if (latest.id === scene.revision.id) {
+          result = { changed: false, latestRevisionId: scene.revision.id };
+          break;
+        }
+        const latestElements = liveElements(
+          parseJson<unknown[]>(decodeSnapshotField(latest.elements), []),
+        );
+        const latestContexts = parseJson<ContextSnapshot[]>(latest.contextMap, []);
+        const latestIndex = contextIndex(latestElements, latestContexts);
+        const scoped = latestElements.filter((element) =>
+          canReadAgentContext(scene.allowedContextIds, latestIndex.resolve(element)),
+        );
+        const countsByType: Record<string, number> = {};
+        for (const element of scoped) {
+          const type = typeof element.type === "string" ? element.type : "unknown";
+          countsByType[type] = (countsByType[type] ?? 0) + 1;
+        }
+        result = {
+          changed: true,
+          latestRevisionId: latest.id,
+          sourceDrawingVersion: latest.sourceDrawingVersion,
+          scopedSummary: { elementCount: scoped.length, countsByType },
+        };
+        break;
+      }
+    }
+
+    const projectedTargets = boardAgentFocusTargetsFromResult(params.tool, result);
+    if (!focusStarted && projectedTargets.length > 0) {
+      focusTargets = projectedTargets;
+      focusStarted = true;
+      emitFocus("started", focusTargets);
+    }
+    const resultHash = sha256Json(result);
+    await params.prisma.agentToolAudit.create({
+      data: {
+        runId: scene.mount.runId,
+        revisionId: scene.revision.id,
+        tool: params.tool,
+        argsHash: sha256Json(args),
+        resultHash,
+      },
+    });
+    if (focusStarted) emitFocus("finished", focusTargets);
+    return {
       runId: scene.mount.runId,
       revisionId: scene.revision.id,
       tool: params.tool,
-      argsHash: sha256Json(args),
       resultHash,
-    },
-  });
-  return {
-    runId: scene.mount.runId,
-    revisionId: scene.revision.id,
-    tool: params.tool,
-    resultHash,
-    result,
-  };
+      result,
+    };
+  } catch (error) {
+    if (focusStarted) emitFocus("finished", focusTargets);
+    throw error;
+  }
 };
 
 export const isAgentToolName = (value: string): value is AgentToolName =>

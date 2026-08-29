@@ -1,3 +1,101 @@
+import type { Server } from "socket.io";
+import type {
+  BoardAgentFocusEvent,
+  BoardAgentRunAudience,
+  BoardAgentRuntimePresenceEvent,
+} from "../agent/presence";
+import type { PresenceRegistry } from "./presenceRegistry";
+
+export const BOARD_AGENT_FOCUS_STARTED_EVENT = "agent.focus.started";
+export const BOARD_AGENT_FOCUS_FINISHED_EVENT = "agent.focus.finished";
+export const BOARD_AGENT_RUNTIME_EVENT = "agent.runtime.updated";
+export const BOARD_AGENT_PRESENCE_EVENT = "agent.presence.updated";
+export const BOARD_AGENT_PRESENCE_STALE_MS = 8_000;
+
+const publicFocusEvent = ({ audience, ...event }: BoardAgentFocusEvent) => ({
+  ...event,
+  visibility: audience.kind,
+});
+
+const publicRuntimeEvent = ({ audience, ...event }: BoardAgentRuntimePresenceEvent) => ({
+  ...event,
+  visibility: audience.kind,
+});
+
+const emitAgentSnapshot = (
+  io: Server,
+  presences: PresenceRegistry,
+  drawingId: string,
+  presenceId: string,
+  emitEmpty = true,
+): void => {
+  const viewer = presences.get(drawingId, presenceId);
+  if (!viewer || viewer.receivesAgentEvents === false) return;
+  const snapshot = presences.listAgentsForViewer(drawingId, viewer.accountId);
+  if (snapshot.length === 0 && !emitEmpty) return;
+  io.to(presenceId).emit(BOARD_AGENT_PRESENCE_EVENT, snapshot);
+};
+
+export const emitBoardAgentPresenceSnapshotToSocket = (params: {
+  io: Server;
+  presences: PresenceRegistry;
+  drawingId: string;
+  presenceId: string;
+}): void =>
+  emitAgentSnapshot(params.io, params.presences, params.drawingId, params.presenceId, false);
+
+export const emitBoardAgentPresenceSnapshots = (params: {
+  io: Server;
+  presences: PresenceRegistry;
+  drawingId: string;
+  audiences?: readonly BoardAgentRunAudience[];
+}): void => {
+  const recipientIds = params.audiences
+    ? new Set(
+        params.audiences.flatMap((audience) =>
+          params.presences.agentRecipientIds(params.drawingId, audience),
+        ),
+      )
+    : new Set(params.presences.list(params.drawingId).map((viewer) => viewer.presenceId));
+  for (const presenceId of recipientIds) {
+    emitAgentSnapshot(params.io, params.presences, params.drawingId, presenceId);
+  }
+};
+
+export const publishBoardAgentFocus = (params: {
+  io: Server;
+  presences: PresenceRegistry;
+  event: BoardAgentFocusEvent;
+}): void => {
+  params.presences.applyAgentFocus(params.event);
+  const eventName =
+    params.event.phase === "started"
+      ? BOARD_AGENT_FOCUS_STARTED_EVENT
+      : BOARD_AGENT_FOCUS_FINISHED_EVENT;
+  for (const presenceId of params.presences.agentRecipientIds(
+    params.event.drawingId,
+    params.event.audience,
+  )) {
+    params.io.to(presenceId).emit(eventName, publicFocusEvent(params.event));
+    emitAgentSnapshot(params.io, params.presences, params.event.drawingId, presenceId);
+  }
+};
+
+export const publishBoardAgentRuntime = (params: {
+  io: Server;
+  presences: PresenceRegistry;
+  event: BoardAgentRuntimePresenceEvent;
+}): void => {
+  params.presences.applyAgentRuntime(params.event);
+  for (const presenceId of params.presences.agentRecipientIds(
+    params.event.drawingId,
+    params.event.audience,
+  )) {
+    params.io.to(presenceId).emit(BOARD_AGENT_RUNTIME_EVENT, publicRuntimeEvent(params.event));
+    emitAgentSnapshot(params.io, params.presences, params.event.drawingId, presenceId);
+  }
+};
+
 export const toPresenceName = (value: unknown): string => {
   if (typeof value !== "string") return "User";
   const trimmed = value.trim().slice(0, 120);

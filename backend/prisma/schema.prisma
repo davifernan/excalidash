@@ -226,6 +226,14 @@ model AgentRunMount {
   allowedContextIds   String
   capabilities        String
   capabilityTokenHash String   @unique
+  /// Board-facing participant identity, fixed for the run.
+  displayName          String   @default("Agent")
+  /// `private` reaches only audienceUserId; `drawing` reaches authorized
+  /// human sockets currently present on the board.
+  audienceKind         String   @default("private")
+  /// Derived from the authenticated mount issuer, never supplied as an id by
+  /// the caller.
+  audienceUserId       String?
   createdAt           DateTime @default(now())
 
   drawing  Drawing            @relation(fields: [drawingId], references: [id], onDelete: Cascade)

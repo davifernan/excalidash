@@ -6,6 +6,8 @@ import { createAuthMiddleware } from "../../middleware/auth";
 import type { AgentRuntimeAdapter, AgentRuntimeConnection } from "../../agent/runtime/contracts";
 import { AgentRuntimeGateway } from "../../agent/runtime/gateway";
 import { AgentRuntimeRegistry } from "../../agent/runtime/registry";
+import { PresenceRegistry } from "../../server/presenceRegistry";
+import { BOARD_AGENT_RUNTIME_EVENT } from "../../server/socketPresence";
 import {
   AGENT_EVENT_REAUTHORIZE_INTERVAL_MS,
   registerDrawingRuntimeRoutes,
@@ -14,6 +16,8 @@ import {
 const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "none" }) => {
   const generated = generateApiKey();
   let drawingAccess = params.drawingAccess;
+  let mountedRunId: string | null = null;
+  const emissions: Array<{ presenceId: string; event: string; payload: unknown }> = [];
   const subscriptionClose = vi.fn();
   const start = vi.fn(async (_connection: AgentRuntimeConnection, input: any) => ({
     handle: "opaque",
@@ -73,6 +77,20 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
       findUnique: vi.fn(async () => (drawingAccess === "view" ? { permission: "view" } : null)),
     },
     drawingLinkShare: { findFirst: vi.fn(async () => null) },
+    agentRunMount: {
+      findUnique: vi.fn(async ({ where }: any) =>
+        where.runId === mountedRunId
+          ? {
+              runId: mountedRunId,
+              drawingId: "drawing-1",
+              revisionId: "immutable-revision-17",
+              displayName: "Mounted Research",
+              audienceKind: "private",
+              audienceUserId: "user-1",
+            }
+          : null,
+      ),
+    },
   };
   const { optionalAuth } = createAuthMiddleware({
     prisma: prisma as any,
@@ -80,6 +98,27 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
   });
   const app = express();
   app.use(express.json());
+  const presences = new PresenceRegistry();
+  presences.join("drawing-1", {
+    presenceId: "owner-socket",
+    accountId: "user-1",
+    name: "Owner",
+    initials: "OW",
+    color: "#2563eb",
+    kind: "owner",
+    isActive: true,
+    selectedElementIds: {},
+  });
+  presences.join("drawing-1", {
+    presenceId: "foreign-socket",
+    accountId: "user-2",
+    name: "Viewer",
+    initials: "VI",
+    color: "#059669",
+    kind: "member",
+    isActive: true,
+    selectedElementIds: {},
+  });
   registerDrawingRuntimeRoutes(app, {
     prisma,
     optionalAuth,
@@ -96,6 +135,12 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
       new AgentRuntimeRegistry({ adapters: [adapter], connections: [connection] }),
       "secret",
     ),
+    io: {
+      to: (presenceId: string) => ({
+        emit: (event: string, payload: unknown) => emissions.push({ presenceId, event, payload }),
+      }),
+    },
+    presences,
   } as any);
   return {
     app,
@@ -105,6 +150,10 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
     setDrawingAccess: (access: typeof drawingAccess) => {
       drawingAccess = access;
     },
+    setMountedRun: (runId: string) => {
+      mountedRunId = runId;
+    },
+    emissions,
   };
 };
 
@@ -150,6 +199,44 @@ describe("authenticated agent runtime gateway", () => {
       .expect(403);
     expect(response.body.code).toBe("RUN_CAPABILITY_FORBIDDEN");
     expect(harness.start).not.toHaveBeenCalled();
+  });
+
+  it("projects runtime status through the persisted private mount audience", async () => {
+    const harness = build({
+      scopes: ["agent:read", "agent:run"],
+      drawingAccess: "owner",
+    });
+    const started = await request(harness.app)
+      .post("/drawings/drawing-1/agent/run")
+      .set("Authorization", `Bearer ${harness.token}`)
+      .send({
+        ...runBody,
+        approvedCapabilities: ["agent:read", "agent:run"],
+      })
+      .expect(201);
+    harness.setMountedRun(started.body.run.id);
+
+    await request(harness.app)
+      .get("/drawings/drawing-1/agent/run")
+      .set("Authorization", `Bearer ${harness.token}`)
+      .set("x-agent-run-capability", started.body.runCapability)
+      .expect(200);
+
+    const runtimeEvents = harness.emissions.filter(
+      (emission) => emission.event === BOARD_AGENT_RUNTIME_EVENT,
+    );
+    expect(runtimeEvents).toEqual([
+      expect.objectContaining({
+        presenceId: "owner-socket",
+        payload: expect.objectContaining({
+          runId: started.body.run.id,
+          revisionId: "immutable-revision-17",
+          displayName: "Mounted Research",
+          visibility: "private",
+        }),
+      }),
+    ]);
+    expect(runtimeEvents.some((emission) => emission.presenceId === "foreign-socket")).toBe(false);
   });
 
   it("closes an open event stream after the board access is revoked", async () => {
