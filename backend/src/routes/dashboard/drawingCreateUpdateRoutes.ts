@@ -28,6 +28,10 @@ import { getCollectionShareLevel, getOwnedCollection } from "../../authz/collect
 import { isCollectionCreator } from "../../authz/boards";
 import { computeSearchText } from "../../search/searchIndex";
 import { requestIdOf } from "../../middleware/requestId";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../../agent/boardContexts";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -334,6 +338,9 @@ export const registerDrawingCreateUpdateRoutes = (
           // client-caused conflict.
           updatedDrawing = await prisma.$transaction(
             async (tx) => {
+              if (payload.elements !== undefined) {
+                await assertPersistedAgentContextFrames(tx, id, payload.elements);
+              }
               const compress = config.enableSnapshotCompression;
               const snapshot = await tx.drawingSnapshot.create({
                 data: {
@@ -387,6 +394,13 @@ export const registerDrawingCreateUpdateRoutes = (
           });
         }
       } catch (error) {
+        if (error instanceof AgentContextValidationError) {
+          return res.status(409).json({
+            error: "Invalid Context map",
+            code: error.code,
+            message: error.message,
+          });
+        }
         if (error instanceof InvalidDocumentWidgetStateError) {
           return res.status(400).json({
             error: "Invalid document widgets",

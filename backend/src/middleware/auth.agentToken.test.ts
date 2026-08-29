@@ -13,7 +13,7 @@ import { createDeps, createRequest, createResponse } from "./authTestHelpers";
 
 /**
  * NIL-382: a drawing-bound agent token (`ApiKey.drawingId` set) must be
- * refused on every route except its own board's three agent routes --
+ * refused on every route except its own board's closed agent-route policy --
  * unconditionally, never falling through to the account-wide scope check
  * that a null `drawingId` gets. `authorizeApiKeyRequest` in `auth.ts`
  * enforces this by returning inside the `if (apiKeyDrawingId)` branch on
@@ -96,7 +96,9 @@ describe("agent API key authorization (NIL-382)", () => {
 
   it.each([
     [AGENT_READ_SCOPE, "GET", "/drawings/drawing-A/agent/runtime"],
+    [AGENT_READ_SCOPE, "HEAD", "/drawings/drawing-A/agent/runtime"],
     [AGENT_READ_SCOPE, "GET", "/drawings/drawing-A/agent/run"],
+    [AGENT_READ_SCOPE, "HEAD", "/drawings/drawing-A/agent/run"],
     [AGENT_READ_SCOPE, "POST", "/drawings/drawing-A/agent/events"],
     [AGENT_PROMPT_SCOPE, "POST", "/drawings/drawing-A/agent/prompt"],
   ])("requires the exact %s scope for %s %s", async (scope, method, originalUrl) => {
@@ -111,15 +113,26 @@ describe("agent API key authorization (NIL-382)", () => {
     expect(refused.next).not.toHaveBeenCalled();
   });
 
-  it("reaches its own board's summary and elements routes with drawing:read only", async () => {
-    for (const action of ["summary", "elements"]) {
-      const { req, next } = await runAgentTokenRequest(
-        { method: "GET", originalUrl: `/drawings/drawing-A/agent/${action}` },
-        { scopes: ["drawing:read"] },
-      );
-      expect(req.user?.authCredentialType).toBe("apiKey");
-      expect(next).toHaveBeenCalledOnce();
-    }
+  it("reaches a mounted tool route with drawing:read only", async () => {
+    const { req, next } = await runAgentTokenRequest(
+      {
+        method: "POST",
+        originalUrl: "/drawings/drawing-A/agent/mounts/run-1/tools/overview",
+      },
+      { scopes: ["drawing:read"] },
+    );
+    expect(req.user?.authCredentialType).toBe("apiKey");
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("does not let an agent token choose its own allowedContextIds by issuing a mount", async () => {
+    const { req, res, next } = await runAgentTokenRequest(
+      { method: "POST", originalUrl: "/drawings/drawing-A/agent/mounts" },
+      { scopes: ["drawing:read"] },
+    );
+    expect(req.user).toBeUndefined();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("is refused on the ops route without drawing:ops (read-only token)", async () => {
@@ -165,7 +178,7 @@ describe("agent API key authorization (NIL-382)", () => {
     }
   });
 
-  it("is refused on its own board's full scene read/write -- the agent surface is the three agent routes only, not the whole board", async () => {
+  it("is refused on its own board's full scene read/write -- the agent surface is the closed route policy, not the whole board", async () => {
     for (const request of [
       { method: "GET", originalUrl: "/drawings/drawing-A" },
       { method: "PUT", originalUrl: "/drawings/drawing-A" },
@@ -195,7 +208,8 @@ describe("agent API key authorization (NIL-382)", () => {
     for (const request of [
       { method: "GET", originalUrl: "/drawings/drawing-A/agent" },
       { method: "GET", originalUrl: "/drawings/drawing-A/agent/ops" }, // ops is POST-only
-      { method: "POST", originalUrl: "/drawings/drawing-A/agent/summary" }, // summary is GET-only
+      { method: "GET", originalUrl: "/drawings/drawing-A/agent/mounts" },
+      { method: "GET", originalUrl: "/drawings/drawing-A/agent/mounts/run-1/tools/overview" },
       { method: "GET", originalUrl: "/drawings/drawing-A/agent/ops/extra" },
       { method: "GET", originalUrl: "/drawings/drawing-A/agent/unknown-action" },
     ]) {

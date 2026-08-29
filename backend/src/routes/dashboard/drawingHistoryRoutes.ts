@@ -6,6 +6,10 @@ import { referencedAssetIds, syncDrawingDocumentState } from "../../assets/docum
 import { pruneDrawingSnapshots } from "../../snapshots/snapshotRetention";
 import { requestIdOf } from "../../middleware/requestId";
 import type { DrawingRouteContext } from "./drawingRouteContext";
+import {
+  AgentContextValidationError,
+  assertPersistedAgentContextFrames,
+} from "../../agent/boardContexts";
 
 export const registerDrawingHistoryRoutes = (
   app: express.Express,
@@ -125,60 +129,78 @@ export const registerDrawingHistoryRoutes = (
       const restoredElements = decodeSnapshotField(snapshot.elements);
       const restoredAppState = decodeSnapshotField(snapshot.appState);
       const restoredFiles = decodeSnapshotField(snapshot.files);
-      const wantedAssetIds = referencedAssetIds(parseJsonField(restoredElements, []));
+      const parsedRestoredElements = parseJsonField<Record<string, unknown>[]>(
+        restoredElements,
+        [],
+      );
+      const wantedAssetIds = referencedAssetIds(parsedRestoredElements);
 
-      const updated = await prisma.$transaction(async (tx) => {
-        const current = await tx.drawing.findUnique({ where: { id } });
-        if (!current) throw new Error("Drawing disappeared during restore");
-        // Snapshot current state before restoring (so restore is reversible),
-        // including the documents that make that state usable.
-        const backup = await tx.drawingSnapshot.create({
-          data: {
-            drawingId: id,
-            version: current.version,
-            elements: encodeSnapshotField(current.elements, config.enableSnapshotCompression),
-            appState: encodeSnapshotField(current.appState, config.enableSnapshotCompression),
-            files: encodeSnapshotField(current.files, config.enableSnapshotCompression),
-          },
-        });
-        await captureSnapshotAssets(tx, backup.id, id);
-
-        // A document removed from the current board remains reachable through
-        // the historical snapshot. Reattach those links before the ordinary
-        // reconciliation validates the restored element ids.
-        const archivedAssets = await tx.drawingSnapshotAsset.findMany({
-          where: { snapshotId },
-          select: { assetId: true },
-        });
-        const archivedAssetIds = new Set(archivedAssets.map((row: any) => row.assetId));
-        const missing = wantedAssetIds.filter((assetId) => !archivedAssetIds.has(assetId));
-        if (missing.length > 0) {
-          throw new Error("Snapshot document references are incomplete");
-        }
-        for (const assetId of wantedAssetIds) {
-          await tx.drawingAsset.upsert({
-            where: { drawingId_assetId: { drawingId: id, assetId } },
-            create: { drawingId: id, assetId, state: "ACTIVE", expiresAt: null },
-            update: { state: "ACTIVE", expiresAt: null },
+      const updated = await prisma
+        .$transaction(async (tx) => {
+          await assertPersistedAgentContextFrames(tx, id, parsedRestoredElements);
+          const current = await tx.drawing.findUnique({ where: { id } });
+          if (!current) throw new Error("Drawing disappeared during restore");
+          // Snapshot current state before restoring (so restore is reversible),
+          // including the documents that make that state usable.
+          const backup = await tx.drawingSnapshot.create({
+            data: {
+              drawingId: id,
+              version: current.version,
+              elements: encodeSnapshotField(current.elements, config.enableSnapshotCompression),
+              appState: encodeSnapshotField(current.appState, config.enableSnapshotCompression),
+              files: encodeSnapshotField(current.files, config.enableSnapshotCompression),
+            },
           });
-        }
-        await syncDrawingDocumentState(tx, id, parseJsonField(restoredElements, []), {
-          correlationId: requestIdOf(req),
-        });
+          await captureSnapshotAssets(tx, backup.id, id);
 
-        const restored = await tx.drawing.update({
-          where: { id },
-          data: {
-            // Drawing rows are always plain JSON — decode before restoring.
-            elements: restoredElements,
-            appState: restoredAppState,
-            files: restoredFiles,
-            version: { increment: 1 },
-          },
+          // A document removed from the current board remains reachable through
+          // the historical snapshot. Reattach those links before the ordinary
+          // reconciliation validates the restored element ids.
+          const archivedAssets = await tx.drawingSnapshotAsset.findMany({
+            where: { snapshotId },
+            select: { assetId: true },
+          });
+          const archivedAssetIds = new Set(archivedAssets.map((row: any) => row.assetId));
+          const missing = wantedAssetIds.filter((assetId) => !archivedAssetIds.has(assetId));
+          if (missing.length > 0) {
+            throw new Error("Snapshot document references are incomplete");
+          }
+          for (const assetId of wantedAssetIds) {
+            await tx.drawingAsset.upsert({
+              where: { drawingId_assetId: { drawingId: id, assetId } },
+              create: { drawingId: id, assetId, state: "ACTIVE", expiresAt: null },
+              update: { state: "ACTIVE", expiresAt: null },
+            });
+          }
+          await syncDrawingDocumentState(tx, id, parsedRestoredElements, {
+            correlationId: requestIdOf(req),
+          });
+
+          const restored = await tx.drawing.update({
+            where: { id },
+            data: {
+              // Drawing rows are always plain JSON — decode before restoring.
+              elements: restoredElements,
+              appState: restoredAppState,
+              files: restoredFiles,
+              version: { increment: 1 },
+            },
+          });
+          await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
+          return restored;
+        })
+        .catch((error) => {
+          if (error instanceof AgentContextValidationError) {
+            res.status(409).json({
+              error: "Invalid Context map",
+              code: error.code,
+              message: error.message,
+            });
+            return null;
+          }
+          throw error;
         });
-        await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
-        return restored;
-      });
+      if (!updated) return;
 
       invalidateDrawingsCache();
       io.to(`drawing_${id}`).emit("drawing-server-update", { drawingId: id });

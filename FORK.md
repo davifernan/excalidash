@@ -169,6 +169,14 @@ the websocket handshake both go through the same check), with an enforced expiry
 days. There is no account-wide agent permission as a legacy fallback for this — a board-scoped
 key is scoped, full stop.
 
+`drawing:read` does not expose a mutable scene dump. A caller first creates an immutable run
+mount with `POST /drawings/:drawingId/agent/mounts`, then supplies the returned
+`x-agent-mount-token` to a bounded tool call under
+`POST /drawings/:drawingId/agent/mounts/:runId/tools/:tool`. Every answer names the mount's
+unchanging `revisionId` and a reproducible result hash. See
+[`docs/architecture/AGENT_BOARD_MOUNT.md`](docs/architecture/AGENT_BOARD_MOUNT.md) for the API
+and Context boundary.
+
 ### Session length
 
 ```bash
