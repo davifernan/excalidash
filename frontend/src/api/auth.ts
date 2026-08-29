@@ -65,6 +65,8 @@ export interface UserPreferences {
   dashboardSortDirection?: SortDirection;
   /** Which feature-registry entries this viewer keeps in the toolbar (NIL-655). */
   toolbarFeatureIds?: string[];
+  /** Whether this user wants Excalidraw's grid enabled, across every board. */
+  gridModeEnabled?: boolean;
 }
 
 export interface ApiKeyMetadata {

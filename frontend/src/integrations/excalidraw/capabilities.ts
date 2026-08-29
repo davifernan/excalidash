@@ -33,6 +33,7 @@ import type {
   FollowState,
   HistoryCapture,
   InteractionState,
+  ArrowStyle,
   PersistedScene,
   PointerUpdate,
   SceneBounds,
@@ -236,6 +237,8 @@ export interface InteractionCapability {
    * one adapter failure rather than four product bugs.
    */
   read(): CapabilityResult<InteractionState>;
+  /** Current native-arrow defaults, read at the moment an arrow is created. */
+  readArrowStyle(): CapabilityResult<ArrowStyle>;
   subscribe(listener: (state: InteractionState) => void): Unsubscribe;
   setActiveTool(tool: ActiveTool): CapabilityResult<void>;
   /** As setActiveTool, resolving once the tool is actually armed. */

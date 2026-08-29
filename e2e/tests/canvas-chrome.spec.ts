@@ -136,18 +136,26 @@ test.describe("the hamburger carries the board's identity and the way back", () 
       await expect(page.getByTestId("command-palette-button")).toBeVisible();
       await expect(page.getByTestId("search-menu-button")).toBeVisible();
 
+      const initialGridModeEnabled = await page.evaluate(
+        () => (window as any).__EXCALIDASH_TEST__.getAppState().gridModeEnabled === true,
+      );
+
       await page.getByTestId("command-palette-button").click();
       const palette = page.locator(".command-palette-dialog");
       await expect(palette).toBeVisible();
       await palette.locator("input").fill("grid");
       await expect(palette.locator(".item-selected")).toContainText("Toggle grid");
       await page.keyboard.press("Enter");
-      // The selected native command changes the board state and the rendered
-      // grid; waiting for persistence proves this was the real Excalidraw
-      // action, not a lookalike palette row that only closed the dialog.
+      // The selected native command changes Excalidraw's rendered grid. Its
+      // persistence is independently covered by the grid-preference hook tests;
+      // gridModeEnabled itself must not be written to shared board state.
       await expect
-        .poll(async () => (await getDrawing(api, drawingId)).appState?.gridModeEnabled)
-        .toBe(true);
+        .poll(() =>
+          page.evaluate(
+            () => (window as any).__EXCALIDASH_TEST__.getAppState().gridModeEnabled === true,
+          ),
+        )
+        .toBe(!initialGridModeEnabled);
 
       await openMenu(page);
       await page.getByTestId("search-menu-button").click();

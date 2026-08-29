@@ -52,7 +52,10 @@ type Props = {
   containerRef: React.RefObject<HTMLElement>;
   canEdit: boolean;
   isDragging: () => boolean;
-  interaction: Pick<InteractionCapability, "read" | "setActiveTool" | "setActiveToolSettled">;
+  interaction: Pick<
+    InteractionCapability,
+    "read" | "readArrowStyle" | "setActiveTool" | "setActiveToolSettled"
+  >;
   scene: Pick<SceneCapability, "subscribe" | "summaries" | "summaryById" | "applySettled">;
   selection: Pick<SelectionCapability, "read">;
   ui: Pick<UiCapability, "beginTextEditing">;
@@ -332,7 +335,7 @@ export const StickyHandles: React.FC<Props> = ({
                 // the child note appeared at all -- even though the tool
                 // itself had already switched within a frame.
                 await interaction.setActiveToolSettled({ type: "selection" });
-                await createConnectedChild(parent, dot.side, scene, ui);
+                await createConnectedChild(parent, dot.side, scene, ui, interaction);
               })().finally(() => {
                 creatingChildren.current.delete(creationKey);
               });

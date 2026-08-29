@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+
+const { notification } = vi.hoisted(() => ({ notification: vi.fn() }));
+
+vi.mock("../notifications", () => ({ notify: notification }));
+
 import {
   CHILD_GAP,
   HANDLE_OUTSET,
@@ -130,6 +135,20 @@ describe("placing a connected child", () => {
         applySettled,
       },
       { beginTextEditing },
+      {
+        readArrowStyle: () => ({
+          ok: true as const,
+          value: {
+            strokeColor: "#ff006e",
+            strokeWidth: 4,
+            strokeStyle: "dashed" as const,
+            roundness: { type: 2 },
+            startArrowhead: "triangle",
+            endArrowhead: "arrow",
+            elbowed: false,
+          },
+        }),
+      },
     );
 
     expect(applySettled).toHaveBeenCalledOnce();
@@ -141,7 +160,44 @@ describe("placing a connected child", () => {
     expect(child.customData?.excalidash?.sticky).toBeTruthy();
     expect(arrow.startBinding?.elementId).toBe(parent.id);
     expect(arrow.endBinding?.elementId).toBe(child.id);
+    expect(arrow).toMatchObject({
+      strokeColor: "#ff006e",
+      strokeWidth: 4,
+      strokeStyle: "dashed",
+      roundness: { type: 2 },
+      startArrowhead: "triangle",
+      endArrowhead: "arrow",
+    });
     expect(ops.at(-1)).toEqual({ kind: "select", ids: [child.id] });
     expect(beginTextEditing).toHaveBeenCalledWith(child.id);
+  });
+
+  it("does not mutate the scene when native arrow defaults are unavailable", async () => {
+    const applySettled = vi.fn(async () => ({ ok: true as const, value: undefined }));
+    const beginTextEditing = vi.fn(async () => ({ ok: true as const, value: undefined }));
+
+    await createConnectedChild(
+      parent,
+      "right",
+      {
+        summaries: () => ({ ok: true as const, value: [parent] }),
+        applySettled,
+      },
+      { beginTextEditing },
+      {
+        readArrowStyle: () => ({
+          ok: false as const,
+          code: "not-ready" as const,
+          seam: "interaction.readArrowStyle",
+        }),
+      },
+    );
+
+    expect(applySettled).not.toHaveBeenCalled();
+    expect(beginTextEditing).not.toHaveBeenCalled();
+    expect(notification).toHaveBeenCalledWith(
+      "error",
+      "Couldn't read the current arrow style. Please try again.",
+    );
   });
 });

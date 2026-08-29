@@ -247,6 +247,22 @@ export type ActiveTool =
   | { readonly type: "builtin"; readonly name: string };
 
 /**
+ * The defaults Excalidraw will apply when its arrow tool creates an element.
+ * This is deliberately a complete arrow-style snapshot rather than the two
+ * fields sticky connections used to override: a connected note must look like
+ * an arrow the same person would draw by hand at that moment.
+ */
+export type ArrowStyle = {
+  readonly strokeColor: string;
+  readonly strokeWidth: number;
+  readonly strokeStyle: "solid" | "dashed" | "dotted";
+  readonly roundness: { readonly type: number } | null;
+  readonly startArrowhead: string | null;
+  readonly endArrowhead: string | null;
+  readonly elbowed: boolean;
+};
+
+/**
  * What the editor is doing right now.
  *
  * Ids rather than booleans: the collaboration merge has to leave an element
