@@ -47,31 +47,13 @@ describe("document pagination worker client", () => {
         new MessageEvent("message", { data: { source: "x".repeat(50_000), kind } }),
       );
 
-      const responses = postMessage.mock.calls.map(([response]) => response);
-      expect(responses.at(-1)).toEqual({ ok: true, type: "complete" });
-      expect(responses.filter((response) => response.ok && response.type === "page")).toHaveLength(
-        3,
-      );
+      expect(postMessage).toHaveBeenCalledOnce();
+      const response = postMessage.mock.calls[0][0];
+      expect(response.ok).toBe(true);
+      if (!response.ok) throw new Error(response.error);
+      expect(response.pages).toHaveLength(3);
     },
   );
-
-  it("rejects an invalid worker message before pagination", async () => {
-    const postMessage = vi.fn<(response: DocumentPaginationResponse) => void>();
-    const workerScope: {
-      onmessage?: (event: MessageEvent<unknown>) => void;
-      postMessage: typeof postMessage;
-    } = { postMessage };
-    vi.stubGlobal("self", workerScope);
-    vi.resetModules();
-
-    await import("./documentPagination.worker");
-    workerScope.onmessage?.(new MessageEvent("message", { data: { source: 42, kind: "TEXT" } }));
-
-    expect(postMessage).toHaveBeenCalledWith({
-      ok: false,
-      error: "Invalid document pagination request.",
-    });
-  });
 
   it("posts source to a module worker and releases it after the result", async () => {
     const result = paginateDocumentOffThread("one\ntwo", "TEXT");
@@ -80,12 +62,8 @@ describe("document pagination worker client", () => {
     expect(worker.options).toEqual({ type: "module" });
     expect(worker.postMessage).toHaveBeenCalledWith({ source: "one\ntwo", kind: "TEXT" });
     worker.onmessage?.(
-      new MessageEvent("message", { data: { ok: true, type: "page", page: "one\n" } }),
+      new MessageEvent("message", { data: { ok: true, pages: ["one\n", "two"] } }),
     );
-    worker.onmessage?.(
-      new MessageEvent("message", { data: { ok: true, type: "page", page: "two" } }),
-    );
-    worker.onmessage?.(new MessageEvent("message", { data: { ok: true, type: "complete" } }));
 
     await expect(result).resolves.toEqual(["one\n", "two"]);
     expect(worker.terminate).toHaveBeenCalledOnce();

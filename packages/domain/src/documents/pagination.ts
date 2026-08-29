@@ -30,45 +30,9 @@ const isBlank = (line: string) => withoutLineEnding(line).trim().length === 0;
 const headingPattern = /^ {0,3}#{1,6}(?:\s|$)/;
 const listItemPattern = /^( {0,3})(?:[-+*]|\d{1,9}[.)])\s+/;
 
-const LONG_BLANK_LINE_RUN = 64;
-
-const splitLines = (source: string, collapseLongBlankRuns = false) => {
+const splitLines = (source: string) => {
   if (source.length === 0) return [""];
-
-  // Regex line splitting is convenient for ordinary Markdown, but it
-  // allocates one string for every newline. A 2 MiB pasted document made of
-  // sparse non-blank lines therefore spent most of its worker time allocating
-  // two million throwaway "\n" strings before markdownBlocks could coalesce
-  // them. Keep normal line boundaries intact for Markdown grammar, while a
-  // long blank run is already semantically one blank block and can travel as
-  // one string from the start.
-  const lines: string[] = [];
-  let start = 0;
-  while (start < source.length) {
-    const newline = source.indexOf("\n", start);
-    if (newline === -1) {
-      lines.push(source.slice(start));
-      break;
-    }
-    if (newline !== start) {
-      lines.push(source.slice(start, newline + 1));
-      start = newline + 1;
-      continue;
-    }
-
-    if (collapseLongBlankRuns) {
-      let end = start + 1;
-      while (end < source.length && source[end] === "\n") end += 1;
-      if (end - start >= LONG_BLANK_LINE_RUN) {
-        lines.push(source.slice(start, end));
-        start = end;
-        continue;
-      }
-    }
-    lines.push("\n");
-    start += 1;
-  }
-  return lines;
+  return source.match(/[^\n]*(?:\n|$)/g)?.filter((line) => line.length > 0) ?? [source];
 };
 
 const fenceOpening = (line: string) => {
@@ -192,7 +156,7 @@ const readList = (lines: string[], start: number) => {
  * so independent of how fast or loaded the machine running the test is.
  */
 export const markdownBlocks = (source: string): MarkdownBlock[] => {
-  const lines = splitLines(source, true);
+  const lines = splitLines(source);
   const blocks: MarkdownBlock[] = [];
   let index = 0;
 

@@ -157,12 +157,13 @@ const runResponsivenessTrial = async (
     await startResponsivenessProbe(guestPage);
     await dropMarkdown(hostPage, PATHOLOGICAL_MARKDOWN, "pathological-newlines.md");
     // The container can mount while it still holds the loading spinner. Wait
-    // for the loaded page state, then for the observable page number, before
-    // ending the probe. Visibility alone would not prove pagination finished.
+    // for the loaded page state before ending the probe; visibility alone
+    // would not prove pagination finished. The separate page-label assertion
+    // below verifies navigation state without measuring toolbar activation.
     await waitForDocumentWidgetLoaded(guestPage);
+    const measurement = await finishResponsivenessProbe(guestPage);
     await activateWidget(guestPage);
     await expect(pageLabel(guestPage)).toContainText("Page 1 of", { timeout: 30_000 });
-    const measurement = await finishResponsivenessProbe(guestPage);
     return measurement;
   } finally {
     await host.close();

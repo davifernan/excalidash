@@ -29,13 +29,14 @@ const runProductionWorker = async (request: DocumentPaginationRequest) => {
   ).toBeTypeOf("function");
   workerScope.onmessage?.(new MessageEvent("message", { data: request }));
 
-  const responses = postMessage.mock.calls.map(([response]) => response);
-  const failure = responses.find((response) => !response.ok);
-  if (failure && !failure.ok) throw new Error(failure.error);
-  expect(responses.at(-1)).toEqual({ ok: true, type: "complete" });
-  return responses.flatMap((response) =>
-    response.ok && response.type === "page" ? [response.page] : [],
-  );
+  expect(
+    postMessage,
+    "the production Worker must answer the pagination request",
+  ).toHaveBeenCalledOnce();
+  const response = postMessage.mock.calls[0][0];
+  expect(response.ok, "the production Worker must accept a valid pagination request").toBe(true);
+  if (!response.ok) throw new Error(response.error);
+  return response.pages;
 };
 
 afterEach(() => {
