@@ -535,6 +535,24 @@ export const executeAgentBoardTool = async (params: {
   const revisionAssetIds = new Set<string>(
     scene.revision.assets.map((asset: any) => String(asset.assetId)),
   );
+  const readableTextElements = allowedElements.filter((element) => element.type === "text");
+  const approvalRows =
+    readableTextElements.length === 0
+      ? []
+      : await params.prisma.agentInstructionApproval.findMany({
+          where: {
+            drawingId: params.drawingId,
+            authority: "instruction",
+            contextId: { in: [...scene.allowedContextIds] },
+            elementId: { in: readableTextElements.map((element) => element.id as string) },
+          },
+        });
+  const approvalByContextAndElement = new Map(
+    approvalRows.map((approval: any) => [
+      `${approval.contextId}\u0000${approval.elementId}`,
+      approval,
+    ]),
+  );
   const instructionByElementId = new Map<
     string,
     { closureHash: string; schemaVersion: number } | null
@@ -557,6 +575,8 @@ export const executeAgentBoardTool = async (params: {
           contextId: resolve(element)!,
           elementId: element.id,
           revision: scene.revision,
+          approval:
+            approvalByContextAndElement.get(`${resolve(element)}\u0000${element.id}`) ?? null,
         });
         instruction = {
           closureHash: approval.closure.closureHash,

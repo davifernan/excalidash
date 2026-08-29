@@ -2,6 +2,7 @@ import { decodeSnapshotField } from "../snapshots/snapshotCodec";
 import { contextIndex, materializeAgentBoardRevision } from "./boardMount";
 import {
   INSTRUCTION_RELATION_KINDS,
+  InstructionClosureError,
   type InstructionClosure,
   type InstructionSemanticRelation,
   compileInstructionClosure,
@@ -106,13 +107,20 @@ export const compileInstructionClosureFromRevision = (params: {
       "Only an authored text element may become an Agent instruction.",
     );
   }
-  return compileInstructionClosure({
-    contextId: params.contextId,
-    instructionElementId: params.elementId,
-    elements,
-    relations: relationsForContext(params.revision.semanticRelations ?? "[]", params.contextId),
-    resolveContextId: resolve,
-  });
+  try {
+    return compileInstructionClosure({
+      contextId: params.contextId,
+      instructionElementId: params.elementId,
+      elements,
+      relations: relationsForContext(params.revision.semanticRelations ?? "[]", params.contextId),
+      resolveContextId: resolve,
+    });
+  } catch (error) {
+    if (error instanceof InstructionClosureError) {
+      throw new InstructionApprovalError("SEMANTIC_RELATION_INVALID", error.message);
+    }
+    throw error;
+  }
 };
 
 export const approveInstruction = async (params: {
@@ -225,7 +233,14 @@ export const upsertInstructionSemanticRelation = async (params: {
         kind: params.kind,
       },
     },
-    create: params,
+    create: {
+      drawingId: params.drawingId,
+      contextId: params.contextId,
+      fromElementId: params.fromElementId,
+      toElementId: params.toElementId,
+      kind: params.kind,
+      createdByUserId: params.createdByUserId,
+    },
     update: { createdByUserId: params.createdByUserId },
     select: { id: true, contextId: true, fromElementId: true, toElementId: true, kind: true },
   });
@@ -242,15 +257,20 @@ export const readInstructionApprovalStatus = async (params: {
   contextId: string;
   elementId: string;
   revision?: any;
+  /** A caller that projects a batch may supply the one preloaded row. */
+  approval?: any | null;
 }) => {
-  const approval = await params.prisma.agentInstructionApproval.findFirst({
-    where: {
-      drawingId: params.drawingId,
-      contextId: params.contextId,
-      elementId: params.elementId,
-      authority: "instruction",
-    },
-  });
+  const approval =
+    params.approval === undefined
+      ? await params.prisma.agentInstructionApproval.findFirst({
+          where: {
+            drawingId: params.drawingId,
+            contextId: params.contextId,
+            elementId: params.elementId,
+            authority: "instruction",
+          },
+        })
+      : params.approval;
   if (!approval) return { status: "none" as const, approval: null };
   const revision =
     params.revision ?? (await materializeAgentBoardRevision(params.prisma, params.drawingId));
@@ -295,6 +315,7 @@ export const requireCurrentInstructionApproval = async (params: {
   contextId: string;
   elementId: string;
   revision: any;
+  approval?: any | null;
 }) => {
   const status = await readInstructionApprovalStatus(params);
   if (status.status === "none") {

@@ -476,4 +476,50 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     expect(render.status).toBe(403);
     expect(render.body.code).toBe("CAPABILITY_MISSING");
   });
+
+  it("persists semantic relations and reports a stale closure as a client error", async () => {
+    const relation = await ownerAgent
+      .put(`/drawings/${drawingId}/instruction-contexts/${contextAId}/semantic-relations`)
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken)
+      .send({ fromElementId: "answer-a", toElementId: "asset-a-widget", kind: "references" });
+    expect(relation.status).toBe(201);
+    expect(relation.body.relation).toMatchObject({
+      contextId: contextAId,
+      fromElementId: "answer-a",
+      toElementId: "asset-a-widget",
+      kind: "references",
+    });
+
+    await prisma.agentSemanticRelation.create({
+      data: {
+        drawingId,
+        contextId: contextAId,
+        fromElementId: "answer-a",
+        toElementId: "deleted-element",
+        kind: "depends_on",
+        createdByUserId: ownerId,
+      },
+    });
+    const preview = await ownerAgent
+      .get(
+        `/drawings/${drawingId}/instruction-contexts/${contextAId}/instructions/answer-a/approval-preview`,
+      )
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(preview.status).toBe(400);
+    expect(preview.body.code).toBe("SEMANTIC_RELATION_INVALID");
+
+    const approval = await ownerAgent
+      .post(
+        `/drawings/${drawingId}/instruction-contexts/${contextAId}/instructions/answer-a/approval`,
+      )
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken)
+      .send({ expectedClosureHash: "a".repeat(64) });
+    expect(approval.status).toBe(400);
+    expect(approval.body.code).toBe("SEMANTIC_RELATION_INVALID");
+  });
 });

@@ -114,6 +114,60 @@ describe("Instruction Semantic Closure", () => {
     expect(cosmetic.closureHash).toBe(approved.closureHash);
   });
 
+  it("does not invalidate approval for content in an unreferenced frame", () => {
+    const elements = [
+      ...scene(),
+      { id: "other-frame", type: "frame", x: 500, y: 0, width: 400, height: 300 },
+      {
+        id: "other-content",
+        type: "text",
+        frameId: "other-frame",
+        originalText: "Unrelated planning note",
+        text: "Unrelated planning note",
+      },
+    ];
+    const compile = (updatedElements: Element[]) =>
+      compileInstructionClosure({
+        contextId: "context-a",
+        instructionElementId: "instruction",
+        elements: updatedElements,
+        relations: [],
+        resolveContextId: (element) =>
+          element.id === "frame" ||
+          element.id === "other-frame" ||
+          element.frameId === "frame" ||
+          element.frameId === "other-frame"
+            ? "context-a"
+            : null,
+      });
+    const approved = compile(elements);
+    const changed = compile(
+      elements.map((element) =>
+        element.id === "other-content"
+          ? { ...element, originalText: "Completely different unrelated note" }
+          : element,
+      ),
+    );
+    expect(changed.closureHash).toBe(approved.closureHash);
+  });
+
+  it("rejects a previously approvable instruction moved to another Agent Context", () => {
+    expect(() =>
+      compileInstructionClosure({
+        contextId: "context-a",
+        instructionElementId: "instruction",
+        elements: scene(),
+        relations: [],
+        resolveContextId: (element) =>
+          element.id === "instruction"
+            ? "context-b"
+            : element.frameId === "frame" || element.id === "frame"
+              ? "context-a"
+              : null,
+      }),
+    ).toThrow(/not in the named Agent Context/);
+  });
+
   it("binds typed dependencies transitively and ignores an untyped arrow", () => {
     const relations: InstructionSemanticRelation[] = [
       { fromElementId: "instruction", toElementId: "plan", kind: "references" },
