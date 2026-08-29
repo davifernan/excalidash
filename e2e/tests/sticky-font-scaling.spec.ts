@@ -25,6 +25,45 @@ const settle = async (page: Page) => {
   await page.waitForTimeout(400);
 };
 
+/**
+ * Polls `read()` until it returns the same value for `stableReads` polls in a
+ * row, instead of a single fixed sleep (NIL-690). A fixed sleep only proves
+ * "nothing changed across exactly this one gap" -- a same-content echo that
+ * lands a beat after the gap ends is invisible to it, which is exactly how
+ * the late version/versionNonce/updated bump this guards against first
+ * surfaced. Polling for confirmed stability, with a timeout well past the
+ * fixed sleep it replaces, is strictly more sensitive to a late echo, not
+ * less.
+ */
+const waitForStable = async <T>(
+  read: () => Promise<T>,
+  options: { stableReads?: number; pollMs?: number; timeoutMs?: number } = {},
+): Promise<T> => {
+  const { stableReads = 5, pollMs = 200, timeoutMs = 8000 } = options;
+  const deadline = Date.now() + timeoutMs;
+  let lastValue = await read();
+  let lastSerialized = JSON.stringify(lastValue);
+  let stableCount = 1;
+  while (stableCount < stableReads) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Value did not stay stable for ${stableReads} consecutive reads within ${timeoutMs}ms (last=${lastSerialized})`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    const value = await read();
+    const serialized = JSON.stringify(value);
+    if (serialized === lastSerialized) {
+      stableCount += 1;
+    } else {
+      stableCount = 1;
+      lastSerialized = serialized;
+      lastValue = value;
+    }
+  }
+  return lastValue;
+};
+
 const textAt = (length: number) =>
   Array.from({ length }, (_, index) => (index % 6 === 5 ? " " : "x")).join("");
 
@@ -297,9 +336,13 @@ test.describe("sticky note font scaling (NIL-630)", () => {
         });
       const settledA = await revisions(pageA);
       const settledB = await revisions(pageB);
-      await pageA.waitForTimeout(1500);
-      expect(await revisions(pageA)).toEqual(settledA);
-      expect(await revisions(pageB)).toEqual(settledB);
+      // A single fixed sleep only proves nothing changed across exactly that
+      // one gap; polling for confirmed stability catches a same-content echo
+      // landing at any point after, not just inside one arbitrary window
+      // (NIL-690) -- and each side is checked against its OWN prior reading,
+      // so a drift is caught even if both sides drifted to the same value.
+      expect(await waitForStable(() => revisions(pageA))).toEqual(settledA);
+      expect(await waitForStable(() => revisions(pageB))).toEqual(settledB);
     } finally {
       await contextB.close();
     }

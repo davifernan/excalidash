@@ -76,6 +76,43 @@ export const elementContentSignature = (element: any): string => {
   ].join("|");
 };
 
+/**
+ * Undoes a same-content echo's version bump (NIL-690).
+ *
+ * A remote copy can legitimately win a reconciliation on content alone (see
+ * `reconcileElements`'s own bottom branch, "bookkeeping identical but the
+ * contents differ") even when nothing a person authored actually changed --
+ * a Sticky's bound label is the clear case: its wire form always carries the
+ * canonical reference `fontSize` (`stickyDerivedState.ts`'s
+ * `canonicalizeStickyFontState`), which by construction differs from the
+ * locally *derived* fontSize this client is showing, so any resend of that
+ * label -- triggered by an edit anywhere else on the board, or a save
+ * round-trip, not by this note changing -- adopts the remote element's
+ * bumped `version`/`versionNonce`/`updated` even though re-deriving produces
+ * the exact pixels already on screen. `deriveStickyFontState` puts the
+ * fontSize back; nothing puts the bookkeeping back.
+ *
+ * Called once, right after the last local-derivation step in a remote flush
+ * (`useEditorCollaboration.ts`), comparing the fully rendered elements against
+ * what was already live before this flush. An element whose *rendered*
+ * content signature is unchanged from what was already on screen is treated
+ * as not having changed at all -- the previous object (bookkeeping included)
+ * is kept verbatim, so no downstream fingerprint, broadcast-suppression, or
+ * onChange consumer ever sees a version bump for content nobody actually
+ * changed.
+ */
+export const preserveUnchangedElements = (
+  elements: readonly any[],
+  previousById: ReadonlyMap<string, any>,
+): any[] =>
+  elements.map((element) => {
+    const previous = previousById.get(element?.id);
+    if (!previous || previous === element) return element;
+    return elementContentSignature(element) === elementContentSignature(previous)
+      ? previous
+      : element;
+  });
+
 export type ReconcileOptions = {
   /**
    * Elements this client is in the middle of changing.

@@ -44,6 +44,7 @@ import type {
 } from "../../integrations/excalidraw/capabilities";
 import { log } from "../../logging";
 import { deriveStickyFontState } from "../../sticky/stickyDerivedState";
+import { preserveUnchangedElements } from "../../utils/sync";
 export type { Peer } from "./socketCollaborators";
 
 /**
@@ -469,7 +470,10 @@ export const useEditorCollaboration = ({
           }
         }
         const renderedElements = mergedElements
-          ? deriveStickyFontState(mergedElements, protectedIds)
+          ? preserveUnchangedElements(
+              deriveStickyFontState(mergedElements, protectedIds),
+              previousElementsById,
+            )
           : mergedElements;
         let sceneApplied = true;
         if (filesAdded && mergedElements && sceneUpdate && "elements" in sceneUpdate) {

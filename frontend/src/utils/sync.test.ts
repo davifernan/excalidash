@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { elementContentSignature, reconcileElements } from "./sync";
+import { elementContentSignature, preserveUnchangedElements, reconcileElements } from "./sync";
 
 const el = (id: string, over: Record<string, any> = {}) => ({
   id,
@@ -127,5 +127,48 @@ describe("the content fingerprint", () => {
   it("stays bounded for enormous metadata", () => {
     const huge = { sticky: { note: "x".repeat(100_000) } };
     expect(elementContentSignature(el("a", { customData: huge })).length).toBeLessThan(600);
+  });
+});
+
+describe("preserveUnchangedElements (NIL-690)", () => {
+  it("a deliberately delayed same-content echo does not bump version, versionNonce, or updated", () => {
+    // Simulates exactly the observed defect: a label that is visibly
+    // identical (same rendered fontSize, text, geometry) to what is already
+    // live arrives with fresh bookkeeping -- a "late echo", not a real edit.
+    const previous = el("label-1", {
+      type: "text",
+      text: "hello",
+      fontSize: 9.48519094968704,
+      version: 350,
+      versionNonce: 111,
+      updated: 1000,
+    });
+    const echoed = el("label-1", {
+      type: "text",
+      text: "hello",
+      fontSize: 9.48519094968704,
+      version: 351,
+      versionNonce: 222,
+      updated: 2000,
+    });
+    const result = preserveUnchangedElements([echoed], new Map([["label-1", previous]]));
+    expect(result[0]).toBe(previous);
+    expect(result[0].version).toBe(350);
+    expect(result[0].versionNonce).toBe(111);
+    expect(result[0].updated).toBe(1000);
+  });
+
+  it("a genuine content change still applies its own bookkeeping", () => {
+    const previous = el("label-1", { text: "hello", version: 350 });
+    const changed = el("label-1", { text: "hello world", version: 351 });
+    const result = preserveUnchangedElements([changed], new Map([["label-1", previous]]));
+    expect(result[0]).toBe(changed);
+    expect(result[0].version).toBe(351);
+  });
+
+  it("passes through an element with no previous counterpart untouched", () => {
+    const fresh = el("new-element");
+    const result = preserveUnchangedElements([fresh], new Map());
+    expect(result[0]).toBe(fresh);
   });
 });
