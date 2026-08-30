@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { Socket } from "socket.io-client";
+import {
+  COMMENT_CREATED_EVENT,
+  COMMENT_UPDATED_EVENT,
+  COMMENT_DELETED_EVENT,
+} from "@excalidash/domain/collaboration";
 import * as commentsApi from "../../../api/comments";
 import type { CommentDTO, MentionCandidate } from "../../../api/comments";
 
@@ -116,13 +121,13 @@ export const useComments = ({
       void refresh();
       void id;
     };
-    socket.on("comment-created", onCreated);
-    socket.on("comment-updated", onUpdated);
-    socket.on("comment-deleted", onDeleted);
+    socket.on(COMMENT_CREATED_EVENT, onCreated);
+    socket.on(COMMENT_UPDATED_EVENT, onUpdated);
+    socket.on(COMMENT_DELETED_EVENT, onDeleted);
     return () => {
-      socket.off("comment-created", onCreated);
-      socket.off("comment-updated", onUpdated);
-      socket.off("comment-deleted", onDeleted);
+      socket.off(COMMENT_CREATED_EVENT, onCreated);
+      socket.off(COMMENT_UPDATED_EVENT, onUpdated);
+      socket.off(COMMENT_DELETED_EVENT, onDeleted);
     };
   }, [socketRef, isReady, enabled, refresh]);
 

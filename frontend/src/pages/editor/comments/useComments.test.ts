@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { MutableRefObject } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Socket } from "socket.io-client";
+import { COMMENT_CREATED_EVENT } from "@excalidash/domain/collaboration";
 import { useComments } from "./useComments";
 import type { CommentDTO } from "../../../api/comments";
 
@@ -76,6 +77,16 @@ describe("useComments", () => {
    * and the actor's own optimistic append each unconditionally added the row,
    * producing a duplicate entry (and duplicate React key) for the actor's own
    * comment specifically -- an observer never hit this path, only the author.
+   *
+   * This is also the frontend half of the comment live-update wire contract
+   * (NIL-637, Zweig B, comments domain, slice 1): the emit below uses
+   * `COMMENT_CREATED_EVENT` from `@excalidash/domain/collaboration`, the same
+   * binding `useComments.ts` registers `socket.on` with, so this test drives
+   * the REAL hook's REAL listener through the shared constant rather than a
+   * coincidentally-matching literal. The backend half --
+   * `backend/src/comments/commentEventsContract.test.ts` -- proves
+   * `publishCommentCreated` emits that identical binding; neither half
+   * fabricates the other side.
    */
   it("does not duplicate the author's own comment when its socket echo arrives before the HTTP response resolves", async () => {
     mocks.getDrawingComments.mockResolvedValue({ comments: [], canComment: true });
@@ -105,7 +116,7 @@ describe("useComments", () => {
 
     // The socket echo "arrives" first, exactly like the real race.
     act(() => {
-      emit("comment-created", comment);
+      emit(COMMENT_CREATED_EVENT, comment);
     });
     expect(result.current.threads).toHaveLength(1);
 

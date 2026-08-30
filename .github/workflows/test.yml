@@ -49,6 +49,17 @@ jobs:
         run: node scripts/release-tag-guard.cjs
       - name: Prove the release tag guard rejects what it claims to
         run: node scripts/release-tag-guard.test.cjs
+      # A deleted file cannot fail a test that no longer runs it. Check only
+      # pull requests, where GitHub provides both the PR body and its base/head
+      # commits; the guard itself uses their merge-base so an out-of-date branch
+      # never inherits a deletion made later on main.
+      - name: Check declared PR file deletions
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/pr-deletion-guard.cjs
       # Docker context vs. Dockerfile COPY sources: root-Workspace COPYs in
       # backend/Dockerfile silently broke six build call sites still passing
       # the pre-Workspace `context: ./backend` (two of them release-tag build
