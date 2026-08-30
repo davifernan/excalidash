@@ -1,4 +1,7 @@
+import { CURSOR_CHAT_EVENT, CURSOR_CHAT_TEXT_MAX_LENGTH } from "@excalidash/domain/collaboration";
 import { createTrailingPublisher } from "./trailingPublisher";
+
+export { CURSOR_CHAT_EVENT } from "@excalidash/domain/collaboration";
 
 /**
  * Cursor chat: press Enter, say one thing, let it go.
@@ -15,9 +18,13 @@ import { createTrailingPublisher } from "./trailingPublisher";
  * without a renderer of our own that would have to be kept in step.
  */
 
-export const CURSOR_CHAT_EVENT = "cursor-chat";
-/** Matches the server's cap; the server is still the one that enforces it. */
-export const CURSOR_CHAT_MAX_LENGTH = 140;
+/**
+ * Shared with the server as `@excalidash/domain/collaboration`'s
+ * `CURSOR_CHAT_TEXT_MAX_LENGTH` -- not re-declared here, so this cap
+ * cannot silently drift from the one the server actually enforces the way
+ * its own two independent declarations once did (NIL-637).
+ */
+export const CURSOR_CHAT_MAX_LENGTH = CURSOR_CHAT_TEXT_MAX_LENGTH;
 /**
  * How often the draft goes out while somebody types.
  *
