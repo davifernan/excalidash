@@ -175,6 +175,12 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/soak-nightly-aggregate.cjs
 
+      - name: Fail the aggregate when a required soak part did not pass
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "Required soak part result: ${{ toJSON(needs) }}"
+          exit 1
+
       - name: Comment nightly result (pass or fail) on the tracking issue
         if: always()
         env:
@@ -189,7 +195,7 @@ jobs:
           # 'failure' whenever that step's script exits non-zero (see its
           # own comment on the evidence PUT), independent of the parts.
           node scripts/soak-nightly-notify.cjs \
-            --status="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || steps.aggregate.outcome == 'failure') && 'failed' || 'passed' }}" \
+            --status="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') || steps.aggregate.outcome == 'failure') && 'failed' || 'passed' }}" \
             --summary-file=/tmp/soak-results/summary.md \
             --run-url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
