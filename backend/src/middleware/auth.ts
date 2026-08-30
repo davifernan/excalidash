@@ -264,6 +264,18 @@ const AGENT_ROUTE_POLICIES: readonly AgentRoutePolicy[] = [
   { method: "POST", path: "run", scope: AGENT_RUN_SCOPE },
   { method: "POST", path: "prompt", scope: AGENT_PROMPT_SCOPE },
   { method: "POST", path: "events", scope: AGENT_READ_SCOPE },
+  // NIL-680: Context-Lease acquire/renew/transfer/release always require a
+  // real human session (drawingLeaseRoutes.ts rejects apiKey credentials
+  // itself, unconditionally) -- `initiatedByUserId` on a lease is a human
+  // approval record, never an agent token's own identity. `scope: null`
+  // here is the same deliberate, documented "no agent token, ever" as
+  // `mounts` above, not an oversight.
+  { method: "GET", path: "contexts/:contextId/lease", scope: null },
+  { method: "HEAD", path: "contexts/:contextId/lease", scope: null },
+  { method: "POST", path: "contexts/:contextId/lease/acquire", scope: null },
+  { method: "POST", path: "contexts/:contextId/lease/renew", scope: null },
+  { method: "POST", path: "contexts/:contextId/lease/transfer", scope: null },
+  { method: "POST", path: "contexts/:contextId/lease/release", scope: null },
 ];
 
 const routePathMatches = (pattern: string, actual: string[]): boolean => {

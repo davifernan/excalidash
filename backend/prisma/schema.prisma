@@ -197,6 +197,8 @@ model AgentContext {
   thread               AgentThread?
   semanticRelations    AgentSemanticRelation[]
   instructionApprovals AgentInstructionApproval[]
+  lease                ContextLease?
+  leaseEvents          ContextLeaseEvent[]
 
   @@unique([drawingId, frameElementId])
   @@index([drawingId, createdAt])
@@ -326,6 +328,58 @@ model AgentInstructionApproval {
 
   @@unique([contextId, elementId])
   @@index([drawingId, contextId, approvedAt])
+}
+
+/// NIL-680. The single, reusable row of public-effect exclusivity for one
+/// Context. There is deliberately no read lease -- any number of read-only
+/// runs may explore a Context in parallel; this row exists only to answer
+/// "which run may currently cause a shared, board-visible effect through
+/// this Context." One row is created once per Context and then mutated in
+/// place by every later acquire/renew/transfer -- `leaseGeneration` is the
+/// opaque token a caller must present back for renew/transfer/release to
+/// prove it still addresses the lease it thinks it holds, not a stale one.
+/// A lease with `releasedAt` set or `expiresAt` in the past is not held by
+/// anyone; acquiring against it is a fresh grant, not a hostile takeover.
+model ContextLease {
+  id                   String    @id @default(uuid())
+  contextId            String    @unique
+  leaseGeneration      String
+  holderOrchestratorId String
+  initiatedByUserId    String
+  runId                String
+  acquiredAt           DateTime
+  expiresAt            DateTime
+  endHorizonAt         DateTime
+  releasedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@index([contextId, expiresAt])
+}
+
+/// NIL-680's own coordination trace -- deliberately separate from
+/// AgentThreadEvent/contextThread.ts's narrative log (message/tool/status/
+/// artifact/dispatch), which has its own closed event-kind union and its own
+/// per-context sequence counter that this module has no reason to couple
+/// into. This is lower-level protocol bookkeeping: every acquire attempt,
+/// grant, busy rejection, transfer, expiry, and release, in the order the
+/// server observed them. Append-only, never mutated -- there is no
+/// edit/retract concept for a Lease's own history.
+model ContextLeaseEvent {
+  id                   String   @id @default(uuid())
+  contextId            String
+  kind                 String
+  holderOrchestratorId String?
+  initiatedByUserId    String?
+  runId                String?
+  payload              String
+  createdAt            DateTime @default(now())
+
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@index([contextId, createdAt])
 }
 
 /// The per-run pin. The opaque capability token is returned once and only its
