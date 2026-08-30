@@ -64,13 +64,16 @@ function buildSignalComment({ headSha, decision = null, admission = null }) {
   const shortSha = headSha.slice(0, 12);
 
   if (decision?.action === "skip") {
+    const draftOutcome = decision.code === "draft";
     return [
       signalMarker(headSha, "intentional-skip"),
       `Hans-Friedrich wurde für \`${shortSha}\` bewusst nicht gestartet.`,
       "",
       `Grund: ${decision.reason}`,
       "",
-      "`request-review` bleibt grün, weil dieses Nicht-Review beabsichtigt ist.",
+      draftOutcome
+        ? "`request-review` bleibt rot, solange dieser Draft ungeprüft ist; beim Wechsel auf ready wird die Zulassung neu bewertet."
+        : "`request-review` bleibt grün, weil dieses Nicht-Review beabsichtigt ist.",
     ].join("\n");
   }
 
@@ -108,8 +111,16 @@ function hasSignalComment(comments, headSha, kind) {
   return comments.some((comment) => String(comment?.body || "").includes(marker));
 }
 
-function decideAdmissionEnforcement({ intentAction, admissionOutcome } = {}) {
+function decideAdmissionEnforcement({ intentAction, intentCode, admissionOutcome } = {}) {
   if (intentAction === "skip") {
+    if (intentCode === "draft") {
+      return {
+        ok: false,
+        code: "draft-awaiting-ready",
+        annotation:
+          "::error::Pull request is a draft and has not been reviewed; mark it ready to re-run review admission.",
+      };
+    }
     return {
       ok: true,
       code: "intentional-skip",
