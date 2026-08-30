@@ -21,18 +21,14 @@ Release tags follow `vX.Y.Z` -- see
 
 This is the first release in which an agent can actually be started. The panel, the board
 thread and the permission model were already there, but nothing sat behind them -- whoever
-opened the panel read "Runtime not connected". There are now two ways to run an agent, and
-in both of them it is visible beforehand whose quota the run consumes.
+opened the panel read "Runtime not connected". An agent can now be started on the runtime
+the instance operator pays for, and it is visible beforehand whose quota the run consumes.
 
 ### Added
 
 - **Start an agent from the board.** A participant can start an agent on the runtime the
   instance operator pays for. Who is paying is shown before the run starts, while it runs
   and after it ends -- nobody starts an expensive run on someone else's quota unnoticed.
-- **Bring your own computer.** Instead of the operator's runtime, a personal machine can be
-  registered as a runtime. It connects outbound to the server, so no port has to be opened
-  and no firewall changed. Whoever pairs a machine brings their own capacity -- and still
-  sees who pays before starting.
 - **A run ends visibly.** If the runtime disappears mid-task -- laptop closed, network gone
   -- the run terminates with a named reason instead of hanging silently.
 
