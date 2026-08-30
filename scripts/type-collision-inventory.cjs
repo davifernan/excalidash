@@ -62,7 +62,9 @@ const ROOTS = [path.join(root, "frontend", "src"), path.join(root, "backend", "s
 const rel = (file) => path.relative(root, file).split(path.sep).join("/");
 
 const isTestFile = (relative) =>
-  /\.test\.tsx?$/.test(relative) || /\.integration\.tsx?$/.test(relative) || relative.includes("/__tests__/");
+  /\.test\.tsx?$/.test(relative) ||
+  /\.integration\.tsx?$/.test(relative) ||
+  relative.includes("/__tests__/");
 
 const isGenerated = (relative) => relative.startsWith("backend/src/generated/");
 
@@ -394,36 +396,16 @@ const findCollisions = (candidates) => {
  */
 const BASELINE = [
   {
-    key: "CollectionShareRole / DrawingPermission",
-    reason:
-      "Klasse 1: CollectionShareRole (frontend/src/types/index.ts) is a subset of the " +
-      "backend/src/authz/sharing.ts permission-level alphabet. Nominal types close this; " +
-      "NIL-489 places that in Welle 3/M6, not this package. Consciously accepted at the type " +
-      "level -- but this pair was not harmless in practice: it let the two collection-share " +
-      "routes accept role: \"comment\" while validating with the wider DrawingPermission " +
-      "normalizer, contradicting their own \"view|edit\" error messages (NIL-502). That gap is " +
-      "fixed -- see the new CollectionShareRole/CollectionShareRole entry below -- the collision " +
-      "itself, being structural, remains until nominal branding lands.",
-  },
-  {
-    key: "CollectionShareRole / MembershipLevel",
-    reason: "Klasse 1, same alphabet as above (MembershipLevel = DrawingPermission | \"owner\").",
-  },
-  {
-    key: "CollectionShareRole / DrawingAccess",
-    reason: "Klasse 1, same alphabet (DrawingAccess = \"none\" | DrawingPermission | \"owner\").",
-  },
-  {
     key: "DrawingPermission / MembershipLevel",
-    reason: "Klasse 1: MembershipLevel extends DrawingPermission with \"owner\" by construction.",
+    reason: 'Klasse 1: MembershipLevel extends DrawingPermission with "owner" by construction.',
   },
   {
     key: "DrawingAccess / DrawingPermission",
-    reason: "Klasse 1: DrawingAccess extends DrawingPermission with \"none\" and \"owner\".",
+    reason: 'Klasse 1: DrawingAccess extends DrawingPermission with "none" and "owner".',
   },
   {
     key: "DrawingAccess / MembershipLevel",
-    reason: "Klasse 1: DrawingAccess extends MembershipLevel with \"none\".",
+    reason: 'Klasse 1: DrawingAccess extends MembershipLevel with "none".',
   },
   {
     key: "PresenceKind / TeamRole",
@@ -457,7 +439,8 @@ const BASELINE = [
   },
   {
     key: "PresenterStatus / PresenterStatus",
-    reason: "frontend/src/pages/editor/presenterMode.ts vs backend/src/server/presenterRegistry.ts.",
+    reason:
+      "frontend/src/pages/editor/presenterMode.ts vs backend/src/server/presenterRegistry.ts.",
   },
   {
     key: "VotingStatus / VotingStatus",
@@ -472,21 +455,6 @@ const BASELINE = [
     key: "WorkshopTimerAction / WorkshopTimerAction",
     reason:
       "frontend/src/pages/editor/workshopTimer.ts vs backend/src/server/socketWorkshopTimer.ts.",
-  },
-  {
-    key: "CollectionShareRole / CollectionShareRole",
-    reason:
-      "frontend/src/types/index.ts vs backend/src/authz/sharing.ts. The backend side is new " +
-      "(NIL-502): the two collection-share routes used to validate a share's role against the " +
-      "wider DrawingPermission alphabet (\"view\" | \"comment\" | \"edit\") while their own error " +
-      "messages claimed \"view\" or \"edit\" only, matching the narrower frontend " +
-      "CollectionShareRole -- so a raw request naming role: \"comment\" was silently accepted. " +
-      "Fixed by giving the backend its own CollectionShareRole, same name and alphabet as the " +
-      "frontend's on purpose, and using it (not DrawingPermission) in grantCollectionShare, " +
-      "changeCollectionShareRole, and both routes. That closes the CollectionShareRole/" +
-      "DrawingPermission gap (see that baseline entry above) but is itself the same Klasse 2 " +
-      "shape as the seven pairs below it: one concept, declared once per side of the frontend/" +
-      "backend boundary because there is no shared package to import from.",
   },
 ];
 const BASELINE_KEYS = new Set(BASELINE.map((entry) => entry.key));

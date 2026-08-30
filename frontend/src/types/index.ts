@@ -1,3 +1,5 @@
+import type { CollectionShareRole } from "@excalidash/domain/authz";
+
 export interface DrawingMember {
   subjectKey: string;
   name: string;
@@ -51,7 +53,7 @@ export interface Collection {
   id: string;
   name: string;
   createdAt: number;
-  sharedRole?: "view" | "edit" | null;
+  sharedRole?: CollectionShareRole | null;
   /** Whether this account owns the collection. The backend sets this on every entry it returns -- never absent, never ambiguous. */
   isOwner: boolean;
   isShared?: boolean;
@@ -59,7 +61,7 @@ export interface Collection {
   ownerName?: string | null;
 }
 
-export type CollectionShareRole = "view" | "edit";
+export type { CollectionShareRole };
 
 export interface CollectionShareUser {
   id: string;

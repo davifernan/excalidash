@@ -60,23 +60,14 @@ export const normalizeDrawingPermission = (input: unknown): DrawingPermission | 
 };
 
 /**
- * A collection share's grantable levels -- narrower than `DrawingPermission` on
- * purpose (NIL-489). `"comment"` is a real board-level permission, but nothing
- * grants collection-level comment access yet: no UI offers it, and the
- * frontend's own `CollectionShareRole` type has never included it. Before this
- * normalizer existed, the two collection-share routes validated with
- * `normalizeDrawingPermission` and so silently accepted `role: "comment"`
- * despite their own error messages claiming `view|edit` -- a real gap the
- * type-collision inventory's CollectionShareRole/DrawingPermission entry
- * pointed at, in the same "isOwner" shape as NIL-487: two things sharing an
- * alphabet, one of them silently wider than its contract says.
+ * `CollectionShareRole` and `normalizeCollectionShareRole` now live in
+ * `@excalidash/domain/authz` (NIL-637, comments/authz domain, slice 7):
+ * this file used to declare its own copy independently of
+ * `frontend/src/types/index.ts`'s identical one -- see that module's own
+ * header comment for the NIL-502/NIL-489 gap that duplication once caused.
  */
-export type CollectionShareRole = "view" | "edit";
-
-export const normalizeCollectionShareRole = (input: unknown): CollectionShareRole | null => {
-  if (input === "view" || input === "edit") return input;
-  return null;
-};
+export type { CollectionShareRole } from "@excalidash/domain/authz";
+export { normalizeCollectionShareRole } from "@excalidash/domain/authz";
 
 export const buildShareLinkToken = (): string => crypto.randomBytes(24).toString("base64url");
 

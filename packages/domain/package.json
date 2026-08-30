@@ -24,6 +24,12 @@
       ],
       "collaboration/cursorChat": [
         "dist/collaboration/cursorChat.d.ts"
+      ],
+      "authz": [
+        "dist/authz/index.d.ts"
+      ],
+      "authz/collectionShareRole": [
+        "dist/authz/collectionShareRole.d.ts"
       ]
     }
   },
@@ -55,6 +61,14 @@
     "./collaboration/cursorChat": {
       "types": "./dist/collaboration/cursorChat.d.ts",
       "default": "./dist/collaboration/cursorChat.js"
+    },
+    "./authz": {
+      "types": "./dist/authz/index.d.ts",
+      "default": "./dist/authz/index.js"
+    },
+    "./authz/collectionShareRole": {
+      "types": "./dist/authz/collectionShareRole.d.ts",
+      "default": "./dist/authz/collectionShareRole.js"
     }
   },
   "files": [
