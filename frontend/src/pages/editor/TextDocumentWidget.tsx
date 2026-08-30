@@ -14,8 +14,6 @@ import {
   Save,
   X,
 } from "lucide-react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   getDocumentAsset,
   getDocumentContent,
@@ -34,25 +32,9 @@ import type { DocumentEditLock, DocumentEditResult } from "./documentEditLocks";
 import type { DocumentAssetReplacement } from "./documentAssetReplacement";
 import type { DocumentEditDraft } from "./documentEditDrafts";
 import { applyMarkdownFormat, type MarkdownFormatAction } from "./markdownFormatting";
+import { MarkdownDocumentView, type PreparedMarkdown } from "./MarkdownDocumentView";
+import { renderMarkdownOffThread } from "./documentMarkdownWorker";
 import "./TextDocumentWidget.css";
-
-const markdownComponents: Components = {
-  a: ({ node: _node, href, children, ...props }) => {
-    const safeHref = href && /^(?:https?:|mailto:)/i.test(href) ? href : undefined;
-    const external = safeHref && /^https?:/i.test(safeHref);
-    return (
-      <a
-        {...props}
-        href={safeHref}
-        rel={external ? "noopener noreferrer" : undefined}
-        target={external ? "_blank" : undefined}
-      >
-        {children}
-      </a>
-    );
-  },
-  img: () => null,
-};
 
 type TextDocumentWidgetProps = {
   assetId: string;
@@ -97,6 +79,7 @@ export const TextDocumentWidget = ({
 }: TextDocumentWidgetProps) => {
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
   const [pages, setPages] = useState<string[] | null>(null);
+  const [preparedMarkdown, setPreparedMarkdown] = useState<PreparedMarkdown | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -109,9 +92,11 @@ export const TextDocumentWidget = ({
   const editTokenRef = useRef<string | null>(null);
   const releaseRef = useRef(onReleaseEditLock);
   const cancelDraftRef = useRef(onCancelLiveDraft);
+  const sharedPageRef = useRef(sharing.sharedPage);
   releaseRef.current = onReleaseEditLock;
   cancelDraftRef.current = onCancelLiveDraft;
   editTokenRef.current = editToken;
+  sharedPageRef.current = sharing.sharedPage;
 
   useEffect(
     () => () => {
@@ -127,6 +112,7 @@ export const TextDocumentWidget = ({
     let active = true;
     setLoaded(null);
     setPages(null);
+    setPreparedMarkdown(null);
     setError(null);
     setEditing(false);
     setEditToken(null);
@@ -153,8 +139,25 @@ export const TextDocumentWidget = ({
     if (!loaded) return;
     const controller = new AbortController();
     setPages(null);
+    setPreparedMarkdown(null);
     void paginateDocumentOffThread(loaded.content, loaded.asset.kind, controller.signal)
-      .then(setPages)
+      .then(async (preparedPages) => {
+        let prepared: PreparedMarkdown | null = null;
+        if (loaded.asset.kind === "MARKDOWN") {
+          const requestedPage = sharedPageRef.current ?? 1;
+          const initialIndex = Math.min(
+            Math.max(0, requestedPage - 1),
+            Math.max(0, preparedPages.length - 1),
+          );
+          const source = preparedPages[initialIndex] ?? "";
+          prepared = {
+            source,
+            tree: await renderMarkdownOffThread(source, controller.signal),
+          };
+        }
+        setPreparedMarkdown(prepared);
+        setPages(preparedPages);
+      })
       .catch((paginationError: unknown) => {
         if (paginationError instanceof DOMException && paginationError.name === "AbortError")
           return;
@@ -363,19 +366,12 @@ export const TextDocumentWidget = ({
               />
             </div>
             <span className="text-document-widget__edit-divider" aria-hidden="true" />
-            {/*
-             * Same ReactMarkdown + markdownComponents pipeline as the view-mode
-             * render below -- no new sanitization surface. The content is a
-             * deferred copy of the draft (see useDeferredValue above), never
-             * the draft itself, so this pane can never race the save path.
-             */}
+            {/* The preview and view mode share the same off-thread parser and sanitizer. */}
             <div
               className="text-document-widget__markdown text-document-widget__edit-preview"
               aria-label="Markdown preview"
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                {deferredDraft}
-              </ReactMarkdown>
+              <MarkdownDocumentView source={deferredDraft} />
             </div>
           </div>
         ) : null}
@@ -384,9 +380,10 @@ export const TextDocumentWidget = ({
         ) : null}
         {!editing && pages && loaded?.asset.kind === "MARKDOWN" ? (
           <div className="text-document-widget__markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {deferredLiveDraft ?? page}
-            </ReactMarkdown>
+            <MarkdownDocumentView
+              source={deferredLiveDraft ?? page}
+              prepared={deferredLiveDraft === null ? preparedMarkdown : null}
+            />
           </div>
         ) : null}
       </div>

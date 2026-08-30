@@ -42,6 +42,18 @@ export default defineConfig(({ command }) => {
         process.env.VITE_E2E_HARNESS_ENABLED === "true",
       ),
     },
+    resolve: {
+      alias: {
+        // The package's `browser` export creates a DOM element at module load,
+        // but Markdown parsing now also runs in a Web Worker. Its data-table
+        // implementation is environment-neutral and produces identical entity
+        // decoding without requiring a fake `document` in that worker.
+        "decode-named-character-reference": path.resolve(
+          __dirname,
+          "node_modules/decode-named-character-reference/index.js",
+        ),
+      },
+    },
     optimizeDeps: {
       esbuildOptions: {
         define: processEnvDefines,
