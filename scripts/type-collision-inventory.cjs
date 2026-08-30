@@ -456,15 +456,6 @@ const BASELINE = [
     reason: "Same file pair as DrawingSortField/SortField, declared alongside it on both sides.",
   },
   {
-    key: "WidgetKind / WidgetKind",
-    reason:
-      "frontend/src/integrations/excalidraw/customData.ts vs backend/src/assets/" +
-      "customDataSchema.ts -- the backend's own schema validation for the same customData " +
-      "shape the adapter writes. Not the same pair as UploadDocumentKind, which NIL-498 fixed " +
-      "by importing this same frontend WidgetKind (entirely inside frontend, no shared-package " +
-      "gap to cross).",
-  },
-  {
     key: "PresenterStatus / PresenterStatus",
     reason: "frontend/src/pages/editor/presenterMode.ts vs backend/src/server/presenterRegistry.ts.",
   },

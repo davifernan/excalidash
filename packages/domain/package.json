@@ -12,6 +12,12 @@
       ],
       "documents/pagination": [
         "dist/documents/pagination.d.ts"
+      ],
+      "customData": [
+        "dist/customData/index.d.ts"
+      ],
+      "customData/widget": [
+        "dist/customData/widget.d.ts"
       ]
     }
   },
@@ -27,6 +33,14 @@
     "./documents/pagination": {
       "types": "./dist/documents/pagination.d.ts",
       "default": "./dist/documents/pagination.js"
+    },
+    "./customData": {
+      "types": "./dist/customData/index.d.ts",
+      "default": "./dist/customData/index.js"
+    },
+    "./customData/widget": {
+      "types": "./dist/customData/widget.d.ts",
+      "default": "./dist/customData/widget.js"
     }
   },
   "files": [
