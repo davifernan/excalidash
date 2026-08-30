@@ -5,6 +5,7 @@
     "src/securityTest.ts",
     "src/backups/runOnce.ts",
     "src/workers/db-verify.js",
+    "src/__tests__/prismaClientResolutionDiagnosticsRunner.ts",
     "scripts/backfill-collection-ownership.cjs",
     "scripts/provider-prisma.cjs"
   ],
