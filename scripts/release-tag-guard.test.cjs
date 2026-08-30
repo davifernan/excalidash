@@ -109,6 +109,9 @@ const CHANGELOG_WITH_SOURCES = `# Changelog
 
 ## v1.2.3 -- 2026-08-30
 
+<!-- release-source: #10 -->
+This release has a delivered summary claim.
+
 ### Added
 
 <!-- release-source: #10 -->
@@ -131,7 +134,30 @@ function mergedDelivery(mergeCommit = "a".repeat(40)) {
 test("parseReleaseClaims keeps visible changelog claims attached to their source markers", () => {
   const parsed = parseReleaseClaims(CHANGELOG_WITH_SOURCES, "1.2.3");
   assert.equal(parsed.ok, true);
-  assert.deepEqual(parsed.claims.map((claim) => claim.sources), [[10], [11]]);
+  assert.deepEqual(parsed.claims.map((claim) => claim.sources), [[10], [10], [11]]);
+});
+
+test("RED: the original v0.17 prose would have exposed both unmarked claims", () => {
+  const historical = `# Changelog
+
+## v0.17.0 -- 2026-08-30
+
+This is the first release in which an agent can actually be started.
+
+### Added
+
+- Bring your own computer: pair a personal machine as an outbound runtime.
+`;
+  const result = evaluateChangelogDelivery({
+    version: "0.17.0",
+    changelog: historical,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.findings.length, 2);
+  assert.match(result.findings[0], /first release in which an agent can actually be started/);
+  assert.match(result.findings[1], /Bring your own computer/);
 });
 
 test("RED: a changelog claim sourced from an unmerged PR is rejected", () => {

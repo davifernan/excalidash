@@ -113,7 +113,7 @@ function tagIsAncestorOf(tag, commit, cwd) {
 }
 
 function parseReleaseClaims(changelog, version) {
-  const header = new RegExp(`^## v${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`, "m");
+  const header = new RegExp(`^## v${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)[^\\n]*$`, "m");
   const match = header.exec(changelog);
   if (!match) {
     return { ok: false, findings: [`CHANGELOG.md has no section for VERSION=${version}.`] };
@@ -126,19 +126,38 @@ function parseReleaseClaims(changelog, version) {
   const section = changelog.slice(sectionStart, nextMatch ? nextMatch.index : undefined);
   const claims = [];
   let pendingSources = null;
+  let currentClaim = null;
+
+  const finishClaim = () => {
+    if (currentClaim) claims.push(currentClaim);
+    currentClaim = null;
+  };
 
   for (const [offset, line] of section.split("\n").entries()) {
     const sourceMatch = line.match(RELEASE_SOURCE_PATTERN);
     if (sourceMatch) {
+      finishClaim();
       pendingSources = sourceMatch[1].match(/\d+/g).map(Number);
       continue;
     }
-    if (line.trim() === "" || /^###\s/.test(line)) continue;
-    if (/^\s*-\s+/.test(line) || pendingSources) {
-      claims.push({ line: offset + 1, text: line.trim(), sources: pendingSources || [] });
+    if (line.trim() === "" || /^###\s/.test(line)) {
+      finishClaim();
+      continue;
+    }
+    if (/^\s*-\s+/.test(line)) {
+      finishClaim();
+      currentClaim = { line: offset + 1, text: line.trim(), sources: pendingSources || [] };
+      pendingSources = null;
+      continue;
+    }
+    if (currentClaim) currentClaim.text += ` ${line.trim()}`;
+    else {
+      currentClaim = { line: offset + 1, text: line.trim(), sources: pendingSources || [] };
       pendingSources = null;
     }
   }
+
+  finishClaim();
 
   if (pendingSources) {
     return { ok: false, findings: [`CHANGELOG.md v${version} ends with a release-source marker that names no claim.`] };
