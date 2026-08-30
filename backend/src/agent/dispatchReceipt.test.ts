@@ -243,6 +243,7 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
   it("never interprets a closed runtime stream as success", async () => {
     const receipt = await accept();
     const gateway = {
+      planStart: () => ({ effectiveCapabilities: ["agent:run", "board:write"] }),
       start: async () => ({
         run: { id: runId, displayName: "Research agent", status: "working", capabilities: [] },
         runCapability: "runtime-capability",
@@ -270,6 +271,7 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
     const receipt = await accept();
     let starts = 0;
     const gateway = {
+      planStart: () => ({ effectiveCapabilities: ["agent:run", "board:write"] }),
       start: async () => {
         starts += 1;
         return {
@@ -319,6 +321,7 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
     ).toMatchObject({ count: 1 });
     const starts: string[] = [];
     const gateway = {
+      planStart: () => ({ effectiveCapabilities: ["agent:run", "board:write"] }),
       start: async () => {
         starts.push(pending.id);
         throw new Error("must not be reached");
@@ -341,5 +344,29 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
       now: new Date(acceptedAt.getTime() + DISPATCH_START_DEADLINE_MS + 1),
     });
     expect(unknown).toMatchObject({ execution: "outcome_unknown", effect: "pending" });
+  });
+
+  it("rejects changed effective authority before crossing the foreign runtime boundary", async () => {
+    const receipt = await accept();
+    let starts = 0;
+    const result = await processDispatchOutbox({
+      prisma,
+      dispatchId: receipt.id,
+      gateway: {
+        planStart: () => ({ effectiveCapabilities: ["agent:run"] }),
+        start: async () => {
+          starts += 1;
+          throw new Error("must not cross the runtime boundary");
+        },
+      } as any,
+      now: new Date(acceptedAt.getTime() + 100),
+    });
+    expect(starts).toBe(0);
+    expect(result).toMatchObject({ execution: "failed", effect: "failed" });
+    expect(
+      await prisma.agentDispatchReceiptEvent.findFirst({
+        where: { dispatchId: receipt.id, kind: "runtime.failed" },
+      }),
+    ).toMatchObject({ payload: JSON.stringify({ reasonCode: "DISPATCH_AUTHORITY_CHANGED" }) });
   });
 });

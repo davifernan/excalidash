@@ -1,4 +1,5 @@
 import { canEditDrawing, getDrawingAccess } from "../authz/sharing";
+import { canonicalJson } from "./canonicalJson";
 import type { AgentRuntimeGateway } from "./runtime/gateway";
 import {
   acknowledgeDispatchRuntime,
@@ -96,6 +97,26 @@ export const processDispatchOutbox = async (params: {
     });
   }
 
+  const approvedCapabilities = parseStringArray(dispatch.effectiveCapabilities);
+  const freshPlan = params.gateway.planStart({
+    access,
+    principal,
+    connectionId: runtimeRequest.connectionId,
+    profileId: runtimeRequest.profileId,
+    approvedCapabilities,
+  });
+  if (
+    canonicalJson([...freshPlan.effectiveCapabilities].sort()) !==
+    canonicalJson([...approvedCapabilities].sort())
+  ) {
+    return failDispatchBeforeRuntimeAck({
+      prisma: params.prisma,
+      dispatchId: params.dispatchId,
+      reasonCode: "DISPATCH_AUTHORITY_CHANGED",
+      now,
+    });
+  }
+
   let started: Awaited<ReturnType<AgentRuntimeGateway["start"]>>;
   try {
     started = await params.gateway.start({
@@ -106,7 +127,7 @@ export const processDispatchOutbox = async (params: {
       profileId: runtimeRequest.profileId,
       displayName: runtimeRequest.displayName,
       initialPrompt: dispatch.objectiveSummary,
-      approvedCapabilities: parseStringArray(dispatch.effectiveCapabilities),
+      approvedCapabilities,
       runId: dispatch.runId,
       dispatchId: dispatch.id,
       boardMount: {
