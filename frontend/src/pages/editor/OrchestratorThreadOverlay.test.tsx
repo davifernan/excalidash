@@ -245,10 +245,7 @@ describe("OrchestratorThreadOverlay", () => {
           canWrite: true,
           error: null,
           events: [],
-          publicThreads: [
-            { id: "shared-alpha", title: "Release coordination" },
-            { id: "shared-beta", title: "Deployment coordination" },
-          ],
+          publicThreads: [{ id: "shared-alpha", title: "Release coordination" }],
           receipts: [],
           dispatch: {
             contexts: [{ id: "context-1", frameElementId: "frame-1" }],
@@ -280,7 +277,7 @@ describe("OrchestratorThreadOverlay", () => {
     expect(screen.getByLabelText("Public responsibility thread")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Public responsibility thread"), {
-      target: { value: "shared-beta" },
+      target: { value: "shared-alpha" },
     });
     fireEvent.change(objective, { target: { value: "Do not lose this objective" } });
     fireEvent.change(screen.getByLabelText("Public effect Context"), {
@@ -295,7 +292,7 @@ describe("OrchestratorThreadOverlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dispatch publicly" }));
     await expect(callbacks.onDispatch).toHaveBeenCalledOnce();
     expect(callbacks.onDispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ publicThreadId: "shared-beta" }),
+      expect.objectContaining({ publicThreadId: "shared-alpha" }),
     );
     expect(objective).toHaveValue("Do not lose this objective");
     expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeVisible();

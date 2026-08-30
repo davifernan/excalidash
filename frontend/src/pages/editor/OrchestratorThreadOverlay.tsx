@@ -117,6 +117,8 @@ export const OrchestratorThreadOverlay = ({
   const [draft, setDraft] = useState("");
   const [dispatchSummary, setDispatchSummary] = useState("");
   const [dispatchComposerOpen, setDispatchComposerOpen] = useState(false);
+  // A public effect always requires an explicit target confirmation. Even a
+  // single available thread stays unselected: availability is not approval.
   const [publicThreadId, setPublicThreadId] = useState("");
   const [targetContextId, setTargetContextId] = useState("");
   const [connectionId, setConnectionId] = useState("");

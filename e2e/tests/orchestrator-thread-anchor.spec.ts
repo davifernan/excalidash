@@ -308,6 +308,11 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     await panel.getByRole("button", { name: "Local" }).click();
 
     await panel.getByRole("button", { name: "Approve a public effect" }).click();
+    const publicThread = panel.getByLabel("Public responsibility thread");
+    await expect(publicThread).toHaveValue("");
+    await expect(publicThread.locator("option")).toHaveCount(2);
+    await publicThread.selectOption({ index: 1 });
+    await expect(publicThread).not.toHaveValue("");
     await panel.getByLabel("Approved public objective").fill("Publish the approved comparison");
     await panel.getByLabel("Public effect Context").selectOption("context-1");
     await panel.getByLabel("Agent runtime connection").selectOption("runtime-1");
