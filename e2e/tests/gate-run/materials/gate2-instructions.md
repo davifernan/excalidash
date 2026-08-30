@@ -27,7 +27,7 @@ call before you run it for real.
 ## The handful of steps
 
 1. **Run the setup script once**, from `backend/`:
-   `GATE_OWNER_EMAIL=<your account> API_URL=<your running backend> npx ts-node scripts/gate-run/setup-gate2.ts`
+   `GATE_OWNER_EMAIL=<your account> API_URL=<your running backend> npm run gate-run:setup-gate2`
    It prints a board URL. Open it in your own browser, logged in as the owner account
    you gave it.
 2. **Run the recording spec once**, from `e2e/`, before you start asking yourself

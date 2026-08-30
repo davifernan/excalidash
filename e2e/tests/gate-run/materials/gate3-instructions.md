@@ -1,7 +1,7 @@
 # Gate 3 — what Davi actually does
 
 1. **Run the setup script once**, from `backend/`:
-   `GATE_OWNER_EMAIL=<your account> npx ts-node scripts/gate-run/setup-gate3.ts`
+   `GATE_OWNER_EMAIL=<your account> npm run gate-run:setup-gate3`
    It prints a board URL with a shared orchestrator thread already carrying all four
    tasks' context/status/result, in fixture order. No live recording is needed here —
    unlike Gate 2, this is persisted content you read by opening the page, not

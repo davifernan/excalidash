@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import fs from "fs";
 import path from "path";
-import { grantDrawingPermission, loginViaUi } from "../helpers/authLifecycle";
+import { grantDrawingPermission, loginViaApi, loginViaUi } from "../helpers/authLifecycle";
 import { gate2PresenceFixture } from "../fixtures/agentContextGateFixtures";
 
 /**
@@ -68,7 +68,17 @@ test("records the observer's private-event capture and six timestamped board scr
   const ownerPage = await ownerContext.newPage();
   await loginViaUi(ownerPage, { email: ownerEmail, password: ownerPassword });
   const drawingId = state.boardUrl.split("/").pop()!;
-  await grantDrawingPermission(ownerContext.request, drawingId, observerEmail, "view");
+
+  // grantDrawingPermission takes a user ID, not an email
+  // (drawingSharingRoutes.ts looks the grantee up by `id`) -- resolve it via
+  // a throwaway API login rather than guessing it from the address.
+  const resolverContext = await browser.newContext();
+  const observerAccount = await loginViaApi(resolverContext.request, {
+    email: observerEmail,
+    password: observerPassword,
+  });
+  await resolverContext.close();
+  await grantDrawingPermission(ownerContext.request, drawingId, observerAccount.id, "view");
   await ownerPage.goto(state.boardUrl);
 
   // The foreign observer: a second, independently authenticated browser

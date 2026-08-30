@@ -9,7 +9,7 @@
  *
  * Usage (from backend/):
  *   GATE_OWNER_EMAIL=owner@example.com \
- *   npx ts-node scripts/gate-run/setup-gate3.ts
+ *   npm run gate-run:setup-gate3
  *
  * The terminal-transcript side of the comparison is not board state at all
  * -- it is a plain text file, written alongside this script's output, that

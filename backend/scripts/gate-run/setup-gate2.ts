@@ -10,7 +10,7 @@
  * Usage (from backend/):
  *   GATE_OWNER_EMAIL=owner@example.com \
  *   API_URL=http://localhost:8000 \
- *   npx ts-node scripts/gate-run/setup-gate2.ts
+ *   npm run gate-run:setup-gate2
  *
  * Why this cannot be a Playwright/e2e script: registering an Agent Context
  * (the frame -> context binding every gate depends on) has no HTTP route

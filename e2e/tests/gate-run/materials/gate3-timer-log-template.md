@@ -10,7 +10,7 @@ before recording it — a wrong answer is data, not a mistake to fix in place.
 | 1       | board-thread        | task-beacon |                 |              |            |          |                      |
 | 1       | terminal-transcript | task-cobalt |                 |              |            |          |                      |
 | 1       | terminal-transcript | task-delta  |                 |              |            |          |                      |
-| 2       | terminal-transcript | task-cobalt |                 |              |            |          |                      |
-| 2       | terminal-transcript | task-delta  |                 |              |            |          |                      |
-| 2       | board-thread        | task-atlas  |                 |              |            |          |                      |
-| 2       | board-thread        | task-beacon |                 |              |            |          |                      |
+| 2       | board-thread        | task-cobalt |                 |              |            |          |                      |
+| 2       | board-thread        | task-delta  |                 |              |            |          |                      |
+| 2       | terminal-transcript | task-atlas  |                 |              |            |          |                      |
+| 2       | terminal-transcript | task-beacon |                 |              |            |          |                      |
