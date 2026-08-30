@@ -76,6 +76,24 @@ export class ContextLeaseTransferDeniedError extends Error {
   }
 }
 
+/**
+ * Distinct from `ContextLeaseNotHeldError`: this is a rejected REQUEST (bad
+ * input), not a CAS that lost against real database state. A caller-facing
+ * route must be able to tell "your `endHorizonAt` is invalid" (400) apart
+ * from "someone else holds this now, or your compare key is stale" (409) --
+ * conflating the two here would make both look like the same ordinary
+ * conflict at the HTTP layer.
+ */
+export class ContextLeaseInvalidRequestError extends Error {
+  constructor(
+    public readonly contextId: string,
+    reason: string,
+  ) {
+    super(`Invalid Context Lease request for ${contextId}: ${reason}`);
+    this.name = "ContextLeaseInvalidRequestError";
+  }
+}
+
 const toSnapshot = (row: {
   contextId: string;
   leaseGeneration: string;
@@ -159,7 +177,7 @@ export const acquireContextLease = async (params: {
 }): Promise<ContextLeaseSnapshot> => {
   const now = params.now ?? new Date();
   if (params.endHorizonAt.getTime() <= now.getTime()) {
-    throw new ContextLeaseNotHeldError(
+    throw new ContextLeaseInvalidRequestError(
       params.contextId,
       "endHorizonAt must be in the future; a lease cannot be acquired against an already-elapsed human approval window.",
     );

@@ -141,6 +141,53 @@ describe("Context Lease HTTP routes (NIL-680)", () => {
     expect(response.status).toBe(404);
   });
 
+  it("rejects an endHorizonAt beyond the server's maximum with 400, distinct from a 409 busy/conflict response", async () => {
+    const { drawingId, contextId } = await buildContext("http-horizon-cap-frame");
+    const requestAs = authedRequest(owner);
+
+    const tooFar = await requestAs((req) =>
+      req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/acquire`).send({
+        holderOrchestratorId: "orchestrator-a",
+        runId: "run-a",
+        ttlMs: 60_000,
+        endHorizonAt: new Date(Date.now() + 365 * 24 * 60 * 60_000).toISOString(),
+      }),
+    );
+    expect(tooFar.status).toBe(400);
+
+    const alreadyElapsed = await requestAs((req) =>
+      req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/acquire`).send({
+        holderOrchestratorId: "orchestrator-a",
+        runId: "run-a",
+        ttlMs: 60_000,
+        endHorizonAt: new Date(Date.now() - 1_000).toISOString(),
+      }),
+    );
+    expect(alreadyElapsed.status).toBe(400);
+    expect(alreadyElapsed.body.code).toBe("CONTEXT_LEASE_INVALID_REQUEST");
+
+    // A real conflict (Context genuinely busy) still comes back as 409, not
+    // 400 -- the two failure modes must stay distinguishable.
+    const acquired = await requestAs((req) =>
+      req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/acquire`).send({
+        holderOrchestratorId: "orchestrator-a",
+        runId: "run-a",
+        ttlMs: 60_000,
+        endHorizonAt: new Date(Date.now() + 300_000).toISOString(),
+      }),
+    );
+    expect(acquired.status).toBe(201);
+    const busy = await requestAs((req) =>
+      req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/acquire`).send({
+        holderOrchestratorId: "orchestrator-b",
+        runId: "run-b",
+        ttlMs: 60_000,
+        endHorizonAt: new Date(Date.now() + 300_000).toISOString(),
+      }),
+    );
+    expect(busy.status).toBe(409);
+  });
+
   it("denies a non-owner transfer override even when requested, but honors the holder's own consent transfer", async () => {
     const { drawingId, contextId } = await buildContext("http-transfer-frame");
     await prisma.drawingPermission.create({

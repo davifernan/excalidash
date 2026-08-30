@@ -9,6 +9,7 @@ import {
 import {
   acquireContextLease,
   ContextLeaseHeldError,
+  ContextLeaseInvalidRequestError,
   ContextLeaseNotHeldError,
   ContextLeaseTransferDeniedError,
   releaseContextLease,
@@ -18,13 +19,29 @@ import {
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
 const MAX_TTL_MS = 10 * 60_000;
+// `MAX_TTL_MS` caps a single acquire/renew grant, but renew can be called
+// again and again -- without a separate cap on `endHorizonAt` ITSELF, a
+// caller could set it arbitrarily far out and then keep renewing under the
+// 10-minute grant cap forever, making the horizon meaningless in practice.
+// The concrete value is a product/ops parameter NIL-680's own recon leaves
+// open ("die konkrete TTL, Vorwarnzeit und der maximale
+// Genehmigungshorizont sind heute noch nicht entschieden") -- but leaving it
+// completely unbounded defeats "menschlich genehmigt" as a real limit, not
+// just a gesture. 24h is a conservative placeholder (a working day plus
+// slack), not a tuned product decision.
+const MAX_HORIZON_MS = 24 * 60 * 60_000;
 
-const acquireSchema = z.object({
-  holderOrchestratorId: z.string().min(1).max(200),
-  runId: z.string().min(1).max(200),
-  ttlMs: z.number().int().positive().max(MAX_TTL_MS),
-  endHorizonAt: z.string().datetime(),
-});
+const acquireSchema = z
+  .object({
+    holderOrchestratorId: z.string().min(1).max(200),
+    runId: z.string().min(1).max(200),
+    ttlMs: z.number().int().positive().max(MAX_TTL_MS),
+    endHorizonAt: z.string().datetime(),
+  })
+  .refine((body) => new Date(body.endHorizonAt).getTime() <= Date.now() + MAX_HORIZON_MS, {
+    message: `endHorizonAt may not be more than ${MAX_HORIZON_MS}ms in the future`,
+    path: ["endHorizonAt"],
+  });
 const renewSchema = z.object({
   leaseGeneration: z.string().min(1).max(200),
   runId: z.string().min(1).max(200),
@@ -74,6 +91,14 @@ const leaseErrorResponse = (res: express.Response, error: unknown): boolean => {
     res
       .status(409)
       .json({ error: "Lease conflict", code: "CONTEXT_LEASE_NOT_HELD", message: error.message });
+    return true;
+  }
+  if (error instanceof ContextLeaseInvalidRequestError) {
+    res.status(400).json({
+      error: "Validation error",
+      code: "CONTEXT_LEASE_INVALID_REQUEST",
+      message: error.message,
+    });
     return true;
   }
   return false;

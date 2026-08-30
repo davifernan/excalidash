@@ -5,6 +5,7 @@ import { createAgentRunMount, executeAgentBoardTool } from "../agent/boardMount"
 import {
   acquireContextLease,
   ContextLeaseHeldError,
+  ContextLeaseInvalidRequestError,
   ContextLeaseNotHeldError,
   ContextLeaseTransferDeniedError,
   isContextLeaseHeldByRun,
@@ -398,6 +399,37 @@ describe("Context Lease (NIL-680)", () => {
       ttlMs: 60_000,
     });
     expect(renewed.runId).toBe("run-a");
+  });
+
+  it("rejects an acquire against an already-elapsed endHorizonAt with a distinct validation error, not a conflict error", async () => {
+    const { contextId } = await newContext("elapsed-horizon-frame");
+    const now = new Date();
+    await expect(
+      acquireContextLease({
+        prisma,
+        contextId,
+        holderOrchestratorId: "orchestrator-a",
+        initiatedByUserId: userId,
+        runId: "run-a",
+        ttlMs: 60_000,
+        endHorizonAt: new Date(now.getTime() - 1_000),
+        now,
+      }),
+    ).rejects.toBeInstanceOf(ContextLeaseInvalidRequestError);
+    // And genuinely distinct from a real conflict -- a caller must be able
+    // to tell "your request was invalid" apart from "someone else holds it".
+    await expect(
+      acquireContextLease({
+        prisma,
+        contextId,
+        holderOrchestratorId: "orchestrator-a",
+        initiatedByUserId: userId,
+        runId: "run-a",
+        ttlMs: 60_000,
+        endHorizonAt: new Date(now.getTime() - 1_000),
+        now,
+      }),
+    ).rejects.not.toBeInstanceOf(ContextLeaseNotHeldError);
   });
 
   it("never renews past the human-approved end horizon", async () => {
