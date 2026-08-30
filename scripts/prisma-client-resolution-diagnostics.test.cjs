@@ -16,7 +16,16 @@ const root = path.resolve(__dirname, "..");
 const backendRoot = path.join(root, "backend");
 const packageJson = path.join(backendRoot, "src", "generated", "client", "package.json");
 const fixture = "src/__tests__/prismaClientResolutionFixture.test.ts";
-const vitestCli = path.join(backendRoot, "node_modules", "vitest", "vitest.mjs");
+// Resolved from vitest's own package.json, not `backend/node_modules/...`
+// directly: the root Workspace hoists `vitest` to the repo root, and
+// `vitest/vitest.mjs` itself is not an exported subpath (its package.json
+// `exports` map rejects a direct `require.resolve("vitest/vitest.mjs")`),
+// so the executable is located relative to the package root instead
+// (NIL-624).
+const vitestCli = path.join(
+  path.dirname(require.resolve("vitest/package.json", { paths: [backendRoot] })),
+  "vitest.mjs",
+);
 const invalidPackageFixture = path.join(
   root,
   "scripts",

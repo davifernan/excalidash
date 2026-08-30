@@ -55,7 +55,11 @@ if (process.env.CI === "true" && !getPostgresTestUrl()) {
         execFileSync(
           process.execPath,
           [
-            path.join(backendRoot, "node_modules/prisma/build/index.js"),
+            // Resolved, not `path.join(backendRoot, "node_modules/...")`: the
+            // root Workspace hoists `prisma` to the repo root, not
+            // `backend/node_modules` -- a resolved path survives the next
+            // hoisting change, a hardcoded one does not (NIL-624).
+            require.resolve("prisma/build/index.js"),
             "generate",
             "--schema",
             schemaPath,

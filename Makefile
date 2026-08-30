@@ -122,9 +122,11 @@ clean: ## Clean build artifacts and node_modules
 
 clean-all: clean ## Clean everything including node_modules
 	@echo "Removing all node_modules..."
+	rm -rf node_modules
 	rm -rf frontend/node_modules
 	rm -rf backend/node_modules
 	rm -rf e2e/node_modules
+	rm -rf packages/domain/node_modules
 	@echo "Full clean complete."
 
 test: test-frontend test-backend ## Run all tests (frontend + backend unit tests)
