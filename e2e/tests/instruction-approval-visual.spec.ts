@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
-import Database from "../../backend/node_modules/better-sqlite3";
+import Database from "better-sqlite3";
 import { createDrawing, deleteDrawing, getDrawing, updateDrawing } from "./helpers/api";
 import { armTool, openEditor } from "./helpers/editor";
 

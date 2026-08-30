@@ -81,6 +81,17 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     },
     frame("frame-b", 500),
     {
+      id: "answer-b",
+      type: "text",
+      text: "Launch answer is PURPLE",
+      x: 520,
+      y: 10,
+      width: 180,
+      height: 30,
+      frameId: "frame-b",
+      isDeleted: false,
+    },
+    {
       id: "secret-b",
       type: "text",
       text: "FOREIGN-CONTEXT-PAYROLL-SECRET",
@@ -292,6 +303,90 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     expect(status.body.result.latestRevisionId).not.toBe(mount.revisionId);
   });
 
+  it("does not disclose the mounted answer without the run-bound mount capability", async () => {
+    const mount = await createMount({ runId: "gate-1-unmounted-counter-attempt" });
+    const unmounted = await request(app)
+      .post(`/drawings/${drawingId}/agent/mounts/${mount.runId}/tools/readFrame`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .send({ frameElementId: "frame-a" });
+
+    expect(unmounted.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(unmounted.body)).not.toContain("ORANGE");
+  });
+
+  it("executes the pre-registered NIL-701 Gate 1 mount and counter-attempt", async () => {
+    // This is a standalone Gate fixture: preceding revision-pinning tests
+    // intentionally mutate the shared drawing, so restore the pre-registered
+    // ORANGE/PURPLE state before creating the Gate mount.
+    await prisma.drawing.update({
+      where: { id: drawingId },
+      data: { elements: JSON.stringify(fixtureElements()), version: { increment: 1 } },
+    });
+    const mount = await createMount({ runId: "nil-701-gate-1-v1" });
+
+    // The mounted agent's only evidence for the answer is this public exploration response.
+    const firstRead = await tool(mount, "readFrame", { frameElementId: "frame-a" });
+    expect(firstRead.status).toBe(200);
+    expect(firstRead.body.result.elements.map((element: any) => element.text)).toContain(
+      "Launch answer is ORANGE",
+    );
+
+    const changed = fixtureElements().map((element) =>
+      element.id === "answer-a" ? { ...element, text: "Launch answer is BLUE" } : element,
+    );
+    await prisma.drawing.update({
+      where: { id: drawingId },
+      data: { elements: JSON.stringify(changed), version: { increment: 1 } },
+    });
+
+    const secondRead = await tool(mount, "readFrame", { frameElementId: "frame-a" });
+    const revisionStatus = await tool(mount, "revisionStatus");
+    expect(secondRead.status).toBe(200);
+    expect(revisionStatus.status).toBe(200);
+    expect(secondRead.body).toEqual(firstRead.body);
+    expect(revisionStatus.body.revisionId).toBe(mount.revisionId);
+    expect(revisionStatus.body.result.changed).toBe(true);
+
+    const forbiddenSearch = await tool(mount, "search", { query: "PURPLE" });
+    expect(forbiddenSearch.body.result).toEqual([]);
+    const forbiddenElements = await tool(mount, "readElements", {
+      ids: ["answer-b", "secret-b"],
+    });
+    expect(forbiddenElements.status).toBe(400);
+    const forbiddenEdge = await tool(mount, "followEdge", { edgeElementId: "edge-cross" });
+    expect(forbiddenEdge.body.result.end).toBeNull();
+    const forbiddenRender = await tool(mount, "render", { contextId: contextAId });
+    expect(forbiddenRender.status).toBe(200);
+    const forbiddenAsset = await tool(mount, "readAsset", { assetId: "asset-b" });
+    expect(forbiddenAsset.status).toBe(400);
+    for (const response of [
+      forbiddenSearch,
+      forbiddenElements,
+      forbiddenEdge,
+      forbiddenRender,
+      forbiddenAsset,
+    ]) {
+      expect(JSON.stringify(response.body)).not.toContain("PURPLE");
+      expect(JSON.stringify(response.body)).not.toContain("FOREIGN-CONTEXT-PAYROLL-SECRET");
+      expect(JSON.stringify(response.body)).not.toContain("foreign-payroll.txt");
+    }
+
+    const audit = await prisma.agentToolAudit.findMany({
+      where: { runId: mount.runId },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(audit).not.toHaveLength(0);
+    expect(audit.every((entry) => entry.revisionId === mount.revisionId)).toBe(true);
+    expect(audit.some((entry) => /dump|snapshot/i.test(entry.tool))).toBe(false);
+
+    const unmounted = await request(app)
+      .post(`/drawings/${drawingId}/agent/mounts/${mount.runId}/tools/readFrame`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .send({ frameElementId: "frame-a" });
+    expect(unmounted.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(unmounted.body)).not.toContain("ORANGE");
+  });
+
   it("marks only a currently human-approved text element as an Agent instruction", async () => {
     const mount = await createMount({ runId: "instruction-approval-projection" });
     const beforeApproval = await tool(mount, "readElements", { ids: ["answer-a"] });
@@ -334,15 +429,17 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     expect(edge.body.result.semantics).toEqual({ kind: "unspecified" });
     expect(JSON.stringify(edge.body)).not.toContain("secret-b");
 
-    const foreignElement = await tool(mount, "readElements", { ids: ["secret-b"] });
+    const foreignElement = await tool(mount, "readElements", { ids: ["answer-b", "secret-b"] });
     expect(foreignElement.status).toBe(400);
+    expect(JSON.stringify(foreignElement.body)).not.toContain("PURPLE");
     expect(JSON.stringify(foreignElement.body)).not.toContain("FOREIGN-CONTEXT-PAYROLL-SECRET");
-    const search = await tool(mount, "search", { query: "PAYROLL" });
+    const search = await tool(mount, "search", { query: "PURPLE" });
     expect(search.body.result).toEqual([]);
 
     const rendered = await tool(mount, "render", { contextId: contextAId });
     expect(rendered.status).toBe(200);
     expect(rendered.body.result.rendererVersion).toBe("agent-svg-v1");
+    expect(rendered.body.result.svg).not.toContain("PURPLE");
     expect(rendered.body.result.svg).not.toContain("PAYROLL");
     expect(rendered.body.result.svg).not.toContain("OUTSIDE-CONTEXT");
 

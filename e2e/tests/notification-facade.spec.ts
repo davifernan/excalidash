@@ -12,9 +12,20 @@ test("application and Excalidraw notifications share one semantic stack", async 
     await openEditor(page, drawing.id, { settleMs: 300 });
 
     await page.evaluate(async () => {
-      const { notify } = await import("/src/notifications/index.tsx");
-      const { createExcalidrawToastForwarder } =
-        await import("/src/integrations/excalidraw/toastBridge.ts");
+      // NIL-696: these `import()` calls run INSIDE the browser page (via
+      // `page.evaluate`), resolved by the frontend's own Vite dev server as
+      // a URL -- not by Node or by `tsc`'s module resolution relative to
+      // `e2e/`. There is no repo-relative path that would make `tsc` see
+      // these correctly; the absolute `/src/...` form is what the running
+      // page actually serves and must stay exactly as written. Held in a
+      // variable (rather than inlined as a string literal) so `tsc` cannot
+      // statically resolve -- and therefore cannot flag -- the specifier;
+      // an inlined literal here needs a `@ts-expect-error` whose required
+      // line shifts under reformatting and silently stops suppressing.
+      const notificationsModulePath = "/src/notifications/index.tsx";
+      const toastBridgeModulePath = "/src/integrations/excalidraw/toastBridge.ts";
+      const { notify } = await import(notificationsModulePath);
+      const { createExcalidrawToastForwarder } = await import(toastBridgeModulePath);
       notify("error", "A blocking operation failed", { key: "visual-error" });
       notify("warning", "The board needs attention", { key: "visual-warning" });
       notify("success", "Changes saved", { key: "visual-success" });
