@@ -113,6 +113,7 @@ import {
   LayoutTemplate,
   LocateFixed,
   MessageSquare,
+  MessagesSquare,
   Play,
   Share2,
   Square,
@@ -183,6 +184,14 @@ export type ChromeSlotContext = {
   onToggleComments: () => void;
   isAgentRuntimeOpen: boolean;
   onToggleAgentRuntime: () => void;
+  /**
+   * NIL-678's shared Board Card creation route. Optional so a non-editor
+   * chrome harness does not need to invent a canvas capability.
+   */
+  orchestratorThreads?: {
+    readonly canCreate: boolean;
+    readonly onCreate: () => void;
+  };
 };
 
 type SlotEntry = {
@@ -375,6 +384,24 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
           data-testid="menu-agent-runtime"
         >
           {ctx.isAgentRuntimeOpen ? "Hide agents" : "Agents"}
+        </MainMenu.Item>
+      ) : null,
+  },
+  {
+    id: "new-orchestrator-thread",
+    order: 147,
+    // Sits immediately after the runtime: one starts/observes an agent, the
+    // other gives orchestration a persistent place on this board. The panel
+    // itself is not a sidebar or chrome island; this is only its creation
+    // command, available on mobile through the same menu.
+    render: (ctx) =>
+      ctx.orchestratorThreads?.canCreate && ctx.id ? (
+        <MainMenu.Item
+          onSelect={ctx.orchestratorThreads.onCreate}
+          icon={<MessagesSquare size={16} />}
+          data-testid="menu-new-orchestrator-thread"
+        >
+          New orchestrator thread
         </MainMenu.Item>
       ) : null,
   },

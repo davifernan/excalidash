@@ -105,6 +105,7 @@ type EditorViewProps = {
   isAgentRuntimeOpen: boolean;
   onToggleAgentRuntime: () => void;
   onOpenAgentRuntime: () => void;
+  onCreateOrchestratorThread: () => void;
   /**
    * Direction-hint arrows for collaborators whose cursor is currently
    * outside the viewport (NIL-590) -- same free-floating overlayRoot()
@@ -218,6 +219,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   isAgentRuntimeOpen,
   onToggleAgentRuntime,
   onOpenAgentRuntime,
+  onCreateOrchestratorThread,
 }) => {
   const excalidrawRoot = useExcalidrawRoot(editorContainerRef);
   const [approvalScene, setApprovalScene] = useState<{ elements: readonly any[]; appState: any }>({
@@ -287,6 +289,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
     onSetLangCode,
     onToggleComments,
     onToggleAgentRuntime,
+    orchestratorThreads: {
+      canCreate: canEdit,
+      onCreate: onCreateOrchestratorThread,
+    },
   };
 
   return (

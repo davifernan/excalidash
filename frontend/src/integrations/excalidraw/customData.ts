@@ -14,7 +14,8 @@
  *   customData.excalidash = {
  *     schemaVersion,
  *     sticky?,
- *     widget?
+ *     widget?,
+ *     orchestratorThread?
  *   }
  *
  * Authority stays on the server. Comments, permissions and authorship are
@@ -64,15 +65,28 @@ export type WidgetRecord = {
   readonly assetId: string;
 };
 
+/**
+ * Stable identity for a shared Orchestrator Thread Board Card (NIL-678).
+ * This is deliberately only a reference and display label. Audience,
+ * Context, Dispatch and Lease authority stay outside the drawing payload;
+ * visual proximity must never be able to manufacture any of them (V3).
+ */
+export type OrchestratorThreadAnchorRecord = {
+  readonly threadId: string;
+  readonly title: string;
+};
+
 export type ExcalidashData = {
   readonly schemaVersion: typeof SCHEMA_VERSION;
   readonly sticky?: StickyRecord;
   readonly widget?: WidgetRecord;
+  readonly orchestratorThread?: OrchestratorThreadAnchorRecord;
 };
 
 export type ExcalidashDataPatch = {
   readonly sticky?: StickyRecord | null;
   readonly widget?: WidgetRecord | null;
+  readonly orchestratorThread?: OrchestratorThreadAnchorRecord | null;
 };
 
 type Bag = Record<string, unknown>;
@@ -108,6 +122,14 @@ const parseWidget = (value: unknown): WidgetRecord | undefined => {
   return { kind, assetId };
 };
 
+const parseOrchestratorThread = (value: unknown): OrchestratorThreadAnchorRecord | undefined => {
+  if (!isBag(value)) return undefined;
+  const threadId = str(value.threadId);
+  const title = str(value.title);
+  if (threadId === null || title === null || title.length > 200) return undefined;
+  return { threadId, title };
+};
+
 /**
  * Read this application's data off an element.
  *
@@ -124,12 +146,14 @@ export const readExcalidashData = (element: unknown): ExcalidashData | null => {
 
   const sticky = parseSticky(own.sticky);
   const widget = parseWidget(own.widget);
-  if (!sticky && !widget) return null;
+  const orchestratorThread = parseOrchestratorThread(own.orchestratorThread);
+  if (!sticky && !widget && !orchestratorThread) return null;
 
   return {
     schemaVersion: SCHEMA_VERSION,
     ...(sticky ? { sticky } : {}),
     ...(widget ? { widget } : {}),
+    ...(orchestratorThread ? { orchestratorThread } : {}),
   };
 };
 
@@ -138,6 +162,10 @@ export const readSticky = (element: unknown): StickyRecord | null =>
 
 export const readWidget = (element: unknown): WidgetRecord | null =>
   readExcalidashData(element)?.widget ?? null;
+
+export const readOrchestratorThreadAnchor = (
+  element: unknown,
+): OrchestratorThreadAnchorRecord | null => readExcalidashData(element)?.orchestratorThread ?? null;
 
 /**
  * Produce the customData bag for an element carrying this data.
@@ -154,6 +182,10 @@ export const withExcalidashData = (
   const previous = isBag(existing[NAMESPACE]) ? (existing[NAMESPACE] as Bag) : {};
   const sticky = data.sticky === null ? undefined : (data.sticky ?? parseSticky(previous.sticky));
   const widget = data.widget === null ? undefined : (data.widget ?? parseWidget(previous.widget));
+  const orchestratorThread =
+    data.orchestratorThread === null
+      ? undefined
+      : (data.orchestratorThread ?? parseOrchestratorThread(previous.orchestratorThread));
 
   return {
     ...existing,
@@ -161,6 +193,7 @@ export const withExcalidashData = (
       schemaVersion: SCHEMA_VERSION,
       ...(sticky ? { sticky } : {}),
       ...(widget ? { widget } : {}),
+      ...(orchestratorThread ? { orchestratorThread } : {}),
     },
   };
 };

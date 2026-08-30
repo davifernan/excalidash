@@ -4,6 +4,7 @@ import {
   NAMESPACE,
   SCHEMA_VERSION,
   readExcalidashData,
+  readOrchestratorThreadAnchor,
   readSticky,
   readWidget,
   withExcalidashData,
@@ -11,6 +12,7 @@ import {
 
 const sticky = { color: "yellow", ink: "#422006", width: 180, height: 180 };
 const widget = { kind: "pdf" as const, assetId: "asset-1" };
+const orchestratorThread = { threadId: "thread-1", title: "Release coordination" };
 
 const element = (own: unknown, rest: Record<string, unknown> = {}) => ({
   customData: { ...rest, [NAMESPACE]: own },
@@ -20,6 +22,25 @@ describe("the customData schema", () => {
   it("reads a record that carries both a note and a widget", () => {
     const data = readExcalidashData(element({ schemaVersion: SCHEMA_VERSION, sticky, widget }));
     expect(data).toEqual({ schemaVersion: SCHEMA_VERSION, sticky, widget });
+  });
+
+  it("round-trips a stable orchestrator thread anchor without storing authority", () => {
+    const written = withExcalidashData({}, { orchestratorThread });
+    expect(readOrchestratorThreadAnchor({ customData: written })).toEqual(orchestratorThread);
+    expect(written).not.toHaveProperty("permissions");
+    expect(written).not.toHaveProperty("dispatch");
+    expect(written).not.toHaveProperty("lease");
+  });
+
+  it("refuses a malformed orchestrator thread reference", () => {
+    expect(
+      readOrchestratorThreadAnchor(
+        element({
+          schemaVersion: SCHEMA_VERSION,
+          orchestratorThread: { threadId: "", title: "Release coordination" },
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("ignores keys belonging to somebody else", () => {

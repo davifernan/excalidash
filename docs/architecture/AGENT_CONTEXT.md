@@ -221,6 +221,20 @@ ausschließlich Warten/Übergabe-Anfrage. Davon hängen Lease-Transfer, Audit-Er
 Nutzererwartung an sichtbare Übernahme ab. Eine stillschweigende Übernahme ist in keinem Fall
 zulässig.
 
+### NIL-678: Wie bleibt der Orchestrator-Faden am Board, ohne Nähe zu Semantik zu machen?
+
+Der gemeinsame Faden besitzt eine echte Excalidraw Board Card; Öffnen, Docking und
+Cluster-Auswahl bleiben lokale Ansichtsentscheidungen. Seine drei Zustände sind `closed`,
+`anchored` (offen am lesbaren Anker) und `docked` (offen mit unerreichbarem Anker, inklusive
+Richtung, Entfernung und Sprung). Geometrische Hysterese verhindert Flackern, und eine einzelne
+`activeThreadId` erzwingt höchstens ein Vollpanel pro Nutzer.
+
+Visuelle Cluster behalten alle ursprünglichen `threadId`s und dürfen ausschließlich zu genau
+einem davon navigieren. Sie besitzen keine Context-, Dispatch- oder Lease-Aktion. Sättigung
+wird aus belegter sichtbarer Fläche statt aus einer festen Fadenzahl abgeleitet und als
+Backpressure sichtbar gemacht; Read-only-Arbeit bleibt möglich. Der vollständige ausführbare
+UI-Vertrag steht in [`ORCHESTRATOR_THREAD_ANCHOR.md`](ORCHESTRATOR_THREAD_ANCHOR.md).
+
 ### NIL-683: Für wen wird die Runtime gebaut?
 
 Offen: nur für selbstgehosteten, co-lokalen Einzelbetrieb oder für mehrere Menschen mit eigenen
