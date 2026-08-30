@@ -194,9 +194,10 @@ const withSchemaArg = (args, schema) => {
  * so the schema copy moves to `localTmpRoot`
  * (`backendRoot/.prisma-workspaces.tmp/`, already used as `migrate`'s own
  * local fallback root) instead of `os.tmpdir()`, and `output` is rewritten
- * to an absolute path so it still lands at the real
- * `backendRoot/src/generated/client` regardless of where the copy lives.
- * `schemaFile` itself is only ever read here, never written -- a SIGINT at
+ * to an absolute path. Production callers use the real
+ * `backendRoot/src/generated/client`; tests that exercise generation supply
+ * a private output directory because Prisma recreates its output
+ * non-atomically. `schemaFile` itself is only ever read here, never written -- a SIGINT at
  * any point now loses at most a stray directory under
  * `.prisma-workspaces.tmp/`, the same disposable-workspace risk `migrate`
  * already carries, never a mutated tracked file.
@@ -210,7 +211,13 @@ const runPrismaGenerate = (args, options = {}) => {
   env.DATABASE_PROVIDER = provider;
   env.DATABASE_URL = normalizeDatabaseUrl(env.DATABASE_URL);
 
-  const outputDir = path.resolve(backendRoot, "src", "generated", "client");
+  // Production callers keep the real generated client. Tests that exercise
+  // generation must supply an isolated output directory: Prisma recreates
+  // its output non-atomically, so the shared client cannot be regenerated
+  // while unrelated suites import it.
+  const outputDir = path.resolve(
+    options.generatedClientOutputDir || path.join(backendRoot, "src", "generated", "client"),
+  );
   fs.mkdirSync(localTmpRoot, { recursive: true });
   const workspaceDir = fs.mkdtempSync(path.join(localTmpRoot, "generate-"));
   const workspaceSchema = path.join(workspaceDir, "schema.prisma");

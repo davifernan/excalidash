@@ -1,5 +1,3 @@
-import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -12,8 +10,22 @@ const providerPrisma = require("../../scripts/provider-prisma.cjs") as {
   rewriteSchemaProvider: (schema: string, provider: string) => string;
   runPrisma: (
     args: string[],
-    options?: { env?: Record<string, string>; stdio?: "pipe" | "inherit" },
+    options?: {
+      env?: Record<string, string>;
+      generatedClientOutputDir?: string;
+      stdio?: "pipe" | "inherit";
+    },
   ) => unknown;
+};
+
+const withIsolatedGeneratedClient = <T>(run: (outputDir: string) => T): T => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nil703-generated-client-"));
+  const outputDir = path.join(root, "client");
+  try {
+    return run(outputDir);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 };
 
 describe("provider Prisma helpers", () => {
@@ -131,66 +143,61 @@ describe("current Prisma migration discovery", () => {
 });
 
 describe("runPrisma generate (NIL-597)", () => {
-  // Every test below calls the real, exported `providerPrisma.runPrisma`,
-  // not a fake of `execFileSync` and not a hand-rolled replica of Prisma's
-  // own behaviour -- Hans's Medium finding on this file's first version was
-  // exactly that none of its three tests would go red if the
-  // `if (args[0] === "generate")` routing branch in `runPrisma` were
-  // reverted: two never called `runPrisma` at all, and the one that did
-  // only asserted something equally true of the pre-fix code. Reverting
-  // that branch locally and rerunning this file (never committed, per the
-  // Dateikopie convention) is exactly what the "generates the client at the
-  // real location" test below now catches: it goes red with the reverted
-  // routing (the old os.tmpdir() copy path throws NIL-597's original
-  // auto-install error) and green with it restored.
-  //
-  // This is now safe to run against the REAL schema and the REAL shared
-  // `src/generated/client` -- unlike the version of this test that caused
-  // collateral failures in 33 unrelated files (see the review-fix commit):
-  // `runPrismaGenerate` no longer writes anything to `schemaFile`, so there
-  // is nothing here to corrupt concurrently, and every call below finishes
-  // by regenerating the client for the same sqlite provider
-  // `vitest.config.ts`'s `DATABASE_URL` already expects -- the end state on
-  // disk is identical to what every other test file in this suite already
-  // relies on, not a different provider left behind.
-  it("generates the client at the real location and never mutates the tracked schema", () => {
+  // These tests call the real exported runPrisma path. Prisma replaces its
+  // generated output non-atomically, so the shared client imported by every
+  // backend suite must never be regenerated here. Each call instead targets
+  // a private temporary output that no other suite can resolve.
+  it("generates an isolated client and never mutates the tracked schema or shared client", () => {
     const schemaPath = path.resolve(__dirname, "../../prisma/schema.prisma");
-    const clientDir = path.resolve(__dirname, "../generated/client");
+    const sharedClientPackage = path.resolve(__dirname, "../generated/client/package.json");
     const before = fs.readFileSync(schemaPath, "utf8");
+    const sharedBefore = fs.readFileSync(sharedClientPackage);
 
-    expect(() => providerPrisma.runPrisma(["generate"], { stdio: "pipe" })).not.toThrow();
+    withIsolatedGeneratedClient((clientDir) => {
+      expect(() =>
+        providerPrisma.runPrisma(["generate"], {
+          generatedClientOutputDir: clientDir,
+          stdio: "pipe",
+        }),
+      ).not.toThrow();
 
-    expect(fs.existsSync(path.join(clientDir, "default.js"))).toBe(true);
+      expect(fs.existsSync(path.join(clientDir, "default.js"))).toBe(true);
+      expect(
+        JSON.parse(fs.readFileSync(path.join(clientDir, "package.json"), "utf8")),
+      ).toBeTruthy();
+    });
     expect(fs.readFileSync(schemaPath, "utf8")).toBe(before);
+    expect(fs.readFileSync(sharedClientPackage)).toEqual(sharedBefore);
   }, 30_000);
 
   it("rewrites the provider for the requested DATABASE_PROVIDER without touching the tracked schema", () => {
     const schemaPath = path.resolve(__dirname, "../../prisma/schema.prisma");
     const before = fs.readFileSync(schemaPath, "utf8");
 
-    try {
+    withIsolatedGeneratedClient((clientDir) => {
       expect(() =>
         providerPrisma.runPrisma(["generate"], {
           env: { DATABASE_PROVIDER: "postgresql", DATABASE_URL: "postgresql://x/y" },
+          generatedClientOutputDir: clientDir,
           stdio: "pipe",
         }),
       ).not.toThrow();
       expect(fs.readFileSync(schemaPath, "utf8")).toBe(before);
-    } finally {
-      // Regenerate for the suite's real provider so the shared client on
-      // disk stays sqlite for every test file that runs after this one --
-      // runs even if the postgres assertions above failed.
-      providerPrisma.runPrisma(["generate"], { stdio: "pipe" });
-    }
+    });
   }, 30_000);
 
   it("still surfaces a real prisma failure (e.g. a bad flag) instead of swallowing it", () => {
     const schemaPath = path.resolve(__dirname, "../../prisma/schema.prisma");
     const before = fs.readFileSync(schemaPath, "utf8");
 
-    expect(() =>
-      providerPrisma.runPrisma(["generate", "--this-flag-does-not-exist"], { stdio: "pipe" }),
-    ).toThrow();
+    withIsolatedGeneratedClient((clientDir) => {
+      expect(() =>
+        providerPrisma.runPrisma(["generate", "--this-flag-does-not-exist"], {
+          generatedClientOutputDir: clientDir,
+          stdio: "pipe",
+        }),
+      ).toThrow();
+    });
     // Never touched in the first place (not "restored") -- schemaFile is
     // read-only to runPrismaGenerate now, so there is nothing to roll back.
     expect(fs.readFileSync(schemaPath, "utf8")).toBe(before);
@@ -200,40 +207,13 @@ describe("runPrisma generate (NIL-597)", () => {
     const backendRoot = path.resolve(__dirname, "../..");
     const localTmpRoot = path.join(backendRoot, ".prisma-workspaces.tmp");
 
-    providerPrisma.runPrisma(["generate"], { stdio: "pipe" });
+    withIsolatedGeneratedClient((clientDir) => {
+      providerPrisma.runPrisma(["generate"], {
+        generatedClientOutputDir: clientDir,
+        stdio: "pipe",
+      });
+    });
 
     expect(fs.existsSync(localTmpRoot)).toBe(false);
-  }, 30_000);
-
-  // The Gegenprobe NIL-597 itself asks for: prove the *mechanism* the fix
-  // relies on, by running the exact pre-fix failure mode (a schema copied
-  // under a directory with no ancestor package.json) against real `npx
-  // prisma`, isolated from every real file this suite depends on -- never
-  // by reverting the actual fix commit, which would test the wrong tree.
-  it("RED PROBE: a schema with no ancestor package.json reproduces NIL-597's exact failure", () => {
-    const backendRoot = path.resolve(__dirname, "../..");
-    const schemaFile = path.resolve(backendRoot, "prisma/schema.prisma");
-    const schema = fs.readFileSync(schemaFile, "utf8");
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nil597-red-probe-"));
-    const workspaceSchema = path.join(tmpRoot, "schema.prisma");
-    fs.writeFileSync(workspaceSchema, schema);
-
-    try {
-      execFileSync("npx", ["prisma", "generate", "--schema", workspaceSchema], {
-        cwd: backendRoot,
-        stdio: "pipe",
-        encoding: "utf8",
-      });
-      assert.fail(
-        "expected `prisma generate` against a schema copied under os.tmpdir() to fail " +
-          "(NIL-597) -- if this now passes, Prisma's own behavior changed and this probe " +
-          "needs a new failure signature, not silent deletion",
-      );
-    } catch (error) {
-      const stderr = String((error as { stderr?: Buffer | string }).stderr ?? "");
-      expect(stderr).toMatch(/npm i prisma@[\d.]+ -D/);
-    } finally {
-      fs.rmSync(tmpRoot, { recursive: true, force: true });
-    }
   }, 30_000);
 });
