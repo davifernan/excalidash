@@ -76,6 +76,12 @@ jobs:
       - name: Typecheck frontend
         run: npm run typecheck --prefix frontend
 
+      # JSON.parse and JS configuration both silently keep the final duplicate
+      # key. Keep this inside the existing frontend dependency context: it is
+      # a required check without adding another job or any green-path output.
+      - name: Check configuration keys are unique
+        run: npm run check:config-keys --prefix frontend
+
       # Deliberately inside an already-required context rather than a new job.
       # A new check would not be in the branch ruleset, so it could go red
       # without blocking anything -- and a gate nobody has to pass teaches

@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "check:config-keys": "node scripts/config-duplicate-keys.cjs && node scripts/config-duplicate-keys.test.cjs",
     "check:dead-code": "npx --yes knip@5.88.1 --include files,dependencies,devDependencies",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
@@ -66,6 +67,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "happy-dom": "^20.8.9",
+    "js-yaml": "^4.1.0",
     "jsdom": "^27.2.0",
     "postcss": "^8.5.10",
     "prettier": "^3.9.6",
