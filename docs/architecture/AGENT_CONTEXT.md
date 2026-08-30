@@ -128,8 +128,16 @@ Ein Lease serialisiert öffentliche Wirkung, nicht Read-only-Erkundung. Beliebig
 Read-only-Runs dürfen parallel lesen. Genau ein atomar erworbener, serverautoritativ verwalteter
 Holder darf `artifact:publish`, `board:write` oder eine andere geteilte Wirkung auslösen. Der
 Vertrag verlangt persistentes Compare-and-swap und Serverzeit für Acquire, Renew, Transfer und
-Release. Das konkrete Persistenzmodell und die autorisierte Takeover-Regel sind in NIL-680 noch
-offen; ein sichtbarer Übernahmevorgang ist für sich allein keine Autorisierung.
+Release. NIL-680 implementiert das als eine einzige, pro Context wiederverwendete `ContextLease`-
+Zeile ([`contextLease.ts`](../../backend/src/agent/contextLease.ts)): Acquire/Renew/Transfer sind
+je ein einzelnes, WHERE-bewachtes `updateMany` -- das ist bei SQLite und PostgreSQL gleichermaßen
+atomar, ganz ohne expliziten Row-Lock. `leaseGeneration` ist der undurchsichtige Vergleichsschlüssel,
+den Renew/Transfer/Release vorzeigen müssen. Übernahme läuft entweder über Zustimmung des
+aktuellen Holders (`fromRunId` stimmt) oder einen `authorizedAsOverride`, den ausschließlich der
+aufrufende Server-Endpunkt setzen darf, nie der Client -- ein sichtbarer Übernahmevorgang ist für
+sich allein keine Autorisierung, und jede Übernahme wird als `lease.transferred`-Ereignis
+protokolliert. `endHorizonAt` kommt immer vom Aufrufer (der menschlich genehmigten
+Dispatch-Grenze); das Modul entscheidet ihn nie selbst und lässt keinen Renew darüber hinaus zu.
 
 ## Freigabe-Gates
 
@@ -212,14 +220,17 @@ oder Context-lokale Contribution/Admission-Provenance einführen; oder eine ausd
 Defense-in-depth und die Contribution-Policy. NIL-677 hängt echt an NIL-671: Ohne
 Context→Frame-Zuordnung ist die Schutzregel nicht durchsetzbar.
 
-### NIL-680: Wie werden Lease-CAS und Übernahme umgesetzt?
+### NIL-680: Wie werden Lease-CAS und Übernahme umgesetzt? (entschieden)
 
-Persistentes, atomares Compare-and-swap ist Pflicht, seine Datenform aber noch nicht entschieden.
-Auch die Takeover-Regel ist offen; sie ist eine soziale Entscheidung für ein geteiltes Board.
-Optionen sind Zustimmung des Holders, ein ausdrücklich privilegierter Override oder
-ausschließlich Warten/Übergabe-Anfrage. Davon hängen Lease-Transfer, Audit-Ereignisse und die
-Nutzererwartung an sichtbare Übernahme ab. Eine stillschweigende Übernahme ist in keinem Fall
-zulässig.
+Umgesetzt als `ContextLease` (eine Zeile pro Context, atomar per WHERE-bewachtem `updateMany`
+wiederverwendet) plus `ContextLeaseEvent` als eigene, von `contextThread.ts`s geschlossener
+Event-Kind-Union bewusst getrennte Koordinationsspur -- siehe den Absatz oben unter
+"Context-Grenze, Closure und Lease" und [`contextLease.ts`](../../backend/src/agent/contextLease.ts).
+Übernahme ist entweder Zustimmung des aktuellen Holders oder ein serverseitig entschiedener
+Override (in der REST-Route: nur der Board-Owner, nie ein Client-Flag allein); still ist keine
+davon -- jede Übernahme erzeugt ein `lease.transferred`-Ereignis. Offen bleibt nur, wer/was
+`endHorizonAt` beim ersten Acquire konkret setzt -- das ist NIL-679s Dispatch-Freigabe-Fluss,
+nicht dieses Modul, das den Wert nur entgegennimmt und durchsetzt.
 
 ### NIL-678: Wie bleibt der Orchestrator-Faden am Board, ohne Nähe zu Semantik zu machen?
 
