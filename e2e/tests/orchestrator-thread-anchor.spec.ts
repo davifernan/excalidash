@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
-import { openEditor } from "./helpers/editor";
+import { openEditor, scene } from "./helpers/editor";
 
 const openMenu = async (page: Page) => {
   await page.getByTestId("main-menu-trigger").click();
@@ -97,5 +97,30 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     await openMenu(page);
     await page.getByTestId("menu-new-orchestrator-thread").click();
     await expect(page.getByTestId("orchestrator-thread-panel")).toHaveCount(1);
+  });
+
+  test("keeps ordinary canvas drawing available through the empty-board invitation", async ({
+    page,
+  }) => {
+    await openEditor(page, drawingId);
+    const invitation = page.getByTestId("orchestrator-thread-invitation");
+    await expect(invitation).toBeVisible();
+
+    // The invitation is visual guidance, not a modal surface. A normal canvas
+    // gesture that starts over its body must still reach Excalidraw; only the
+    // explicit Place-thread button is interactive DOM chrome.
+    await page.locator("canvas.excalidraw__canvas.interactive").click({
+      position: { x: 1100, y: 600 },
+    });
+    await page.keyboard.press("r");
+    await page.mouse.move(400, 300);
+    await page.mouse.down();
+    await page.mouse.move(600, 380, { steps: 8 });
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .toBe(1);
+    await expect(invitation).toHaveCount(0);
   });
 });

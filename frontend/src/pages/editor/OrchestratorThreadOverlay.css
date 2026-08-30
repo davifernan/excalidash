@@ -12,7 +12,10 @@
   top: 50%;
   width: min(540px, calc(100% - 48px));
   transform: translate(-50%, -50%);
-  pointer-events: auto;
+  /* This is guidance layered over an otherwise usable empty canvas, not a
+     modal surface. Canvas gestures pass through; the explicit action below
+     is the only DOM control that opts back into pointer handling. */
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -68,6 +71,7 @@
 }
 
 .orchestrator-thread-invitation > button {
+  pointer-events: auto;
   padding: 10px 16px;
   border: 0;
   border-radius: 10px;
