@@ -18,6 +18,12 @@
       ],
       "customData/widget": [
         "dist/customData/widget.d.ts"
+      ],
+      "collaboration": [
+        "dist/collaboration/index.d.ts"
+      ],
+      "collaboration/cursorChat": [
+        "dist/collaboration/cursorChat.d.ts"
       ]
     }
   },
@@ -41,6 +47,14 @@
     "./customData/widget": {
       "types": "./dist/customData/widget.d.ts",
       "default": "./dist/customData/widget.js"
+    },
+    "./collaboration": {
+      "types": "./dist/collaboration/index.d.ts",
+      "default": "./dist/collaboration/index.js"
+    },
+    "./collaboration/cursorChat": {
+      "types": "./dist/collaboration/cursorChat.d.ts",
+      "default": "./dist/collaboration/cursorChat.js"
     }
   },
   "files": [
