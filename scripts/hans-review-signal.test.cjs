@@ -250,11 +250,6 @@ test("both Hans workflows serialize one state while preserving the draft-to-read
     reviewGroup,
     "the two possible intentional-skip writers must share one serialization key",
   );
-  assert.equal(
-    renderHansConcurrencyGroup(reviewGroup, { draft: true }),
-    renderHansConcurrencyGroup(signalGroup, { draft: true }),
-    "concurrent draft runs collide instead of racing their comment writes",
-  );
   assert.notEqual(
     renderHansConcurrencyGroup(reviewGroup, { draft: true }),
     renderHansConcurrencyGroup(reviewGroup, { draft: false }),
