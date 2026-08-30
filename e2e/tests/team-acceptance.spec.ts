@@ -279,6 +279,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
       let widgetId = "";
 
       await criterion("a paginated document widget is visible to every peer", async () => {
+        throw new Error("NIL-330 controlled diagnostic probe: widget readiness");
         const markdown = Array.from(
           { length: 120 },
           (_, i) => `## Section ${i + 1}\n\n${`Body text for section ${i + 1}. `.repeat(30)}\n`,
