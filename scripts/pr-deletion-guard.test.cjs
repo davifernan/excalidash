@@ -42,8 +42,10 @@ function fixtureRepo(featureChange = "delete") {
   if (featureChange === "delete") {
     fs.rmSync(path.join(cwd, "feature-only.txt"));
   } else {
+    const source = path.join(cwd, "feature-only.txt");
     const renamed = path.join(cwd, "renamed-feature.txt");
-    fs.renameSync(path.join(cwd, "feature-only.txt"), renamed);
+    fs.copyFileSync(source, renamed);
+    fs.rmSync(source);
     if (featureChange === "edited-rename") {
       write(renamed, FEATURE_CONTENT.split("\n").slice(1).join("\n"));
     }
@@ -84,7 +86,7 @@ test("RED: checkRepo names an actual undeclared deletion from a temporary Git re
   }
 });
 
-test("RED: a changed rename exposes its old path as an undeclared removal", () => {
+test("RED then GREEN: a changed rename exposes its old path and accepts its exact declaration", () => {
   const cwd = fixtureRepo("edited-rename");
   try {
     assert.match(
@@ -94,6 +96,15 @@ test("RED: a changed rename exposes its old path as an undeclared removal", () =
     const result = checkRepo({ cwd, baseSha: "main", headSha: "HEAD", body: "" });
     assert.equal(result.ok, false);
     assert.match(result.findings[0], /feature-only\.txt/);
+
+    const declared = checkRepo({
+      cwd,
+      baseSha: "main",
+      headSha: "HEAD",
+      body: "Deletes-Files: feature-only.txt\nDeletion-Reason: Replace the edited fixture.",
+    });
+    assert.equal(declared.ok, true);
+    assert.deepEqual(declared.deletedFiles, ["feature-only.txt"]);
   } finally {
     removeFixture(cwd);
   }
