@@ -314,6 +314,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
       });
 
       await criterion("fabricated widgets and invalid pages receive structured refusals", async () => {
+        throw new Error("NIL-330 controlled diagnostic probe: structured refusals");
         // The widget is painted and broadcast before the debounced scene save
         // creates its authoritative DocumentPageView row. Confirm that server
         // handoff first; otherwise the real id and a fabricated id are both
