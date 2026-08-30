@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { createDrawing, deleteDrawing, getDrawing } from "./helpers/api";
 import { openEditor, scene } from "./helpers/editor";
 
@@ -6,15 +6,59 @@ const openMenu = async (page: Page) => {
   await page.getByTestId("main-menu-trigger").click();
 };
 
-const expectInside = async (
-  inner: ReturnType<Page["getByText"]>,
-  outer: ReturnType<Page["getByTestId"]>,
-) => {
-  const [innerBox, outerBox] = await Promise.all([inner.boundingBox(), outer.boundingBox()]);
-  expect(innerBox).not.toBeNull();
-  expect(outerBox).not.toBeNull();
-  expect(innerBox!.y).toBeGreaterThanOrEqual(outerBox!.y);
-  expect(innerBox!.y + innerBox!.height).toBeLessThanOrEqual(outerBox!.y + outerBox!.height);
+const CONTAINMENT_TOLERANCE_PX = 2;
+
+const expectInside = async (inner: Locator, outer: Locator) => {
+  const outerElement = await outer.elementHandle();
+  if (!outerElement) throw new Error("outer containment element is not attached");
+
+  const { innerTop, innerBottom, outerTop, outerBottom, settled } = await inner.evaluate(
+    async (innerElement, { outerElement, tolerance }) => {
+      await document.fonts.ready;
+
+      const measure = () => {
+        const innerRect = innerElement.getBoundingClientRect();
+        const outerRect = outerElement.getBoundingClientRect();
+        return {
+          innerTop: innerRect.top,
+          innerBottom: innerRect.bottom,
+          outerTop: outerRect.top,
+          outerBottom: outerRect.bottom,
+        };
+      };
+      const isSameGeometry = (
+        previous: ReturnType<typeof measure>,
+        current: ReturnType<typeof measure>,
+      ) =>
+        (["innerTop", "innerBottom", "outerTop", "outerBottom"] as const).every(
+          (key) => Math.abs(previous[key] - current[key]) < 0.01,
+        );
+      const isContained = (geometry: ReturnType<typeof measure>) =>
+        geometry.innerTop >= geometry.outerTop - tolerance &&
+        geometry.innerBottom <= geometry.outerBottom + tolerance;
+
+      let previous = measure();
+      let stableFrames = 0;
+      const deadline = performance.now() + 2_000;
+      while (performance.now() < deadline) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const current = measure();
+        stableFrames =
+          isSameGeometry(previous, current) && isContained(current) ? stableFrames + 1 : 0;
+        if (stableFrames >= 2) return { ...current, settled: true };
+        previous = current;
+      }
+      return { ...previous, settled: false };
+    },
+    { outerElement, tolerance: CONTAINMENT_TOLERANCE_PX },
+  );
+
+  // Browser layout is allowed subpixel rounding; the contract is that the
+  // message remains in the panel, not that two independently exposed DOMRects
+  // have bit-identical edges.
+  expect(settled, "message must settle inside the event list for two animation frames").toBe(true);
+  expect(innerTop).toBeGreaterThanOrEqual(outerTop - CONTAINMENT_TOLERANCE_PX);
+  expect(innerBottom).toBeLessThanOrEqual(outerBottom + CONTAINMENT_TOLERANCE_PX);
 };
 
 test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
