@@ -73,14 +73,17 @@ try {
   assert.equal(typeof diagnostic.capturedAt, "string");
   assert.equal(typeof diagnostic.failingProcess.pid, "number");
   assert.equal(typeof diagnostic.failingProcess.workerId, "string");
+  assert.equal(diagnostic.failingImport.suiteImportAttempt, 1);
   const invalidPackageBytes = fs.readFileSync(invalidPackageFixture);
   assert.equal(diagnostic.packageJson.bytes, invalidPackageBytes.byteLength);
   assert.equal(diagnostic.packageJson.utf8, invalidPackageBytes.toString("utf8"));
   assert.match(diagnostic.packageJson.sha256, /^[a-f0-9]{64}$/);
   assert.equal(diagnostic.prismaGenerateFinished.value.finishedAt, "2026-08-30T10:08:09.123Z");
+  assert.equal(typeof diagnostic.prismaGenerateFinished.elapsedMsAtFailure, "number");
   console.log(
     `red probe captured PID ${diagnostic.failingProcess.pid}, worker ${diagnostic.failingProcess.workerId}, ` +
-      `timestamp ${diagnostic.capturedAt}, ${diagnostic.packageJson.bytes} package bytes, and prisma marker ${diagnostic.prismaGenerateFinished.value.finishedAt}`,
+      `timestamp ${diagnostic.capturedAt}, suite import ${diagnostic.failingImport.suiteImportAttempt}, ` +
+      `${diagnostic.packageJson.bytes} package bytes, and prisma marker ${diagnostic.prismaGenerateFinished.value.finishedAt}`,
   );
 } finally {
   fs.copyFileSync(backup, packageJson);

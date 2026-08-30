@@ -8,6 +8,7 @@ const backendRoot = path.resolve(__dirname, "../..");
 const packageJsonPath = path.join(backendRoot, "src", "generated", "client", "package.json");
 const diagnosticDirectory = process.env.NIL703_PRISMA_DIAGNOSTIC_DIR;
 const generationMarkerPath = process.env.NIL703_PRISMA_GENERATE_MARKER;
+let suiteImportAttempt = 0;
 
 const errorDetails = (error: unknown) => {
   if (error instanceof Error) {
@@ -56,23 +57,35 @@ const readPackageJsonSnapshot = () => {
   }
 };
 
-const readGenerationMarker = () => {
+const readGenerationMarker = (capturedAtMs: number) => {
   if (!generationMarkerPath) return { status: "not configured" };
   try {
+    const value = JSON.parse(fs.readFileSync(generationMarkerPath, "utf8")) as {
+      finishedAt?: unknown;
+    };
+    const finishedAtMs =
+      typeof value.finishedAt === "string" ? Date.parse(value.finishedAt) : Number.NaN;
     return {
       path: generationMarkerPath,
-      value: JSON.parse(fs.readFileSync(generationMarkerPath, "utf8")),
+      value,
+      elapsedMsAtFailure: Number.isFinite(finishedAtMs) ? capturedAtMs - finishedAtMs : null,
     };
   } catch (error) {
     return { path: generationMarkerPath, readError: errorDetails(error) };
   }
 };
 
-const writeDiagnostic = (error: unknown, filepath: string, source: VitestRunnerImportSource) => {
+const writeDiagnostic = (
+  error: unknown,
+  filepath: string,
+  source: VitestRunnerImportSource,
+  importAttempt: number,
+) => {
   if (!diagnosticDirectory) return;
 
   try {
     const timestamp = new Date().toISOString();
+    const timestampMs = Date.now();
     const workerId = process.env.VITEST_WORKER_ID ?? "unknown";
     const diagnostic = {
       schema: "nil-703-prisma-client-resolution-diagnostic/v1",
@@ -83,10 +96,10 @@ const writeDiagnostic = (error: unknown, filepath: string, source: VitestRunnerI
         workerId,
         poolId: process.env.VITEST_POOL_ID ?? "unknown",
       },
-      failingImport: { filepath, source },
+      failingImport: { filepath, source, suiteImportAttempt: importAttempt },
       error: errorDetails(error),
       packageJson: readPackageJsonSnapshot(),
-      prismaGenerateFinished: readGenerationMarker(),
+      prismaGenerateFinished: readGenerationMarker(timestampMs),
     };
     fs.mkdirSync(diagnosticDirectory, { recursive: true });
     const outputPath = path.join(
@@ -104,10 +117,16 @@ const writeDiagnostic = (error: unknown, filepath: string, source: VitestRunnerI
 
 export default class PrismaClientResolutionDiagnosticsRunner extends TestRunner {
   override async importFile(filepath: string, source: VitestRunnerImportSource) {
+    // Vitest collects one suite at a time in this repository's single fork.
+    // This is deliberately a suite-import ordinal, not a claim about how many
+    // internal Node resolutions the Vite module runner performed.
+    const importAttempt = source === "collect" ? ++suiteImportAttempt : suiteImportAttempt;
     try {
       return await super.importFile(filepath, source);
     } catch (error) {
-      if (isGeneratedClientPackageConfigError(error)) writeDiagnostic(error, filepath, source);
+      if (isGeneratedClientPackageConfigError(error)) {
+        writeDiagnostic(error, filepath, source, importAttempt);
+      }
       throw error;
     }
   }
