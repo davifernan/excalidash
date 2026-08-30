@@ -58,7 +58,19 @@ test("GREEN: exact declared removals are printed from the PR merge-base, not mai
   }
 });
 
-test("RED: an undeclared deletion is rejected", () => {
+test("RED: checkRepo names an actual undeclared deletion from a temporary Git repository", () => {
+  const cwd = fixtureRepo();
+  try {
+    const result = checkRepo({ cwd, baseSha: "main", headSha: "HEAD", body: "" });
+    assert.equal(result.ok, false);
+    assert.match(result.findings[0], /feature-only\.txt/);
+    assert.match(result.findings[0], /no `Deletes-Files:` declaration/);
+  } finally {
+    removeFixture(cwd);
+  }
+});
+
+test("RED: an undeclared deletion is rejected by declaration evaluation", () => {
   const result = evaluateDeletionDeclaration({ deletedFiles: ["migration.sql"], body: "" });
   assert.equal(result.ok, false);
   assert.match(result.findings[0], /migration\.sql/);
