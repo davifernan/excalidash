@@ -160,23 +160,11 @@ const trialIsUnderBudget = (trial: ResponsivenessTrial): boolean => trial.p95Gap
 /**
  * Two of three trials under budget, not the first sample alone (NIL-592).
  *
- * The bound itself (MAX_BLOCK_MS / DEFAULT_MAX_BLOCK_MS above) stays an
- * absolute per-block ceiling on purpose: "was a person blocked this long"
- * is a real UX guarantee, and a baseline-relative bound would just trade
- * this test's noise for the noise of whatever idle measurement the
- * baseline itself needed on the same, already-noisy CI host -- two noisy
- * numbers subtracted are not less noisy than one. What NIL-592 actually
- * measured was CI host jitter tipping a SINGLE sample from ~495 ms to
- * 509.9 ms (2% over) on a commit that changed only VERSION and two
- * package.json files -- no code -- while the five preceding real-code
- * commits stayed green on the same check. That is exactly what repeated
- * sampling is for: a genuine regression blocks the main thread on every
- * attempt, not on one unlucky one, so two of three tolerates the single
- * spike while still catching the real thing. See
- * `document-pages.spec.ts`'s own "responsiveness budget" describe block
- * for this decided directly against that 509.9 ms measurement, and this
- * file's git history (NIL-592) for the counter-proof that an actual
- * regression still fails it.
+ * NIL-592 introduced the majority rule because a single runner outlier is
+ * not a sustained responsiveness regression. NIL-697 replaces the former
+ * absolute maximum with p95: a lone GC/scheduler pause belongs in maxGap for
+ * diagnostics, while repeated main-thread blocking raises the p95 in enough
+ * trials to fail this contract.
  */
 export const passesResponsivenessBudget = (trials: readonly ResponsivenessTrial[]): boolean =>
   trials.filter((trial) => trialIsUnderBudget(trial)).length >= RESPONSIVENESS_TRIALS_REQUIRED;
