@@ -118,8 +118,36 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     await expect(invitation).toBeVisible();
 
     // The invitation is visual guidance, not a modal surface. A normal canvas
-    // gesture that starts over its body must still reach Excalidraw; only the
-    // explicit Place-thread button is interactive DOM chrome.
+    // gesture that starts over its body must still reach Excalidraw. Check the
+    // whole DOM subtree rather than one lucky point: only explicit controls may
+    // opt back into pointer handling when another control is added later.
+    const pointerContract = await invitation.evaluate((surface) => {
+      const interactiveSelector = "button, a[href], input, select, textarea, [role='button']";
+      const controls = Array.from(surface.querySelectorAll<HTMLElement>(interactiveSelector));
+      const leaks = [surface, ...Array.from(surface.querySelectorAll<HTMLElement>("*"))]
+        .filter(
+          (element) =>
+            !controls.some((control) => control === element || control.contains(element)) &&
+            getComputedStyle(element).pointerEvents !== "none",
+        )
+        .map((element) => ({
+          tag: element.tagName.toLowerCase(),
+          className: element.className,
+        }));
+      return {
+        leaks,
+        controls: controls.map((control) => ({
+          text: control.textContent?.trim() ?? "",
+          pointerEvents: getComputedStyle(control).pointerEvents,
+        })),
+      };
+    });
+    expect(pointerContract.leaks).toEqual([]);
+    expect(pointerContract.controls).toEqual([
+      { text: "Place shared thread here", pointerEvents: "auto" },
+      { text: "Start a local thread", pointerEvents: "auto" },
+    ]);
+
     const invitationBox = await invitation.boundingBox();
     expect(invitationBox).not.toBeNull();
     const invitationCenter = {
@@ -134,6 +162,12 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     // Both the focus click and the drawing gesture start at the measured
     // centre of the invitation. This is a pass-through assertion, not a click
     // on conveniently empty canvas beside the surface under test.
+    expect(
+      await page.evaluate(
+        ({ x, y }) => document.elementFromPoint(x, y)?.tagName.toLowerCase(),
+        invitationCenter,
+      ),
+    ).toBe("canvas");
     await page.mouse.click(invitationCenter.x, invitationCenter.y);
     await page.keyboard.press("r");
     await page.mouse.move(invitationCenter.x, invitationCenter.y);
