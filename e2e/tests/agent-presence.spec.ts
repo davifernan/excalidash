@@ -49,7 +49,7 @@ test.describe("visible board Agent Presence", () => {
         ]);
         return frameElements.map((frame: any) => ({ id: frame.id, name: frame.name }));
       });
-      expect(frames.map((frame) => frame.name)).toEqual([
+      expect(frames.map((frame: { id: string; name: string }) => frame.name)).toEqual([
         "1. Ideas",
         "2. Group & Theme",
         "3. Vote & Prioritize",

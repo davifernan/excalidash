@@ -272,7 +272,7 @@ test.describe("Drawing Editing", () => {
     await page.mouse.up();
 
     await expect
-      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .poll(async () => (await scene(page)).filter((element: any) => element.type === "rectangle").length)
       .toBe(1);
 
     // `ControlOrMeta+z`, not `Meta+z`: Playwright resolves this to the
@@ -281,12 +281,12 @@ test.describe("Drawing Editing", () => {
     // does not actually remove the rectangle, not just after a key is pressed.
     await page.keyboard.press("ControlOrMeta+z");
     await expect
-      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .poll(async () => (await scene(page)).filter((element: any) => element.type === "rectangle").length)
       .toBe(0);
 
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect
-      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .poll(async () => (await scene(page)).filter((element: any) => element.type === "rectangle").length)
       .toBe(1);
   });
 });
