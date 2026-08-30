@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 "use strict";
 
-// A deleted file cannot fail a test that no longer runs it. This guard makes
-// removals visible to review instead: it compares the PR head with its
-// merge-base (not today's main tip), then requires the PR body to name the
-// exact removed paths and a reason. The merge-base matters because a branch
-// that simply has not merged recent main must never be blamed for main's own
-// deletions.
+// Deleted files cannot fail tests that no longer run them, so this preventive
+// guard makes removals visible to review. It is not a reaction to an incident:
+// 0 of the 28 merged PRs measured before it existed had a PR-owned deletion.
+// Compare against the merge-base, not main's tip, so a behind branch is not
+// blamed for another PR's later deletion. Use -M100% so only byte-identical
+// moves stay renames; otherwise a changed relocation would hide its old path
+// behind Git's default 50%-similarity rename detection.
 
 const { execFileSync } = require("node:child_process");
 
