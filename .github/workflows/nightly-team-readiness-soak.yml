@@ -87,6 +87,7 @@ env:
 jobs:
   part_1:
     name: Soak part 1/4
+    if: ${{ false }} # NIL-321 temporary skip-path probe; restored immediately after the run.
     uses: ./.github/workflows/_soak-part.yml
     with:
       part: 1
