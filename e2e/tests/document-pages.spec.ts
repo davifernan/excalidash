@@ -114,18 +114,27 @@ const finishResponsivenessProbe = (page: Page) =>
  * main-thread regression still lifts p95 beyond it on every trial. A separate
  * 800 ms maximum stays above the observed Chromium and Firefox runner
  * outliers but catches a single user-visible main-thread freeze. NIL-702
- * removed WebKit's synchronous Markdown parse from the page commit: six
- * quiet-host trials then measured maximum gaps of 74-140 ms, while the
- * original implementation measured 387-684 ms locally and 905/907 ms in CI.
- * A 300 ms WebKit ceiling leaves more than 2x headroom over the repaired
- * maximum while rejecting every one of the 371-637 ms pre-fix local samples
- * as well as the original user-visible CI freeze.
+ * removed WebKit's synchronous Markdown parse from the page commit. The first
+ * post-merge CI population (26 trials across 13 main runs after d8ae1c38) has
+ * a WebKit max-gap median of 189 ms, nearest-rank p95 of 240 ms, and maximum
+ * of 258 ms. 24/26 trials exceed 140 ms, disproving the old interpretation of
+ * values above 140 ms as exceptional -- the quiet-host population was the
+ * wrong population for this CI guard.
+ *
+ * 350 ms is a PROVISIONAL empirical separator, not a reliably calibrated
+ * ceiling. The highest known post-fix value is 335 ms from unrelated PR #287;
+ * the lowest known pre-fix value is 371 ms. That leaves only 15 ms above the
+ * repaired observation and 21 ms below the smallest known failure. Thirteen
+ * independent runner jobs are too few to bound the upper tail; recalibrate at
+ * 30 runs / 60 trials. Until then, 350 passes every observed post-fix trial and
+ * rejects every known 371-637 ms local pre-fix gap plus the 905/907 ms CI
+ * freezes without pretending the narrow separation is settled.
  */
 const MAX_P95_GAP_MS = 80;
 const MAX_FREEZE_GAP_MS_BY_ENGINE = {
   chromium: 800,
   firefox: 800,
-  webkit: 300,
+  webkit: 350,
 } as const;
 
 const maxFreezeGapMsForEngine = (engine: string): number => {
@@ -253,6 +262,22 @@ test.describe("responsiveness budget: two of three trials, not one absolute samp
     expect(passesResponsivenessBudget(repairedWebKitGap, maxFreezeGapMsForEngine("webkit"))).toBe(
       true,
     );
+  });
+
+  test("places the provisional WebKit separator between known post-fix and pre-fix gaps", () => {
+    const postFixCiGap: ResponsivenessTrial[] = [
+      { samples: 280, p95GapMs: 48, maxGapMs: 204 },
+      { samples: 265, p95GapMs: 51, maxGapMs: 335 },
+    ];
+    const smallestKnownPreFixGap: ResponsivenessTrial[] = [
+      { samples: 280, p95GapMs: 48, maxGapMs: 204 },
+      { samples: 265, p95GapMs: 51, maxGapMs: 371 },
+    ];
+
+    expect(passesResponsivenessBudget(postFixCiGap, maxFreezeGapMsForEngine("webkit"))).toBe(true);
+    expect(
+      passesResponsivenessBudget(smallestKnownPreFixGap, maxFreezeGapMsForEngine("webkit")),
+    ).toBe(false);
   });
 
   test("goes red on a genuine regression that blocks every trial, not just one", () => {
