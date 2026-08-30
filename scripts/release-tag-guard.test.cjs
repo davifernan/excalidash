@@ -20,7 +20,14 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-const { evaluateBareTagSafety, readVersion, checkRepo, SEMVER_PATTERN } = require("./release-tag-guard.cjs");
+const {
+  evaluateBareTagSafety,
+  parseReleaseClaims,
+  evaluateChangelogDelivery,
+  readVersion,
+  checkRepo,
+  SEMVER_PATTERN,
+} = require("./release-tag-guard.cjs");
 
 function git(args, cwd) {
   execFileSync("git", args, { cwd, stdio: "pipe" });
@@ -96,6 +103,71 @@ test("SEMVER_PATTERN matches only X.Y.Z", () => {
   assert.equal(SEMVER_PATTERN.test("0.7"), false);
   assert.equal(SEMVER_PATTERN.test("v0.7.0"), false);
   assert.equal(SEMVER_PATTERN.test("0.7.0-dev"), false);
+});
+
+const CHANGELOG_WITH_SOURCES = `# Changelog
+
+## v1.2.3 -- 2026-08-30
+
+### Added
+
+<!-- release-source: #10 -->
+- A delivered feature is visible to people using the product.
+
+### Fixed
+
+<!-- release-source: #11 -->
+- A delivered repair now works.
+`;
+
+function mergedDelivery(mergeCommit = "a".repeat(40)) {
+  return {
+    state: "MERGED",
+    mergeCommit,
+    body: "User-Facing: A delivered feature is visible to people using the product.",
+  };
+}
+
+test("parseReleaseClaims keeps visible changelog claims attached to their source markers", () => {
+  const parsed = parseReleaseClaims(CHANGELOG_WITH_SOURCES, "1.2.3");
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.claims.map((claim) => claim.sources), [[10], [11]]);
+});
+
+test("RED: a changelog claim sourced from an unmerged PR is rejected", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES.replace("#10", "#288"),
+    getDelivery: (number) =>
+      number === 288
+        ? { state: "OPEN", mergeCommit: null, body: "User-Facing: An unshipped feature." }
+        : mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /#288.*not merged/);
+});
+
+test("RED: an unmarked visible changelog claim is rejected instead of assumed delivered", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES.replace("<!-- release-source: #10 -->\n", ""),
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /has no release-source marker/);
+});
+
+test("RED: a merged PR outside the checked history cannot source a release claim", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /not an ancestor/);
 });
 
 // --- End-to-end cases against a disposable git repository ---

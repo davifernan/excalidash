@@ -43,7 +43,9 @@ const { execFileSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
 const VERSION_FILE = path.join(root, "VERSION");
+const CHANGELOG_FILE = path.join(root, "CHANGELOG.md");
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
+const RELEASE_SOURCE_PATTERN = /^\s*<!--\s*release-source:\s*((?:#\d+)(?:\s*,\s*#\d+)*)\s*-->\s*$/;
 
 function readVersion(versionFile = VERSION_FILE) {
   let raw;
@@ -110,7 +112,94 @@ function tagIsAncestorOf(tag, commit, cwd) {
   }
 }
 
-function checkRepo({ cwd = root, commit = "HEAD", versionFile = VERSION_FILE } = {}) {
+function parseReleaseClaims(changelog, version) {
+  const header = new RegExp(`^## v${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`, "m");
+  const match = header.exec(changelog);
+  if (!match) {
+    return { ok: false, findings: [`CHANGELOG.md has no section for VERSION=${version}.`] };
+  }
+
+  const sectionStart = match.index + match[0].length;
+  const nextSection = /\n## v\d+\.\d+\.\d+(?:\s|$)/g;
+  nextSection.lastIndex = sectionStart;
+  const nextMatch = nextSection.exec(changelog);
+  const section = changelog.slice(sectionStart, nextMatch ? nextMatch.index : undefined);
+  const claims = [];
+  let pendingSources = null;
+
+  for (const [offset, line] of section.split("\n").entries()) {
+    const sourceMatch = line.match(RELEASE_SOURCE_PATTERN);
+    if (sourceMatch) {
+      pendingSources = sourceMatch[1].match(/\d+/g).map(Number);
+      continue;
+    }
+    if (line.trim() === "" || /^###\s/.test(line)) continue;
+    if (/^\s*-\s+/.test(line) || pendingSources) {
+      claims.push({ line: offset + 1, text: line.trim(), sources: pendingSources || [] });
+      pendingSources = null;
+    }
+  }
+
+  if (pendingSources) {
+    return { ok: false, findings: [`CHANGELOG.md v${version} ends with a release-source marker that names no claim.`] };
+  }
+  return { ok: true, claims };
+}
+
+function hasUsableUserFacing(body) {
+  const values = [...String(body || "").matchAll(/^User-Facing:\s*(.*)$/gm)].map((match) => match[1].trim());
+  return values.length === 1 && values[0] !== "" && values[0] !== "none";
+}
+
+function evaluateChangelogDelivery({ version, changelog, getDelivery, isAncestor }) {
+  const parsed = parseReleaseClaims(changelog, version);
+  if (!parsed.ok) return parsed;
+
+  const findings = [];
+  for (const claim of parsed.claims) {
+    if (claim.sources.length === 0) {
+      findings.push(`CHANGELOG.md v${version} claim at section line ${claim.line} has no release-source marker: ${claim.text}`);
+      continue;
+    }
+    for (const prNumber of claim.sources) {
+      let delivery;
+      try {
+        delivery = getDelivery(prNumber);
+      } catch (error) {
+        findings.push(`CHANGELOG.md v${version} claim at section line ${claim.line} cannot read source PR #${prNumber}: ${error.message}`);
+        continue;
+      }
+      if (delivery.state !== "MERGED" || !delivery.mergeCommit) {
+        findings.push(`CHANGELOG.md v${version} claim at section line ${claim.line} cites PR #${prNumber}, which is not merged.`);
+        continue;
+      }
+      if (!isAncestor(delivery.mergeCommit)) {
+        findings.push(`CHANGELOG.md v${version} claim at section line ${claim.line} cites PR #${prNumber}, whose merge commit is not an ancestor of the checked commit.`);
+        continue;
+      }
+      if (!hasUsableUserFacing(delivery.body)) {
+        findings.push(`CHANGELOG.md v${version} claim at section line ${claim.line} cites PR #${prNumber}, which has no usable User-Facing delivery contract.`);
+      }
+    }
+  }
+  return findings.length > 0 ? { ok: false, findings } : { ok: true, findings: [] };
+}
+
+function getLiveDelivery(prNumber, cwd) {
+  const raw = execFileSync(
+    "gh",
+    ["pr", "view", String(prNumber), "--json", "state,mergeCommit,body"],
+    { cwd, encoding: "utf8" },
+  );
+  const pr = JSON.parse(raw);
+  return { state: pr.state, mergeCommit: pr.mergeCommit?.oid || null, body: pr.body || "" };
+}
+
+function checkRepo(options = {}) {
+  const cwd = options.cwd || root;
+  const commit = options.commit || "HEAD";
+  const versionFile = options.versionFile || path.join(cwd, "VERSION");
+  const changelogFile = options.changelogFile || path.join(cwd, "CHANGELOG.md");
   const versionResult = readVersion(versionFile);
   if (!versionResult.ok) return versionResult;
 
@@ -120,6 +209,17 @@ function checkRepo({ cwd = root, commit = "HEAD", versionFile = VERSION_FILE } =
   const tagResult = evaluateBareTagSafety({ version: versionResult.version, tagExists, isAncestor });
 
   if (!tagResult.ok) return tagResult;
+
+  if (fs.existsSync(changelogFile)) {
+    const changelog = fs.readFileSync(changelogFile, "utf8");
+    const changelogResult = evaluateChangelogDelivery({
+      version: versionResult.version,
+      changelog,
+      getDelivery: options.getDelivery || ((prNumber) => getLiveDelivery(prNumber, cwd)),
+      isAncestor: options.isAncestor || ((mergeCommit) => tagIsAncestorOf(mergeCommit, commit, cwd)),
+    });
+    if (!changelogResult.ok) return changelogResult;
+  }
   return {
     ok: true,
     findings: [],
@@ -140,7 +240,16 @@ function main() {
   process.exit(1);
 }
 
-module.exports = { readVersion, evaluateBareTagSafety, checkRepo, SEMVER_PATTERN, VERSION_FILE };
+module.exports = {
+  readVersion,
+  evaluateBareTagSafety,
+  parseReleaseClaims,
+  evaluateChangelogDelivery,
+  checkRepo,
+  SEMVER_PATTERN,
+  VERSION_FILE,
+  CHANGELOG_FILE,
+};
 
 if (require.main === module) {
   main();

@@ -57,6 +57,12 @@ eine eigene Pruefung, am Ort, an dem der jeweilige Fakt ueberhaupt bekannt ist:
    ein tag-getriggerter CI-Lauf mit Schreibzugriff auf den geschuetzten Default-Branch waere
    genau der ungeprueften Schreibpfad, den dieses Repo bewusst nicht hat.
 
+   Jede sichtbare Aussage dieses neuen Abschnitts bekommt unmittelbar davor eine unsichtbare
+   `<!-- release-source: #NNN -->`-Marke. Der PR bleibt fuer Leser frei von internen Nummern;
+   `release-tag-guard.cjs` prueft die Marke aber gegen GitHub und den geprueften Git-Head:
+   die PR muss gemergt sein, ihr Merge-Commit Vorfahr sein und ihr Vertrag eine nutzbare
+   `User-Facing:`-Zeile enthalten. So kann ein Changelog keine offene Funktion behaupten.
+
 ## Warum keine eigene Testausfuehrung im Release-Workflow
 
 Ein frueher Entwurf liess `release.yml` die volle Suite erneut laufen, bevor es etwas

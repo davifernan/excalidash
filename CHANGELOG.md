@@ -19,6 +19,7 @@ Release tags follow `vX.Y.Z` -- see
 
 ## v0.17.0 -- 2026-08-30
 
+<!-- release-source: #285 -->
 This is the first release in which an agent can actually be started. The panel, the board
 thread and the permission model were already there, but nothing sat behind them -- whoever
 opened the panel read "Runtime not connected". An agent can now be started on the runtime
@@ -26,14 +27,17 @@ the instance operator pays for, and it is visible beforehand whose quota the run
 
 ### Added
 
+<!-- release-source: #285 -->
 - **Start an agent from the board.** A participant can start an agent on the runtime the
   instance operator pays for. Who is paying is shown before the run starts, while it runs
   and after it ends -- nobody starts an expensive run on someone else's quota unnoticed.
+<!-- release-source: #285 -->
 - **A run ends visibly.** If the runtime disappears mid-task -- laptop closed, network gone
   -- the run terminates with a named reason instead of hanging silently.
 
 ### Fixed
 
+<!-- release-source: #226 -->
 - **Pages agree again.** Long text and Markdown documents are split into pages by the same
   rules in the browser and on the server. Until now each side carried its own copy of that
   logic and the two had drifted apart: the server could reject a page the reader could see
@@ -41,6 +45,7 @@ the instance operator pays for, and it is visible beforehand whose quota the run
 
 ### Changed
 
+<!-- release-source: #285 -->
 - Internal refusal reasons for an agent run no longer appear in the public board thread.
   What stays visible is what concerns the people reading along -- that a runtime was
   unreachable, for instance -- not that someone's access was just revoked.
