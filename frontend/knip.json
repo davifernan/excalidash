@@ -1,19 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": [
-    "src/**/*.{test,spec}.{ts,tsx}"
-  ],
-  "ignoreDependencies": ["decode-named-character-reference"],
-  "ignore": ["public/runtime-config.js"],
+  "entry": ["src/**/*.{test,spec}.{ts,tsx}"],
   "ignoreDependencies": [
+    "decode-named-character-reference",
     "@excalidash/domain",
     "eslint",
     "happy-dom",
     "prettier"
   ],
-  "project": [
-    "**/*.{js,jsx,ts,tsx,mjs,cjs,css}",
-    "!node_modules/**",
-    "!dist/**"
-  ]
+  "ignore": ["public/runtime-config.js"],
+  "project": ["**/*.{js,jsx,ts,tsx,mjs,cjs,css}", "!node_modules/**", "!dist/**"]
 }

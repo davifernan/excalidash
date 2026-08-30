@@ -298,7 +298,6 @@ export const TextDocumentWidget = ({
   return (
     <div
       className={`text-document-widget${theme === "dark" ? " text-document-widget--dark" : ""}`}
-      data-document-page-state={loaded && pages ? "ready" : "loading"}
       onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
     >

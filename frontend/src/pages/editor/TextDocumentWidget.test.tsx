@@ -520,6 +520,13 @@ describe("TextDocumentWidget", () => {
       "MARKDOWN",
       expect.any(AbortSignal),
     );
+    // The test's own name is the promise this line holds it to: pagination
+    // must go through the worker, never the synchronous algorithm directly.
+    // Lost during an earlier merge -- the mock was still wired (created,
+    // called from inside the worker mock, reset in beforeEach) but never
+    // actually asked whether the synchronous path ran, which would have let
+    // this test stay green even if that promise were broken again.
+    expect(paginateDocumentSourceMock).not.toHaveBeenCalled();
   });
 
   it("shows a stable error when the pagination worker fails", async () => {

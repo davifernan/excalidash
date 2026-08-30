@@ -20,7 +20,7 @@ RUN npm exec --workspace backend -- prisma generate
 COPY packages/domain ./packages/domain
 COPY backend/tsconfig.json ./backend/tsconfig.json
 COPY backend/src ./backend/src
-RUN npm run build:domain && npm run build --workspace backend
+RUN npm run build --workspace backend
 
 FROM node:24-alpine
 
