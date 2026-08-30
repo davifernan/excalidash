@@ -185,6 +185,39 @@ test("RED: an unmarked visible changelog claim is rejected instead of assumed de
   assert.match(result.findings[0], /has no release-source marker/);
 });
 
+test("RED: a marker cannot cross a subsection boundary to cover a later claim", () => {
+  const changelog = `# Changelog
+
+## v1.2.3 -- 2026-08-30
+
+### Added
+
+<!-- release-source: #10 -->
+### Fixed
+
+- An unrelated claim must not inherit the marker.
+`;
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /section heading instead of a claim/);
+  assert.match(result.findings[1], /has no release-source marker/);
+});
+
+test("a marker immediately before its own claim is accepted", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, true);
+});
+
 test("RED: a merged PR outside the checked history cannot source a release claim", () => {
   const result = evaluateChangelogDelivery({
     version: "1.2.3",

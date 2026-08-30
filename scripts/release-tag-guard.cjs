@@ -125,44 +125,61 @@ function parseReleaseClaims(changelog, version) {
   const nextMatch = nextSection.exec(changelog);
   const section = changelog.slice(sectionStart, nextMatch ? nextMatch.index : undefined);
   const claims = [];
+  const findings = [];
   let pendingSources = null;
   let currentClaim = null;
 
+  // Every line in a version section has one deliberate treatment:
+  // - blank line / ### heading: finish a claim and reject an unconsumed marker;
+  // - release-source marker: starts exactly one pending source;
+  // - list item: starts a claim and consumes that source if present;
+  // - every other non-empty line: starts or continues a prose claim.
+  // There is no silent "other" path. A source marker is a one-claim token,
+  // never state that may cross a section boundary into an unrelated claim.
   const finishClaim = () => {
     if (currentClaim) claims.push(currentClaim);
     currentClaim = null;
+  };
+  const rejectPendingSource = (reason) => {
+    if (!pendingSources) return;
+    findings.push(
+      `CHANGELOG.md v${version} release-source marker at section line ${pendingSources.line} ${reason}.`,
+    );
+    pendingSources = null;
+  };
+  const consumePendingSource = () => {
+    const sources = pendingSources?.sources || [];
+    pendingSources = null;
+    return sources;
   };
 
   for (const [offset, line] of section.split("\n").entries()) {
     const sourceMatch = line.match(RELEASE_SOURCE_PATTERN);
     if (sourceMatch) {
       finishClaim();
-      pendingSources = sourceMatch[1].match(/\d+/g).map(Number);
+      rejectPendingSource("is followed by another release-source marker instead of a claim");
+      pendingSources = { line: offset + 1, sources: sourceMatch[1].match(/\d+/g).map(Number) };
       continue;
     }
     if (line.trim() === "" || /^###\s/.test(line)) {
       finishClaim();
+      rejectPendingSource(line.trim() === "" ? "is followed by a blank line instead of a claim" : "is followed by a section heading instead of a claim");
       continue;
     }
     if (/^\s*-\s+/.test(line)) {
       finishClaim();
-      currentClaim = { line: offset + 1, text: line.trim(), sources: pendingSources || [] };
-      pendingSources = null;
+      currentClaim = { line: offset + 1, text: line.trim(), sources: consumePendingSource() };
       continue;
     }
     if (currentClaim) currentClaim.text += ` ${line.trim()}`;
     else {
-      currentClaim = { line: offset + 1, text: line.trim(), sources: pendingSources || [] };
-      pendingSources = null;
+      currentClaim = { line: offset + 1, text: line.trim(), sources: consumePendingSource() };
     }
   }
 
   finishClaim();
-
-  if (pendingSources) {
-    return { ok: false, findings: [`CHANGELOG.md v${version} ends with a release-source marker that names no claim.`] };
-  }
-  return { ok: true, claims };
+  rejectPendingSource("ends the version section without a claim");
+  return { ok: findings.length === 0, findings, claims };
 }
 
 function hasUsableUserFacing(body) {
@@ -172,9 +189,9 @@ function hasUsableUserFacing(body) {
 
 function evaluateChangelogDelivery({ version, changelog, getDelivery, isAncestor }) {
   const parsed = parseReleaseClaims(changelog, version);
-  if (!parsed.ok) return parsed;
+  if (!parsed.claims) return parsed;
 
-  const findings = [];
+  const findings = [...parsed.findings];
   for (const claim of parsed.claims) {
     if (claim.sources.length === 0) {
       findings.push(`CHANGELOG.md v${version} claim at section line ${claim.line} has no release-source marker: ${claim.text}`);
