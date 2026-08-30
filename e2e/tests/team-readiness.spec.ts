@@ -593,13 +593,13 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       actor.pageSwitchTraces.push(trace);
       const enterPhase = async (phase: PageSwitchTrace["phase"]) => {
         trace.phase = phase;
-        if (actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === phase) {
-          await new Promise<never>(() => {});
-        }
       };
       await enterPhase("activate_document_widget");
       try {
-        await activateDocumentWidget(actor.page, { timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS });
+        await activateDocumentWidget(actor.page, {
+          timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS,
+          blockActivation: actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget",
+        });
       // Paging backward sometimes, not just forward: both buttons stay
       // mounted (disabled, not hidden) at either end of the document, so an
       // actor that only ever goes forward eventually parks on the last page

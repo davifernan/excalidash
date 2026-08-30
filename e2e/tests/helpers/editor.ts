@@ -1,5 +1,7 @@
 import type { Page } from "@playwright/test";
 
+const DOCUMENT_WIDGET_ACTIVATION_TIMEOUT_MS = 8_000;
+
 /**
  * The browser-side counterpart to helpers/api.ts.
  *
@@ -443,20 +445,39 @@ export const waitForDocumentWidgetLoaded = (page: Page) =>
  * it, the same way it guards an embedded video. Until then the canvas swallows
  * every click, so the widget's own controls cannot be reached.
  */
-export const activateDocumentWidget = async (page: Page, options?: { timeout?: number }) => {
+export const activateDocumentWidget = async (
+  page: Page,
+  options?: { timeout?: number; blockActivation?: boolean },
+) => {
+  const timeout = options?.timeout ?? DOCUMENT_WIDGET_ACTIVATION_TIMEOUT_MS;
   const widget = page.locator(".text-document-widget");
   // The Excalidraw canvas deliberately overlays embeddables. A locator click
   // waits for that canvas to stop receiving pointer events, which never
   // happens; use the widget's measured centre as the canvas seam requires.
-  await widget.waitFor({ state: "visible", timeout: options?.timeout });
+  await widget.waitFor({ state: "visible", timeout });
   const box = await widget.boundingBox();
   if (!box) throw new Error("The document widget is not on the board.");
+  if (options?.blockActivation) {
+    await page.evaluate(({ x, y, width, height }) => {
+      const overlay = document.createElement("div");
+      overlay.dataset.e2eActivationBlocker = "true";
+      Object.assign(overlay.style, {
+        position: "fixed", left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px`,
+        zIndex: "2147483647", pointerEvents: "auto", background: "transparent",
+      });
+      document.body.appendChild(overlay);
+    }, box);
+  }
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForFunction(() => {
-    const widget = document.querySelector(".text-document-widget");
-    const inner = widget?.closest(".excalidraw__embeddable-container__inner");
-    return inner instanceof HTMLElement && getComputedStyle(inner).pointerEvents !== "none";
-  }, undefined, { timeout: options?.timeout });
+  try {
+    await page.waitForFunction(() => {
+      const widget = document.querySelector(".text-document-widget");
+      const inner = widget?.closest(".excalidraw__embeddable-container__inner");
+      return inner instanceof HTMLElement && getComputedStyle(inner).pointerEvents !== "none";
+    }, undefined, { timeout });
+  } finally {
+    await page.locator('[data-e2e-activation-blocker="true"]').evaluateAll((nodes) => nodes.forEach((n) => n.remove()));
+  }
 };
 
 /** Arm the sticky-note tool and wait for the editor to confirm it, not just the click. */
