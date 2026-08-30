@@ -142,6 +142,15 @@ const TEAM_ACCEPTANCE_SPECS = ["**/team-acceptance.spec.ts"];
 const BUILT_IMAGE_SMOKE_SPECS = ["**/built-image-smoke.spec.ts"];
 
 /**
+ * NIL-701's Gate 2 recording spec: operator-triggered against a manually
+ * seeded board (`backend/scripts/gate-run/setup-gate2.ts`) with
+ * GATE_OWNER_EMAIL/GATE_OWNER_PASSWORD/GATE_OBSERVER_EMAIL/GATE_OBSERVER_PASSWORD
+ * set, never part of the default per-PR sweep -- see e2e/tests/gate-run/README.md.
+ * Isolated the same way REAL_AUTH_SPECS is above.
+ */
+const GATE_RUN_SPECS = ["**/gate-run/**"];
+
+/**
  * Playwright configuration for E2E browser testing
  *
  * Environment variables:
@@ -243,6 +252,7 @@ export default defineConfig({
         ...TEAM_ACCEPTANCE_SPECS,
         ...BUILT_IMAGE_SMOKE_SPECS,
         ...MOTION_EVIDENCE_CONTRACT_SPECS,
+        ...GATE_RUN_SPECS,
       ],
     },
     {
@@ -298,6 +308,20 @@ export default defineConfig({
         viewport: { width: 1280, height: 720 },
       },
       testMatch: BUILT_IMAGE_SMOKE_SPECS,
+    },
+    {
+      // Isolated on purpose: see GATE_RUN_SPECS above. Only ever invoked
+      // explicitly (`--project=gate-run`) against a manually seeded board;
+      // never picked up by a bare `playwright test` or `--project=chromium`
+      // run, which is why it also needs its own testMatch here rather than
+      // relying on chromium's testIgnore alone -- an excluded path does not
+      // come back just because it was later named as a file argument.
+      name: "gate-run",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: GATE_RUN_SPECS,
     },
     {
       name: "firefox",

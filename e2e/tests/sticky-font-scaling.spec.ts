@@ -72,6 +72,48 @@ const waitForStable = async <T>(
 const textAt = (length: number) =>
   Array.from({ length }, (_, index) => (index % 6 === 5 ? " " : "x")).join("");
 
+type SpectatorGeometrySample = readonly (number | undefined)[];
+
+const geometryKey = (sample: SpectatorGeometrySample) => JSON.stringify(sample.slice(0, 4));
+
+const findGeometryReturnAfterSettle = (
+  samples: readonly SpectatorGeometrySample[],
+  before: SpectatorGeometrySample,
+  after: SpectatorGeometrySample,
+) => {
+  const beforeGeometry = geometryKey(before);
+  const afterGeometry = geometryKey(after);
+
+  // If geometry did not move at all, a same-key sample cannot be a visible
+  // departure and return. Font projection may still legitimately arrive later.
+  if (beforeGeometry === afterGeometry) return undefined;
+
+  let sawSettledGeometry = false;
+  return samples.find((sample) => {
+    const geometry = geometryKey(sample);
+    if (geometry === afterGeometry) {
+      sawSettledGeometry = true;
+      return false;
+    }
+    return sawSettledGeometry && geometry === beforeGeometry;
+  });
+};
+
+test("NIL-653 rejects a spectator geometry return after it reached the settled geometry", () => {
+  const before = [300, 200, 200, 200, 13.34] as const;
+  const after = [300, 200, 240, 200, 13.29] as const;
+  const backtrack = [300, 200, 200, 200, 13.29] as const;
+  const samples = [before, after, backtrack] as const;
+
+  // This is the old membership-only rule. It accepts the visible bounce
+  // because each geometry independently belongs to { before, after }.
+  const allowedGeometries = new Set([geometryKey(before), geometryKey(after)]);
+  expect(samples.find((sample) => !allowedGeometries.has(geometryKey(sample)))).toBeUndefined();
+
+  // The actual spectator assertion below uses this same direction check.
+  expect(findGeometryReturnAfterSettle(samples, before, after)).toEqual(backtrack);
+});
+
 const setNote = async (page: Page, size: number, text: string) => {
   await page.evaluate(
     ({ noteSize, value }) => {
@@ -452,14 +494,18 @@ test.describe("sticky note font scaling (NIL-630)", () => {
       const unexpectedGeometry = states.find(
         (state) => !allowedGeometries.has(JSON.stringify(state.slice(0, 4))),
       );
+      const geometryReturnAfterSettle = findGeometryReturnAfterSettle(states, before, after);
       console.log(
-        `NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, states, after, unexpectedGeometry })}`,
+        `NIL645_SPECTATOR_SPACE=${JSON.stringify({ before, states, after, unexpectedGeometry, geometryReturnAfterSettle })}`,
       );
       // Start only after the peer received the Space, then watch every frame
       // for a second. The Font projection can arrive in a separate harmless
-      // frame, but no sampled note geometry may be other than the starting
-      // or settled geometry; that would be the visible text-edit box flicker.
+      // frame. A sampled geometry outside the endpoints is invalid, and once
+      // the settled geometry appears, returning to the starting geometry is
+      // a visible spectator flicker even though both endpoint geometries are
+      // individually valid.
       expect(unexpectedGeometry).toBeUndefined();
+      expect(geometryReturnAfterSettle).toBeUndefined();
     } finally {
       await spectatorContext.close();
     }

@@ -20,6 +20,8 @@
     "dev:simulate-auth-onboarding:dry-run": "node scripts/simulate-auth-onboarding.cjs --scenario migration --dry-run",
     "oidc:doctor": "node scripts/oidc-doctor.cjs",
     "pretest": "npm run build --workspace @excalidash/domain",
+    "gate-run:setup-gate2": "ts-node scripts/gate-run/setup-gate2.ts",
+    "gate-run:setup-gate3": "ts-node scripts/gate-run/setup-gate3.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

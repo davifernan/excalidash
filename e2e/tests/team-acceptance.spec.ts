@@ -250,6 +250,20 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
     const guestACtx = await browser.newContext();
     const guestBCtx = await browser.newContext();
 
+    // Keep the acceptance run as one shared-board scenario while making a
+    // failure actionable. Playwright reports the step nesting in its own
+    // reporter, but the criterion name must also survive in the thrown error
+    // text that reaches CI logs and issue triage.
+    const criterion = async <T>(name: string, action: () => Promise<T>): Promise<T> =>
+      test.step(name, async () => {
+        try {
+          return await action();
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`NIL-330 criterion failed: ${name}\n${detail}`, { cause: error });
+        }
+      });
+
     try {
       const host = await openPeer(hostCtx, drawing.id);
       const guestA = await openPeer(guestACtx, drawing.id);
@@ -264,7 +278,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
 
       let widgetId = "";
 
-      await test.step("a paginated document widget is visible to every peer", async () => {
+      await criterion("a paginated document widget is visible to every peer", async () => {
         const markdown = Array.from(
           { length: 120 },
           (_, i) => `## Section ${i + 1}\n\n${`Body text for section ${i + 1}. `.repeat(30)}\n`,
@@ -299,7 +313,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         expect(widgetId).toBeTruthy();
       });
 
-      await test.step("fabricated widgets and invalid pages receive structured refusals", async () => {
+      await criterion("fabricated widgets and invalid pages receive structured refusals", async () => {
         // The widget is painted and broadcast before the debounced scene save
         // creates its authoritative DocumentPageView row. Confirm that server
         // handoff first; otherwise the real id and a fabricated id are both
@@ -330,7 +344,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         });
       });
 
-      await test.step("a 2 MB file syncs silently; 14 MB, 15 MB and an over-ceiling file are refused, not lost", async () => {
+      await criterion("a 2 MB file syncs silently; 14 MB, 15 MB and an over-ceiling file are refused, not lost", async () => {
         const okImage = await injectNoiseImage(host, {
           withHash: true,
           targetBytes: 2 * 1024 * 1024,
@@ -394,7 +408,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         }
       });
 
-      await test.step("three files split across packets are all confirmed on every peer", async () => {
+      await criterion("three files split across packets are all confirmed on every peer", async () => {
         const batch = await injectNoiseImageBatch(
           host,
           [4.25, 4.5, 4.75].map((megabytes, i) => ({
@@ -428,7 +442,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         }
       });
 
-      await test.step("three concurrent page turns converge on the same server-decided page", async () => {
+      await criterion("three concurrent page turns converge on the same server-decided page", async () => {
         await activateDocumentWidget(host);
         await activateDocumentWidget(guestA);
         await activateDocumentWidget(guestB);
@@ -505,7 +519,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         ).toBe(1);
       });
 
-      await test.step("a network drop mid-transfer resets unconfirmed state instead of leaving a ghost", async () => {
+      await criterion("a network drop mid-transfer resets unconfirmed state instead of leaving a ghost", async () => {
         const inFlight = injectNoiseImage(host, {
           withHash: true,
           targetBytes: 6 * 1024 * 1024,
@@ -557,7 +571,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         await expectPeerFile(guestA, followUp, "post-reconnect file on guestA");
       });
 
-      await test.step("a widget that stops existing mid-request is refused, not hung, and surfaces to the user", async () => {
+      await criterion("a widget that stops existing mid-request is refused, not hung, and surfaces to the user", async () => {
         // guestB is put offline before the widget is removed and the removal
         // is force-saved, so guestB's later click is guaranteed to reach a
         // server that has already forgotten the widget -- the exact race a
@@ -648,7 +662,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         expect(stillResponsive).toBe(true);
       });
 
-      await test.step("every peer is still connected at the end", async () => {
+      await criterion("every peer is still connected at the end", async () => {
         await Promise.all([
           waitConnected(host, "host"),
           waitConnected(guestA, "guestA"),
