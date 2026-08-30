@@ -17,6 +17,32 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.18.0 -- 2026-08-30
+
+<!-- release-source: #288 -->
+This release lets each person bring their own computer and model access to agent runs without
+opening an inbound port. The board still owns context, permissions and the run lifecycle; the
+paired computer supplies only the execution, and the person starting a run sees whose quota it
+will use.
+
+### Added
+
+<!-- release-source: #288 -->
+- **Use your own computer for agent runs.** Pair a local runtime from the agent panel, then
+  select it before starting work. Only its owner can use it, and its payer, plan and available
+  limits are shown without inventing a monetary estimate.
+
+### Fixed
+
+<!-- release-source: #288 -->
+- **A stopped assignment stays stopped.** Work that expires before the paired computer collects
+  it is no longer delivered later, and reconnecting or restarting cannot start the same
+  assignment twice.
+<!-- release-source: #288 -->
+- **The paired-device list tells you when it cannot load.** A connection error is shown with a
+  retry action instead of looking like an empty account, and revoked devices disappear from the
+  list.
+
 ## v0.17.0 -- 2026-08-30
 
 <!-- release-source: #285 -->
