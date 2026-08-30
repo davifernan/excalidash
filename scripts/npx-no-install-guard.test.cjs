@@ -51,15 +51,39 @@ test("flags each npx call independently on the same line", () => {
   assert.match(offenders[0], /npx prisma generate/);
 });
 
-test("flags an unprotected second npx call after a protected first call", () => {
-  const offenders = findMissingNoInstall("npx --no-install foo && npx bar");
-  assert.deepEqual(offenders, ["npx bar"]);
+test("finds every chained npx call, including background commands", () => {
+  for (const operator of ["&&", "||", ";", "|", "&"]) {
+    const unprotectedSecond = `npx --no-install foo ${operator} npx bar`;
+    assert.deepEqual(
+      findMissingNoInstall(unprotectedSecond),
+      ["npx bar"],
+      `must flag the second npx call after ${operator}`,
+    );
+    const protectedBoth = `npx --no-install foo ${operator} npx --no-install bar`;
+    assert.deepEqual(
+      findMissingNoInstall(protectedBoth),
+      [],
+      `must accept separately protected npx calls around ${operator}`,
+    );
+  }
 });
 
-test("accepts two separately protected npx calls on the same line", () => {
+test("finds an npx call in a command substitution but ignores quoted and comment text", () => {
+  assert.deepEqual(findMissingNoInstall("echo $(npx bar)"), ["npx bar"]);
   assert.deepEqual(
-    findMissingNoInstall("npx --no-install foo && npx --no-install bar"),
+    findMissingNoInstall("echo 'npx bar' # npx bar"),
     [],
+  );
+});
+
+test("tokenizes a GitHub Actions expression without hiding its npx command", () => {
+  assert.deepEqual(
+    findMissingNoInstall('npx --no-install playwright install ${{ inputs.engine }}'),
+    [],
+  );
+  assert.deepEqual(
+    findMissingNoInstall('npx playwright install ${{ inputs.engine }}'),
+    ["npx playwright install GITHUB_ACTIONS_EXPRESSION"],
   );
 });
 

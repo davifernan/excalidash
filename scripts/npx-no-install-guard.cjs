@@ -33,37 +33,38 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-
-// Stop before, rather than consume through, the next shell operator. The
-// global scan can then find another npx invocation later on the same line.
-const NPX_CALL = /(?:^|[|&;(]|\s)npx(?=\s)(.*?)(?=&&|\|\||[|;]|\n|$)/g;
+const { parse } = require("shell-quote");
 
 /**
  * Find every `npx` invocation in a shell command string that is missing
  * `--no-install`, returning the offending snippet (trimmed to a readable
  * length) for each.
  *
+ * Shell syntax is tokenized by shell-quote rather than approximated with a
+ * regex. That makes command operators (including background `&`), quoted
+ * text, comments, command substitutions, and backslash continuations syntax
+ * rather than a local list of delimiters this guard has to keep in sync.
+ *
  * Deliberately not "the flag must be the very next token": `npx --yes
- * --no-install foo` and `npx --no-install --yes foo` are both fine, so this
- * only checks that `--no-install` appears somewhere between the `npx` token
- * and either the end of that logical command or the next shell operator
- * that would start a new command (`&&`, `||`, `;`, `|`, a newline, or a
- * backslash-continued newline joins into the same logical line by the time
- * this sees it, which is intentional -- a flag on the next physical line of
- * the same shell command still counts).
+ * --no-install foo` and `npx --no-install --yes foo` are both fine. The
+ * scan considers every unquoted `npx` token and its following words up to
+ * the next parser operator.
  */
 function findMissingNoInstall(command) {
-  // A trailing backslash joins the following physical line into the same
-  // shell command. Normalize only that shell construct; ordinary newlines
-  // remain command boundaries for NPX_CALL.
-  const logicalCommands = command.replace(/\\\r?\n[ \t]*/g, " ");
+  // GitHub expands these expressions before the shell sees the command.
+  // Replace their non-shell template syntax with one inert shell word before
+  // tokenizing, so the surrounding real shell commands remain inspectable.
+  const shellSource = command.replace(/\$\{\{[\s\S]*?\}\}/g, "GITHUB_ACTIONS_EXPRESSION");
+  const tokens = parse(shellSource);
   const offenders = [];
-  let match;
-  NPX_CALL.lastIndex = 0;
-  while ((match = NPX_CALL.exec(logicalCommands))) {
-    const scope = match[1];
-    if (!/--no-install\b/.test(scope)) {
-      const snippet = `npx${scope}`.trim().slice(0, 80);
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index] !== "npx") continue;
+    const argumentsForCall = [];
+    for (let next = index + 1; next < tokens.length && typeof tokens[next] === "string"; next++) {
+      argumentsForCall.push(tokens[next]);
+    }
+    if (!argumentsForCall.includes("--no-install")) {
+      const snippet = ["npx", ...argumentsForCall].join(" ").slice(0, 80);
       offenders.push(snippet);
     }
   }
