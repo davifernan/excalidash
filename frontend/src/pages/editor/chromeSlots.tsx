@@ -128,6 +128,7 @@ import { BoardNameMenuEntry } from "./slots/boardNameMenuEntry";
 import { WorkspaceContextMenuEntry } from "./slots/workspaceContextMenuEntry";
 import { SearchBoardsMenuEntry } from "./slots/searchBoardsMenuEntry";
 import { CommentsMenuEntry } from "./slots/commentsMenuEntry";
+import { canViewDrawing, isOwnerAccess, type DrawingAccess } from "@excalidash/domain/authz";
 import type { InviteHereUiState } from "./InviteHereOverlay";
 import type { Follower } from "./followMode";
 import type { Peer } from "./useEditorCollaboration";
@@ -136,7 +137,7 @@ import { WORKSHOP_TEMPLATES } from "./workshopTemplates";
 
 export type ChromeSlotContext = {
   id?: string;
-  accessLevel: "none" | "view" | "comment" | "edit" | "owner";
+  accessLevel: DrawingAccess;
   canEdit: boolean;
   canViewComments: boolean;
   mobile: boolean;
@@ -217,7 +218,7 @@ export type OverlaySlotEntry = { id: string; render: (ctx: ChromeSlotContext) =>
 const byOrder = (a: SlotEntry, b: SlotEntry) => a.order - b.order || a.id.localeCompare(b.id);
 
 const canShareFromMobileMenu = (ctx: ChromeSlotContext): boolean =>
-  ctx.mobile && ctx.accessLevel === "owner" && Boolean(ctx.id);
+  ctx.mobile && isOwnerAccess(ctx.accessLevel) && Boolean(ctx.id);
 
 const canInviteFromMobileMenu = (ctx: ChromeSlotContext): boolean =>
   ctx.mobile && ctx.canEdit && ctx.peers.length > 0;
@@ -365,7 +366,7 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
     // path (menu or overlay, not the header control slot) for an entry that
     // cannot fit there; this is that case on desktop too, not only mobile.
     render: (ctx) =>
-      ctx.canViewComments && ctx.accessLevel !== "none" && ctx.id ? (
+      ctx.canViewComments && canViewDrawing(ctx.accessLevel) && ctx.id ? (
         <MainMenu.Item onSelect={ctx.onToggleComments} icon={<MessageSquare size={16} />}>
           <CommentsMenuEntry ctx={ctx} />
         </MainMenu.Item>
@@ -597,7 +598,7 @@ export const HEADER_CONTROL_ENTRIES: HeaderControlSlotEntry[] = [
     order: 30,
     zone: "actions",
     render: (ctx) =>
-      ctx.accessLevel === "owner" && ctx.id ? (
+      isOwnerAccess(ctx.accessLevel) && ctx.id ? (
         <button
           onClick={ctx.onShareOpen}
           className="editor-header-control"

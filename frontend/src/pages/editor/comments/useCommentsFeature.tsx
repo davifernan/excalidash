@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { canViewDrawing, type DrawingAccess } from "@excalidash/domain/authz";
 import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import type { Socket } from "socket.io-client";
@@ -17,7 +18,7 @@ type UseCommentsFeatureInput = {
   adapter: ExcalidrawAdapter;
   socketRef: MutableRefObject<Socket | null>;
   isReady: boolean;
-  accessLevel: "none" | "view" | "comment" | "edit" | "owner";
+  accessLevel: DrawingAccess;
   enabled: boolean;
   canComment: boolean;
   canModerate: boolean;
@@ -73,7 +74,7 @@ export const useCommentsFeature = ({
 
   // Record the visit once per mount, for "since you were last here".
   useEffect(() => {
-    if (!drawingId || !enabled || accessLevel === "none") return;
+    if (!drawingId || !enabled || !canViewDrawing(accessLevel)) return;
     void commentsApi.recordDrawingVisit(drawingId);
   }, [drawingId, enabled, accessLevel]);
 

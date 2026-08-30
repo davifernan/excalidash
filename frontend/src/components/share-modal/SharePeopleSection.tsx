@@ -1,4 +1,5 @@
 import React from "react";
+import type { DrawingPermission } from "@excalidash/domain/authz";
 import { Plus, Search, Users } from "lucide-react";
 import * as api from "../../api";
 import { CustomSelect } from "./CustomSelect";
@@ -21,7 +22,7 @@ type Props = {
   handleRevokeUser: (permissionId: string) => void | Promise<void>;
   handleUpdateUserPermission: (
     granteeUserId: string,
-    permission: "view" | "comment" | "edit",
+    permission: DrawingPermission,
   ) => void | Promise<void>;
 };
 

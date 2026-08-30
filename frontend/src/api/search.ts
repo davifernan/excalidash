@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { DrawingAccess } from "@excalidash/domain/authz";
 
 /**
  * One result from `GET /search` (NIL-362/NIL-298/NIL-363): the merged,
@@ -17,7 +18,7 @@ export interface SearchResult {
   createdAt: number;
   version: number;
   creatorName: string | null;
-  accessLevel: "view" | "comment" | "edit" | "owner" | null;
+  accessLevel: Exclude<DrawingAccess, "none"> | null;
   /** Whether the query matched the board's name or its visible text content. */
   matchKind: "name" | "content";
   /** Set only for a content match -- the element to scroll/highlight to. */

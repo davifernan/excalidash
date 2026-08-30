@@ -11,6 +11,7 @@ import {
   Star,
 } from "lucide-react";
 import type { DrawingSummary, Collection } from "../types";
+import { canEditDrawing } from "@excalidash/domain/authz";
 import { formatDistanceToNow } from "date-fns";
 import clsx from "clsx";
 import { exportDrawingToFile } from "../utils/exportUtils";
@@ -315,8 +316,7 @@ export const DrawingCard: React.FC<DrawingCardProps> = ({
                   const canRename =
                     !isTrash &&
                     (!isShared ||
-                      drawing.accessLevel === "edit" ||
-                      drawing.accessLevel === "owner");
+                      (drawing.accessLevel !== undefined && canEditDrawing(drawing.accessLevel)));
                   if (canRename) setIsRenaming(true);
                 }}
               >

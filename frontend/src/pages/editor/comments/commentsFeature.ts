@@ -1,4 +1,5 @@
 import { MessageSquare } from "lucide-react";
+import { canViewDrawing } from "@excalidash/domain/authz";
 import { defineEditorFeature } from "../featureRegistry";
 
 /**
@@ -14,7 +15,7 @@ export const commentsFeature = defineEditorFeature({
   shortcut: null,
   isApplicable: (context) =>
     context.boardId !== null &&
-    context.accessLevel !== "none" &&
+    canViewDrawing(context.accessLevel) &&
     (context.target.kind === "board" || context.canComment),
   invoke: (context) => context.actions.openComments(context.target),
 });

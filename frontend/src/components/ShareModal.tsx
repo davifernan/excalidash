@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import type { DrawingPermission } from "@excalidash/domain/authz";
 import clsx from "clsx";
 import { X, Link as LinkIcon, AlertTriangle, Check, RefreshCw } from "lucide-react";
 import * as api from "../api";
@@ -35,8 +36,8 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
 
   const [userQuery, setUserQuery] = useState("");
   const [userResults, setUserResults] = useState<api.ShareResolvedUser[]>([]);
-  const [userPermission, setUserPermission] = useState<"view" | "comment" | "edit">("view");
-  const [linkPermission, setLinkPermission] = useState<"view" | "comment" | "edit">("view");
+  const [userPermission, setUserPermission] = useState<DrawingPermission>("view");
+  const [linkPermission, setLinkPermission] = useState<DrawingPermission>("view");
   const [expiryOption, setExpiryOption] = useState("1d");
   const [customExpiry, setCustomExpiry] = useState("");
   const [isCopied, setIsCopied] = useState(false);
@@ -193,7 +194,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
 
   const handleUpdateUserPermission = async (
     granteeUserId: string,
-    permission: "view" | "comment" | "edit",
+    permission: DrawingPermission,
   ) => {
     setIsLoading(true);
     setError(null);
@@ -216,10 +217,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     }
   };
 
-  const handleUpdateLink = async (
-    newPermission?: "view" | "comment" | "edit",
-    newExpiry?: string | null,
-  ) => {
+  const handleUpdateLink = async (newPermission?: DrawingPermission, newExpiry?: string | null) => {
     setIsLoading(true);
     setError(null);
     try {

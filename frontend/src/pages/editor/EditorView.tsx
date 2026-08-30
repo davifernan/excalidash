@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useState } from "react";
+import type { DrawingAccess } from "@excalidash/domain/authz";
 import { NotificationHost, notify } from "../../notifications";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { ElementStackingBoundary } from "../../integrations/excalidraw/ElementStackingBoundary";
@@ -38,7 +39,7 @@ import { InstructionApprovalToolbar } from "./InstructionApprovalToolbar";
 
 type EditorViewProps = {
   id?: string;
-  accessLevel: "none" | "view" | "comment" | "edit" | "owner";
+  accessLevel: DrawingAccess;
   canEdit: boolean;
   canComment: boolean;
   canUploadFiles: boolean;

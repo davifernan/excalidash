@@ -1,6 +1,7 @@
 import type { Drawing, DrawingSummary } from "../types";
 import { normalizePreviewSvg } from "../utils/previewSvg";
 import { api } from "./client";
+import type { DrawingAccess, DrawingPermission } from "@excalidash/domain/authz";
 
 const coerceTimestamp = (value: string | number | Date): number => {
   if (typeof value === "number") return value;
@@ -140,7 +141,7 @@ export const resolveShareUsers = async (
 export type DrawingPermissionRow = {
   id: string;
   granteeUserId: string;
-  permission: "view" | "comment" | "edit";
+  permission: DrawingPermission;
   createdAt: string | number | Date;
   updatedAt: string | number | Date;
   granteeUser: ShareResolvedUser;
@@ -148,7 +149,7 @@ export type DrawingPermissionRow = {
 
 export type DrawingLinkShareRow = {
   id: string;
-  permission: "view" | "comment" | "edit";
+  permission: DrawingPermission;
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string | number | Date;
@@ -160,7 +161,7 @@ export type DrawingLinkShareRow = {
 export type DrawingRosterRow = {
   userId: string;
   name: string;
-  level: "view" | "comment" | "edit" | "owner";
+  level: Exclude<DrawingAccess, "none">;
   via: "drawing" | "collection";
 };
 
@@ -181,7 +182,7 @@ export const getDrawingSharing = async (
 
 export const upsertDrawingPermission = async (
   drawingId: string,
-  params: { granteeUserId: string; permission: "view" | "comment" | "edit" },
+  params: { granteeUserId: string; permission: DrawingPermission },
 ): Promise<{ permission: DrawingPermissionRow }> => {
   const response = await api.post<{ permission: DrawingPermissionRow }>(
     `/drawings/${drawingId}/permissions`,
@@ -203,7 +204,7 @@ export const revokeDrawingPermission = async (
 export const createLinkShare = async (
   drawingId: string,
   params: {
-    permission: "view" | "comment" | "edit";
+    permission: DrawingPermission;
     expiresAt?: string | null;
     passphrase?: string;
   },

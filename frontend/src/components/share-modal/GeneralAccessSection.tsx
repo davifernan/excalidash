@@ -1,6 +1,7 @@
 import React from "react";
 import clsx from "clsx";
 import { AlertTriangle, Calendar, Globe, Lock, Shield } from "lucide-react";
+import type { DrawingPermission } from "@excalidash/domain/authz";
 import * as api from "../../api";
 import { CustomSelect } from "./CustomSelect";
 import {
@@ -12,14 +13,14 @@ import {
 
 type Props = {
   activeLink: api.DrawingLinkShareRow | null;
-  linkPermission: "view" | "comment" | "edit";
+  linkPermission: DrawingPermission;
   expiryOption: string;
   customExpiry: string;
-  setLinkPermission: (value: "view" | "comment" | "edit") => void;
+  setLinkPermission: (value: DrawingPermission) => void;
   setExpiryOption: (value: string) => void;
   setCustomExpiry: (value: string) => void;
   handleUpdateLink: (
-    permission?: "view" | "comment" | "edit",
+    permission?: DrawingPermission,
     expiresAt?: string | null,
   ) => void | Promise<void>;
   handleRevokeLink: () => void | Promise<void>;

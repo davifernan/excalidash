@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Collection, DrawingSummary } from "../../types";
+import { canEditDrawing } from "@excalidash/domain/authz";
 import { CollectionMoveOptions } from "./CollectionMoveOptions";
 
 interface DrawingCardContextMenuProps {
@@ -84,7 +85,8 @@ export const DrawingCardContextMenu: React.FC<DrawingCardContextMenuProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {!isTrash &&
-        (!isShared || drawing.accessLevel === "edit" || drawing.accessLevel === "owner") ? (
+        (!isShared ||
+          (drawing.accessLevel !== undefined && canEditDrawing(drawing.accessLevel))) ? (
           <button
             role="menuitem"
             onClick={onRename}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { NavigateFunction } from "react-router-dom";
 import type { MutableRefObject } from "react";
+import type { DrawingAccess } from "@excalidash/domain/authz";
 import { deriveStickyFontState } from "../../sticky/stickyDerivedState";
 import { notify } from "../../notifications";
 import * as api from "../../api";
@@ -8,7 +9,7 @@ import { getPersistedAppState, hasRenderableElements, resolveObjectsSnapMode } f
 import { computeElementOrderSig } from "./useEditorElementTracking";
 import { log } from "../../logging";
 
-type AccessLevel = "none" | "view" | "comment" | "edit" | "owner";
+type AccessLevel = DrawingAccess;
 
 type SceneLoaderParams = {
   id: string | undefined;

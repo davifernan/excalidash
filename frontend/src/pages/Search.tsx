@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { isOwnerAccess } from "@excalidash/domain/authz";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Archive as ArchiveIcon,
@@ -85,7 +86,8 @@ const ResultRow: React.FC<{
           <RotateCcw size={13} /> Restore
         </button>
       ) : (
-        result.accessLevel === "owner" && (
+        result.accessLevel !== null &&
+        isOwnerAccess(result.accessLevel) && (
           <button
             type="button"
             aria-label={`Archive ${result.name}`}

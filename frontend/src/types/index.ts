@@ -1,3 +1,5 @@
+import type { DrawingAccess } from "@excalidash/domain/authz";
+
 export interface DrawingMember {
   subjectKey: string;
   name: string;
@@ -17,7 +19,7 @@ export interface DrawingSummary {
   createdAt: number;
   version: number;
   preview?: string | null;
-  accessLevel?: "none" | "view" | "comment" | "edit" | "owner";
+  accessLevel?: DrawingAccess;
   creatorName?: string | null;
   /** Who has a standing claim on this board. Capped; totalCount may be larger. */
   members?: { totalCount: number; items: DrawingMember[] };

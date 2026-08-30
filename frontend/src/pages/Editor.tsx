@@ -1,4 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import {
+  canCommentDrawing,
+  canEditDrawing,
+  canViewDrawing,
+  isOwnerAccess,
+  type DrawingAccess,
+} from "@excalidash/domain/authz";
 import { createExcalidrawAdapter } from "../integrations/excalidraw";
 import { openSceneDocument } from "../integrations/excalidraw/adapter";
 import { useExcalidrawToastBridge } from "../integrations/excalidraw/toastBridge";
@@ -53,11 +60,9 @@ export const Editor: React.FC = () => {
   const location = useLocation();
   const { theme } = useTheme();
   const { user, authEnabled } = useAuth();
-  const [accessLevel, setAccessLevel] = useState<"none" | "view" | "comment" | "edit" | "owner">(
-    "none",
-  );
-  const canEdit = accessLevel === "edit" || accessLevel === "owner";
-  const canComment = canEdit || accessLevel === "comment";
+  const [accessLevel, setAccessLevel] = useState<DrawingAccess>("none");
+  const canEdit = canEditDrawing(accessLevel);
+  const canComment = canCommentDrawing(accessLevel);
   const [canUploadFiles, setCanUploadFiles] = useState(false);
   const [canViewComments, setCanViewComments] = useState(false);
   const [drawingName, setDrawingName] = useState("Drawing Editor");
@@ -630,7 +635,7 @@ export const Editor: React.FC = () => {
 
     // View access is enough to speak: the server says so explicitly, and a
     // visitor on a read-only link is still in the meeting.
-    enabled: accessLevel !== "none",
+    enabled: canViewDrawing(accessLevel),
     selection: adapter.selection,
     chatRef: cursorChatRef,
   });
@@ -781,7 +786,7 @@ export const Editor: React.FC = () => {
         documentEdits={documentEdits}
         onBeforeDocumentAssetReplacement={prepareDocumentAssetReplacement}
         onDocumentAssetReplacement={handleDocumentAssetReplacement}
-        presenting={{ ...presenting, canTakeover: accessLevel === "owner" }}
+        presenting={{ ...presenting, canTakeover: isOwnerAccess(accessLevel) }}
         frames={frames}
         voting={{ ...voting, canModerate: canEdit }}
         onInsertTemplate={handleInsertTemplate}
