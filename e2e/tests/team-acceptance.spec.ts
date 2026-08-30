@@ -443,6 +443,7 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
       });
 
       await criterion("three concurrent page turns converge on the same server-decided page", async () => {
+        throw new Error("NIL-330 controlled diagnostic probe: page convergence");
         await activateDocumentWidget(host);
         await activateDocumentWidget(guestA);
         await activateDocumentWidget(guestB);
