@@ -179,6 +179,7 @@ jobs:
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
         run: |
           echo "Required soak part result: ${{ toJSON(needs) }}"
+          echo "A cancelled part is indeterminate, not passed: check whether a newer run for the same SHA superseded it before diagnosing a product failure."
           exit 1
 
       - name: Comment nightly result (pass or fail) on the tracking issue
