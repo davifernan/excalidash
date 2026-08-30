@@ -32,8 +32,6 @@ will use.
   select it before starting work. Only its owner can use it, and its payer, plan and available
   limits are shown without inventing a monetary estimate.
 
-### Fixed
-
 <!-- release-source: #288 -->
 - **A stopped assignment stays stopped.** Work that expires before the paired computer collects
   it is no longer delivered later, and reconnecting or restarting cannot start the same
