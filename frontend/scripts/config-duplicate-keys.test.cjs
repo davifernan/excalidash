@@ -19,8 +19,8 @@ const repoRoot = path.resolve(frontendRoot, "..");
 const check = path.join(__dirname, "config-duplicate-keys.cjs");
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "nil-708-config-keys-"));
 
-const run = (file) =>
-  spawnSync("node", [check, file], {
+const run = (...files) =>
+  spawnSync("node", [check, ...files], {
     cwd: frontendRoot,
     encoding: "utf8",
   });
@@ -37,6 +37,10 @@ const assertRejected = (label, file) => {
 };
 
 try {
+  const clean = run();
+  assert.equal(clean.status, 0, `clean repository should pass\n${clean.stderr ?? ""}`);
+  assert.equal(`${clean.stdout ?? ""}${clean.stderr ?? ""}`, "", "clean guard should be silent");
+
   const jsonProbe = path.join(sandbox, "knip.json");
   fs.copyFileSync(path.join(frontendRoot, "knip.json"), jsonProbe);
   const jsonSource = fs.readFileSync(jsonProbe, "utf8");
