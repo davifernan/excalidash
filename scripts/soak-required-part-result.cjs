@@ -14,9 +14,14 @@ function requiredPartStatus(needs) {
 
 function main(args = process.argv.slice(2), needsJson = process.env.NEEDS_JSON) {
   const enforce = args.includes("--enforce");
+  if (typeof needsJson !== "string") {
+    console.error("soak-required-part-result: NEEDS_JSON was not provided");
+    return 2;
+  }
+
   let needs;
   try {
-    needs = JSON.parse(needsJson || "{}");
+    needs = JSON.parse(needsJson);
   } catch {
     console.error("soak-required-part-result: NEEDS_JSON was not valid JSON");
     return 2;

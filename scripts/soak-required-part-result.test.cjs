@@ -45,3 +45,15 @@ test("the enforcement command exits non-zero for skipped required parts", () => 
   assert.strictEqual(result.status, 1);
   assert.match(result.stderr, /indeterminate, not passed/);
 });
+
+test("the enforcement command rejects missing needs input", () => {
+  const env = { ...process.env };
+  delete env.NEEDS_JSON;
+  const result = spawnSync(
+    process.execPath,
+    [path.join(__dirname, "soak-required-part-result.cjs"), "--enforce"],
+    { env, encoding: "utf8" },
+  );
+  assert.strictEqual(result.status, 2);
+  assert.match(result.stderr, /NEEDS_JSON was not provided/);
+});
