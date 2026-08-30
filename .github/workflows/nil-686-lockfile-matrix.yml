@@ -1,0 +1,377 @@
+name: NIL-686 Lockfile Matrix
+
+# A manual measurement, not a required PR check.  Two independent jobs, two
+# different questions:
+#
+# `measure` answers NIL-686's own question -- which of the 198 lockfile
+# changes between main's old frontend/package-lock.json and NIL-636's root
+# Workspace lockfile is it -- by comparing two variants of the SAME ref
+# (f53901c4) that only differ in a dev-transform pin rollback. main is not
+# checked out anywhere in this job, so it cannot answer whether the branch
+# is slower than main.
+#
+# `measure-vs-main` answers that second question directly: it checks out
+# PR #226's head and main as two separate refs and runs the same named test
+# on each, on both chromium and webkit. The test may be red on either job:
+# that is a measurement outcome, so every leg records it and completes.
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        type: choice
+        default: measure-vs-main
+        options:
+          - measure
+          - measure-vs-main
+          - both
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nil-686-lockfile-matrix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["measure","both"]'), github.event.inputs.job)) || github.event.label.name == 'run-nil-686-matrix'
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Deliberately serial: the initial screen is A/B/A/B, never four
+      # competing Chromium jobs on an otherwise busy CI fleet.
+      max-parallel: 1
+      matrix:
+        include:
+          - label: full-lock-1
+            variant: full
+          - label: dev-transform-rollback-1
+            variant: rollback
+          - label: full-lock-2
+            variant: full
+          - label: dev-transform-rollback-2
+            variant: rollback
+          - label: full-lock-3
+            variant: full
+          - label: dev-transform-rollback-3
+            variant: rollback
+          - label: full-lock-4
+            variant: full
+          - label: dev-transform-rollback-4
+            variant: rollback
+          - label: full-lock-5
+            variant: full
+          - label: dev-transform-rollback-5
+            variant: rollback
+
+    steps:
+      - name: Checkout the measured NIL-636 head
+        uses: actions/checkout@v4
+        with:
+          ref: f53901c430c5cfd361e93762b2c186c3713eaf13
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Materialize the selected installable lock graph
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          if [ "$VARIANT" = "rollback" ]; then
+            # These pins form the first closed bisect group: React's Vite
+            # plugin plus the esbuild and Rollup services it drives.  npm
+            # re-resolves their dependent entries, rather than accepting a
+            # hand-edited, internally inconsistent package-lock.json.
+          node <<'NODE'
+          const fs = require("node:fs");
+          const root = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          root.devDependencies = {
+            ...root.devDependencies,
+            esbuild: "0.28.1",
+            rollup: "4.59.0",
+          };
+          fs.writeFileSync("package.json", `${JSON.stringify(root, null, 2)}\n`);
+
+          const frontend = JSON.parse(fs.readFileSync("frontend/package.json", "utf8"));
+          frontend.devDependencies["@vitejs/plugin-react"] = "5.1.1";
+          fs.writeFileSync("frontend/package.json", `${JSON.stringify(frontend, null, 2)}\n`);
+          NODE
+            npm install
+          else
+            npm ci
+          fi
+
+          node <<'NODE'
+          const lock = require("./package-lock.json");
+          const paths = [
+            "node_modules/esbuild",
+            "node_modules/rollup",
+            "node_modules/@vitejs/plugin-react",
+            "frontend/node_modules/@vitejs/plugin-react",
+          ];
+          for (const path of paths) console.log(`RESOLUTION ${path}=${lock.packages[path]?.version ?? "absent"}`);
+          NODE
+          git diff -- package.json frontend/package.json package-lock.json > nil-686-lockfile-diff.patch
+
+      - name: Install E2E dependencies and prepare the database
+        run: |
+          set -euo pipefail
+          npm ci --prefix e2e
+          cd backend
+          npx prisma generate
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/nil-686.db" \
+            node scripts/provider-prisma.cjs migrate deploy
+
+      - name: Install Chromium
+        run: cd e2e && npx playwright install chromium --with-deps
+
+      - name: Measure the 2 MiB two-context path
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -uo pipefail
+          {
+            echo "variant=$VARIANT"
+            echo "timestamp=$(date --utc --iso-8601=seconds)"
+            echo "node=$(node --version) npm=$(npm --version)"
+            uname -a
+            nproc
+            free -h
+            cat /proc/loadavg
+            df -h .
+          } | tee nil-686-measurement.log
+
+          cd backend
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/nil-686.db" \
+            PORT=8686 \
+            FRONTEND_URL="http://127.0.0.1:6686" \
+            CSRF_MAX_REQUESTS=100000 \
+            RATE_LIMIT_MAX_REQUESTS=100000 \
+            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/nil-686-assets" \
+            npm run dev > ../nil-686-backend.log 2>&1 &
+          BACKEND_PID=$!
+          FRONTEND_PID=""
+          cleanup() {
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          cd ..
+
+          for attempt in {1..60}; do
+            curl -fsS http://127.0.0.1:8686/health >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8686/health >/dev/null
+
+          cd frontend
+          VITE_DEV_BACKEND_URL="http://127.0.0.1:8686" \
+            npm run dev -- --host 127.0.0.1 --port 6686 > ../nil-686-frontend.log 2>&1 &
+          FRONTEND_PID=$!
+          cd ..
+          for attempt in {1..60}; do
+            curl -fsS http://127.0.0.1:6686 >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:6686 >/dev/null
+
+          set +e
+          cd e2e
+          NO_SERVER=true CI=true BASE_URL=http://127.0.0.1:6686 API_URL=http://127.0.0.1:8686 PORT=8686 \
+            timeout --signal=INT --kill-after=30s --preserve-status 300 \
+            npx playwright test tests/document-pages.spec.ts --project=chromium \
+              -g "a collaborator stays responsive" 2>&1 | tee -a ../nil-686-measurement.log
+          test_status=${PIPESTATUS[0]}
+          cd ..
+          set -e
+          echo "playwright_exit=$test_status" | tee -a nil-686-measurement.log
+
+      - name: Publish measurement evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nil-686-${{ matrix.label }}
+          path: |
+            nil-686-measurement.log
+            nil-686-lockfile-diff.patch
+            nil-686-backend.log
+            nil-686-frontend.log
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: warn
+
+  # A separate question from the job above, and the one #226 was actually
+  # blocked on: not "which of the 198 lockfile changes is it" (answered,
+  # remains valid), but "is this branch slower than main" -- which the job
+  # above cannot answer, because both its variants check out the exact same
+  # ref (f53901c4) and only toggle a dev-transform pin. Neither leg ever
+  # touches main. This job checks out the PR-#226 head and main separately
+  # and runs the same named test ("a collaborator stays responsive...", by
+  # name -- not by tests/document-pages.spec.ts:LINE, which differs between
+  # the two refs and silently finds the wrong test or none at all) on both,
+  # across chromium AND webkit, since the branch was observed failing on
+  # both engines.
+  measure-vs-main:
+    if: (github.event_name == 'workflow_dispatch' && contains(fromJSON('["measure-vs-main","both"]'), github.event.inputs.job)) || github.event.label.name == 'run-nil-686-matrix'
+    name: vs-main-${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - label: branch-1
+            ref: a423e67d9724aba4d438812b59e5f366c9152706
+            side: branch
+          - label: main-1
+            ref: 75a2272b37a551fba3f2eecb7815288ada829a15
+            side: main
+          - label: branch-2
+            ref: a423e67d9724aba4d438812b59e5f366c9152706
+            side: branch
+          - label: main-2
+            ref: 75a2272b37a551fba3f2eecb7815288ada829a15
+            side: main
+          - label: branch-3
+            ref: a423e67d9724aba4d438812b59e5f366c9152706
+            side: branch
+          - label: main-3
+            ref: 75a2272b37a551fba3f2eecb7815288ada829a15
+            side: main
+          - label: branch-4
+            ref: a423e67d9724aba4d438812b59e5f366c9152706
+            side: branch
+          - label: main-4
+            ref: 75a2272b37a551fba3f2eecb7815288ada829a15
+            side: main
+          - label: branch-5
+            ref: a423e67d9724aba4d438812b59e5f366c9152706
+            side: branch
+          - label: main-5
+            ref: 75a2272b37a551fba3f2eecb7815288ada829a15
+            side: main
+
+    steps:
+      - name: Checkout the measured ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install from this ref's own lockfile
+        # main predates NIL-636's root Workspace: no root package.json, two
+        # standalone lockfiles instead. `npm ci` at the root only works on
+        # the branch side; main needs each package installed separately, the
+        # same way it always has.
+        env:
+          SIDE: ${{ matrix.side }}
+        run: |
+          set -euo pipefail
+          if [ "$SIDE" = "main" ]; then
+            npm ci --prefix backend
+            npm ci --prefix frontend
+          else
+            npm ci
+          fi
+
+      - name: Install E2E dependencies and prepare the database
+        run: |
+          set -euo pipefail
+          npm ci --prefix e2e
+          cd backend
+          npx prisma generate
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/nil-686-vsmain.db" \
+            node scripts/provider-prisma.cjs migrate deploy
+
+      - name: Install Chromium and WebKit
+        run: cd e2e && npx playwright install chromium webkit --with-deps
+
+      - name: Measure the 2 MiB two-context path on chromium and webkit
+        env:
+          SIDE: ${{ matrix.side }}
+          REF: ${{ matrix.ref }}
+        run: |
+          set -uo pipefail
+          {
+            echo "side=$SIDE ref=$REF"
+            echo "timestamp=$(date --utc --iso-8601=seconds)"
+            echo "node=$(node --version) npm=$(npm --version)"
+            uname -a
+            nproc
+            free -h
+            cat /proc/loadavg
+            df -h .
+          } | tee nil-686-vsmain-measurement.log
+
+          cd backend
+          DATABASE_URL="file:${{ github.workspace }}/backend/prisma/nil-686-vsmain.db" \
+            PORT=8687 \
+            FRONTEND_URL="http://127.0.0.1:6687" \
+            CSRF_MAX_REQUESTS=100000 \
+            RATE_LIMIT_MAX_REQUESTS=100000 \
+            ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/nil-686-vsmain-assets" \
+            npm run dev > ../nil-686-vsmain-backend.log 2>&1 &
+          BACKEND_PID=$!
+          FRONTEND_PID=""
+          cleanup() {
+            [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+            [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          cd ..
+
+          for attempt in {1..60}; do
+            curl -fsS http://127.0.0.1:8687/health >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8687/health >/dev/null
+
+          cd frontend
+          VITE_DEV_BACKEND_URL="http://127.0.0.1:8687" \
+            npm run dev -- --host 127.0.0.1 --port 6687 > ../nil-686-vsmain-frontend.log 2>&1 &
+          FRONTEND_PID=$!
+          cd ..
+          for attempt in {1..60}; do
+            curl -fsS http://127.0.0.1:6687 >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:6687 >/dev/null
+
+          set +e
+          cd e2e
+          for engine in chromium webkit; do
+            echo "=== engine=$engine ===" | tee -a ../nil-686-vsmain-measurement.log
+            NO_SERVER=true CI=true BASE_URL=http://127.0.0.1:6687 API_URL=http://127.0.0.1:8687 PORT=8687 \
+              timeout --signal=INT --kill-after=30s --preserve-status 300 \
+              npx playwright test tests/document-pages.spec.ts --project="$engine" \
+                -g "a collaborator stays responsive" 2>&1 | tee -a ../nil-686-vsmain-measurement.log
+            echo "playwright_exit_${engine}=${PIPESTATUS[0]}" | tee -a ../nil-686-vsmain-measurement.log
+          done
+          cd ..
+          set -e
+
+      - name: Publish measurement evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nil-686-vsmain-${{ matrix.label }}
+          path: |
+            nil-686-vsmain-measurement.log
+            nil-686-vsmain-backend.log
+            nil-686-vsmain-frontend.log
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: warn
