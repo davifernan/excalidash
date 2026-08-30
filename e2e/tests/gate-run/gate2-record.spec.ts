@@ -38,7 +38,12 @@ import { gate2PresenceFixture } from "../fixtures/agentContextGateFixtures";
  * Requires env vars: GATE_OWNER_EMAIL, GATE_OWNER_PASSWORD,
  * GATE_OBSERVER_EMAIL, GATE_OBSERVER_PASSWORD (an existing second account
  * with no other relationship to this drawing -- grantDrawingPermission
- * below gives it exactly "view").
+ * below gives it exactly "view"), and GATE2_MOUNT_TOKENS -- the
+ * `export GATE2_MOUNT_TOKENS=...` line setup-gate2.ts printed to its own
+ * stdout, copied into this shell. Mount capability tokens are never written
+ * to `gate2-state.json` or any other file: `AgentRunMount` stores only a
+ * hash and never expires, so a file is something a later `git add -A` or
+ * backup can pick up without anyone noticing (see setup-gate2.ts's header).
  *
  * Command: npx playwright test gate-run/gate2-record.spec.ts --project=gate-run
  */
@@ -59,7 +64,7 @@ const OUT_DIR = path.resolve(__dirname, "output", "gate2");
 type Gate2State = {
   drawingId: string;
   boardUrl: string;
-  mounts: Record<string, { runId: string; capabilityToken: string; contextId: string }>;
+  mounts: Record<string, { runId: string; contextId: string }>;
 };
 
 const TRIGGER_INTERVAL_MS = 4_000;
@@ -83,6 +88,15 @@ test("records the observer's private-event capture and six timestamped board scr
     throw new Error(`${STATE_PATH} not found -- run setup-gate2.ts first.`);
   }
   const state = JSON.parse(fs.readFileSync(STATE_PATH, "utf8")) as Gate2State;
+  const mountTokensEnv = process.env.GATE2_MOUNT_TOKENS;
+  if (!mountTokensEnv) {
+    throw new Error(
+      "Set GATE2_MOUNT_TOKENS -- the export line setup-gate2.ts printed to its " +
+        "own stdout when it ran, copied into this shell. It is never written to " +
+        "gate2-state.json or any other file (see this spec's own header comment).",
+    );
+  }
+  const mountTokens = JSON.parse(mountTokensEnv) as Record<string, string>;
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   // Grant the observer plain view access, and nothing more, using the
@@ -153,7 +167,13 @@ test("records the observer's private-event capture and six timestamped board scr
   // real external runtime would need against this route).
   const allRuns = [...gate2PresenceFixture.publicAgents, gate2PresenceFixture.privateAgent];
   const triggerRun = async (agent: (typeof allRuns)[number]) => {
-    const info = state.mounts[agent.runId];
+    const capabilityToken = mountTokens[agent.runId];
+    if (!capabilityToken) {
+      throw new Error(
+        `GATE2_MOUNT_TOKENS has no entry for ${agent.runId} -- re-copy the export line ` +
+          "from the most recent setup-gate2.ts run.",
+      );
+    }
     const frameElementId = gate2PresenceFixture.contexts.find(
       (c) => c.contextId === agent.contextId,
     )!.frameElementId;
@@ -161,7 +181,7 @@ test("records the observer's private-event capture and six timestamped board scr
       ownerContext.request.post(
         `${API_URL}/drawings/${drawingId}/agent/mounts/${agent.runId}/tools/readFrame`,
         {
-          headers: { "x-agent-mount-token": info.capabilityToken, ...headers },
+          headers: { "x-agent-mount-token": capabilityToken, ...headers },
           data: { frameElementId },
         },
       );

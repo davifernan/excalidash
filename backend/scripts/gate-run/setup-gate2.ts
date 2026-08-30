@@ -11,6 +11,15 @@
  *   GATE_OWNER_EMAIL=owner@example.com \
  *   npm run gate-run:setup-gate2
  *
+ * The mount capability tokens this creates are printed to stdout as a single
+ * `export GATE2_MOUNT_TOKENS=...` line, never written to `gate2-state.json`
+ * or any other file: `AgentRunMount` stores only a SHA-256 hash
+ * (`capabilityTokenHash`, schema.prisma) and has no expiry, so the plaintext
+ * this script prints is the only copy that will ever exist, and a file is
+ * something a later `git add -A` or backup can pick up without anyone
+ * noticing. Copy that line into the same shell before running
+ * gate2-record.spec.ts.
+ *
  * Why this cannot be a Playwright/e2e script: registering an Agent Context
  * (the frame -> context binding every gate depends on) has no HTTP route
  * today -- `registerAgentContext` is only ever called from backend code and
@@ -83,8 +92,16 @@ const main = async () => {
     contextIdByFixtureId.set(context.contextId, registered.id);
   }
 
-  const mountInfo: Record<string, { runId: string; capabilityToken: string; contextId: string }> =
-    {};
+  // Mount metadata (runId -> contextId) is not secret and is safe to persist.
+  // The capability token is: `AgentRunMount.capabilityTokenHash` is the only
+  // thing the database keeps (schema.prisma), so the plaintext returned here
+  // is the ONE time it ever exists anywhere, has no expiry, and stays valid
+  // until someone deletes the row. It is deliberately never written to a
+  // file -- printed once, below, for the operator to carry forward as an
+  // environment variable into the very next command, the same way
+  // GATE_OWNER_PASSWORD already is.
+  const mountInfo: Record<string, { runId: string; contextId: string }> = {};
+  const tokensByRunId: Record<string, string> = {};
 
   for (const agent of gate2PresenceFixture.publicAgents) {
     const contextId = contextIdByFixtureId.get(agent.contextId)!;
@@ -97,11 +114,8 @@ const main = async () => {
       displayName: agent.displayName,
       audience: { kind: "drawing" },
     });
-    mountInfo[agent.runId] = {
-      runId: agent.runId,
-      capabilityToken: mount.capabilityToken,
-      contextId,
-    };
+    mountInfo[agent.runId] = { runId: agent.runId, contextId };
+    tokensByRunId[agent.runId] = mount.capabilityToken;
   }
 
   const privateContextId = contextIdByFixtureId.get(gate2PresenceFixture.privateAgent.contextId)!;
@@ -116,9 +130,9 @@ const main = async () => {
   });
   mountInfo[gate2PresenceFixture.privateAgent.runId] = {
     runId: gate2PresenceFixture.privateAgent.runId,
-    capabilityToken: privateMount.capabilityToken,
     contextId: privateContextId,
   };
+  tokensByRunId[gate2PresenceFixture.privateAgent.runId] = privateMount.capabilityToken;
 
   const state = {
     drawingId: drawing.id,
@@ -134,6 +148,13 @@ const main = async () => {
 
   console.log(`Gate 2 board ready: ${state.boardUrl}`);
   console.log(`State written to ${outPath} (consumed by the e2e observer/screenshot spec).`);
+  console.log("");
+  console.log(
+    "Copy this into the SAME shell you run gate2-record.spec.ts from (it is " +
+      "never written to disk -- see this script's own header comment):",
+  );
+  console.log(`export GATE2_MOUNT_TOKENS='${JSON.stringify(tokensByRunId)}'`);
+  console.log("");
   console.log(
     "Reminder: this does NOT yet broadcast live focus presence -- " +
       "gate2-record.spec.ts triggers and sustains that itself while its " +

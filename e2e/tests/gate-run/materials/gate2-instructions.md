@@ -30,9 +30,15 @@ call before you run it for real.
    `GATE_OWNER_EMAIL=<your account> npm run gate-run:setup-gate2`
    It prints a board URL and creates the drawing, Agent Contexts, and mounts — it does
    not yet broadcast any live presence. Open the board URL in your own browser, logged
-   in as the owner account you gave it.
+   in as the owner account you gave it. It also prints an
+   `export GATE2_MOUNT_TOKENS='...'` line -- **copy that line as-is into the same
+   shell you'll run step 2 from.** These are the mounts' capability tokens; they are
+   deliberately never written to a file (`AgentRunMount` stores only a hash and never
+   expires, so a file would be a live, unexpiring credential sitting on disk waiting
+   for the next `git add -A` or backup). If you close that shell, re-run this step to
+   get a fresh line.
 2. **Run the recording spec once**, from `e2e/`, before you start asking yourself
-   the question:
+   the question, in the SAME shell that has `GATE2_MOUNT_TOKENS` exported:
    `GATE_OWNER_EMAIL=... GATE_OWNER_PASSWORD=... GATE_OBSERVER_EMAIL=... GATE_OBSERVER_PASSWORD=... API_URL=<your running backend> npx playwright test gate-run/gate2-record.spec.ts --project=gate-run`
    The observer account must be a real second account with no other relationship to
    this drawing — the spec grants it plain view access itself. This single command

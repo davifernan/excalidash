@@ -40,6 +40,11 @@ backend/src/generated/
 # only ever left behind if a run is interrupted mid-generate/migrate.
 backend/.prisma-workspaces.tmp/
 
+# NIL-701 gate-run setup scripts' own output (drawing/board state; the mount
+# capability tokens no longer land here at all -- see setup-gate2.ts -- but
+# this stays ignored as defense in depth for whatever non-secret state does).
+backend/scripts/gate-run/output/
+
 # Environment variables
 .env
 .env.local
