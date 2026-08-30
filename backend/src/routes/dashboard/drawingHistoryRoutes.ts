@@ -9,6 +9,8 @@ import { requestIdOf } from "../../middleware/requestId";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import {
   AgentContextValidationError,
+  assertGuestElementWriteAllowed,
+  AgentContextGuestWriteDeniedError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
 import {
@@ -159,6 +161,13 @@ export const registerDrawingHistoryRoutes = (
             parseJsonField(current.elements, []),
             parsedRestoredElements,
           );
+          await assertGuestElementWriteAllowed({
+            prisma: tx,
+            drawingId: id,
+            isGuest: decision.isGuest || transactionDecision.isGuest,
+            changedElementIds: elementMutation.changedElementIds,
+            elements: parsedRestoredElements,
+          });
           // Snapshot current state before restoring (so restore is reversible),
           // including the documents that make that state usable.
           const backup = await tx.drawingSnapshot.create({
@@ -229,6 +238,14 @@ export const registerDrawingHistoryRoutes = (
             res.status(409).json({
               error: "Invalid Context map",
               code: error.code,
+              message: error.message,
+            });
+            return null;
+          }
+          if (error instanceof AgentContextGuestWriteDeniedError) {
+            res.status(403).json({
+              error: "Forbidden",
+              code: "AGENT_CONTEXT_GUEST_WRITE_DENIED",
               message: error.message,
             });
             return null;

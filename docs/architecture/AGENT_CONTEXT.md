@@ -182,10 +182,19 @@ Run, erlaubte Contexts und Lesefähigkeiten. Der ausführbare Vertrag steht in
 
 ### NIL-676: Wie wird die Semantic Closure kanonisiert?
 
-Fest steht, dass der Hash nur die semantische Projektion bindet. Kanonische Sortierung,
-Zyklusbehandlung, Deduplizierung und stabile Serialisierung sind Bestandteil des Vertrags, aber
-ihr genauer Algorithmus bleibt NIL-676. Dieses Dokument legt keinen Hash über globale Drawing-
-oder Elementversionen als Ersatz fest.
+`backend/src/agent/instructionClosure.ts` definiert Closure-Schema 1. Der Hash bindet nur
+serverseitig materialisierte, typisierte Bedeutung: den NFC- und newline-normalisierten
+`originalText` der Anweisung, explizite `depends_on`-/`references`-/`whole_frame`-/`group`-
+Relationen und deren transitive, innerhalb desselben Context liegende Ziele. Kanonische
+Sortierung, Deduplizierung und Zyklusbehandlung machen die Projektion stabil; Geometrie, Stil,
+Index, untypisierte Pfeile und benachbarter Inhalt sind ausdrücklich kein Hash-Eingang.
+
+Eine Freigabe ist an den `closureHash` einer serverseitigen Vorschau gebunden. Der Client muss
+denselben Hash beim zweiten, sichtbaren Klick **„Diese Fassung freigeben“** vorlegen; jede
+Text- oder Closure-Änderung dazwischen endet mit `APPROVAL_PREVIEW_STALE`. Eine bestehende
+Freigabe wird beim Dispatch-Seam gegen die gepinnte Revision neu geprüft und verfällt bei jeder
+Abweichung. Dieses Dokument legt weiterhin keinen Hash über globale Drawing- oder
+Elementversionen als Ersatz fest.
 
 ### NIL-677: Welche menschliche Provenance trägt ein Element?
 

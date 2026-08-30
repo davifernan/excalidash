@@ -22,6 +22,8 @@ import {
 import { AgentContextAuthorizationError } from "../../authz/agentContext";
 import {
   AgentContextValidationError,
+  assertGuestElementWriteAllowed,
+  AgentContextGuestWriteDeniedError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
 import { publishBoardAgentFocus } from "../../server/socketPresence";
@@ -99,6 +101,14 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
       res
         .status(409)
         .json({ error: "Invalid Context map", code: error.code, message: error.message });
+      return true;
+    }
+    if (error instanceof AgentContextGuestWriteDeniedError) {
+      res.status(403).json({
+        error: "Forbidden",
+        code: "AGENT_CONTEXT_GUEST_WRITE_DENIED",
+        message: error.message,
+      });
       return true;
     }
     if (error instanceof AgentMountError) {
@@ -276,6 +286,13 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
             principal: loaded.principal,
             drawingId: id,
             shareToken: getShareToken(req),
+          });
+          await assertGuestElementWriteAllowed({
+            prisma: tx,
+            drawingId: id,
+            isGuest: loaded.isGuest || transactionDecision.isGuest,
+            changedElementIds: elementMutation.changedElementIds,
+            elements: newElements,
           });
           const compress = config.enableSnapshotCompression;
           const snapshot = await tx.drawingSnapshot.create({

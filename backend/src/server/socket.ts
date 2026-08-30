@@ -90,6 +90,10 @@ import {
 } from "./socketDocumentEditDrafts";
 import { drawingCommentsRoomName } from "./socketRoomNames";
 import { recordSuccessfulElementMutation } from "../agent/elementGuestProvenance";
+import {
+  AgentContextGuestWriteDeniedError,
+  assertGuestElementWriteAllowed,
+} from "../agent/boardContexts";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -460,6 +464,30 @@ export const registerSocketHandlers = ({
             ? [(element as any).id as string]
             : [],
         );
+        // Best-effort here, not the guarantee: this event's `elements` is
+        // only the delta the sender is applying, not the full board, so an
+        // indirect frameId chain through an ancestor frame outside the delta
+        // cannot be resolved. A direct write into a registered Context frame
+        // -- the realistic attack -- is still caught. executeAgentBoardTool's
+        // context-eligibility filter is what actually protects the agent
+        // regardless of what slips past this check.
+        try {
+          await assertGuestElementWriteAllowed({
+            prisma,
+            drawingId,
+            isGuest: true,
+            changedElementIds,
+            elements,
+          });
+        } catch (error) {
+          if (error instanceof AgentContextGuestWriteDeniedError) {
+            return {
+              code: "AGENT_CONTEXT_GUEST_WRITE_DENIED",
+              message: error.message,
+            };
+          }
+          throw error;
+        }
         await recordSuccessfulElementMutation({
           prisma,
           drawingId,

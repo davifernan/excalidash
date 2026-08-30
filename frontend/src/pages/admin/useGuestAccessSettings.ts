@@ -1,7 +1,11 @@
 import { useState } from "react";
 import * as api from "../../api";
 
-type GuestCapabilities = { uploadFiles: boolean; viewComments: boolean };
+type GuestCapabilities = {
+  uploadFiles: boolean;
+  viewComments: boolean;
+  agentContextContribute: boolean;
+};
 
 /**
  * The instance-wide ceiling from NIL-615/NIL-633. Boards read this to explain
@@ -46,15 +50,22 @@ export const useGuestAccessSettings = (
         { [key]: !capabilities[key] },
       );
       setCapabilities(response.data.capabilities);
-      setSuccess(
-        key === "uploadFiles"
-          ? response.data.capabilities.uploadFiles
-            ? "Guests can be allowed to upload files"
-            : "Guest file uploads are disabled instance-wide"
-          : response.data.capabilities.viewComments
-            ? "Guests can be allowed to see comments"
-            : "Guest comment visibility is disabled instance-wide",
-      );
+      const messages: Record<keyof GuestCapabilities, [string, string]> = {
+        uploadFiles: [
+          "Guests can be allowed to upload files",
+          "Guest file uploads are disabled instance-wide",
+        ],
+        viewComments: [
+          "Guests can be allowed to see comments",
+          "Guest comment visibility is disabled instance-wide",
+        ],
+        agentContextContribute: [
+          "Guests can be allowed to contribute to Agent Contexts",
+          "Guest contribution to Agent Contexts is disabled instance-wide",
+        ],
+      };
+      const [enabledMessage, disabledMessage] = messages[key];
+      setSuccess(response.data.capabilities[key] ? enabledMessage : disabledMessage);
     } catch (err: unknown) {
       let message = "Failed to update guest access settings";
       if (api.isAxiosError(err)) {
@@ -72,5 +83,6 @@ export const useGuestAccessSettings = (
     load,
     toggleUploadFiles: () => toggle("uploadFiles"),
     toggleViewComments: () => toggle("viewComments"),
+    toggleAgentContextContribute: () => toggle("agentContextContribute"),
   };
 };

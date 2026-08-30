@@ -138,7 +138,11 @@ describe("drawing read projection", () => {
         "version",
       ].sort(),
     );
-    expect(owner.payload.capabilities).toEqual({ uploadFiles: true, viewComments: true });
+    expect(owner.payload.capabilities).toEqual({
+      uploadFiles: true,
+      viewComments: true,
+      agentContextContribute: true,
+    });
   });
 
   it("gates collectionName behind the same creator check as collectionId (NIL-344)", async () => {

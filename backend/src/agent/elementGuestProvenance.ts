@@ -162,6 +162,30 @@ export const confirmElementGuestProvenance = async (
   }
 };
 
+/**
+ * NIL-677 `agent_context:contribute`, Gate 2 -- the actual guarantee (Gate 1,
+ * `assertGuestElementWriteAllowed` in boardContexts.ts, is only prevention;
+ * it answers a different question -- "may this actor write here now" versus
+ * this function's "should this content, given what is known about who
+ * touched it, be read into a compiled Agent Context").
+ *
+ * `confirmed-clean` content always contributes. `guest-touched` and
+ * `unknown` are both fail-closed by default -- an absent provenance row is
+ * never an implicit clean bill, exactly as `readElementGuestProvenance`'s own
+ * contract says -- and only contribute when the board's policy explicitly
+ * allows guest contribution.
+ *
+ * The one place this rule is written down. `executeAgentBoardTool`
+ * (boardMount.ts) is its only caller today; a future Context-tab preview
+ * that shows a human what the next run would read must call this same
+ * function rather than re-deriving the rule, the same reason NIL-675's chat
+ * and compiler readers share one `resolveThreadState`.
+ */
+export const isEligibleForAgentContribution = (params: {
+  status: ElementGuestProvenanceStatus;
+  agentContextContributeEnabled: boolean;
+}): boolean => params.status === "confirmed-clean" || params.agentContextContributeEnabled;
+
 type SceneElement = Record<string, unknown>;
 
 const sceneElementsById = (elements: readonly unknown[]): Map<string, SceneElement> =>
