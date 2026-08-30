@@ -27,9 +27,11 @@ credentials.
    acknowledge it. Revocation increments the epoch and removes the live connection immediately.
 
 Long polling is deliberate: it is ordinary outbound HTTPS and works through the same reverse
-proxy and NAT path as other client requests. A delivered start that loses its acknowledgement is
-not retried. The existing DispatchReceipt deadline turns that uncertainty into `outcome_unknown`;
-silence never becomes success.
+proxy and NAT path as other client requests. Polling removes a delivered command from the server
+queue; opening a new epoch rejects the old epoch's pending command rather than delivering its id
+again. A delivered start that loses its acknowledgement is therefore not retried. The existing
+DispatchReceipt deadline turns that uncertainty into `outcome_unknown`; silence never becomes
+success.
 
 Network loss stops every local executor owned by that daemon session before the daemon reconnects
 with a new epoch. This keeps paid work inside the server-authoritative assignment lifecycle rather
@@ -60,8 +62,7 @@ excalidash-runtime-daemon pair \
 excalidash-runtime-daemon run
 ```
 
-The local config and dedupe journal are mode `0600`. A corrupt journal fails closed because its
-absence cannot prove that paid work was never started.
+The local config is mode `0600`.
 
 ## Version and cost display
 

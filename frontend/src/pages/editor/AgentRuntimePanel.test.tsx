@@ -155,7 +155,7 @@ describe("AgentRuntimePanel", () => {
         label: "Alice's laptop",
         daemonVersion: "0.16.0",
         planLabel: "ChatGPT Plus",
-        limits: null,
+        limits: [{ label: "Daily limit", value: "Provider managed" }],
         revoked: false,
         lastSeenAt: "2026-08-30T14:00:00.000Z",
       },
@@ -174,6 +174,7 @@ describe("AgentRuntimePanel", () => {
       );
     });
     expect(overlay.textContent).toContain("Cost bearerAliceYour paired runtime");
+    expect(overlay.textContent).toContain("Daily limit: Provider managed");
     expect(overlay.textContent).not.toMatch(/[$€£]|cost estimate/i);
     const summary = overlay.querySelector("summary");
     await act(async () => summary?.click());
@@ -183,6 +184,58 @@ describe("AgentRuntimePanel", () => {
     await act(async () => pairButton?.click());
     expect(overlay.textContent).toContain("exd_pair_visible_once");
     expect(overlay.textContent).toContain("never opens a connection to your computer");
+    await act(async () => root.unmount());
+  });
+
+  it("shows an unknown device state and retries when the paired-device list cannot load", async () => {
+    getConnections.mockResolvedValue([]);
+    listDaemons.mockRejectedValueOnce(new Error("simulated device-list outage"));
+    const host = document.createElement("div");
+    const overlay = document.createElement("div");
+    document.body.append(host, overlay);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <AgentRuntimePanel container={overlay} drawingId="drawing-1" open onClose={vi.fn()} />,
+      );
+    });
+
+    expect(overlay.querySelector('[role="alert"]')?.textContent).toContain(
+      "Paired computers could not be loaded",
+    );
+    expect(overlay.textContent).not.toContain("No paired computers yet");
+
+    listDaemons.mockResolvedValueOnce([
+      {
+        id: "device-1",
+        label: "Alice's laptop",
+        daemonVersion: "0.16.0",
+        planLabel: "ChatGPT Plus",
+        limits: [{ label: "Plan limit", value: "Provider managed" }],
+        revoked: false,
+        lastSeenAt: "2026-08-30T14:00:00.000Z",
+      },
+    ]);
+    const retry = [...overlay.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Try again"),
+    );
+    await act(async () => retry?.click());
+
+    expect(overlay.textContent).toContain("Alice's laptop");
+    expect(overlay.querySelector('[role="alert"]')).toBeNull();
+
+    listDaemons.mockRejectedValueOnce(new Error("simulated refresh outage"));
+    const refresh = [...overlay.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Refresh runtimes"),
+    );
+    await act(async () => refresh?.click());
+
+    expect(overlay.querySelector('[role="alert"]')?.textContent).toContain(
+      "Paired computers could not be loaded",
+    );
+    expect(overlay.textContent).toContain("Alice's laptop");
+    expect(overlay.textContent).not.toContain("No paired computers yet");
     await act(async () => root.unmount());
   });
 });

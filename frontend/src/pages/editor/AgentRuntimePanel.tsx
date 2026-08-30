@@ -39,6 +39,9 @@ export const AgentRuntimePanel = ({
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
   const [streamConnected, setStreamConnected] = useState(false);
   const [daemons, setDaemons] = useState<RuntimeDaemonDevice[]>([]);
+  const [daemonLoadState, setDaemonLoadState] = useState<"loading" | "loaded" | "failed">(
+    "loading",
+  );
   const [pairingLabel, setPairingLabel] = useState("My computer");
   const [pairing, setPairing] = useState<{ pairingCode: string; expiresAt: string } | null>(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
@@ -47,14 +50,11 @@ export const AgentRuntimePanel = ({
     if (!open || !drawingId) return;
     let cancelled = false;
     setLoading(true);
-    void Promise.all([
-      getAgentRuntimeConnections(drawingId),
-      listRuntimeDaemons().catch(() => [] as RuntimeDaemonDevice[]),
-    ])
-      .then(([next, devices]) => {
+    setDaemonLoadState("loading");
+    void getAgentRuntimeConnections(drawingId)
+      .then((next) => {
         if (cancelled) return;
         setConnections(next);
-        setDaemons(devices);
         const first = next[0];
         setConnectionId((current) => current || first?.id || "");
         setProfileId((current) => current || first?.profiles[0]?.id || "");
@@ -64,6 +64,15 @@ export const AgentRuntimePanel = ({
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    void listRuntimeDaemons()
+      .then((devices) => {
+        if (cancelled) return;
+        setDaemons(devices);
+        setDaemonLoadState("loaded");
+      })
+      .catch(() => {
+        if (!cancelled) setDaemonLoadState("failed");
       });
     return () => {
       cancelled = true;
@@ -197,6 +206,18 @@ export const AgentRuntimePanel = ({
           </button>
         </div>
       ) : null}
+      {daemonLoadState === "loading" ? <p role="status">Loading paired computers…</p> : null}
+      {daemonLoadState === "failed" ? (
+        <div className="agent-runtime-panel__load-error" role="alert">
+          <span>Paired computers could not be loaded. Existing pairings may still be active.</span>
+          <button type="button" onClick={() => setRefreshRevision((current) => current + 1)}>
+            Try again
+          </button>
+        </div>
+      ) : null}
+      {daemonLoadState === "loaded" && daemons.length === 0 ? (
+        <p>No paired computers yet.</p>
+      ) : null}
       {daemons.length > 0 ? (
         <ul className="agent-runtime-panel__devices">
           {daemons.map((daemon) => (
@@ -207,6 +228,11 @@ export const AgentRuntimePanel = ({
                   v{daemon.daemonVersion}
                   {daemon.planLabel ? ` · ${daemon.planLabel}` : ""}
                 </small>
+                {daemon.limits?.length ? (
+                  <small>
+                    {daemon.limits.map((limit) => `${limit.label}: ${limit.value}`).join(" · ")}
+                  </small>
+                ) : null}
               </span>
               <button
                 type="button"

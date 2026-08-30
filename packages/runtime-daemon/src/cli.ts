@@ -57,7 +57,7 @@ const pair = async () => {
 
 const run = async () => {
   const config = JSON.parse(await readFile(configPath, "utf8")) as DaemonConfig;
-  const daemon = new RuntimeDaemon(config, stateDirectory);
+  const daemon = new RuntimeDaemon(config);
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort());
   process.once("SIGTERM", () => controller.abort());

@@ -169,6 +169,24 @@
   background: var(--color-surface-mid, #f8f9fa);
   font-size: 11px;
 }
+.agent-runtime-panel__load-error {
+  display: grid;
+  gap: 7px;
+  border-radius: 7px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--color-danger, #e03131) 10%, transparent);
+  color: var(--color-on-surface, #1b1b1f);
+  font-size: 12px;
+}
+.agent-runtime-panel__load-error button {
+  justify-content: center;
+  border: 1px solid var(--color-surface-low, #e9ecef);
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: var(--color-surface-mid, #f8f9fa);
+  color: inherit;
+  cursor: pointer;
+}
 .agent-runtime-panel__devices {
   display: grid;
   gap: 6px;

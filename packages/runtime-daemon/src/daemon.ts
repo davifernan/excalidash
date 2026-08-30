@@ -1,8 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import {
   runtimeDaemonCommandSchema,
-  runtimeDaemonCommandResultSchema,
   type RuntimeDaemonCommand,
   type RuntimeDaemonCommandResult,
   type RuntimeDaemonStatusEvent,
@@ -50,17 +47,13 @@ const reconnectDelay = (milliseconds: number, signal?: AbortSignal): Promise<voi
   });
 
 export class RuntimeDaemon {
-  readonly #journalPath: string;
-  readonly #journal = new Map<string, RuntimeDaemonCommandResult>();
   #epoch = 0;
   readonly #executor: CodexAppServerExecutor;
 
   constructor(
     private readonly config: DaemonConfig,
-    stateDirectory: string,
     private readonly waitBeforeReconnect: typeof reconnectDelay = reconnectDelay,
   ) {
-    this.#journalPath = path.join(stateDirectory, "command-journal.json");
     this.#executor = new CodexAppServerExecutor(
       config.profiles.map(({ id, label, workingDirectory, executable }) => ({
         id,
@@ -74,7 +67,6 @@ export class RuntimeDaemon {
   }
 
   async run(signal?: AbortSignal): Promise<void> {
-    await this.#loadJournal();
     let retryDelayMs = 1_000;
     while (!signal?.aborted) {
       try {
@@ -113,15 +105,11 @@ export class RuntimeDaemon {
   }
 
   async #handle(command: RuntimeDaemonCommand): Promise<void> {
-    let result = this.#journal.get(command.commandId);
-    if (!result) {
-      if (command.kind === "start") result = await this.#executor.start(command.payload);
-      else if (command.kind === "prompt") {
-        result = await this.#executor.prompt(command.payload.runtimeHandle, command.payload.text);
-      } else result = this.#executor.status(command.payload.runtimeHandle);
-      this.#journal.set(command.commandId, result);
-      await this.#saveJournal();
-    }
+    let result: RuntimeDaemonCommandResult;
+    if (command.kind === "start") result = await this.#executor.start(command.payload);
+    else if (command.kind === "prompt") {
+      result = await this.#executor.prompt(command.payload.runtimeHandle, command.payload.text);
+    } else result = this.#executor.status(command.payload.runtimeHandle);
     await request(
       `${this.config.serverUrl}/api/agent/runtime-daemons/events`,
       this.config.credential,
@@ -141,30 +129,5 @@ export class RuntimeDaemon {
       this.config.credential,
       { kind: "status", epoch: this.#epoch, event },
     );
-  }
-
-  async #loadJournal(): Promise<void> {
-    try {
-      const parsed = JSON.parse(await readFile(this.#journalPath, "utf8"));
-      if (!parsed || typeof parsed !== "object") return;
-      for (const [id, result] of Object.entries(parsed)) {
-        this.#journal.set(id, runtimeDaemonCommandResultSchema.parse(result));
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      // A corrupt dedupe journal removes the proof that an assignment was not
-      // already started. Fail closed; never turn missing local evidence into
-      // permission to replay paid work.
-      throw new Error("Runtime daemon command journal is unreadable");
-    }
-  }
-
-  async #saveJournal(): Promise<void> {
-    await mkdir(path.dirname(this.#journalPath), { recursive: true });
-    const temporary = `${this.#journalPath}.tmp`;
-    await writeFile(temporary, JSON.stringify(Object.fromEntries(this.#journal)), {
-      mode: 0o600,
-    });
-    await rename(temporary, this.#journalPath);
   }
 }

@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RuntimeDaemon } from "./daemon";
 
@@ -10,7 +7,6 @@ describe("outbound runtime daemon connection", () => {
   });
 
   it("opens a newly fenced session after a transient connection loss", async () => {
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "nil706-daemon-"));
     const controller = new AbortController();
     const requests: string[] = [];
     let sessionCount = 0;
@@ -39,7 +35,6 @@ describe("outbound runtime daemon connection", () => {
         version: "0.16.0",
         profiles: [],
       },
-      stateDirectory,
       async () => undefined,
     );
 
@@ -49,6 +44,5 @@ describe("outbound runtime daemon connection", () => {
     expect(requests.filter((url) => url.endsWith("/session"))).toHaveLength(2);
     expect(process.stderr.write).toHaveBeenCalledWith("Runtime connection lost; retrying.\n");
     expect(JSON.stringify((process.stderr.write as any).mock.calls)).not.toContain("LEAKME42");
-    await rm(stateDirectory, { recursive: true });
   });
 });
