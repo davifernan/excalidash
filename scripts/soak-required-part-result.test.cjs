@@ -40,7 +40,7 @@ test("all successful required parts are passed", () => {
 test("the enforcement command names failure, skipped, and cancelled distinctly", () => {
   const cases = [
     ["failure", /failed: inspect this run's artifact; this is not a cancellation/],
-    ["skipped", /was skipped: it did not run and does not establish soak health/],
+    ["skipped", /was skipped: inspect its upstream prerequisite and job if-condition/],
     ["cancelled", /was cancelled: its result is indeterminate/],
   ];
   for (const [result, expected] of cases) {

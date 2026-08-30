@@ -17,7 +17,7 @@ function partResultMessage(part, result) {
     case "failure":
       return `Required soak part ${part} failed: inspect this run's artifact; this is not a cancellation.`;
     case "skipped":
-      return `Required soak part ${part} was skipped: it did not run and does not establish soak health.`;
+      return `Required soak part ${part} was skipped: inspect its upstream prerequisite and job if-condition; it did not run and does not establish soak health.`;
     case "cancelled":
       return `Required soak part ${part} was cancelled: its result is indeterminate, so check whether a newer run for the same SHA superseded it before diagnosing a product failure.`;
     default:
