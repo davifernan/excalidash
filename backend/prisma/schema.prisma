@@ -10,18 +10,18 @@ datasource db {
 }
 
 model User {
-  id                  String               @id @default(uuid())
-  username            String?              @unique
-  email               String               @unique
+  id                  String                @id @default(uuid())
+  username            String?               @unique
+  email               String                @unique
   passwordHash        String
   name                String
-  role                String               @default("USER")
-  mustResetPassword   Boolean              @default(false)
-  isActive            Boolean              @default(true)
+  role                String                @default("USER")
+  mustResetPassword   Boolean               @default(false)
+  isActive            Boolean               @default(true)
   preferences         String?
   authIdentities      AuthIdentity[]
-  drawings            Drawing[]            @relation("DrawingOwner")
-  createdDrawings     Drawing[]            @relation("DrawingCreator")
+  drawings            Drawing[]             @relation("DrawingOwner")
+  createdDrawings     Drawing[]             @relation("DrawingCreator")
   collections         Collection[]
   drawingPermissions  DrawingPermission[]
   collectionShares    CollectionShare[]
@@ -29,20 +29,64 @@ model User {
   refreshTokens       RefreshToken[]
   apiKeys             ApiKey[]
   auditLogs           AuditLog[]
-  ownedAssets         Asset[]              @relation("AssetOwner")
-  uploadedAssets      Asset[]              @relation("AssetUploader")
-  authoredComments    Comment[]            @relation("CommentAuthor")
-  resolvedComments    Comment[]            @relation("CommentResolver")
-  deletedComments     Comment[]            @relation("CommentDeleter")
-  mentionedIn         Mention[]            @relation("MentionedUser")
-  activityEvents      ActivityEvent[]      @relation("ActivityActor")
-  notifications       Notification[]       @relation("NotificationRecipient")
+  ownedAssets         Asset[]               @relation("AssetOwner")
+  uploadedAssets      Asset[]               @relation("AssetUploader")
+  authoredComments    Comment[]             @relation("CommentAuthor")
+  resolvedComments    Comment[]             @relation("CommentResolver")
+  deletedComments     Comment[]             @relation("CommentDeleter")
+  mentionedIn         Mention[]             @relation("MentionedUser")
+  activityEvents      ActivityEvent[]       @relation("ActivityActor")
+  notifications       Notification[]        @relation("NotificationRecipient")
   drawingVisits       DrawingVisit[]
   drawingFavorites    DrawingFavorite[]
   teamActivityVisit   TeamActivityVisit?
   libraryItems        LibraryItem[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  runtimeDaemons      AgentRuntimeDaemon[]
+  runtimePairings     AgentRuntimePairing[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+}
+
+/// A user's outbound runtime daemon. Only a hash of the high-entropy device
+/// credential is stored. The daemon's executor-specific configuration and
+/// provider credentials never cross onto the ExcaliDash server.
+model AgentRuntimeDaemon {
+  id                 String    @id @default(uuid())
+  ownerUserId        String
+  label              String
+  credentialHash     String    @unique
+  daemonVersion      String
+  profiles           String
+  policyCapabilities String
+  costBearerLabel    String
+  planLabel          String?
+  limits             String?
+  sessionEpoch       Int       @default(0)
+  lastSeenAt         DateTime?
+  revokedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, revokedAt])
+}
+
+/// One-use, short-lived browser-to-daemon pairing authority. The raw code is
+/// returned once and never persisted; consuming it creates the durable device
+/// credential above.
+model AgentRuntimePairing {
+  id          String    @id @default(uuid())
+  ownerUserId String
+  codeHash    String    @unique
+  label       String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, expiresAt])
 }
 
 /// The team this instance serves. Deliberately a singleton (id fixed to

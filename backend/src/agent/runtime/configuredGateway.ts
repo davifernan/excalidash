@@ -2,12 +2,16 @@ import type { AgentRuntimeConfig } from "../../config";
 import { AgentRuntimeGateway } from "./gateway";
 import { HerdrAgentRuntimeAdapter } from "./herdrAdapter";
 import { AgentRuntimeRegistry } from "./registry";
+import { OutboundRuntimeDaemonAdapter } from "./runtimeDaemonAdapter";
+import type { RuntimeDaemonBroker } from "./runtimeDaemonBroker";
 
 export const createConfiguredAgentRuntimeGateway = (
   config: AgentRuntimeConfig,
   capabilitySecret: string,
+  daemonBroker?: RuntimeDaemonBroker,
 ): AgentRuntimeGateway => {
   const adapter = new HerdrAgentRuntimeAdapter();
+  const daemonAdapter = daemonBroker ? new OutboundRuntimeDaemonAdapter(daemonBroker) : null;
   const connections = config.herdr
     ? [
         {
@@ -27,7 +31,11 @@ export const createConfiguredAgentRuntimeGateway = (
       ]
     : [];
   return new AgentRuntimeGateway(
-    new AgentRuntimeRegistry({ adapters: [adapter], connections }),
+    new AgentRuntimeRegistry({
+      adapters: daemonAdapter ? [adapter, daemonAdapter] : [adapter],
+      connections,
+      sources: daemonBroker ? [daemonBroker] : [],
+    }),
     capabilitySecret,
   );
 };

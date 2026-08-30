@@ -57,6 +57,12 @@ import {
 } from "./server/operationalHealth";
 import { registerLinkPreviewRoutes } from "./linkPreviews/routes";
 import { createConfiguredAgentRuntimeGateway } from "./agent/runtime/configuredGateway";
+import { RuntimeDaemonBroker } from "./agent/runtime/runtimeDaemonBroker";
+import { RuntimeDaemonService } from "./agent/runtime/runtimeDaemonService";
+import {
+  registerRuntimeDaemonManagementRoutes,
+  registerRuntimeDaemonPublicRoutes,
+} from "./agent/runtime/runtimeDaemonRoutes";
 import { collectExpiredLinkPreviews } from "./linkPreviews/cache";
 import { createLinkPreviewService } from "./linkPreviews/service";
 import { getOwnedCollection } from "./authz/collections";
@@ -275,6 +281,16 @@ const generalRateLimiter = rateLimit({
   validate: { trustProxy: false, xForwardedForHeader: false },
 });
 app.use(generalRateLimiter);
+const runtimeDaemonBroker = new RuntimeDaemonBroker();
+const runtimeDaemonService = new RuntimeDaemonService(
+  prisma,
+  config.agentRuntime.daemonMinimumVersion,
+);
+registerRuntimeDaemonPublicRoutes(app, {
+  service: runtimeDaemonService,
+  broker: runtimeDaemonBroker,
+  asyncHandler,
+});
 registerCsrfProtection({
   app,
   isAllowedOrigin,
@@ -282,6 +298,12 @@ registerCsrfProtection({
   enableDebugLogging: config.debugCsrf,
 });
 app.use("/auth", authRouter);
+registerRuntimeDaemonManagementRoutes(app, {
+  service: runtimeDaemonService,
+  broker: runtimeDaemonBroker,
+  requireAuth,
+  asyncHandler,
+});
 const filesFieldSchema = z
   .union([z.record(z.string(), z.unknown()), z.null()])
   .optional()
@@ -560,6 +582,7 @@ registerSystemRoutes(app, { asyncHandler, getBackendVersion });
 const agentRuntimeGateway = createConfiguredAgentRuntimeGateway(
   config.agentRuntime,
   config.jwtSecret,
+  runtimeDaemonBroker,
 );
 registerDashboardRoutes(app, {
   prisma,
