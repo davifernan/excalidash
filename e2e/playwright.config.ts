@@ -310,6 +310,20 @@ export default defineConfig({
       testMatch: BUILT_IMAGE_SMOKE_SPECS,
     },
     {
+      // Isolated on purpose: see GATE_RUN_SPECS above. Only ever invoked
+      // explicitly (`--project=gate-run`) against a manually seeded board;
+      // never picked up by a bare `playwright test` or `--project=chromium`
+      // run, which is why it also needs its own testMatch here rather than
+      // relying on chromium's testIgnore alone -- an excluded path does not
+      // come back just because it was later named as a file argument.
+      name: "gate-run",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 720 },
+      },
+      testMatch: GATE_RUN_SPECS,
+    },
+    {
       name: "firefox",
       use: {
         ...devices["Desktop Firefox"],

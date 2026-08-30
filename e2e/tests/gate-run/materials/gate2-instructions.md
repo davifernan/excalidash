@@ -27,16 +27,20 @@ call before you run it for real.
 ## The handful of steps
 
 1. **Run the setup script once**, from `backend/`:
-   `GATE_OWNER_EMAIL=<your account> API_URL=<your running backend> npm run gate-run:setup-gate2`
-   It prints a board URL. Open it in your own browser, logged in as the owner account
-   you gave it.
+   `GATE_OWNER_EMAIL=<your account> npm run gate-run:setup-gate2`
+   It prints a board URL and creates the drawing, Agent Contexts, and mounts — it does
+   not yet broadcast any live presence. Open the board URL in your own browser, logged
+   in as the owner account you gave it.
 2. **Run the recording spec once**, from `e2e/`, before you start asking yourself
    the question:
-   `GATE_OWNER_EMAIL=... GATE_OWNER_PASSWORD=... GATE_OBSERVER_EMAIL=... GATE_OBSERVER_PASSWORD=... npx playwright test gate-run/gate2-record.spec.ts --project=chromium`
+   `GATE_OWNER_EMAIL=... GATE_OWNER_PASSWORD=... GATE_OBSERVER_EMAIL=... GATE_OBSERVER_PASSWORD=... API_URL=<your running backend> npx playwright test gate-run/gate2-record.spec.ts --project=gate-run`
    The observer account must be a real second account with no other relationship to
-   this drawing — the script grants it plain view access itself. This single command
-   captures the privacy signal and takes the six screenshots; you do not start or stop
-   anything else.
+   this drawing — the spec grants it plain view access itself. This single command
+   triggers and sustains the live focus broadcast for the whole recording window
+   (so presence stays visible across all six samples), captures the privacy signal,
+   and takes the six screenshots; you do not start or stop anything else. Keep the
+   board open in your own browser from step 1 while this runs, so you have something
+   live to look at.
 3. **Answer the fixed question** ("Which agent is working in which Context, and what
    is its status?") at the six pre-registered seconds, from your own board view —
    using the vocabulary you decided on in the step above, not from memory of the

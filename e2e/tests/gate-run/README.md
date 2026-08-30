@@ -32,18 +32,27 @@ means for actually running Gate 2.
 
 Registering an Agent Context (the frame → context binding every gate depends on) has
 no HTTP route today — it is only ever called from backend code, the same way Gate 1's
-own executable fixture calls it. Gate 2's setup additionally needs one thing that
-genuinely lives only in the running server process's memory: the live focus/presence
-broadcast a real agent tool call produces. That is reachable over HTTP (the same route
-a real runtime would call), so the setup scripts live in `backend/scripts/` (direct
-module calls for state) and make one real HTTP call each for that one broadcast.
-Everything that needs a real second browser and a real socket connection — Gate 2's
-observer capture and screenshots — lives in `e2e/tests/gate-run/` instead, using the
-existing Playwright/auth helpers rather than a new toolchain.
+own executable fixture calls it. That is why `setup-gate2.ts`/`setup-gate3.ts` live in
+`backend/scripts/`, making direct module calls against the real database rather than
+adding a product route whose only purpose would be gate rehearsal.
+
+Gate 2 additionally needs one thing that genuinely lives only in the running server
+process's memory, not the database: the live focus/presence broadcast a real agent
+tool call produces (`BOARD_AGENT_PRESENCE_STALE_MS` prunes it after 8s of inactivity).
+That broadcast is triggered — and, to outlast the recording window, repeatedly
+re-triggered — by `gate2-record.spec.ts` itself, using the owner's own authenticated
+session against the exact tool-call route a real runtime would call, while its
+observer socket is already listening. An earlier version triggered it once, up front,
+from `setup-gate2.ts`; that broadcast had always gone stale and been pruned before the
+separately-run recording spec ever opened a socket, so its privacy assertion was
+checking against zero live events every time (a Hans-Friedrich finding on PR #278) —
+see the spec file's own header comment for the fix. Everything that needs a real
+second browser and a real socket connection — the trigger loop, the observer capture,
+and the screenshots — lives in `e2e/tests/gate-run/` accordingly, using the existing
+Playwright/auth helpers rather than a new toolchain.
 
 Both `setup-gate2.ts` and `setup-gate3.ts` were run end-to-end against a throwaway
 local instance while preparing this package (real drawing, real Agent Contexts, real
-mounts, and — for Gate 2 — a real focus broadcast confirmed via `AgentToolAudit` rows
-and a real persisted orchestrator thread for Gate 3, confirmed by reading the rows
-back). That throwaway instance and its data were discarded afterward; nothing from it
-is part of this package.
+mounts, and a real persisted orchestrator thread for Gate 3, confirmed by reading the
+rows back). That throwaway instance and its data were discarded afterward; nothing
+from it is part of this package.

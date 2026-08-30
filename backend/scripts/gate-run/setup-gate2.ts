@@ -1,15 +1,14 @@
 /**
  * NIL-701 stage setup for Gate 2 (visible Agent Presence). Builds none of the
  * gate's judgment -- it only makes `gate2PresenceFixture`
- * (e2e/tests/fixtures/agentContextGateFixtures.ts) exist as real rows and a
- * real, live-broadcast focus state on whatever backend DATABASE_URL/API_URL
- * this script is pointed at. Run it against the SAME database and the SAME
- * running server process Davi will open in his browser -- it does not start
- * a server itself.
+ * (e2e/tests/fixtures/agentContextGateFixtures.ts) exist as real drawing,
+ * Agent Context, and mount rows on whatever backend DATABASE_URL this script
+ * is pointed at. Run it against the SAME database the running server process
+ * Davi will open in his browser also points at -- it does not start a server
+ * itself.
  *
  * Usage (from backend/):
  *   GATE_OWNER_EMAIL=owner@example.com \
- *   API_URL=http://localhost:8000 \
  *   npm run gate-run:setup-gate2
  *
  * Why this cannot be a Playwright/e2e script: registering an Agent Context
@@ -20,43 +19,32 @@
  * against the real database, rather than adding a product route whose only
  * purpose would be gate rehearsal.
  *
- * Focus presence IS reachable over HTTP (`POST .../mounts/:runId/tools/:tool`),
- * because that route already exists for real agent tool calls. This script
- * calls it for real, against the already-running server, so the resulting
- * focus broadcast is the exact production code path, not a stand-in.
+ * This script deliberately does NOT trigger the live focus broadcast --
+ * that used to happen here, once, as part of setup, but the broadcast is
+ * ephemeral in-process state that `BOARD_AGENT_PRESENCE_STALE_MS` (8s,
+ * backend/src/server/socketPresence.ts) prunes on the next sweep. Triggering
+ * it here meant it was always gone well before `gate2-record.spec.ts` --a
+ * separate, later-run command per gate2-instructions.md -- ever opened a
+ * socket to observe it, so that spec's privacy assertion always ran against
+ * zero live events: not proof of privacy, just proof nothing was left to
+ * leak. The recording spec now triggers (and re-triggers, to outlast its own
+ * 25s sample window) the same real HTTP tool-call route itself, while its
+ * observer socket is already listening.
  */
 import { PrismaClient } from "../../src/generated/client";
 import { registerAgentContext } from "../../src/agent/boardContexts";
 import { createAgentRunMount } from "../../src/agent/boardMount";
 import { AGENT_BOARD_EXPLORE } from "../../src/authz/agentContext";
 import { gate2PresenceFixture } from "../../../e2e/tests/fixtures/agentContextGateFixtures";
-import { config } from "../../src/config";
-import jwt from "jsonwebtoken";
 import fs from "fs";
 import path from "path";
 
-const API_URL = process.env.API_URL || "http://localhost:8000";
 const OWNER_EMAIL = process.env.GATE_OWNER_EMAIL;
 
-/**
- * CSRF here is a blanket double-submit-cookie policy with no exemption for
- * token-authenticated agent routes -- a real external runtime calling this
- * same tool-call endpoint would need to do exactly this handshake too, so
- * this is the production shape, not a workaround around it.
- */
-const fetchCsrf = async (): Promise<{ header: string; token: string; cookie: string }> => {
-  const response = await fetch(`${API_URL}/csrf-token`);
-  if (!response.ok) throw new Error(`CSRF fetch failed: HTTP ${response.status}`);
-  const body = (await response.json()) as { token: string; header?: string };
-  const setCookie = response.headers.get("set-cookie") || "";
-  const cookie = setCookie.split(";")[0] || "";
-  return { header: body.header || "x-csrf-token", token: body.token, cookie };
-};
-
-const frameOf = (id: string, index: number) => ({
+const frameOf = (id: string, label: string, index: number) => ({
   id,
   type: "frame",
-  name: id,
+  name: label,
   x: index * 1200,
   y: 0,
   width: 800,
@@ -73,7 +61,7 @@ const main = async () => {
   const owner = await prisma.user.findUniqueOrThrow({ where: { email: OWNER_EMAIL } });
 
   const frames = gate2PresenceFixture.contexts.map((context, index) =>
-    frameOf(context.frameElementId, index),
+    frameOf(context.frameElementId, context.label, index),
   );
   const drawing = await prisma.drawing.create({
     data: {
@@ -132,52 +120,6 @@ const main = async () => {
     contextId: privateContextId,
   };
 
-  // Trigger genuine focus broadcast for the four runs by making the exact
-  // same HTTP call a real agent tool call makes, against the already-running
-  // server -- this is the one piece of state that lives only in that
-  // process's memory, not the database, so it cannot be seeded any other
-  // way. Status text is deliberately NOT claimed to say "working"/"waiting"
-  // here -- see gate2-instructions.md's flagged finding.
-  // The tool-call route requires the caller to ALSO already have ordinary
-  // view access to the drawing -- the mount token alone is not enough, by
-  // design (a mount narrows an already-authorized viewer, it does not grant
-  // access on its own). A real external runtime would carry the owner's or
-  // an authorized viewer's session; this mints the same JWT shape the rest
-  // of this codebase's own tests use for exactly that reason.
-  const ownerToken = jwt.sign(
-    { userId: owner.id, email: owner.email, type: "access" },
-    config.jwtSecret,
-    { expiresIn: config.jwtAccessExpiresIn as any },
-  );
-
-  const csrf = await fetchCsrf();
-  const allRuns = [...gate2PresenceFixture.publicAgents, gate2PresenceFixture.privateAgent];
-  for (const agent of allRuns) {
-    const info = mountInfo[agent.runId];
-    const frameElementId = gate2PresenceFixture.contexts.find(
-      (c) => c.contextId === agent.contextId,
-    )!.frameElementId;
-    const response = await fetch(
-      `${API_URL}/drawings/${drawing.id}/agent/mounts/${info.runId}/tools/readFrame`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${ownerToken}`,
-          "x-agent-mount-token": info.capabilityToken,
-          [csrf.header]: csrf.token,
-          cookie: csrf.cookie,
-        },
-        body: JSON.stringify({ frameElementId }),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        `Focus trigger for ${agent.runId} failed: HTTP ${response.status} ${await response.text()}`,
-      );
-    }
-  }
-
   const state = {
     drawingId: drawing.id,
     boardUrl: `${(process.env.FRONTEND_URL || "http://localhost:6767").replace(/\/$/, "")}/editor/${drawing.id}`,
@@ -193,8 +135,11 @@ const main = async () => {
   console.log(`Gate 2 board ready: ${state.boardUrl}`);
   console.log(`State written to ${outPath} (consumed by the e2e observer/screenshot spec).`);
   console.log(
-    'Reminder: board status text will read the product\'s real vocabulary (e.g. "reading"), ' +
-      'not the fixture\'s "working"/"waiting" words -- see gate2-instructions.md.',
+    "Reminder: this does NOT yet broadcast live focus presence -- " +
+      "gate2-record.spec.ts triggers and sustains that itself while its " +
+      "observer socket is listening. Board status text will read the " +
+      "product's real vocabulary (e.g. \"reading\"), not the fixture's " +
+      '"working"/"waiting" words -- see gate2-instructions.md.',
   );
   await prisma.$disconnect();
 };
