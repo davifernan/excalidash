@@ -12,17 +12,24 @@ const getConnections = vi.fn();
 const startRun = vi.fn();
 const promptRun = vi.fn();
 const subscribeRun = vi.fn(() => vi.fn());
+const listDaemons = vi.fn().mockResolvedValue([]);
+const createPairing = vi.fn();
+const revokeDaemon = vi.fn();
 
 vi.mock("../../api/agentRuntime", () => ({
   getAgentRuntimeConnections: (...args: unknown[]) => getConnections(...args),
   startAgentRuntimeRun: (...args: unknown[]) => startRun(...args),
   promptAgentRuntimeRun: (...args: unknown[]) => promptRun(...args),
   subscribeAgentRuntimeRun: (...args: unknown[]) => subscribeRun(...args),
+  listRuntimeDaemons: (...args: unknown[]) => listDaemons(...args),
+  createRuntimeDaemonPairing: (...args: unknown[]) => createPairing(...args),
+  revokeRuntimeDaemon: (...args: unknown[]) => revokeDaemon(...args),
 }));
 
 afterEach(() => {
   document.body.innerHTML = "";
   vi.clearAllMocks();
+  listDaemons.mockResolvedValue([]);
 });
 
 describe("AgentRuntimePanel", () => {
@@ -49,6 +56,7 @@ describe("AgentRuntimePanel", () => {
         id: "runtime",
         label: "Herdr",
         audience: { kind: "installation" },
+        costBearer: { label: "Instance operator" },
         profiles: [{ id: "default", label: "Default" }],
         health: { connected: false, status: "disconnected" },
       },
@@ -75,6 +83,7 @@ describe("AgentRuntimePanel", () => {
         id: "runtime",
         label: "Herdr",
         audience: { kind: "installation" },
+        costBearer: { label: "Instance operator" },
         profiles: [{ id: "review", label: "Review" }],
         health: { connected: true, status: "connected" },
       },
@@ -126,6 +135,54 @@ describe("AgentRuntimePanel", () => {
     await act(async () => send?.click());
     expect(promptRun).toHaveBeenCalledWith("drawing-1", "opaque-capability", "Continue the review");
     expect(overlay.textContent).toContain("idle · live");
+    await act(async () => root.unmount());
+  });
+
+  it("makes the payer and one-use outbound pairing direction visible without money claims", async () => {
+    getConnections.mockResolvedValue([
+      {
+        id: "daemon:device-1",
+        label: "Alice's laptop",
+        audience: { kind: "user" },
+        costBearer: { label: "Alice" },
+        profiles: [{ id: "codex", label: "Codex CLI" }],
+        health: { connected: true, status: "connected" },
+      },
+    ]);
+    listDaemons.mockResolvedValue([
+      {
+        id: "device-1",
+        label: "Alice's laptop",
+        daemonVersion: "0.16.0",
+        planLabel: "ChatGPT Plus",
+        limits: null,
+        revoked: false,
+        lastSeenAt: "2026-08-30T14:00:00.000Z",
+      },
+    ]);
+    createPairing.mockResolvedValue({
+      pairingCode: "exd_pair_visible_once",
+      expiresAt: "2026-08-30T15:00:00.000Z",
+    });
+    const host = document.createElement("div");
+    const overlay = document.createElement("div");
+    document.body.append(host, overlay);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <AgentRuntimePanel container={overlay} drawingId="drawing-1" open onClose={vi.fn()} />,
+      );
+    });
+    expect(overlay.textContent).toContain("Cost bearerAliceYour paired runtime");
+    expect(overlay.textContent).not.toMatch(/[$€£]|cost estimate/i);
+    const summary = overlay.querySelector("summary");
+    await act(async () => summary?.click());
+    const pairButton = [...overlay.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Create one-use pairing"),
+    );
+    await act(async () => pairButton?.click());
+    expect(overlay.textContent).toContain("exd_pair_visible_once");
+    expect(overlay.textContent).toContain("never opens a connection to your computer");
     await act(async () => root.unmount());
   });
 });

@@ -33,6 +33,35 @@ export type AgentRuntimeRun = {
   capabilities: string[];
 };
 
+export type RuntimeDaemonDevice = {
+  id: string;
+  label: string;
+  daemonVersion: string;
+  planLabel: string | null;
+  limits: Array<{ label: string; value: string }> | null;
+  revoked: boolean;
+  lastSeenAt: string | null;
+};
+
+export const listRuntimeDaemons = async (): Promise<RuntimeDaemonDevice[]> => {
+  const response = await api.get<{ daemons: RuntimeDaemonDevice[] }>("/agent/runtime-daemons");
+  return response.data.daemons;
+};
+
+export const createRuntimeDaemonPairing = async (
+  label: string,
+): Promise<{ pairingCode: string; expiresAt: string }> => {
+  const response = await api.post<{ pairingCode: string; expiresAt: string }>(
+    "/agent/runtime-daemons/pairings",
+    { label },
+  );
+  return response.data;
+};
+
+export const revokeRuntimeDaemon = async (daemonId: string): Promise<void> => {
+  await api.delete(`/agent/runtime-daemons/${daemonId}`);
+};
+
 type AgentRuntimeRunWire = Omit<AgentRuntimeRun, "status"> & { status: unknown };
 
 const parseAgentRuntimeRun = (run: AgentRuntimeRunWire): AgentRuntimeRun => ({

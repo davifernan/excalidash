@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, Loader2, Send, X } from "lucide-react";
+import { Bot, Copy, Laptop, Loader2, Send, Trash2, X } from "lucide-react";
 import {
+  createRuntimeDaemonPairing,
   getAgentRuntimeConnections,
+  listRuntimeDaemons,
   promptAgentRuntimeRun,
+  revokeRuntimeDaemon,
   startAgentRuntimeRun,
   subscribeAgentRuntimeRun,
   type AgentRuntimeConnection,
   type AgentRuntimeRun,
+  type RuntimeDaemonDevice,
 } from "../../api/agentRuntime";
 import { notify } from "../../notifications";
 import "./AgentRuntimePanel.css";
@@ -34,15 +38,23 @@ export const AgentRuntimePanel = ({
   const [prompt, setPrompt] = useState("");
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
   const [streamConnected, setStreamConnected] = useState(false);
+  const [daemons, setDaemons] = useState<RuntimeDaemonDevice[]>([]);
+  const [pairingLabel, setPairingLabel] = useState("My computer");
+  const [pairing, setPairing] = useState<{ pairingCode: string; expiresAt: string } | null>(null);
+  const [refreshRevision, setRefreshRevision] = useState(0);
 
   useEffect(() => {
     if (!open || !drawingId) return;
     let cancelled = false;
     setLoading(true);
-    void getAgentRuntimeConnections(drawingId)
-      .then((next) => {
+    void Promise.all([
+      getAgentRuntimeConnections(drawingId),
+      listRuntimeDaemons().catch(() => [] as RuntimeDaemonDevice[]),
+    ])
+      .then(([next, devices]) => {
         if (cancelled) return;
         setConnections(next);
+        setDaemons(devices);
         const first = next[0];
         setConnectionId((current) => current || first?.id || "");
         setProfileId((current) => current || first?.profiles[0]?.id || "");
@@ -56,7 +68,7 @@ export const AgentRuntimePanel = ({
     return () => {
       cancelled = true;
     };
-  }, [drawingId, open]);
+  }, [drawingId, open, refreshRevision]);
 
   const connection = useMemo(
     () => connections.find((candidate) => candidate.id === connectionId) ?? null,
@@ -123,6 +135,93 @@ export const AgentRuntimePanel = ({
     }
   };
 
+  const createPairing = async () => {
+    if (!pairingLabel.trim()) return;
+    setLoading(true);
+    try {
+      setPairing(await createRuntimeDaemonPairing(pairingLabel.trim()));
+    } catch {
+      notify("error", "The runtime pairing could not be created.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const revokeDaemon = async (daemonId: string) => {
+    try {
+      await revokeRuntimeDaemon(daemonId);
+      setDaemons((current) => current.filter((daemon) => daemon.id !== daemonId));
+      setConnections((current) => current.filter((item) => item.id !== `daemon:${daemonId}`));
+    } catch {
+      notify("error", "The runtime pairing could not be revoked.");
+    }
+  };
+
+  const pairingCommand = pairing
+    ? `excalidash-runtime-daemon pair --server ${window.location.origin} --code ${pairing.pairingCode} --cwd /path/to/workspace`
+    : "";
+
+  const daemonManagement = (
+    <details className="agent-runtime-panel__pairing" open={connections.length === 0}>
+      <summary>
+        <Laptop size={15} /> Pair a computer
+      </summary>
+      <p>
+        The daemon connects outward to this server. ExcaliDash never opens a connection to your
+        computer and never installs updates there.
+      </p>
+      <label>
+        Device label
+        <input
+          value={pairingLabel}
+          onChange={(event) => setPairingLabel(event.target.value)}
+          maxLength={120}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() => void createPairing()}
+        disabled={loading || !pairingLabel.trim()}
+      >
+        Create one-use pairing
+      </button>
+      <button type="button" onClick={() => setRefreshRevision((current) => current + 1)}>
+        Refresh runtimes
+      </button>
+      {pairing ? (
+        <div className="agent-runtime-panel__pairing-code" role="status">
+          <strong>Run before {new Date(pairing.expiresAt).toLocaleTimeString()}</strong>
+          <code>{pairingCommand}</code>
+          <button type="button" onClick={() => void navigator.clipboard.writeText(pairingCommand)}>
+            <Copy size={14} /> Copy command
+          </button>
+        </div>
+      ) : null}
+      {daemons.length > 0 ? (
+        <ul className="agent-runtime-panel__devices">
+          {daemons.map((daemon) => (
+            <li key={daemon.id}>
+              <span>
+                <strong>{daemon.label}</strong>
+                <small>
+                  v{daemon.daemonVersion}
+                  {daemon.planLabel ? ` · ${daemon.planLabel}` : ""}
+                </small>
+              </span>
+              <button
+                type="button"
+                aria-label={`Revoke ${daemon.label}`}
+                onClick={() => void revokeDaemon(daemon.id)}
+              >
+                <Trash2 size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  );
+
   return createPortal(
     <aside
       className="agent-runtime-panel"
@@ -142,9 +241,10 @@ export const AgentRuntimePanel = ({
           <Loader2 className="animate-spin" size={18} /> Connecting…
         </div>
       ) : connections.length === 0 ? (
-        <div className="agent-runtime-panel__empty">
+        <div className="agent-runtime-panel__empty agent-runtime-panel__empty--pairing">
           <strong>Runtime not connected</strong>
           <span>The board remains available. Connect a runtime to start an agent.</span>
+          {daemonManagement}
         </div>
       ) : activeRun ? (
         <div className="agent-runtime-panel__body">
@@ -201,6 +301,13 @@ export const AgentRuntimePanel = ({
               ))}
             </select>
           </label>
+          <div className="agent-runtime-panel__cost">
+            <span>Cost bearer</span>
+            <strong>{connection?.costBearer.label}</strong>
+            <small>
+              {connection?.audience.kind === "user" ? "Your paired runtime" : "Instance runtime"}
+            </small>
+          </div>
           <label>
             Name
             <input
@@ -232,6 +339,7 @@ export const AgentRuntimePanel = ({
               Runtime offline. The canvas is unaffected.
             </small>
           ) : null}
+          {daemonManagement}
         </div>
       )}
     </aside>,
