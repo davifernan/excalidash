@@ -12,10 +12,14 @@
     "docker:build": "docker-compose -f docker-compose.e2e.yml build",
     "docker:test": "docker-compose -f docker-compose.e2e.yml up --abort-on-container-exit --exit-code-from playwright",
     "docker:test:headed": "HEADED=true docker-compose -f docker-compose.e2e.yml up --abort-on-container-exit --exit-code-from playwright",
-    "docker:down": "docker-compose -f docker-compose.e2e.yml down -v"
+    "docker:down": "docker-compose -f docker-compose.e2e.yml down -v",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
-    "@types/node": "^22.15.21"
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.21",
+    "better-sqlite3": "^12.11.1",
+    "typescript": "^5.9.3"
   }
 }
