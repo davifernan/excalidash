@@ -175,10 +175,16 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/soak-nightly-aggregate.cjs
 
+      - name: Fail the aggregate when a required soak part did not pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/soak-required-part-result.cjs --enforce
+
       - name: Comment nightly result (pass or fail) on the tracking issue
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           # Hans-Friedrich finding on #223: this status used to come ONLY
           # from the four part jobs' results, never from whether the
@@ -188,8 +194,10 @@ jobs:
           # tracking issue exists to close. steps.aggregate.outcome is
           # 'failure' whenever that step's script exits non-zero (see its
           # own comment on the evidence PUT), independent of the parts.
+          status="$(node scripts/soak-required-part-result.cjs)"
+          if [ "${{ steps.aggregate.outcome }}" = "failure" ]; then status="failed"; fi
           node scripts/soak-nightly-notify.cjs \
-            --status="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || steps.aggregate.outcome == 'failure') && 'failed' || 'passed' }}" \
+            --status="$status" \
             --summary-file=/tmp/soak-results/summary.md \
             --run-url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
