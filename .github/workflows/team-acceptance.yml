@@ -62,7 +62,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Setup backend database
         run: |
@@ -79,7 +79,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium --with-deps
+          npx --no-install playwright install chromium --with-deps
 
       - name: Start servers and run E2E tests
         run: |
@@ -156,7 +156,7 @@ jobs:
             BASE_URL="http://localhost:6864" \
             E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
             timeout --signal=INT --kill-after=30s --preserve-status 720 \
-            npx playwright test --project=team-acceptance \
+            npx --no-install playwright test --project=team-acceptance \
             || TEST_EXIT_CODE=$?
           cd ..
 

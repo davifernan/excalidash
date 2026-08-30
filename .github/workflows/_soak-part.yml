@@ -71,15 +71,25 @@ jobs:
           node-version: "24"
           cache: "npm"
           cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+            package-lock.json
             e2e/package-lock.json
 
-      - name: Install backend dependencies
-        run: cd backend && npm ci
+      # Root npm ci, not `cd backend && npm ci`: NIL-636's root Workspace
+      # hoisted backend's (and frontend's) dependencies into the repo-root
+      # lockfile and deleted backend/package-lock.json. `cd backend && npm
+      # ci` therefore has no lockfile to install from and produces nothing
+      # usable -- when this later ran `npx prisma generate`, npx found no
+      # locally installed `prisma` binary anywhere resolvable from `backend/`
+      # and silently fetched the newest version from the registry instead
+      # (a `-rc` prerelease with a different CLI), rather than failing
+      # (NIL-636 soak incident). One root install covers backend, frontend,
+      # and packages/domain/ at once, same as test.yml and
+      # team-acceptance.yml already do.
+      - name: Install dependencies
+        run: npm ci
 
       - name: Generate Prisma client
-        run: cd backend && npx prisma generate
+        run: cd backend && npx --no-install prisma generate
 
       - name: Download prior part's DB/asset state
         if: inputs.restore_from_part > 0
@@ -114,14 +124,11 @@ jobs:
         if: inputs.restore_from_part == 0
         run: cd backend && node scripts/provider-prisma.cjs migrate deploy
 
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
-
       - name: Install E2E dependencies
         run: cd e2e && npm ci
 
       - name: Install Playwright browsers
-        run: cd e2e && npx playwright install $(echo "${{ inputs.engines }}" | tr ',' ' ') --with-deps
+        run: cd e2e && npx --no-install playwright install $(echo "${{ inputs.engines }}" | tr ',' ' ') --with-deps
 
       - name: Report memory before starting the soak
         run: free -m
@@ -184,7 +191,7 @@ jobs:
             SOAK_EXISTING_BOARD_ID="${{ inputs.board_id }}" \
             SOAK_SKIP_TEARDOWN="${{ inputs.skip_teardown }}" \
             timeout --signal=INT --kill-after=60s --preserve-status "$TIMEOUT_SECONDS" \
-            npx playwright test --project=soak team-readiness --reporter=line \
+            npx --no-install playwright test --project=soak team-readiness --reporter=line \
             > /tmp/soak-part-${{ inputs.part }}.log 2>&1
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           cat /tmp/soak-part-${{ inputs.part }}.log
