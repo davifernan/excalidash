@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { Root } from "hast";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getDocumentAsset,
@@ -219,7 +220,7 @@ describe("TextDocumentWidget", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel Markdown editing" }));
     expect(cancelLive).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledWith("lock-token");
-    expect(screen.getByRole("heading", { name: "Saved" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Saved" })).toBeVisible();
   });
 
   it("renders a remote live draft for a locked spectator without replacing saved content", async () => {
@@ -535,6 +536,58 @@ describe("TextDocumentWidget", () => {
 
     expect(await screen.findByText("Unable to prepare this document.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Unavailable" })).toBeNull();
+  });
+
+  it("publishes page controls before a slow Markdown rendering worker resolves", async () => {
+    let resolveMarkdown: ((tree: Root) => void) | undefined;
+    renderMarkdownOffThreadMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMarkdown = resolve;
+        }),
+    );
+    const first = `# First page\n\n${"first ".repeat(2_500)}`;
+    const second = `# Second page\n\n${"second ".repeat(2_500)}`;
+    vi.mocked(getDocumentContent).mockResolvedValue(`${first}\n\n${second}`);
+
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Rendering Markdown")).toBeInTheDocument();
+
+    const actual = await vi.importActual<typeof import("./documentMarkdown")>("./documentMarkdown");
+    resolveMarkdown?.(actual.prepareMarkdownForRender(first));
+    expect(await screen.findByRole("heading", { name: "First page" })).toBeInTheDocument();
+  });
+
+  it("shows the Markdown worker failure after page controls are available", async () => {
+    renderMarkdownOffThreadMock.mockRejectedValueOnce(new Error("worker crashed"));
+    const first = `# Unavailable\n\n${"first ".repeat(2_500)}`;
+    const second = `# Second page\n\n${"second ".repeat(2_500)}`;
+    vi.mocked(getDocumentContent).mockResolvedValue(`${first}\n\n${second}`);
+
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
+    expect(await screen.findByText("Unable to render this page.")).toBeInTheDocument();
   });
 
   it("shows the correct page count and changes the rendered source when paging", async () => {
