@@ -140,7 +140,9 @@ test.describe("ambient tree drag", () => {
     await drawBoundArrow(page, root, b);
 
     const before = await rectangles(page);
-    const beforeById = new Map(before.map((r: any) => [r.id, { x: r.x, y: r.y }]));
+    const beforeById = new Map<string, { x: any; y: any }>(
+      before.map((r: any) => [r.id, { x: r.x, y: r.y }]),
+    );
     // The A -> A1 arrow: wholly INSIDE the translated subtree, neither end
     // is the natively-dragged root.
     const internalArrowBefore = (await arrows(page)).find(
@@ -255,7 +257,9 @@ test.describe("ambient tree drag", () => {
     await drawBoundArrow(page, no, end);
 
     const before = await rectangles(page);
-    const beforeById = new Map(before.map((r: any) => [r.id, { x: r.x, y: r.y }]));
+    const beforeById = new Map<string, { x: any; y: any }>(
+      before.map((r: any) => [r.id, { x: r.x, y: r.y }]),
+    );
 
     await dragShapeByBorder(
       page,
@@ -294,7 +298,9 @@ test.describe("ambient tree drag", () => {
     await drawBoundArrow(page, c, a); // closes the cycle
 
     const before = await rectangles(page);
-    const beforeById = new Map(before.map((r: any) => [r.id, { x: r.x, y: r.y }]));
+    const beforeById = new Map<string, { x: any; y: any }>(
+      before.map((r: any) => [r.id, { x: r.x, y: r.y }]),
+    );
 
     await dragShapeByBorder(
       page,

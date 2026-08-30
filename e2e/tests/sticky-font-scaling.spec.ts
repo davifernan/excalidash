@@ -252,8 +252,8 @@ test.describe("sticky note font scaling (NIL-630)", () => {
       .click({ position: { x: 1000, y: 550 } });
 
     const measured = (await labels(page))
-      .map((label) => label.fontSize)
-      .sort((left, right) => right - left);
+      .map((label: any) => label.fontSize)
+      .sort((left: number, right: number) => right - left);
     expect(measured[0]).toBeGreaterThan(40);
     expect(measured[1]).toBeLessThan(10);
     console.log(`NIL630_VISUAL_FONTS=${JSON.stringify(measured)}`);

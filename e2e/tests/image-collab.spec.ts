@@ -462,7 +462,15 @@ test.describe("Issue #25 - image sync + deletion across tabs", () => {
 
       const recalculatedDeltaKeys = await page1.evaluate(
         async ({ baselineFile, fileId }) => {
-          const { getFilesDelta } = await import("/src/pages/editor/shared.ts");
+          // NIL-696: runs INSIDE the browser page (via `page.evaluate`),
+          // resolved by the frontend's own Vite dev server as a URL -- not
+          // by Node or by `tsc`'s module resolution relative to `e2e/`. No
+          // repo-relative path makes `tsc` see this correctly; the absolute
+          // `/src/...` form is what the running page actually serves. Held
+          // in a variable (not inlined) so `tsc` cannot statically resolve
+          // -- and therefore cannot flag -- the specifier.
+          const sharedModulePath = "/src/pages/editor/shared.ts";
+          const { getFilesDelta } = await import(sharedModulePath);
           const api = (window as any).__EXCALIDASH_TEST__;
           return Object.keys(getFilesDelta({ [fileId]: baselineFile }, api.getFiles?.() || {}));
         },

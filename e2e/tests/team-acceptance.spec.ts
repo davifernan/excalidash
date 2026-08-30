@@ -340,11 +340,12 @@ test.describe("M0 acceptance: guardrails hold together under combined pressure (
         await expectPeerFile(guestA, okImage, "2 MB file on guestA");
         await expectPeerFile(guestB, okImage, "2 MB file on guestB");
 
-        for (const [imageIndex, [label, targetBytes]] of [
+        const oversizedCases: Array<[string, number]> = [
           ["14 MB", 14 * 1024 * 1024],
           ["15 MB", 15 * 1024 * 1024],
           ["above the transport ceiling (20 MB)", 20 * 1024 * 1024],
-        ].entries()) {
+        ];
+        for (const [imageIndex, [label, targetBytes]] of oversizedCases.entries()) {
           const position = { x: 80 + imageIndex * 180, y: 120 };
           const oversized = await injectNoiseImage(host, {
             withHash: true,

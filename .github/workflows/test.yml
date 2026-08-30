@@ -139,6 +139,39 @@ jobs:
       - name: Typecheck backend
         run: npm run typecheck --prefix backend
 
+  e2e-typecheck:
+    name: E2E Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install e2e dependencies
+        run: npm ci --prefix e2e
+
+      # Plain `tsc --noEmit`, not `tsc -b`: `e2e/tsconfig.json` has no
+      # `references`/`composite` project setup (a single flat project), so
+      # there is no project-references graph for `-b` to resolve that `-p`
+      # would silently skip -- the trap that made `tsc -p tsconfig.json` on
+      # #263 report green on a project it wasn't actually checking. `-b` is
+      # only needed where composite references exist; using it here would
+      # add nothing but confusion for the next reader wondering why.
+      #
+      # Playwright transpiles specs at runtime (esbuild) rather than
+      # type-checking them, so a spec with a genuine type error can pass its
+      # test run and still merge to `main` unnoticed -- this job is the only
+      # place that type-level regression is ever caught (NIL-696).
+      - name: Typecheck e2e
+        run: npm run typecheck --prefix e2e
+
   authz-boundary:
     name: Authz Boundary
     runs-on: ubuntu-latest

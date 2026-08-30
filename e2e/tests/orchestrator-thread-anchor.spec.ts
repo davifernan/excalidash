@@ -177,7 +177,8 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
 
     await expect
       .poll(
-        async () => (await scene(page)).filter((element) => element.type === "rectangle").length,
+        async () =>
+          (await scene(page)).filter((element: any) => element.type === "rectangle").length,
       )
       .toBe(1);
     await expect(invitation).toHaveCount(0);
