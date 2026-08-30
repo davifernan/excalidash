@@ -46,11 +46,12 @@ const makeAdapter = (
   root: HTMLElement,
   elements: ElementSummary[],
   apply: (ops: readonly SceneOp[]) => void = () => {},
+  subscribe: (listener: () => void) => () => void = () => () => {},
 ): ExcalidrawAdapter =>
   ({
     scene: {
       summaries: () => ok(elements),
-      subscribe: () => () => {},
+      subscribe,
       apply: (ops: readonly SceneOp[]) => {
         apply(ops);
         return ok(undefined);
@@ -71,7 +72,9 @@ const Harness: React.FC<{
   adapter: ExcalidrawAdapter;
   canEdit?: boolean;
   isReady?: boolean;
-}> = ({ adapter, canEdit = true, isReady = true }) => {
+  onRender?: () => void;
+}> = ({ adapter, canEdit = true, isReady = true, onRender }) => {
+  onRender?.();
   const { orchestratorThreadOverlay, createThread } = useOrchestratorThreadFeature({
     adapter,
     canEdit,
@@ -183,5 +186,37 @@ describe("useOrchestratorThreadFeature", () => {
         }),
     );
     expect(screen.queryByTestId("orchestrator-thread-invitation")).toBeNull();
+  });
+
+  it("does not rerender an unchanged thread surface for unrelated scene changes", async () => {
+    const ordinaryElement = {
+      ...persistedAnchor(),
+      id: "ordinary-element" as ElementId,
+      customData: null,
+    };
+    let sceneChanged: () => void = () => {};
+    const adapter = makeAdapter(root, [ordinaryElement], undefined, (listener) => {
+      sceneChanged = listener;
+      return () => {};
+    });
+    const renders = vi.fn();
+    render(<Harness adapter={adapter} onRender={renders} />);
+
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    const settledRenderCount = renders.mock.calls.length;
+
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          sceneChanged();
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    expect(renders).toHaveBeenCalledTimes(settledRenderCount);
   });
 });

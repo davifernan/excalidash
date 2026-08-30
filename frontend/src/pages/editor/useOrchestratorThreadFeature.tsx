@@ -65,6 +65,63 @@ const emptySurface: OrchestratorThreadSurface = {
   backpressure: { blocked: false, occupiedRatio: 0, message: null },
 };
 
+const sameRect = (left: ScreenRect, right: ScreenRect) =>
+  left.left === right.left &&
+  left.top === right.top &&
+  left.right === right.right &&
+  left.bottom === right.bottom;
+
+const sameStrings = (left: readonly string[], right: readonly string[]) =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
+
+const sameAnchor = (left: ProjectedThreadAnchor, right: ProjectedThreadAnchor) =>
+  left.threadId === right.threadId &&
+  left.elementId === right.elementId &&
+  left.title === right.title &&
+  sameRect(left.rect, right.rect);
+
+/**
+ * Excalidraw's scene event fires for every editor change, including document
+ * pagination and drawing gestures that do not alter a thread surface. Keep
+ * that subscription broad enough to discover a newly inserted Board Card,
+ * but do not turn each unrelated event into another React render.
+ */
+const sameSurface = (left: OrchestratorThreadSurface, right: OrchestratorThreadSurface) =>
+  left.showInvitation === right.showInvitation &&
+  left.anchors.length === right.anchors.length &&
+  left.anchors.every((anchor, index) => sameAnchor(anchor, right.anchors[index]!)) &&
+  left.clusters.length === right.clusters.length &&
+  left.clusters.every((cluster, index) => {
+    const candidate = right.clusters[index]!;
+    return (
+      cluster.id === candidate.id &&
+      sameStrings(cluster.memberThreadIds, candidate.memberThreadIds) &&
+      sameRect(cluster.rect, candidate.rect)
+    );
+  }) &&
+  left.offscreenLocators.length === right.offscreenLocators.length &&
+  left.offscreenLocators.every((locator, index) => {
+    const candidate = right.offscreenLocators[index]!;
+    return (
+      locator.id === candidate.id &&
+      locator.direction === candidate.direction &&
+      sameStrings(locator.memberThreadIds, candidate.memberThreadIds) &&
+      locator.left === candidate.left &&
+      locator.top === candidate.top
+    );
+  }) &&
+  (left.active === null
+    ? right.active === null
+    : right.active !== null &&
+      sameAnchor(left.active.anchor, right.active.anchor) &&
+      left.active.placement.mode === right.active.placement.mode &&
+      sameRect(left.active.placement.panelRect, right.active.placement.panelRect) &&
+      left.active.placement.direction === right.active.placement.direction &&
+      left.active.placement.distance === right.active.placement.distance) &&
+  left.backpressure.blocked === right.backpressure.blocked &&
+  left.backpressure.occupiedRatio === right.backpressure.occupiedRatio &&
+  left.backpressure.message === right.backpressure.message;
+
 /**
  * Shared state is the Board Card itself. The one-open-panel choice, cluster
  * expansion and dock/anchor stage are intentionally local view state: sharing
@@ -155,7 +212,7 @@ export const useOrchestratorThreadFeature = ({
       const closedAnchors = activeAnchor
         ? anchors.filter((item) => item.threadId !== activeAnchor.threadId)
         : anchors;
-      setSurface({
+      const nextSurface: OrchestratorThreadSurface = {
         anchors,
         clusters: clusterThreadAnchors(
           closedAnchors.filter((item) => !isThreadAnchorOffscreen(item, viewport.value)),
@@ -167,7 +224,8 @@ export const useOrchestratorThreadFeature = ({
         showInvitation: canEdit && !hasBoardContent,
         active,
         backpressure: computeCoordinationBackpressure(anchors, viewport.value),
-      });
+      };
+      setSurface((current) => (sameSurface(current, nextSurface) ? current : nextSurface));
     };
     const schedule = () => {
       if (raf !== null) return;
