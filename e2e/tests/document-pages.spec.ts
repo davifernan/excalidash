@@ -307,3 +307,26 @@ test("a collaborator stays responsive while a pathological 2 MiB document is pag
       `${RESPONSIVENESS_TRIALS}: ${JSON.stringify(trials)}`,
   ).toBe(true);
 });
+
+test("motion evidence: a 2 MiB Markdown document renders without freezing the board", async ({
+  page,
+  request,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "motion-evidence", "Evidence-only focused browser capture");
+  const drawing = await createDrawing(request, { name: "Responsive Markdown evidence" });
+  try {
+    await openEditor(page, drawing.id);
+    await startResponsivenessProbe(page);
+    await dropMarkdown(page, PATHOLOGICAL_MARKDOWN, "pathological-newlines.md");
+    await expect(page.locator(".text-document-widget__markdown-content")).toBeVisible({
+      timeout: 30_000,
+    });
+    const measurement = await finishResponsivenessProbe(page);
+    await activateWidget(page);
+    await expect(pageLabel(page)).toContainText("Page 1 of", { timeout: 30_000 });
+    expect(measurement.p95GapMs).toBeLessThan(MAX_P95_GAP_MS);
+    expect(measurement.maxGapMs).toBeLessThan(300);
+  } finally {
+    await deleteDrawing(request, drawing.id);
+  }
+});
