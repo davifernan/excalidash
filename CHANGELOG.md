@@ -70,8 +70,9 @@ together they answer one question: what may an agent see, and who decides that.
   compute provider.
 - **Switch to AGPL.** Open decision, not yet taken. Concerns adopting AI functionality from
   the AGPL-licensed `origin/alpha`; no effect on this release while undecided.
-- **Shared workspace pagination.** Still held back. A controlled measurement under Node 24
-  shows a real, statistically clear slowdown against `main` in both Chromium and WebKit.
+- **Shared workspace pagination.** Still held back. The change spans 39 files, several of them
+  in the build and test toolchain, and a measured slowdown against `main` has not been
+  explained yet. It needs splitting into separately reviewable parts before it can land.
 
 ## v0.14.0 -- 2026-08-29
 
