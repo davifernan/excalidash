@@ -3,10 +3,10 @@
   "entry": [
     "src/**/*.{test,spec}.{ts,tsx}"
   ],
-  "ignoreDependencies": ["decode-named-character-reference"],
   "ignore": ["public/runtime-config.js"],
   "ignoreDependencies": [
     "@excalidash/domain",
+    "decode-named-character-reference",
     "eslint",
     "happy-dom",
     "prettier"
