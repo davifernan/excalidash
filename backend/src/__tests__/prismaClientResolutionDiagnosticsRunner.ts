@@ -45,16 +45,25 @@ const isGeneratedClientPackageConfigError = (error: unknown) => {
 };
 
 const readPackageJsonSnapshot = () => {
+  const capturedAt = new Date().toISOString();
+  const capturedAtHrtimeNs = process.hrtime.bigint().toString();
   try {
     const raw = fs.readFileSync(packageJsonPath);
     return {
+      capturedAt,
+      capturedAtHrtimeNs,
       path: packageJsonPath,
       bytes: raw.byteLength,
       sha256: createHash("sha256").update(raw).digest("hex"),
       utf8: raw.toString("utf8"),
     };
   } catch (error) {
-    return { path: packageJsonPath, readError: errorDetails(error) };
+    return {
+      capturedAt,
+      capturedAtHrtimeNs,
+      path: packageJsonPath,
+      readError: errorDetails(error),
+    };
   }
 };
 
@@ -81,6 +90,7 @@ const writeDiagnostic = (
   filepath: string,
   source: VitestRunnerImportSource,
   importAttempt: number,
+  packageJsonBeforeImport: ReturnType<typeof readPackageJsonSnapshot>,
 ) => {
   if (!diagnosticDirectory) return;
 
@@ -99,7 +109,14 @@ const writeDiagnostic = (
       },
       failingImport: { filepath, source, suiteImportAttempt: importAttempt },
       error: errorDetails(error),
-      packageJson: readPackageJsonSnapshot(),
+      // The before/after pair brackets the import that failed. A changed pair
+      // is evidence of a transient write; an unchanged pair does not prove a
+      // cache cause, but rules out a persistent on-disk difference at either
+      // observation point.
+      packageJson: {
+        beforeImport: packageJsonBeforeImport,
+        afterImport: readPackageJsonSnapshot(),
+      },
       // The integrity marker is the primary reference: it proves this exact
       // file parsed after generation and before Vitest began importing suites.
       // Keep the generation marker too, so a future failure still shows both
@@ -127,11 +144,15 @@ export default class PrismaClientResolutionDiagnosticsRunner extends TestRunner 
     // This is deliberately a suite-import ordinal, not a claim about how many
     // internal Node resolutions the Vite module runner performed.
     const importAttempt = source === "collect" ? ++suiteImportAttempt : suiteImportAttempt;
+    // Retain a small in-memory snapshot only. It produces neither an artifact
+    // nor output in green runs, but lets a failing import be compared with the
+    // file that existed immediately before that import began.
+    const packageJsonBeforeImport = readPackageJsonSnapshot();
     try {
       return await super.importFile(filepath, source);
     } catch (error) {
       if (isGeneratedClientPackageConfigError(error)) {
-        writeDiagnostic(error, filepath, source, importAttempt);
+        writeDiagnostic(error, filepath, source, importAttempt, packageJsonBeforeImport);
       }
       throw error;
     }

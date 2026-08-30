@@ -2,8 +2,8 @@
 /**
  * NIL-703 red proof: corrupt the generated package.json by file copy, then
  * run a real Vitest suite import. The custom runner must capture the failing
- * fork's PID/worker, precise timestamp, package bytes/hash/content, and the
- * marker written immediately after `prisma generate`.
+ * fork's PID/worker, precise timestamp, package bytes/hash/content before and
+ * after import, and the generation and passed-integrity markers.
  */
 
 const assert = require("node:assert/strict");
@@ -81,9 +81,16 @@ try {
   assert.equal(typeof diagnostic.failingProcess.workerId, "string");
   assert.equal(diagnostic.failingImport.suiteImportAttempt, 1);
   const invalidPackageBytes = fs.readFileSync(invalidPackageFixture);
-  assert.equal(diagnostic.packageJson.bytes, invalidPackageBytes.byteLength);
-  assert.equal(diagnostic.packageJson.utf8, invalidPackageBytes.toString("utf8"));
-  assert.match(diagnostic.packageJson.sha256, /^[a-f0-9]{64}$/);
+  for (const snapshot of [
+    diagnostic.packageJson.beforeImport,
+    diagnostic.packageJson.afterImport,
+  ]) {
+    assert.equal(typeof snapshot.capturedAt, "string");
+    assert.equal(typeof snapshot.capturedAtHrtimeNs, "string");
+    assert.equal(snapshot.bytes, invalidPackageBytes.byteLength);
+    assert.equal(snapshot.utf8, invalidPackageBytes.toString("utf8"));
+    assert.match(snapshot.sha256, /^[a-f0-9]{64}$/);
+  }
   assert.equal(
     diagnostic.prismaClientIntegrityVerified.value.finishedAt,
     "2026-08-30T10:08:11.456Z",
@@ -94,7 +101,8 @@ try {
   console.log(
     `red probe captured PID ${diagnostic.failingProcess.pid}, worker ${diagnostic.failingProcess.workerId}, ` +
       `timestamp ${diagnostic.capturedAt}, suite import ${diagnostic.failingImport.suiteImportAttempt}, ` +
-      `${diagnostic.packageJson.bytes} package bytes, integrity marker ${diagnostic.prismaClientIntegrityVerified.value.finishedAt}, ` +
+      `${diagnostic.packageJson.beforeImport.bytes}/${diagnostic.packageJson.afterImport.bytes} package bytes before/after import, ` +
+      `integrity marker ${diagnostic.prismaClientIntegrityVerified.value.finishedAt}, ` +
       `and prisma marker ${diagnostic.prismaGenerateFinished.value.finishedAt}`,
   );
 } finally {
