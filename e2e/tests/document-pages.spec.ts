@@ -113,18 +113,19 @@ const finishResponsivenessProbe = (page: Page) =>
  * 80 ms is deliberately above that measured local spread, yet a sustained
  * main-thread regression still lifts p95 beyond it on every trial. A separate
  * 800 ms maximum stays above the observed Chromium and Firefox runner
- * outliers but catches a single user-visible main-thread freeze. WebKit gets
- * 1,200 ms: CI measured two reproducible 905/907 ms gaps while six local
- * WebKit trials ranged from 327 to 475 ms. NIL-702 investigates that gap; the
- * wider WebKit ceiling is not evidence that a 905 ms gap is healthy.
- * Consequently, a real freeze below its engine's ceiling remains
- * indistinguishable from runner noise; a green result does not rule it out.
+ * outliers but catches a single user-visible main-thread freeze. NIL-702
+ * removed WebKit's synchronous Markdown parse from the page commit: six
+ * quiet-host trials then measured maximum gaps of 74-140 ms, while the
+ * original implementation measured 387-684 ms locally and 905/907 ms in CI.
+ * A 300 ms WebKit ceiling leaves more than 2x headroom over the repaired
+ * maximum while rejecting every one of the 371-637 ms pre-fix local samples
+ * as well as the original user-visible CI freeze.
  */
 const MAX_P95_GAP_MS = 80;
 const MAX_FREEZE_GAP_MS_BY_ENGINE = {
   chromium: 800,
   firefox: 800,
-  webkit: 1200,
+  webkit: 300,
 } as const;
 
 const maxFreezeGapMsForEngine = (engine: string): number => {
@@ -157,7 +158,10 @@ const runResponsivenessTrial = async (
     await startResponsivenessProbe(guestPage);
     await dropMarkdown(hostPage, PATHOLOGICAL_MARKDOWN, "pathological-newlines.md");
     await expect(guestPage.locator(".text-document-widget")).toHaveCount(1, { timeout: 30_000 });
-    await expect(guestPage.locator(".text-document-widget__markdown")).toBeVisible({
+    // The wrapper appears as soon as pagination commits. Wait for the actual
+    // Markdown body so moving parse work behind that wrapper cannot make this
+    // responsiveness test finish before the product result exists.
+    await expect(guestPage.locator(".text-document-widget__markdown-content")).toBeVisible({
       timeout: 30_000,
     });
     const measurement = await finishResponsivenessProbe(guestPage);
@@ -234,18 +238,21 @@ test.describe("responsiveness budget: two of three trials, not one absolute samp
     expect(shouldRunAnotherResponsivenessTrial([freeze], 0, 1, 800)).toBe(false);
   });
 
-  test("allows the measured CI WebKit gap but still rejects a larger WebKit freeze", () => {
-    const ciWebKitGap: ResponsivenessTrial[] = [
+  test("rejects the original WebKit freeze and accepts the repaired measurements", () => {
+    const originalCiWebKitGap: ResponsivenessTrial[] = [
       { samples: 272, p95GapMs: 46, maxGapMs: 907 },
       { samples: 254, p95GapMs: 39, maxGapMs: 905 },
     ];
-    expect(passesResponsivenessBudget(ciWebKitGap, maxFreezeGapMsForEngine("webkit"))).toBe(true);
-    expect(
-      passesResponsivenessBudget(
-        [{ samples: 250, p95GapMs: 40, maxGapMs: 1_300 }, ...ciWebKitGap],
-        maxFreezeGapMsForEngine("webkit"),
-      ),
-    ).toBe(false);
+    const repairedWebKitGap: ResponsivenessTrial[] = [
+      { samples: 272, p95GapMs: 46, maxGapMs: 140 },
+      { samples: 254, p95GapMs: 39, maxGapMs: 124 },
+    ];
+    expect(passesResponsivenessBudget(originalCiWebKitGap, maxFreezeGapMsForEngine("webkit"))).toBe(
+      false,
+    );
+    expect(passesResponsivenessBudget(repairedWebKitGap, maxFreezeGapMsForEngine("webkit"))).toBe(
+      true,
+    );
   });
 
   test("goes red on a genuine regression that blocks every trial, not just one", () => {
