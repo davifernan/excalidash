@@ -156,7 +156,6 @@ describe("AgentRuntimePanel", () => {
         daemonVersion: "0.16.0",
         planLabel: "ChatGPT Plus",
         limits: [{ label: "Daily limit", value: "Provider managed" }],
-        revoked: false,
         lastSeenAt: "2026-08-30T14:00:00.000Z",
       },
     ]);
@@ -213,7 +212,6 @@ describe("AgentRuntimePanel", () => {
         daemonVersion: "0.16.0",
         planLabel: "ChatGPT Plus",
         limits: [{ label: "Plan limit", value: "Provider managed" }],
-        revoked: false,
         lastSeenAt: "2026-08-30T14:00:00.000Z",
       },
     ]);

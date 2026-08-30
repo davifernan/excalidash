@@ -128,6 +128,7 @@ describe("outbound runtime daemon public protocol (NIL-706)", () => {
     expect(broker.listConnections("another-user")).toEqual([]);
     const adapter = new OutboundRuntimeDaemonAdapter(broker);
     const started = adapter.start(connectionA!, {
+      assignmentId: "assignment-fenced",
       profileId: "codex",
       displayName: "Board agent",
       runId: "run-fenced",
@@ -200,6 +201,14 @@ describe("outbound runtime daemon public protocol (NIL-706)", () => {
     expect(broker.resolve(`daemon:${paired.body.daemonId}`, userId)).not.toBeNull();
     await request(app).delete(`/agent/runtime-daemons/${paired.body.daemonId}`).expect(204);
     expect(broker.resolve(`daemon:${paired.body.daemonId}`, userId)).toBeNull();
+    await request(app)
+      .get("/agent/runtime-daemons")
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body.daemons.map((daemon: { id: string }) => daemon.id)).not.toContain(
+          paired.body.daemonId,
+        ),
+      );
     await request(app)
       .post("/agent/runtime-daemons/commands/next")
       .set("authorization", `Bearer ${paired.body.credential}`)

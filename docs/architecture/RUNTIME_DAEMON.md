@@ -33,6 +33,11 @@ again. A delivered start that loses its acknowledgement is therefore not retried
 DispatchReceipt deadline turns that uncertainty into `outcome_unknown`; silence never becomes
 success.
 
+Before local execution, the daemon durably claims the stable server assignment id. A repeated
+delivery with a new command id cannot invoke the executor twice and cannot replay a stale success:
+it is treated as unknown and fails closed. Absence of outcome evidence is never permission to
+repeat paid work.
+
 Network loss stops every local executor owned by that daemon session before the daemon reconnects
 with a new epoch. This keeps paid work inside the server-authoritative assignment lifecycle rather
 than allowing it to continue invisibly. HTTP requests have a 40-second absolute deadline, and an

@@ -39,7 +39,6 @@ export type RuntimeDaemonDevice = {
   daemonVersion: string;
   planLabel: string | null;
   limits: Array<{ label: string; value: string }> | null;
-  revoked: boolean;
   lastSeenAt: string | null;
 };
 

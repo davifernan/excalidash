@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 export const RUNTIME_DAEMON_PROTOCOL_VERSION = 1 as const;
-export const RUNTIME_DAEMON_MAX_COMMAND_BYTES = 64 * 1024;
 
 export const runtimeDaemonProfileSchema = z.object({
   id: z.string().trim().min(1).max(128),
@@ -22,6 +21,7 @@ export const runtimeDaemonCommandSchema = z.discriminatedUnion("kind", [
     commandId: z.string().uuid(),
     kind: z.literal("start"),
     payload: z.object({
+      assignmentId: z.string().min(1).max(128),
       profileId: z.string().min(1).max(128),
       displayName: z.string().min(1).max(80),
       initialPrompt: z.string().max(20_000).optional(),

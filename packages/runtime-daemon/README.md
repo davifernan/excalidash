@@ -23,6 +23,7 @@ node packages/runtime-daemon/dist/cli.js run
 ```
 
 The daemon uses Codex CLI's documented `app-server` interface. It has no self-updater and stores
-the device credential under `~/.config/excalidash-runtime-daemon/` with owner-only permissions. See
+the device credential plus its assignment-deduplication journal under
+`~/.config/excalidash-runtime-daemon/` with owner-only permissions. See
 [`../../docs/architecture/RUNTIME_DAEMON.md`](../../docs/architecture/RUNTIME_DAEMON.md) for the
 security and lifecycle contract.

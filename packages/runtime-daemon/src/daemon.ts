@@ -1,3 +1,5 @@
+import { chmod, mkdir, open, readFile, rename } from "node:fs/promises";
+import path from "node:path";
 import {
   runtimeDaemonCommandSchema,
   type RuntimeDaemonCommand,
@@ -46,27 +48,42 @@ const reconnectDelay = (milliseconds: number, signal?: AbortSignal): Promise<voi
     signal?.addEventListener("abort", finish, { once: true });
   });
 
+type RuntimeExecutor = Pick<CodexAppServerExecutor, "start" | "prompt" | "status" | "stopAll">;
+const parseJournalEntry = (value: unknown): true => {
+  if (!value || typeof value !== "object") throw new Error("invalid journal entry");
+  if ((value as { state?: unknown }).state === "claimed") return true;
+  throw new Error("invalid journal entry");
+};
+
 export class RuntimeDaemon {
+  readonly #journalPath: string;
+  readonly #journal = new Set<string>();
   #epoch = 0;
-  readonly #executor: CodexAppServerExecutor;
+  readonly #executor: RuntimeExecutor;
 
   constructor(
     private readonly config: DaemonConfig,
+    stateDirectory: string,
     private readonly waitBeforeReconnect: typeof reconnectDelay = reconnectDelay,
+    executor?: RuntimeExecutor,
   ) {
-    this.#executor = new CodexAppServerExecutor(
-      config.profiles.map(({ id, label, workingDirectory, executable }) => ({
-        id,
-        label,
-        workingDirectory,
-        executable,
-      })),
-      (event) => this.#sendStatus(event),
-      config.serverUrl,
-    );
+    this.#journalPath = path.join(stateDirectory, "assignment-journal.json");
+    this.#executor =
+      executor ??
+      new CodexAppServerExecutor(
+        config.profiles.map(({ id, label, workingDirectory, executable }) => ({
+          id,
+          label,
+          workingDirectory,
+          executable,
+        })),
+        (event) => this.#sendStatus(event),
+        config.serverUrl,
+      );
   }
 
   async run(signal?: AbortSignal): Promise<void> {
+    await this.#loadJournal();
     let retryDelayMs = 1_000;
     while (!signal?.aborted) {
       try {
@@ -106,8 +123,18 @@ export class RuntimeDaemon {
 
   async #handle(command: RuntimeDaemonCommand): Promise<void> {
     let result: RuntimeDaemonCommandResult;
-    if (command.kind === "start") result = await this.#executor.start(command.payload);
-    else if (command.kind === "prompt") {
+    if (command.kind === "start") {
+      if (this.#journal.has(command.payload.assignmentId)) {
+        // The durable claim proves that this assignment may already have
+        // crossed the foreign execution boundary. Never turn missing outcome
+        // evidence into permission to start it again.
+        result = { ok: false, code: "REQUEST_FAILED" };
+      } else {
+        this.#journal.add(command.payload.assignmentId);
+        await this.#saveJournal();
+        result = await this.#executor.start(command.payload);
+      }
+    } else if (command.kind === "prompt") {
       result = await this.#executor.prompt(command.payload.runtimeHandle, command.payload.text);
     } else result = this.#executor.status(command.payload.runtimeHandle);
     await request(
@@ -129,5 +156,43 @@ export class RuntimeDaemon {
       this.config.credential,
       { kind: "status", epoch: this.#epoch, event },
     );
+  }
+
+  async #loadJournal(): Promise<void> {
+    this.#journal.clear();
+    try {
+      const parsed = JSON.parse(await readFile(this.#journalPath, "utf8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("invalid journal root");
+      }
+      for (const [assignmentId, rawEntry] of Object.entries(parsed)) {
+        parseJournalEntry(rawEntry);
+        this.#journal.add(assignmentId);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      // A corrupt journal removes the proof that an assignment was not
+      // already started. Fail closed without echoing stored content.
+      throw new Error("Runtime daemon assignment journal is unreadable");
+    }
+  }
+
+  async #saveJournal(): Promise<void> {
+    const directoryPath = path.dirname(this.#journalPath);
+    await mkdir(directoryPath, { recursive: true, mode: 0o700 });
+    await chmod(directoryPath, 0o700);
+    const temporary = `${this.#journalPath}.tmp`;
+    const entries = [...this.#journal].map((assignmentId) => [assignmentId, { state: "claimed" }]);
+    const file = await open(temporary, "w", 0o600);
+    try {
+      // `mode` only applies when a file is first created. chmod before writing
+      // also protects against a stale temporary file left by a prior crash.
+      await file.chmod(0o600);
+      await file.writeFile(JSON.stringify(Object.fromEntries(entries)));
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, this.#journalPath);
   }
 }

@@ -16,7 +16,13 @@ import type { AgentRuntimeConnectionSource } from "./registry";
 import type { AuthenticatedRuntimeDaemon } from "./runtimeDaemonService";
 
 const CONNECTION_STALE_MS = 45_000;
-const COMMAND_DEADLINE_MS = 15_000;
+const COMMAND_ACCEPT_DEADLINE_MS = 15_000;
+// Codex start may make three sequential 10-second app-server requests
+// (initialize, thread/start, optional turn/start). Start this result deadline
+// only after delivery and keep it above that valid execution budget while
+// still below the 45-second session
+// liveness boundary, so a healthy cold start is not reported as failed.
+const COMMAND_RESULT_DEADLINE_MS = 40_000;
 const LONG_POLL_MS = 25_000;
 
 type Session = {
@@ -34,7 +40,7 @@ type PendingCommand = {
   delivered: boolean;
   resolve: (result: RuntimeDaemonCommandResult) => void;
   reject: (error: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | null;
 };
 
 type RuntimeBinding = {
@@ -91,9 +97,11 @@ export class RuntimeDaemonBroker implements AgentRuntimeConnectionSource {
   }
 
   #rejectEpoch(daemonId: string, epoch: number): void {
+    const session = this.#sessions.get(daemonId);
+    if (session?.epoch === epoch) session.queue.length = 0;
     for (const [commandId, pending] of this.#pending) {
       if (pending.daemonId !== daemonId || pending.epoch !== epoch) continue;
-      clearTimeout(pending.timer);
+      if (pending.timer) clearTimeout(pending.timer);
       this.#pending.delete(commandId);
       pending.reject(
         new AgentRuntimeError(
@@ -118,6 +126,38 @@ export class RuntimeDaemonBroker implements AgentRuntimeConnectionSource {
     if (!session || (epoch !== undefined && session.epoch !== epoch)) return null;
     if (Date.now() - session.lastActivityAt > CONNECTION_STALE_MS) return null;
     return session;
+  }
+
+  #expire(pending: PendingCommand): void {
+    if (this.#pending.get(pending.command.commandId) !== pending) return;
+    this.#pending.delete(pending.command.commandId);
+    const session = this.#sessions.get(pending.daemonId);
+    if (session?.epoch === pending.epoch) {
+      const queuedIndex = session.queue.findIndex(
+        (queuedCommand) => queuedCommand.commandId === pending.command.commandId,
+      );
+      if (queuedIndex >= 0) session.queue.splice(queuedIndex, 1);
+    }
+    pending.reject(
+      new AgentRuntimeError(
+        pending.delivered ? "RUNTIME_REQUEST_FAILED" : "RUNTIME_NOT_CONNECTED",
+        pending.delivered
+          ? "The runtime did not acknowledge the request before its deadline."
+          : "The runtime daemon did not accept the request.",
+      ),
+    );
+  }
+
+  #setDeadline(pending: PendingCommand, delayMs: number): void {
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.timer = setTimeout(() => this.#expire(pending), delayMs);
+    pending.timer.unref();
+  }
+
+  #markDelivered(pending: PendingCommand): void {
+    if (pending.delivered) return;
+    pending.delivered = true;
+    this.#setDeadline(pending, COMMAND_RESULT_DEADLINE_MS);
   }
 
   listConnections(userId: string): AgentRuntimeConnection[] {
@@ -168,10 +208,14 @@ export class RuntimeDaemonBroker implements AgentRuntimeConnectionSource {
       throw new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "The daemon session is fenced.");
     }
     session.lastActivityAt = Date.now();
-    const queued = session.queue.shift();
+    let queued = session.queue.shift();
+    // A queue entry is deliverable only while its pending record still proves
+    // that the caller is waiting for this exact device epoch. This is a second
+    // fence behind timeout/revocation cleanup, not a substitute for it.
+    while (queued && !this.#pending.has(queued.commandId)) queued = session.queue.shift();
     if (queued) {
       const pending = this.#pending.get(queued.commandId);
-      if (pending) pending.delivered = true;
+      if (pending) this.#markDelivered(pending);
       return queued;
     }
     session.pollWaiter?.(null);
@@ -186,7 +230,7 @@ export class RuntimeDaemonBroker implements AgentRuntimeConnectionSource {
         if (session.pollWaiter === finish) session.pollWaiter = null;
         if (command) {
           const pending = this.#pending.get(command.commandId);
-          if (pending) pending.delivered = true;
+          if (pending) this.#markDelivered(pending);
         }
         resolve(command);
       };
@@ -211,29 +255,17 @@ export class RuntimeDaemonBroker implements AgentRuntimeConnectionSource {
       payload,
     });
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.#pending.get(command.commandId);
-        if (!pending) return;
-        this.#pending.delete(command.commandId);
-        reject(
-          new AgentRuntimeError(
-            pending.delivered ? "RUNTIME_REQUEST_FAILED" : "RUNTIME_NOT_CONNECTED",
-            pending.delivered
-              ? "The runtime did not acknowledge the request before its deadline."
-              : "The runtime daemon did not accept the request.",
-          ),
-        );
-      }, COMMAND_DEADLINE_MS);
-      timer.unref();
-      this.#pending.set(command.commandId, {
+      const pending: PendingCommand = {
         daemonId: config.daemonId,
         epoch: config.epoch,
         command,
         delivered: false,
         resolve,
         reject,
-        timer,
-      });
+        timer: null,
+      };
+      this.#pending.set(command.commandId, pending);
+      this.#setDeadline(pending, COMMAND_ACCEPT_DEADLINE_MS);
       if (session.pollWaiter) {
         const waiter = session.pollWaiter;
         session.pollWaiter = null;
@@ -260,7 +292,7 @@ export class RuntimeDaemonBroker implements AgentRuntimeConnectionSource {
         "The runtime omitted the new run handle.",
       );
     }
-    clearTimeout(pending.timer);
+    if (pending.timer) clearTimeout(pending.timer);
     this.#pending.delete(commandId);
     session.lastActivityAt = Date.now();
     if (pending.command.kind === "start" && result.ok && result.runtimeHandle) {

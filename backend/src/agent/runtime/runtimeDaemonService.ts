@@ -294,7 +294,9 @@ export class RuntimeDaemonService {
 
   async list(ownerUserId: string) {
     const rows = await this.prisma.agentRuntimeDaemon.findMany({
-      where: { ownerUserId },
+      // Revocation is terminal. Management views list usable pairings, not an
+      // audit history that makes a dead credential look active after reload.
+      where: { ownerUserId, revokedAt: null },
       orderBy: { createdAt: "asc" },
     });
     return rows.map((row: any) => ({
@@ -303,7 +305,6 @@ export class RuntimeDaemonService {
       daemonVersion: row.daemonVersion,
       planLabel: row.planLabel,
       limits: parseJsonValue(row.limits),
-      revoked: Boolean(row.revokedAt),
       lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
     }));
   }

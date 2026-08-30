@@ -74,6 +74,32 @@ describe("runtime-neutral gateway seam", () => {
     expect(second.start).toHaveBeenCalledOnce();
   });
 
+  it("carries a stable assignment identity separately from the run identity", async () => {
+    const adapter = new StubAdapter("assignment");
+    const runtimeConnection = connection(adapter.id);
+    const gateway = new AgentRuntimeGateway(
+      new AgentRuntimeRegistry({ adapters: [adapter], connections: [runtimeConnection] }),
+      "secret",
+    );
+
+    await gateway.start({
+      drawingId: "drawing-1",
+      access: "edit",
+      principal: { kind: "user", userId: "user-1" },
+      connectionId: runtimeConnection.id,
+      profileId: "default",
+      displayName: "Research",
+      approvedCapabilities: ["agent:read", "agent:run"],
+      assignmentId: "assignment-stable",
+      runId: "run-stable",
+    });
+
+    expect(adapter.start).toHaveBeenCalledWith(
+      runtimeConnection,
+      expect.objectContaining({ assignmentId: "assignment-stable", runId: "run-stable" }),
+    );
+  });
+
   it("rejects start before invoking the adapter when board rights do not grant it", async () => {
     const adapter = new StubAdapter("blocked");
     const runtimeConnection = connection(adapter.id);
