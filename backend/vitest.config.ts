@@ -17,5 +17,10 @@ export default defineConfig({
     forks: {
       singleFork: true,
     },
+    // NIL-703: this runner writes a snapshot only when a suite import fails
+    // while resolving the generated Prisma client's package config. It runs in
+    // the Vitest fork, rather than in the parent reporter, so the snapshot is
+    // the failing process's view of the file.
+    runner: "./src/__tests__/prismaClientResolutionDiagnosticsRunner.ts",
   },
 });
