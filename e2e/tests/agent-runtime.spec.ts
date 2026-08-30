@@ -45,11 +45,11 @@ test.describe("board Agent Runtime panel", () => {
         json: {
           connections: [
             {
-              id: "runtime",
-              label: "Herdr",
-              audience: { kind: "installation" },
-              costBearer: { label: "Instance operator" },
-              profiles: [{ id: "review", label: "Review" }],
+              id: "daemon:alice-laptop",
+              label: "Alice's laptop",
+              audience: { kind: "user" },
+              costBearer: { label: "Alice" },
+              profiles: [{ id: "codex", label: "Codex CLI" }],
               health: { connected: true, status: "connected" },
             },
           ],
@@ -85,10 +85,12 @@ test.describe("board Agent Runtime panel", () => {
     await openEditor(page, drawingId);
     await openAgents(page);
     const panel = page.getByTestId("agent-runtime-panel");
-    await expect(panel.getByRole("combobox").nth(0)).toHaveValue("runtime");
-    await expect(panel.getByRole("combobox").nth(1)).toHaveValue("review");
+    await expect(panel.getByRole("combobox").nth(0)).toHaveValue("daemon:alice-laptop");
+    await expect(panel.getByRole("combobox").nth(1)).toHaveValue("codex");
     await expect(panel).toContainText("Cost bearer");
-    await expect(panel).toContainText("Instance operator");
+    await expect(panel).toContainText("Alice");
+    await expect(panel).toContainText("Your paired runtime");
+    await page.screenshot({ path: testInfo.outputPath("runtime-cost-bearer.png") });
     await panel.getByRole("button", { name: "Start agent" }).click();
     await expect(panel).toContainText("Board agent");
     await expect(panel).toContainText("working");
