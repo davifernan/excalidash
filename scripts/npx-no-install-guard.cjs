@@ -51,10 +51,14 @@ const NPX_CALL = /(?:^|[|&;(]|\s)npx(?=\s)([^\n]*)/g;
  * the same shell command still counts).
  */
 function findMissingNoInstall(command) {
+  // A trailing backslash joins the following physical line into the same
+  // shell command. Normalize only that shell construct; ordinary newlines
+  // remain command boundaries for NPX_CALL.
+  const logicalCommands = command.replace(/\\\r?\n[ \t]*/g, " ");
   const offenders = [];
   let match;
   NPX_CALL.lastIndex = 0;
-  while ((match = NPX_CALL.exec(command))) {
+  while ((match = NPX_CALL.exec(logicalCommands))) {
     const rest = match[1];
     const stopIndex = (() => {
       const m = rest.match(/&&|\|\||[|;]/);

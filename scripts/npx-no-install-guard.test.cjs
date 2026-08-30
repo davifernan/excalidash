@@ -32,6 +32,19 @@ test("does not flag --no-install appearing after another npx flag", () => {
   assert.deepEqual(findMissingNoInstall("npx --yes --no-install cowsay hi"), []);
 });
 
+test("treats a backslash-continued --no-install flag as part of the same npx command", () => {
+  assert.deepEqual(
+    findMissingNoInstall("npx \\\n  --no-install prisma generate"),
+    [],
+  );
+});
+
+test("still flags a backslash-continued npx command without --no-install", () => {
+  const offenders = findMissingNoInstall("npx \\\n  prisma generate");
+  assert.equal(offenders.length, 1);
+  assert.match(offenders[0], /npx\s+prisma generate/);
+});
+
 test("flags each npx call independently on the same line", () => {
   const offenders = findMissingNoInstall("npx prisma generate && npx --no-install eslint .");
   assert.equal(offenders.length, 1);
