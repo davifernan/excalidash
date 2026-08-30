@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "node:url";
 
 import { readExcalidrawVersion } from "./scripts/excalidraw-version";
 
@@ -33,6 +34,20 @@ export default defineConfig(({ command }) => {
     resolve: {
       alias: {
         "@excalidash/domain": path.resolve(__dirname, "../packages/domain/src"),
+        // The package's `browser` export creates a DOM element at module load,
+        // but Markdown parsing now also runs in a Web Worker. Its data-table
+        // implementation is environment-neutral and produces identical entity
+        // decoding without requiring a fake `document` in that worker.
+        // Resolved via `import.meta.resolve`, not a hardcoded
+        // `node_modules/...` path: the root Workspace installs this as a
+        // hoisted root dependency, not nested under `frontend/node_modules`,
+        // and a hardcoded path silently breaks the moment npm's hoisting
+        // decision changes (observed directly: this exact path exists at
+        // the repo root, not here, once NIL-624 introduced the root
+        // Workspace).
+        "decode-named-character-reference": fileURLToPath(
+          import.meta.resolve("decode-named-character-reference"),
+        ),
       },
     },
     define: {
@@ -47,25 +62,20 @@ export default defineConfig(({ command }) => {
         process.env.VITE_E2E_HARNESS_ENABLED === "true",
       ),
     },
-    resolve: {
-      alias: {
-        // The package's `browser` export creates a DOM element at module load,
-        // but Markdown parsing now also runs in a Web Worker. Its data-table
-        // implementation is environment-neutral and produces identical entity
-        // decoding without requiring a fake `document` in that worker.
-        "decode-named-character-reference": path.resolve(
-          __dirname,
-          "node_modules/decode-named-character-reference/index.js",
-        ),
-      },
-    },
     optimizeDeps: {
       // Vite's static entry scan does not traverse module workers. Without
       // these explicit entries, the first Markdown document discovers them
       // at runtime and Vite reloads the editor after re-optimizing, dropping
       // the user's current canvas selection. Keep the worker's runtime
       // imports here so a cold development/CI server is stable on first use.
-      include: ["zod", "html-url-attributes", "remark-gfm", "remark-parse", "remark-rehype", "unified"],
+      include: [
+        "zod",
+        "html-url-attributes",
+        "remark-gfm",
+        "remark-parse",
+        "remark-rehype",
+        "unified",
+      ],
       esbuildOptions: {
         define: processEnvDefines,
         target: "es2022",
