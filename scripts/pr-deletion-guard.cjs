@@ -60,7 +60,13 @@ function runGit(args, cwd) {
 
 function deletedFilesSinceMergeBase({ cwd, baseSha, headSha }) {
   const mergeBase = runGit(["merge-base", baseSha, headSha], cwd);
-  const output = runGit(["diff", "--name-only", "--diff-filter=D", mergeBase, headSha], cwd);
+  // Preserve a byte-for-byte move as a rename, but make any edited move name
+  // its old path as removed. Git's default 50% rename threshold would hide a
+  // materially changed file behind an R status from this deletion contract.
+  const output = runGit(
+    ["diff", "--name-only", "--diff-filter=D", "-M100%", mergeBase, headSha],
+    cwd,
+  );
   return {
     mergeBase,
     files: output === "" ? [] : output.split("\n"),

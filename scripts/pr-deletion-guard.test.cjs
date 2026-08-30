@@ -18,13 +18,19 @@ function write(file, content) {
   fs.writeFileSync(file, content);
 }
 
-function fixtureRepo() {
+const FEATURE_CONTENT = [
+  "security-check=required",
+  ...Array.from({ length: 20 }, (_, index) => `# unchanged comment ${index + 1}`),
+  "",
+].join("\n");
+
+function fixtureRepo(featureChange = "delete") {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pr-deletion-guard-"));
   git(["init", "--quiet", "--initial-branch=main"], cwd);
   git(["config", "user.name", "PR deletion guard test"], cwd);
   git(["config", "user.email", "test@example.invalid"], cwd);
   write(path.join(cwd, "kept.txt"), "kept\n");
-  write(path.join(cwd, "feature-only.txt"), "remove on feature\n");
+  write(path.join(cwd, "feature-only.txt"), FEATURE_CONTENT);
   write(path.join(cwd, "main-only.txt"), "remove on main later\n");
   git(["add", "."], cwd);
   git(["commit", "--quiet", "-m", "base"], cwd);
@@ -33,7 +39,15 @@ function fixtureRepo() {
   git(["add", "-A"], cwd);
   git(["commit", "--quiet", "-m", "main deletes its own file"], cwd);
   git(["switch", "--quiet", "feature"], cwd);
-  fs.rmSync(path.join(cwd, "feature-only.txt"));
+  if (featureChange === "delete") {
+    fs.rmSync(path.join(cwd, "feature-only.txt"));
+  } else {
+    const renamed = path.join(cwd, "renamed-feature.txt");
+    fs.renameSync(path.join(cwd, "feature-only.txt"), renamed);
+    if (featureChange === "edited-rename") {
+      write(renamed, FEATURE_CONTENT.split("\n").slice(1).join("\n"));
+    }
+  }
   git(["add", "-A"], cwd);
   git(["commit", "--quiet", "-m", "feature deletion"], cwd);
   return cwd;
@@ -65,6 +79,34 @@ test("RED: checkRepo names an actual undeclared deletion from a temporary Git re
     assert.equal(result.ok, false);
     assert.match(result.findings[0], /feature-only\.txt/);
     assert.match(result.findings[0], /no `Deletes-Files:` declaration/);
+  } finally {
+    removeFixture(cwd);
+  }
+});
+
+test("RED: a changed rename exposes its old path as an undeclared removal", () => {
+  const cwd = fixtureRepo("edited-rename");
+  try {
+    assert.match(
+      git(["diff", "--name-status", "-M", "main...HEAD"], cwd),
+      /R\d+\s+feature-only\.txt/,
+    );
+    const result = checkRepo({ cwd, baseSha: "main", headSha: "HEAD", body: "" });
+    assert.equal(result.ok, false);
+    assert.match(result.findings[0], /feature-only\.txt/);
+  } finally {
+    removeFixture(cwd);
+  }
+});
+
+test("GREEN: a byte-for-byte rename remains outside the deletion declaration", () => {
+  const cwd = fixtureRepo("exact-rename");
+  try {
+    assert.match(
+      git(["diff", "--name-status", "-M", "main...HEAD"], cwd),
+      /R100\s+feature-only\.txt/,
+    );
+    assert.equal(checkRepo({ cwd, baseSha: "main", headSha: "HEAD", body: "" }).ok, true);
   } finally {
     removeFixture(cwd);
   }
