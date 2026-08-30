@@ -12,7 +12,7 @@ import {
   observeDispatchRuntime,
   reconcileDispatchReceipt,
 } from "./dispatchReceipt";
-import { processDispatchOutbox } from "./dispatchWorker";
+import { processDispatchOutbox, reportDispatchBackgroundFailure } from "./dispatchWorker";
 import { logger } from "../logger";
 
 describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
@@ -149,7 +149,9 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
       effect: "pending",
     });
     expect(receipt).not.toHaveProperty("originThreadId");
+    expect(receipt).not.toHaveProperty("initiatedByUserId");
     expect(JSON.stringify(receipt)).not.toContain(privateThreadId);
+    expect(JSON.stringify(receipt)).not.toContain(ownerId);
     expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
       expect.objectContaining({ id: receipt.id, originVisibility: "private" }),
     ]);
@@ -497,6 +499,32 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
           errorCode: "RUNTIME_UNAVAILABLE",
         }),
       );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs fire-and-forget worker failures without leaking their message", () => {
+    const log = vi.spyOn(logger, "error").mockImplementation(() => {});
+    try {
+      reportDispatchBackgroundFailure({
+        phase: "initial-worker",
+        dispatchId: "dispatch-1",
+        error: Object.assign(new Error("database secret must not reach the log"), {
+          code: "P1001",
+        }),
+      });
+
+      expect(log).toHaveBeenCalledWith(
+        "Dispatch background task failed",
+        expect.objectContaining({
+          phase: "initial-worker",
+          dispatchId: "dispatch-1",
+          errorName: "Error",
+          errorCode: "P1001",
+        }),
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain("database secret");
     } finally {
       log.mockRestore();
     }

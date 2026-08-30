@@ -49,8 +49,8 @@ export type OrchestratorThreadPanelView = {
   readonly canWrite: boolean;
   readonly error: string | null;
   readonly receipts: readonly PublicDispatchReceipt[];
+  readonly publicThreads: readonly { readonly id: string; readonly title: string }[];
   readonly dispatch: {
-    readonly publicThreadId: string;
     readonly contexts: readonly InstructionContext[];
     readonly connections: readonly AgentRuntimeConnection[];
     readonly submitting: boolean;
@@ -106,6 +106,7 @@ export const OrchestratorThreadOverlay = ({
   readonly onSwitchAudience?: (audience: "private" | "drawing") => void;
   readonly onSendMessage?: (text: string) => Promise<void> | void;
   readonly onDispatch?: (input: {
+    publicThreadId: string;
     objectiveSummary: string;
     targetContextId: string;
     connectionId: string;
@@ -116,6 +117,7 @@ export const OrchestratorThreadOverlay = ({
   const [draft, setDraft] = useState("");
   const [dispatchSummary, setDispatchSummary] = useState("");
   const [dispatchComposerOpen, setDispatchComposerOpen] = useState(false);
+  const [publicThreadId, setPublicThreadId] = useState("");
   const [targetContextId, setTargetContextId] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [profileId, setProfileId] = useState("");
@@ -142,6 +144,7 @@ export const OrchestratorThreadOverlay = ({
     setDraft("");
     setDispatchSummary("");
     setDispatchComposerOpen(false);
+    setPublicThreadId("");
   }, [panelView?.threadId]);
 
   const selectedConnection = panelView?.dispatch?.connections.find(
@@ -446,6 +449,12 @@ export const OrchestratorThreadOverlay = ({
                       <span>{receipt.objectiveSummary}</span>
                       <strong>{receiptLabel(receipt)}</strong>
                       <small>
+                        Public thread:{" "}
+                        {panelView.publicThreads.find(
+                          (thread) => thread.id === receipt.publicThreadId,
+                        )?.title ?? "Unavailable thread"}
+                      </small>
+                      <small>
                         Accepted{" "}
                         {new Date(receipt.acceptedAt).toLocaleTimeString([], {
                           hour: "2-digit",
@@ -473,6 +482,7 @@ export const OrchestratorThreadOverlay = ({
                     if (
                       panelView.dispatch?.submitting ||
                       panelView.dispatch?.blocked ||
+                      !publicThreadId ||
                       !dispatchSummary.trim() ||
                       !targetContextId ||
                       !connectionId ||
@@ -481,6 +491,7 @@ export const OrchestratorThreadOverlay = ({
                       return;
                     void Promise.resolve(
                       onDispatch?.({
+                        publicThreadId,
                         objectiveSummary: dispatchSummary.trim(),
                         targetContextId,
                         connectionId,
@@ -500,6 +511,21 @@ export const OrchestratorThreadOverlay = ({
                     Only this summary becomes shared responsibility. Local messages are never
                     published.
                   </small>
+                  <label>
+                    Public responsibility thread
+                    <select
+                      aria-label="Public responsibility thread"
+                      value={publicThreadId}
+                      onChange={(event) => setPublicThreadId(event.target.value)}
+                    >
+                      <option value="">Choose a shared thread…</option>
+                      {panelView.publicThreads.map((thread) => (
+                        <option key={thread.id} value={thread.id}>
+                          {thread.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   {panelView.dispatch.blocked ? (
                     <p role="status">Dispatch paused: the Board thread view is saturated.</p>
                   ) : null}
@@ -557,6 +583,7 @@ export const OrchestratorThreadOverlay = ({
                     disabled={
                       panelView.dispatch.submitting ||
                       panelView.dispatch.blocked ||
+                      !publicThreadId ||
                       !dispatchSummary.trim() ||
                       !targetContextId ||
                       !connectionId ||

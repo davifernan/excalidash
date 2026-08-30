@@ -13,6 +13,7 @@ import { useOrchestratorThreadFeature } from "./useOrchestratorThreadFeature";
 import * as threadApi from "../../api/orchestratorThreads";
 import * as runtimeApi from "../../api/agentRuntime";
 import * as instructionApi from "../../api/instructionApprovals";
+import { notify } from "../../notifications";
 
 vi.mock("../../api/orchestratorThreads", () => ({
   getOrchestratorThreads: vi.fn(async () => []),
@@ -27,6 +28,7 @@ vi.mock("../../api/agentRuntime", () => ({ getAgentRuntimeConnections: vi.fn(asy
 vi.mock("../../api/instructionApprovals", () => ({
   getInstructionContexts: vi.fn(async () => []),
 }));
+vi.mock("../../notifications", () => ({ notify: vi.fn() }));
 
 const viewportState = {
   zoom: 1,
@@ -136,6 +138,7 @@ describe("useOrchestratorThreadFeature", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
     root.remove();
   });
@@ -152,6 +155,38 @@ describe("useOrchestratorThreadFeature", () => {
     await screen.findByRole("button", { name: "Open Release coordination" });
     const after = screen.getByTestId("orchestrator-thread-card");
     expect(after).toHaveStyle({ left: "120px", top: "90px", width: "260px", height: "156px" });
+  });
+
+  it("stops a permanently rejected shared-card registration and tells the user", async () => {
+    vi.useFakeTimers();
+    vi.mocked(threadApi.registerSharedOrchestratorThread).mockRejectedValue({
+      response: { status: 400 },
+    });
+    render(
+      <Harness
+        adapter={makeAdapter(root, [persistedAnchor()])}
+        drawingId="drawing-1"
+        currentUserId="owner-1"
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    expect(threadApi.registerSharedOrchestratorThread).toHaveBeenCalledTimes(4);
+    expect(notify).toHaveBeenCalledWith(
+      "error",
+      "A shared thread card could not be registered.",
+      expect.objectContaining({
+        key: "orchestrator-thread-registration:element-alpha",
+      }),
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    expect(threadApi.registerSharedOrchestratorThread).toHaveBeenCalledTimes(4);
+    expect(notify).toHaveBeenCalledOnce();
   });
 
   it("subscribes only after the editor handle becomes ready", async () => {
@@ -514,6 +549,9 @@ describe("useOrchestratorThreadFeature", () => {
       await screen.findByRole("button", { name: "Dispatch publicly" });
       fireEvent.change(screen.getByLabelText("Approved public objective"), {
         target: { value: summary },
+      });
+      fireEvent.change(screen.getByLabelText("Public responsibility thread"), {
+        target: { value: shared.id },
       });
       fireEvent.change(screen.getByLabelText("Public effect Context"), {
         target: { value: "context-1" },

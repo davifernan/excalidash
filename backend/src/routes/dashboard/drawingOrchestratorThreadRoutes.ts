@@ -21,7 +21,7 @@ import {
   listUnresolvedDispatchReceipts,
   reconcileDispatchReceipt,
 } from "../../agent/dispatchReceipt";
-import { processDispatchOutbox } from "../../agent/dispatchWorker";
+import { processDispatchOutbox, reportDispatchBackgroundFailure } from "../../agent/dispatchWorker";
 import {
   OrchestratorThreadError,
   appendOrchestratorThreadMessage,
@@ -147,10 +147,18 @@ export const registerDrawingOrchestratorThreadRoutes = (
     const timer = setTimeout(
       () => {
         receiptTimers.delete(receipt.id);
-        void reconcileDispatchReceipt({ prisma, dispatchId: receipt.id }).then((next) => {
-          publishReceipt(next);
-          if (next) scheduleReceiptReconciliation(next);
-        });
+        void reconcileDispatchReceipt({ prisma, dispatchId: receipt.id })
+          .then((next) => {
+            publishReceipt(next);
+            if (next) scheduleReceiptReconciliation(next);
+          })
+          .catch((error) =>
+            reportDispatchBackgroundFailure({
+              phase: "reconcile",
+              dispatchId: receipt.id,
+              error,
+            }),
+          );
       },
       Math.max(1, Math.min(...candidates) - Date.now() + 50),
     );
@@ -178,10 +186,16 @@ export const registerDrawingOrchestratorThreadRoutes = (
             publishReceipt(next);
             if (next) scheduleReceiptReconciliation(next);
           })
-          .catch(() => undefined);
+          .catch((error) =>
+            reportDispatchBackgroundFailure({
+              phase: "restart-worker",
+              dispatchId: receipt.id,
+              error,
+            }),
+          );
       }
     })
-    .catch(() => undefined);
+    .catch((error) => reportDispatchBackgroundFailure({ phase: "restart-scan", error }));
 
   app.get(
     "/drawings/:id/orchestrator-threads",
@@ -356,7 +370,9 @@ export const registerDrawingOrchestratorThreadRoutes = (
             publishReceipt(next);
             if (next) scheduleReceiptReconciliation(next);
           })
-          .catch(() => undefined);
+          .catch((error) =>
+            reportDispatchBackgroundFailure({ phase: "initial-worker", dispatchId, error }),
+          );
         scheduleReceiptReconciliation(receipt);
         return res.status(202).json({ receipt });
       } catch (error) {

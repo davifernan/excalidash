@@ -88,6 +88,9 @@ describe("OrchestratorThreadOverlay", () => {
       sending: false,
       canWrite: true,
       error: null,
+      publicThreads: [],
+      receipts: [],
+      dispatch: null,
       events: [
         {
           id: "local-message",
@@ -149,6 +152,10 @@ describe("OrchestratorThreadOverlay", () => {
           canWrite: true,
           error: null,
           events: [],
+          publicThreads: [
+            { id: "shared-alpha", title: "Release coordination" },
+            { id: "shared-beta", title: "Deployment coordination" },
+          ],
           receipts: [
             {
               id: "receipt-1",
@@ -190,7 +197,6 @@ describe("OrchestratorThreadOverlay", () => {
             },
           ],
           dispatch: {
-            publicThreadId: "shared-alpha",
             contexts: [{ id: "context-1", frameElementId: "frame-1" }],
             connections: [],
             submitting: false,
@@ -239,9 +245,12 @@ describe("OrchestratorThreadOverlay", () => {
           canWrite: true,
           error: null,
           events: [],
+          publicThreads: [
+            { id: "shared-alpha", title: "Release coordination" },
+            { id: "shared-beta", title: "Deployment coordination" },
+          ],
           receipts: [],
           dispatch: {
-            publicThreadId: "shared-alpha",
             contexts: [{ id: "context-1", frameElementId: "frame-1" }],
             connections: [
               {
@@ -268,6 +277,11 @@ describe("OrchestratorThreadOverlay", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Approve a public effect" }));
     const objective = screen.getByLabelText("Approved public objective");
+    expect(screen.getByLabelText("Public responsibility thread")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Public responsibility thread"), {
+      target: { value: "shared-beta" },
+    });
     fireEvent.change(objective, { target: { value: "Do not lose this objective" } });
     fireEvent.change(screen.getByLabelText("Public effect Context"), {
       target: { value: "context-1" },
@@ -280,6 +294,9 @@ describe("OrchestratorThreadOverlay", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Dispatch publicly" }));
     await expect(callbacks.onDispatch).toHaveBeenCalledOnce();
+    expect(callbacks.onDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ publicThreadId: "shared-beta" }),
+    );
     expect(objective).toHaveValue("Do not lose this objective");
     expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeVisible();
   });

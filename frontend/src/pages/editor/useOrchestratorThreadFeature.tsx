@@ -44,6 +44,7 @@ import {
 
 const CARD_WIDTH = 260;
 const CARD_HEIGHT = 156;
+const MAX_SHARED_THREAD_REGISTRATION_ATTEMPTS = 4;
 const privateElementId = (threadId: string) => `private-thread:${threadId}`;
 
 const projectRect = (adapter: ExcalidrawAdapter, element: ElementSummary): ScreenRect | null => {
@@ -208,6 +209,8 @@ export const useOrchestratorThreadFeature = ({
   const lastDrawingThreadId = useRef<string | null>(null);
   const pendingMessageThreadIds = useRef(new Set<string>());
   const pendingDispatchThreadIds = useRef(new Set<string>());
+  const sharedRegistrationAttempts = useRef(new Map<string, number>());
+  const failedSharedRegistrationIds = useRef(new Set<string>());
 
   const upsertThread = useCallback((incoming: OrchestratorThreadDTO) => {
     setThreads((current) => {
@@ -235,6 +238,8 @@ export const useOrchestratorThreadFeature = ({
     setDispatchingThreadIds(new Set());
     pendingMessageThreadIds.current.clear();
     pendingDispatchThreadIds.current.clear();
+    sharedRegistrationAttempts.current.clear();
+    failedSharedRegistrationIds.current.clear();
     requestedThreadIds.current.clear();
     lastDrawingThreadId.current = null;
     previousMode.current = "closed";
@@ -290,8 +295,10 @@ export const useOrchestratorThreadFeature = ({
   }, [drawingId, socketRef, upsertThread]);
 
   // Registration waits for the ordinary autosave path to persist the Board
-  // Card. A rejected attempt is retried, but never turns raw client customData
-  // into shared authority; the backend accepts only a card it can read itself.
+  // Card. Retries cover that bounded window; a permanent rejection stops and
+  // becomes visible instead of silently polling for the rest of the session.
+  // Raw client customData never becomes shared authority: only the server's
+  // persisted card can create the drawing-audience thread.
   useEffect(() => {
     if (!drawingId || !canEdit || !isReady) return;
     let cancelled = false;
@@ -309,13 +316,23 @@ export const useOrchestratorThreadFeature = ({
         );
         for (const element of summaries.value) {
           if (cancelled || element.isDeleted || registered.has(element.id)) continue;
+          if (failedSharedRegistrationIds.current.has(element.id)) continue;
           if (!readOrchestratorThreadAnchor({ customData: element.customData })) continue;
           try {
             const thread = await registerSharedOrchestratorThread(drawingId, element.id);
+            sharedRegistrationAttempts.current.delete(element.id);
             if (!cancelled) upsertThread(thread);
           } catch {
-            // The card may still be in the one-second autosave window. A later
-            // pass retries; no local fallback is allowed for a shared thread.
+            const attempts = (sharedRegistrationAttempts.current.get(element.id) ?? 0) + 1;
+            sharedRegistrationAttempts.current.set(element.id, attempts);
+            if (attempts >= MAX_SHARED_THREAD_REGISTRATION_ATTEMPTS) {
+              failedSharedRegistrationIds.current.add(element.id);
+              notify("error", "A shared thread card could not be registered.", {
+                key: "orchestrator-thread-registration:" + element.id,
+                detail:
+                  "The server rejected the card after the autosave window. Reload after correcting or replacing it.",
+              });
+            }
           }
         }
       } finally {
@@ -565,26 +582,43 @@ export const useOrchestratorThreadFeature = ({
     [surface.active, threads],
   );
 
-  const publicDispatchThread = useMemo(
+  const publicThreads = useMemo(
+    () => threads.filter((thread) => thread.audience.kind === "drawing"),
+    [threads],
+  );
+  const receiptThreads = useMemo(
     () =>
       activeThread?.audience.kind === "drawing"
-        ? activeThread
-        : (threads.find((thread) => thread.id === lastDrawingThreadId.current) ??
-          threads.find((thread) => thread.audience.kind === "drawing") ??
-          null),
-    [activeThread, threads],
+        ? [activeThread]
+        : activeThread
+          ? publicThreads
+          : [],
+    [activeThread, publicThreads],
   );
 
   useEffect(() => {
-    if (!drawingId || !activeThread || !publicDispatchThread) return;
+    if (!drawingId || !activeThread || receiptThreads.length === 0) return;
     let cancelled = false;
-    void getPublicDispatchReceipts(drawingId, publicDispatchThread.id)
-      .then((receipts) => {
+    void Promise.all(
+      receiptThreads.map(async (thread) => ({
+        threadId: thread.id,
+        receipts: await getPublicDispatchReceipts(drawingId, thread.id),
+      })),
+    )
+      .then((snapshots) => {
         if (cancelled) return;
         setReceiptsByThread((current) => {
-          const existing = current[publicDispatchThread.id] ?? [];
-          const merged = mergeReceiptLists(existing, receipts);
-          return merged === existing ? current : { ...current, [publicDispatchThread.id]: merged };
+          let changed = false;
+          const next = { ...current };
+          for (const snapshot of snapshots) {
+            const existing = current[snapshot.threadId] ?? [];
+            const merged = mergeReceiptLists(existing, snapshot.receipts);
+            if (merged !== existing) {
+              next[snapshot.threadId] = merged;
+              changed = true;
+            }
+          }
+          return changed ? next : current;
         });
       })
       .catch(() => {
@@ -604,7 +638,7 @@ export const useOrchestratorThreadFeature = ({
     return () => {
       cancelled = true;
     };
-  }, [activeThread, canEdit, drawingId, publicDispatchThread]);
+  }, [activeThread, canEdit, drawingId, receiptThreads]);
 
   useEffect(() => {
     if (activeThread?.audience.kind === "drawing") {
@@ -696,15 +730,17 @@ export const useOrchestratorThreadFeature = ({
 
   const dispatchPublicEffect = useCallback(
     async (input: {
+      publicThreadId: string;
       objectiveSummary: string;
       targetContextId: string;
       connectionId: string;
       profileId: string;
     }) => {
-      if (!drawingId || !activeThread || !publicDispatchThread || surface.backpressure.blocked)
+      const publicThread = publicThreads.find((thread) => thread.id === input.publicThreadId);
+      if (!drawingId || !activeThread || !publicThread || surface.backpressure.blocked)
         throw new Error("Public dispatch is unavailable");
       const originThreadId = activeThread.id;
-      const publicThreadId = publicDispatchThread.id;
+      const publicThreadId = publicThread.id;
       if (pendingDispatchThreadIds.current.has(originThreadId)) {
         throw new Error("Dispatch already pending");
       }
@@ -739,7 +775,7 @@ export const useOrchestratorThreadFeature = ({
         });
       }
     },
-    [activeThread, drawingId, publicDispatchThread, surface.backpressure.blocked],
+    [activeThread, drawingId, publicThreads, surface.backpressure.blocked],
   );
 
   const jumpToThread = useCallback(
@@ -786,13 +822,14 @@ export const useOrchestratorThreadFeature = ({
                       Boolean(currentUserId) &&
                       (activeThread.audience.kind === "private" || canEdit),
                     error: actionErrorsByThread[activeThread.id] ?? threadError,
-                    receipts: publicDispatchThread
-                      ? (receiptsByThread[publicDispatchThread.id] ?? [])
-                      : [],
+                    publicThreads: publicThreads.map((thread) => ({
+                      id: thread.id,
+                      title: thread.title,
+                    })),
+                    receipts: receiptThreads.flatMap((thread) => receiptsByThread[thread.id] ?? []),
                     dispatch:
-                      publicDispatchThread && canEdit
+                      publicThreads.length > 0 && canEdit
                         ? {
-                            publicThreadId: publicDispatchThread.id,
                             contexts: dispatchContexts,
                             connections: dispatchConnections,
                             submitting: dispatchingThreadIds.has(activeThread.id),

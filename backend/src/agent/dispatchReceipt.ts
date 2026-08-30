@@ -23,7 +23,6 @@ export type DispatchReceiptProjection = {
   drawingId: string;
   publicThreadId: string;
   originVisibility: "private" | "drawing";
-  initiatedByUserId: string;
   objectiveSummary: string;
   targetContextIds: string[];
   revisionId: string;
@@ -89,7 +88,6 @@ const toReceipt = (row: any): DispatchReceiptProjection => ({
   drawingId: row.drawingId,
   publicThreadId: row.publicThreadId,
   originVisibility: row.originAudienceKind,
-  initiatedByUserId: row.initiatedByUserId,
   objectiveSummary: row.objectiveSummary,
   targetContextIds: parseArray(row.targetContextIds),
   revisionId: row.revisionId,

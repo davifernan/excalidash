@@ -58,6 +58,18 @@ const safeRuntimeErrorFields = (error: unknown) => ({
       : null,
 });
 
+export const reportDispatchBackgroundFailure = (params: {
+  phase: "restart-scan" | "restart-worker" | "initial-worker" | "reconcile";
+  dispatchId?: string;
+  error: unknown;
+}): void => {
+  logger.error("Dispatch background task failed", {
+    phase: params.phase,
+    ...(params.dispatchId ? { dispatchId: params.dispatchId } : {}),
+    ...safeRuntimeErrorFields(params.error),
+  });
+};
+
 /**
  * Performs the one allowed foreign start attempt. The outbox is claimed
  * before the call. A process failure after `gateway.start()` therefore leaves
