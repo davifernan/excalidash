@@ -40,10 +40,13 @@ const { parse } = require("shell-quote");
  * `--no-install`, returning the offending snippet (trimmed to a readable
  * length) for each.
  *
- * Shell syntax is tokenized by shell-quote rather than approximated with a
- * regex. That makes command operators (including background `&`), quoted
- * text, comments, command substitutions, and backslash continuations syntax
- * rather than a local list of delimiters this guard has to keep in sync.
+ * Shell syntax within each logical workflow line is tokenized by shell-quote
+ * rather than approximated with a regex. Newlines remain command boundaries:
+ * shell-quote does not emit a token for them, so the workflow's physical lines
+ * are normalized for backslash continuations and then parsed independently.
+ * That makes command operators (including background `&`), quoted text,
+ * comments, and command substitutions syntax rather than a local list of
+ * delimiters this guard has to keep in sync.
  *
  * Deliberately not "the flag must be the very next token": `npx --yes
  * --no-install foo` and `npx --no-install --yes foo` are both fine. The
@@ -51,21 +54,35 @@ const { parse } = require("shell-quote");
  * the next parser operator.
  */
 function findMissingNoInstall(command) {
-  // GitHub expands these expressions before the shell sees the command.
-  // Replace their non-shell template syntax with one inert shell word before
-  // tokenizing, so the surrounding real shell commands remain inspectable.
-  const shellSource = command.replace(/\$\{\{[\s\S]*?\}\}/g, "GITHUB_ACTIONS_EXPRESSION");
-  const tokens = parse(shellSource);
-  const offenders = [];
-  for (let index = 0; index < tokens.length; index++) {
-    if (tokens[index] !== "npx") continue;
-    const argumentsForCall = [];
-    for (let next = index + 1; next < tokens.length && typeof tokens[next] === "string"; next++) {
-      argumentsForCall.push(tokens[next]);
+  const logicalLines = [];
+  let continued = "";
+  for (const physicalLine of command.replace(/\r\n/g, "\n").split("\n")) {
+    if (/\\\s*$/.test(physicalLine)) {
+      continued += physicalLine.replace(/\\\s*$/, " ");
+      continue;
     }
-    if (!argumentsForCall.includes("--no-install")) {
-      const snippet = ["npx", ...argumentsForCall].join(" ").slice(0, 80);
-      offenders.push(snippet);
+    logicalLines.push(continued + physicalLine);
+    continued = "";
+  }
+  if (continued) logicalLines.push(continued);
+
+  const offenders = [];
+  for (const logicalLine of logicalLines) {
+    // GitHub expands these expressions before the shell sees the command.
+    // Replace their non-shell template syntax with one inert shell word before
+    // tokenizing, so the surrounding real shell commands remain inspectable.
+    const shellSource = logicalLine.replace(/\$\{\{[\s\S]*?\}\}/g, "GITHUB_ACTIONS_EXPRESSION");
+    const tokens = parse(shellSource);
+    for (let index = 0; index < tokens.length; index++) {
+      if (tokens[index] !== "npx") continue;
+      const argumentsForCall = [];
+      for (let next = index + 1; next < tokens.length && typeof tokens[next] === "string"; next++) {
+        argumentsForCall.push(tokens[next]);
+      }
+      if (!argumentsForCall.includes("--no-install")) {
+        const snippet = ["npx", ...argumentsForCall].join(" ").slice(0, 80);
+        offenders.push(snippet);
+      }
     }
   }
   return offenders;
@@ -94,7 +111,6 @@ function extractRunBlocks(text) {
       const baseIndent = block[1].length;
       const bodyLines = [];
       let j = i + 1;
-      let bodyIndent = null;
       for (; j < lines.length; j++) {
         const bodyLine = lines[j];
         if (bodyLine.trim() === "") {
@@ -104,7 +120,6 @@ function extractRunBlocks(text) {
         const indentMatch = bodyLine.match(/^(\s*)/);
         const indent = indentMatch[1].length;
         if (indent <= baseIndent) break;
-        if (bodyIndent === null) bodyIndent = indent;
         bodyLines.push(bodyLine);
       }
       blocks.push({ line: i + 1, text: bodyLines.join("\n") });

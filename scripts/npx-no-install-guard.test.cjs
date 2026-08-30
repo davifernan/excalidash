@@ -68,6 +68,13 @@ test("finds every chained npx call, including background commands", () => {
   }
 });
 
+test("treats a non-continued newline as an independent npx command boundary", () => {
+  assert.deepEqual(
+    findMissingNoInstall("npx prisma generate\nnpx --no-install eslint ."),
+    ["npx prisma generate"],
+  );
+});
+
 test("finds an npx call in a command substitution but ignores quoted and comment text", () => {
   assert.deepEqual(findMissingNoInstall("echo $(npx bar)"), ["npx bar"]);
   assert.deepEqual(
