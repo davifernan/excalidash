@@ -204,6 +204,9 @@ import {
  *                        image_over / page_switch / offline_toggle /
  *                        network_chaos. Only meaningful together with
  *                        SOAK_HANG_ACTOR_ID; see above.
+ *   SOAK_HANG_PAGE_SWITCH_PHASE  test-only: activate_document_widget;
+ *                        forces that actor into page_switch and recreates
+ *                        the unbounded activation wait for watchdog proof.
  *   SOAK_PAGE_SWITCH_CLICK_TIMEOUT_MS  default 5000 -- bound on the "Next
  *                        page" click specifically (see "Does page_switch
  *                        move or get covered?" above).
@@ -233,6 +236,14 @@ const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID
   ? Number.parseInt(process.env.SOAK_HANG_ACTOR_ID, 10)
   : null;
 const HANG_STEP = process.env.SOAK_HANG_STEP || null;
+const HANG_PAGE_SWITCH_PHASE = process.env.SOAK_HANG_PAGE_SWITCH_PHASE || null;
+const PAGE_SWITCH_HANG_PHASES = new Set(["activate_document_widget"]);
+if (HANG_PAGE_SWITCH_PHASE && HANG_ACTOR_ID === null) {
+  throw new Error("SOAK_HANG_PAGE_SWITCH_PHASE requires SOAK_HANG_ACTOR_ID.");
+}
+if (HANG_PAGE_SWITCH_PHASE && !PAGE_SWITCH_HANG_PHASES.has(HANG_PAGE_SWITCH_PHASE)) {
+  throw new Error(`SOAK_HANG_PAGE_SWITCH_PHASE must be one of ${[...PAGE_SWITCH_HANG_PHASES].join(", ")}.`);
+}
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
 // NIL-639: a GitHub-hosted job cannot run this spec's own 8h default in one
@@ -320,7 +331,10 @@ type ButtonSample = {
 type PageSwitchTrace = {
   actorId: number;
   ts: number;
-  outcome: "clicked" | "not_visible" | "timeout" | "error";
+  /** Written before the first browser operation, so a non-returning call is
+   * evidence rather than an absent trace. */
+  phase: "activate_document_widget" | "button_enabled" | "click" | "complete";
+  outcome: "started" | "clicked" | "disabled" | "timeout" | "error";
   samples: ButtonSample[];
   /** True when the first and last position samples differ by more than a
    * few pixels -- the button relocated while we were waiting on it. */
@@ -364,6 +378,9 @@ const FINAL_CHECK_TIMEOUT_MS = envInt("SOAK_FINAL_CHECK_TIMEOUT_MS", 30_000);
  * becomes a caught, recorded error instead of invisible silence.
  */
 const PAGE_SWITCH_CLICK_TIMEOUT_MS = envInt("SOAK_PAGE_SWITCH_CLICK_TIMEOUT_MS", 5_000);
+// Diagnostic, not a performance budget: normal activation is milliseconds;
+// eight seconds leaves deliberately generous headroom while naming a hang.
+const PAGE_SWITCH_PHASE_TIMEOUT_MS = envInt("SOAK_PAGE_SWITCH_PHASE_TIMEOUT_MS", 8_000);
 
 /**
  * Bounds a promise that has no timeout of its own.
@@ -447,6 +464,7 @@ const drawRect = (page: Page) =>
  * of its own; the roll is the only randomness.
  */
 const decideStep = (actor: Actor, roll: number): string => {
+  if (actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE) return "page_switch";
   if (roll < 0.4) return "draw";
   if (roll < 0.55) return "image_ok";
   // Above the live-collaboration ceiling on purpose -- the same guardrail
@@ -474,7 +492,7 @@ const decideStep = (actor: Actor, roll: number): string => {
  * the only way to see where the button actually was during it, including on
  * the timeout path where the click itself never tells us.
  */
-const clickPageSwitchButton = async (actor: Actor, next: Locator): Promise<void> => {
+const clickPageSwitchButton = async (actor: Actor, next: Locator, trace: PageSwitchTrace): Promise<void> => {
   const samples: ButtonSample[] = [];
   const startedAt = Date.now();
   const sample = async () => {
@@ -538,14 +556,11 @@ const clickPageSwitchButton = async (actor: Actor, next: Locator): Promise<void>
       first.x !== null &&
       last.x !== null &&
       (Math.abs(first.x! - last.x!) > 2 || Math.abs(first.y! - last.y!) > 2);
-    actor.pageSwitchTraces.push({
-      actorId: actor.id,
-      ts: startedAt,
-      outcome,
-      samples,
-      moved,
-      coveredBy,
-    });
+    trace.outcome = outcome;
+    trace.samples = samples;
+    trace.moved = moved;
+    trace.coveredBy = coveredBy;
+    trace.phase = "complete";
   }
 };
 
@@ -572,7 +587,30 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       });
       break;
     case "page_switch": {
-      await activateDocumentWidget(actor.page);
+      const trace: PageSwitchTrace = {
+        actorId: actor.id,
+        ts: Date.now(),
+        phase: "activate_document_widget",
+        outcome: "started",
+        samples: [],
+        moved: false,
+        coveredBy: null,
+      };
+      actor.pageSwitchTraces.push(trace);
+      const enterPhase = async (phase: PageSwitchTrace["phase"]) => {
+        trace.phase = phase;
+      };
+      await enterPhase("activate_document_widget");
+      try {
+        await activateDocumentWidget(actor.page, {
+          // The deterministic regression recreates NIL-694's original
+          // unbounded activation wait so the watchdog, not the phase limit,
+          // must name the active phase. Ordinary soaks retain the 8s budget.
+          timeout: actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget"
+            ? 0
+            : PAGE_SWITCH_PHASE_TIMEOUT_MS,
+          blockActivation: actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget",
+        });
       // Paging backward sometimes, not just forward: both buttons stay
       // mounted (disabled, not hidden) at either end of the document, so an
       // actor that only ever goes forward eventually parks on the last page
@@ -590,7 +628,21 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       // disabled button too, so the precheck was passing right into the
       // actionability wait it was meant to avoid. See this file's header,
       // "Bounded is not the same as correct".
-      if (await button.isEnabled()) await clickPageSwitchButton(actor, button);
+        await enterPhase("button_enabled");
+        const enabled = await button.isEnabled({ timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS });
+        if (!enabled) {
+          trace.outcome = "disabled";
+          trace.phase = "complete";
+          break;
+        }
+        await enterPhase("click");
+        await clickPageSwitchButton(actor, button, trace);
+      } catch (error) {
+        // clickPageSwitchButton records its own timeout and obstruction data
+        // before rethrowing. Keep that richer terminal outcome intact.
+        if (trace.outcome === "started") trace.outcome = "error";
+        throw error;
+      }
       break;
     }
     case "offline_toggle":
@@ -657,7 +709,8 @@ const runCycle = async (actor: Actor) => {
   actor.inFlightStep = step;
 
   const shouldHang =
-    actor.id === HANG_ACTOR_ID && (forcedHangStep !== null || (!HANG_STEP && actor.cycles >= 1));
+    actor.id === HANG_ACTOR_ID && !HANG_PAGE_SWITCH_PHASE &&
+    (forcedHangStep !== null || (!HANG_STEP && actor.cycles >= 1));
 
   try {
     if (shouldHang) {
@@ -944,11 +997,19 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           for (const actor of actors) {
             if (actor.finished) continue;
             if (now - actor.lastHeartbeatAt > STALE_MS) {
+              const activePageSwitch = [...actor.pageSwitchTraces]
+                .reverse()
+                .find((trace) => trace.outcome === "started");
+              // An unfinished trace is more precise than the outer step. It
+              // exists only while page_switch is in flight, so prefer it.
+              const diagnosticStep = actor.inFlightStep === "page_switch" && activePageSwitch
+                ? `page_switch.${activePageSwitch.phase}`
+                : actor.inFlightStep ?? "unknown";
               violations.push({
                 actorId: actor.id,
                 engine: actor.engine,
                 sinceMs: now - actor.lastHeartbeatAt,
-                inFlightStep: actor.inFlightStep,
+                inFlightStep: diagnosticStep,
               });
               if (!tripped) {
                 tripped = true;
@@ -956,7 +1017,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
                   new Error(
                     `actor ${actor.id} (${actor.engine}) went silent for ` +
                       `${now - actor.lastHeartbeatAt} ms, over the ${STALE_MS} ms threshold, ` +
-                      `stuck in step "${actor.inFlightStep ?? "unknown"}". ` +
+                      `stuck in step "${diagnosticStep}". ` +
                       `Ending the run instead of waiting for a cycle that may never finish.`,
                   ),
                 );

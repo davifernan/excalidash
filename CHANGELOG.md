@@ -17,6 +17,63 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.15.0 -- 2026-08-30
+
+This release lays the groundwork for agents on the board: an agent can now read a bounded
+slice of a board, the board itself shows what it is currently reading, the connection runs
+through an authenticated adapter instead of open access, an instruction to an agent needs
+explicit human approval before it takes effect, and board owners decide whether guest
+contributions flow into what an agent gets to see at all. These belong together because
+together they answer one question: what may an agent see, and who decides that.
+
+### Added
+
+- **Agents on the board.** A board can now mark a bounded area as an agent workspace. A
+  connected agent explores an immutable snapshot of the board there instead of the full,
+  constantly changing scene -- what it reads stays stable for the duration of its run, even
+  while people keep working on the board.
+- Boards now have an optional agent panel to start and query a connected, authenticated agent
+  instance while the canvas stays fully usable.
+- Agents show directly on the board frame which note or frame they are currently reading, not
+  only in a separate side panel.
+- An instruction to an agent -- a sticky note carrying a task, say -- must now be explicitly
+  approved before it is even offered in the agent panel. Approving and actually running it are
+  two separate actions. If the instruction's text changes afterwards, the approval lapses and
+  has to be confirmed again.
+- Board owners can now separately allow or block a guest's own content from being read by an
+  agent inside the agent workspace -- independent of the guest's edit or upload rights, and
+  enforced in two places rather than one. If that rule excludes elements of unknown origin,
+  the owner is told how many and why.
+
+### Fixed
+
+- During collaborative editing, board content no longer occasionally flickers or disagrees on
+  font size and geometry while someone else is typing.
+- A sticky note a collaborator receives only through a live update now fits its font to the
+  note correctly -- even when the label was bound during another person's edit.
+- An edit that only changed a property such as an element's opacity could be silently
+  discarded when an update from someone else arrived; such edits are now preserved.
+
+### Known issues
+
+- In Firefox and Safari, undo may not remove a sticky note created through a binding point.
+  It may undo the action before it instead. Select and delete that sticky note manually before
+  undoing earlier work. -- unchanged from v0.14.0; none of the commits since the last tag
+  touch the cause.
+
+### Not in this round
+
+- **Terminal tab.** Deliberately not built. The existing rights and lease mechanism assumes
+  every shared effect is a single, server-checked call -- a running process is not, and a
+  terminal would need a second, sandbox-based enforcement layer that does not exist anywhere
+  in the repository. On top of that it is a lasting product-class change, from drawing tool to
+  compute provider.
+- **Switch to AGPL.** Open decision, not yet taken. Concerns adopting AI functionality from
+  the AGPL-licensed `origin/alpha`; no effect on this release while undecided.
+- **Shared workspace pagination.** Still held back. The change spans 39 files, several of them
+  in the build and test toolchain, and a measured slowdown against `main` has not been
+  explained yet. It needs splitting into separately reviewable parts before it can land.
+
 ## v0.14.0 -- 2026-08-29
 
 Most of this release is repair: what turned up while testing 0.13 has been fixed. Alongside

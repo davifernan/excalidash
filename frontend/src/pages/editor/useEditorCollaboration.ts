@@ -203,6 +203,11 @@ export const useEditorCollaboration = ({
         roomJoined: boolean;
         dropTransport: () => void;
         receiveTestEvent: (event: string, payload: unknown) => void;
+        emitTestEvent: (
+          event: string,
+          payload: unknown,
+          acknowledgement: (value: unknown) => void,
+        ) => void;
       };
       Object.defineProperties(socketTestStatus, {
         roomJoined: {
@@ -219,6 +224,11 @@ export const useEditorCollaboration = ({
           value: (event: string, payload: unknown) => {
             for (const listener of socket.listeners(event)) listener(payload);
           },
+        },
+        emitTestEvent: {
+          enumerable: false,
+          value: (event: string, payload: unknown, acknowledgement: (value: unknown) => void) =>
+            socket.emit(event, payload, acknowledgement),
         },
       });
       const updateSocketTestStatus = () => {

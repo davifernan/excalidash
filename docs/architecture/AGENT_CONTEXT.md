@@ -128,10 +128,23 @@ Ein Lease serialisiert öffentliche Wirkung, nicht Read-only-Erkundung. Beliebig
 Read-only-Runs dürfen parallel lesen. Genau ein atomar erworbener, serverautoritativ verwalteter
 Holder darf `artifact:publish`, `board:write` oder eine andere geteilte Wirkung auslösen. Der
 Vertrag verlangt persistentes Compare-and-swap und Serverzeit für Acquire, Renew, Transfer und
-Release. Das konkrete Persistenzmodell und die autorisierte Takeover-Regel sind in NIL-680 noch
-offen; ein sichtbarer Übernahmevorgang ist für sich allein keine Autorisierung.
+Release. NIL-680 implementiert das als eine einzige, pro Context wiederverwendete `ContextLease`-
+Zeile ([`contextLease.ts`](../../backend/src/agent/contextLease.ts)): Acquire/Renew/Transfer sind
+je ein einzelnes, WHERE-bewachtes `updateMany` -- das ist bei SQLite und PostgreSQL gleichermaßen
+atomar, ganz ohne expliziten Row-Lock. `leaseGeneration` ist der undurchsichtige Vergleichsschlüssel,
+den Renew/Transfer/Release vorzeigen müssen. Übernahme läuft entweder über Zustimmung des
+aktuellen Holders (`fromRunId` stimmt) oder einen `authorizedAsOverride`, den ausschließlich der
+aufrufende Server-Endpunkt setzen darf, nie der Client -- ein sichtbarer Übernahmevorgang ist für
+sich allein keine Autorisierung, und jede Übernahme wird als `lease.transferred`-Ereignis
+protokolliert. `endHorizonAt` kommt immer vom Aufrufer (der menschlich genehmigten
+Dispatch-Grenze); das Modul entscheidet ihn nie selbst und lässt keinen Renew darüber hinaus zu.
 
 ## Freigabe-Gates
+
+Die ausführbaren, vorab registrierten Fixtures, Abläufe, Gegenversuche,
+Entscheidungsregeln und Nachweisorte stehen in
+[`AGENT_CONTEXT_GATE_RUNBOOK.md`](AGENT_CONTEXT_GATE_RUNBOOK.md) (NIL-701).
+Dieses Runbook führt kein Gate durch und ist kein Bestehensnachweis.
 
 ### Gate 1 — Trägt der Board-Mount? (nach NIL-671)
 
@@ -166,7 +179,9 @@ sind und Davi eine schriftliche Go-Entscheidung zu einer Kosten-/Risikovorlage f
 Vorlage muss mindestens Sandbox-Isolation, CPU-/RAM-/Zeit-/Speichergrenzen, Netzwerk- und
 Secret-Zugriff, Sitzungslebenszyklus, Ausgabemengen und Betriebsverantwortung beziffern oder
 begrenzen. Ohne diese dokumentierte Entscheidung ist das Gate nicht bestanden; semantische
-Ereignisse und der externe Runtime-Adapter bleiben der Endzustand.
+Ereignisse und der externe Runtime-Adapter bleiben der Endzustand. Die ausformulierten
+Voraussetzungen, offenen Fragen und die Wirkung auf V1-V4 stehen in
+[`TERMINAL_TAB_PRECONDITIONS.md`](TERMINAL_TAB_PRECONDITIONS.md).
 
 ## Offene Punkte und Entscheidungen
 
@@ -182,10 +197,19 @@ Run, erlaubte Contexts und Lesefähigkeiten. Der ausführbare Vertrag steht in
 
 ### NIL-676: Wie wird die Semantic Closure kanonisiert?
 
-Fest steht, dass der Hash nur die semantische Projektion bindet. Kanonische Sortierung,
-Zyklusbehandlung, Deduplizierung und stabile Serialisierung sind Bestandteil des Vertrags, aber
-ihr genauer Algorithmus bleibt NIL-676. Dieses Dokument legt keinen Hash über globale Drawing-
-oder Elementversionen als Ersatz fest.
+`backend/src/agent/instructionClosure.ts` definiert Closure-Schema 1. Der Hash bindet nur
+serverseitig materialisierte, typisierte Bedeutung: den NFC- und newline-normalisierten
+`originalText` der Anweisung, explizite `depends_on`-/`references`-/`whole_frame`-/`group`-
+Relationen und deren transitive, innerhalb desselben Context liegende Ziele. Kanonische
+Sortierung, Deduplizierung und Zyklusbehandlung machen die Projektion stabil; Geometrie, Stil,
+Index, untypisierte Pfeile und benachbarter Inhalt sind ausdrücklich kein Hash-Eingang.
+
+Eine Freigabe ist an den `closureHash` einer serverseitigen Vorschau gebunden. Der Client muss
+denselben Hash beim zweiten, sichtbaren Klick **„Diese Fassung freigeben“** vorlegen; jede
+Text- oder Closure-Änderung dazwischen endet mit `APPROVAL_PREVIEW_STALE`. Eine bestehende
+Freigabe wird beim Dispatch-Seam gegen die gepinnte Revision neu geprüft und verfällt bei jeder
+Abweichung. Dieses Dokument legt weiterhin keinen Hash über globale Drawing- oder
+Elementversionen als Ersatz fest.
 
 ### NIL-677: Welche menschliche Provenance trägt ein Element?
 
@@ -203,14 +227,50 @@ oder Context-lokale Contribution/Admission-Provenance einführen; oder eine ausd
 Defense-in-depth und die Contribution-Policy. NIL-677 hängt echt an NIL-671: Ohne
 Context→Frame-Zuordnung ist die Schutzregel nicht durchsetzbar.
 
-### NIL-680: Wie werden Lease-CAS und Übernahme umgesetzt?
+### NIL-680: Wie werden Lease-CAS und Übernahme umgesetzt? (entschieden)
 
-Persistentes, atomares Compare-and-swap ist Pflicht, seine Datenform aber noch nicht entschieden.
-Auch die Takeover-Regel ist offen; sie ist eine soziale Entscheidung für ein geteiltes Board.
-Optionen sind Zustimmung des Holders, ein ausdrücklich privilegierter Override oder
-ausschließlich Warten/Übergabe-Anfrage. Davon hängen Lease-Transfer, Audit-Ereignisse und die
-Nutzererwartung an sichtbare Übernahme ab. Eine stillschweigende Übernahme ist in keinem Fall
-zulässig.
+Umgesetzt als `ContextLease` (eine Zeile pro Context, atomar per WHERE-bewachtem `updateMany`
+wiederverwendet) plus `ContextLeaseEvent` als eigene, von `contextThread.ts`s geschlossener
+Event-Kind-Union bewusst getrennte Koordinationsspur -- siehe den Absatz oben unter
+"Context-Grenze, Closure und Lease" und [`contextLease.ts`](../../backend/src/agent/contextLease.ts).
+Übernahme ist entweder Zustimmung des aktuellen Holders oder ein serverseitig entschiedener
+Override (in der REST-Route: nur der Board-Owner, nie ein Client-Flag allein); still ist keine
+davon -- jede Übernahme erzeugt ein `lease.transferred`-Ereignis. Offen bleibt nur, wer/was
+`endHorizonAt` beim ersten Acquire konkret setzt -- das ist NIL-679s Dispatch-Freigabe-Fluss,
+nicht dieses Modul, das den Wert nur entgegennimmt und durchsetzt.
+
+### NIL-678: Wie bleibt der Orchestrator-Faden am Board, ohne Nähe zu Semantik zu machen?
+
+Der gemeinsame Faden besitzt eine echte Excalidraw Board Card; Öffnen, Docking und
+Cluster-Auswahl bleiben lokale Ansichtsentscheidungen. Seine drei Zustände sind `closed`,
+`anchored` (offen am lesbaren Anker) und `docked` (offen mit unerreichbarem Anker, inklusive
+Richtung, Entfernung und Sprung). Geometrische Hysterese verhindert Flackern, und eine einzelne
+`activeThreadId` erzwingt höchstens ein Vollpanel pro Nutzer.
+
+Visuelle Cluster behalten alle ursprünglichen `threadId`s und dürfen ausschließlich zu genau
+einem davon navigieren. Sie besitzen keine Context-, Dispatch- oder Lease-Aktion. Sättigung
+wird aus belegter sichtbarer Fläche statt aus einer festen Fadenzahl abgeleitet und als
+Backpressure sichtbar gemacht; Read-only-Arbeit bleibt möglich. Der vollständige ausführbare
+UI-Vertrag steht in [`ORCHESTRATOR_THREAD_ANCHOR.md`](ORCHESTRATOR_THREAD_ANCHOR.md).
+
+### NIL-679: Was quittiert öffentliche Orchestrator-Wirkung?
+
+Lokaler und Multiplayer-Faden sind getrennte, unveränderliche Audiences. Ein Wechsel öffnet
+eine andere serverseitig gefilterte Historie; er konvertiert oder veröffentlicht keine
+Nachricht. Ein öffentlicher Dispatch aus einem lokalen Faden benötigt eine ausdrückliche zweite
+Geste und schreibt vor jedem Runtime-Signal ein gemeinsames `DispatchReceipt`, das nur die
+genehmigte Zusammenfassung offenlegt.
+
+Das Receipt ist kein Erfolgsbeleg. `admission`, `execution` und `effect` entwickeln sich
+getrennt. Runtime-Schweigen oder verlorene Beobachtbarkeit wird nach einer Serverfrist
+`outcome_unknown`; ein geschlossenes Event-Stream ist niemals Erfolg. `effect=committed`
+entsteht ausschließlich in derselben Transaktion wie die autoritative Board-Mutation, nach
+erneuter Prüfung des Run-Mounts und der unveränderten Lease-Generationen. Der persistente
+Outbox-Versuch wird vor dem Fremdaufruf auf `sending` gesetzt und danach nie blind wiederholt.
+Damit konkretisiert NIL-679 V4 auch zeitlich: delegierte Rechte dürfen nach Entzug nicht
+fortdauern, und unklare Fremdzustände dürfen keine öffentliche Wirkung behaupten. Der UI- und
+Zustandsvertrag steht in
+[`ORCHESTRATOR_THREAD_ANCHOR.md`](ORCHESTRATOR_THREAD_ANCHOR.md#dispatchreceipt-verantwortung-statt-erfolgsbadge).
 
 ### NIL-683: Für wen wird die Runtime gebaut?
 

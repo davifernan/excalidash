@@ -63,22 +63,23 @@ model Team {
 }
 
 model SystemConfig {
-  id                               String    @id @default("default")
-  authEnabled                      Boolean   @default(false)
-  authOnboardingCompleted          Boolean   @default(false)
-  registrationEnabled              Boolean   @default(false)
-  guestUploadEnabled               Boolean   @default(false)
-  guestCommentVisibilityEnabled    Boolean   @default(true)
-  oidcJitProvisioningEnabled       Boolean?
-  authLoginRateLimitEnabled        Boolean   @default(true)
-  authLoginRateLimitWindowMs       Int       @default(900000)
-  authLoginRateLimitMax            Int       @default(20)
-  bootstrapSetupCodeHash           String?
-  bootstrapSetupCodeIssuedAt       DateTime?
-  bootstrapSetupCodeExpiresAt      DateTime?
-  bootstrapSetupCodeFailedAttempts Int       @default(0)
-  createdAt                        DateTime  @default(now())
-  updatedAt                        DateTime  @updatedAt
+  id                                 String    @id @default("default")
+  authEnabled                        Boolean   @default(false)
+  authOnboardingCompleted            Boolean   @default(false)
+  registrationEnabled                Boolean   @default(false)
+  guestUploadEnabled                 Boolean   @default(false)
+  guestCommentVisibilityEnabled      Boolean   @default(true)
+  guestAgentContextContributeEnabled Boolean   @default(false)
+  oidcJitProvisioningEnabled         Boolean?
+  authLoginRateLimitEnabled          Boolean   @default(true)
+  authLoginRateLimitWindowMs         Int       @default(900000)
+  authLoginRateLimitMax              Int       @default(20)
+  bootstrapSetupCodeHash             String?
+  bootstrapSetupCodeIssuedAt         DateTime?
+  bootstrapSetupCodeExpiresAt        DateTime?
+  bootstrapSetupCodeFailedAttempts   Int       @default(0)
+  createdAt                          DateTime  @default(now())
+  updatedAt                          DateTime  @updatedAt
 }
 
 model Collection {
@@ -95,45 +96,51 @@ model Collection {
 }
 
 model Drawing {
-  id                            String               @id @default(uuid())
-  name                          String
-  elements                      String
-  appState                      String
-  files                         String               @default("{}")
-  preview                       String?
-  version                       Int                  @default(1)
-  guestUploadEnabled            Boolean              @default(false)
-  guestCommentVisibilityEnabled Boolean              @default(true)
+  id                                 String                          @id @default(uuid())
+  name                               String
+  elements                           String
+  appState                           String
+  files                              String                          @default("{}")
+  preview                            String?
+  version                            Int                             @default(1)
+  guestUploadEnabled                 Boolean                         @default(false)
+  guestCommentVisibilityEnabled      Boolean                         @default(true)
+  guestAgentContextContributeEnabled Boolean                         @default(false)
   /// Monotonic ordering marker for persisted name snapshots and broadcasts.
-  nameRevision                  Int                  @default(1)
+  nameRevision                       Int                             @default(1)
   /// Who controls the board: shares it, moves it, deletes it, and carries its
   /// storage quota. For a board drawn inside someone else's collection this is
   /// the collection's owner, not the person who drew it.
-  userId                        String
-  user                          User                 @relation("DrawingOwner", fields: [userId], references: [id], onDelete: Cascade)
+  userId                             String
+  user                               User                            @relation("DrawingOwner", fields: [userId], references: [id], onDelete: Cascade)
   /// Who drew it. Kept apart from control so a team board can say where it came
   /// from without that deciding who may give it away.
-  createdByUserId               String?
-  createdBy                     User?                @relation("DrawingCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  collectionId                  String?
-  collection                    Collection?          @relation(fields: [collectionId], references: [id])
-  permissions                   DrawingPermission[]
-  linkShares                    DrawingLinkShare[]
-  snapshots                     DrawingSnapshot[]
-  assets                        DrawingAsset[]
-  pageViews                     DocumentPageView[]
-  comments                      Comment[]
-  activityEvents                ActivityEvent[]
-  visits                        DrawingVisit[]
-  favoritedBy                   DrawingFavorite[]
-  apiKeys                       ApiKey[]
-  agentContexts                 AgentContext[]
-  agentRevisions                AgentBoardRevision[]
-  agentRunMounts                AgentRunMount[]
+  createdByUserId                    String?
+  createdBy                          User?                           @relation("DrawingCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  collectionId                       String?
+  collection                         Collection?                     @relation(fields: [collectionId], references: [id])
+  permissions                        DrawingPermission[]
+  linkShares                         DrawingLinkShare[]
+  snapshots                          DrawingSnapshot[]
+  assets                             DrawingAsset[]
+  pageViews                          DocumentPageView[]
+  elementGuestProvenance             DrawingElementGuestProvenance[]
+  comments                           Comment[]
+  activityEvents                     ActivityEvent[]
+  visits                             DrawingVisit[]
+  favoritedBy                        DrawingFavorite[]
+  apiKeys                            ApiKey[]
+  agentContexts                      AgentContext[]
+  agentThreads                       AgentThread[]
+  agentDispatchReceipts              AgentDispatchReceipt[]
+  agentRevisions                     AgentBoardRevision[]
+  agentRunMounts                     AgentRunMount[]
+  agentSemanticRelations             AgentSemanticRelation[]
+  agentInstructionApprovals          AgentInstructionApproval[]
   /// Not named `files` -- the scalar `files` column below is Drawing's own
   /// JSON blob of embedded Excalidraw file entries, an unrelated field this
   /// relation would collide with.
-  drawingFiles                  DrawingFile[]
+  drawingFiles                       DrawingFile[]
   /// Set when the board is archived (NIL-365): excluded from Team Home, the
   /// default drawing lists, and search by default, but not deleted -- an
   /// authorized viewer can still find and restore it from the Archive view.
@@ -142,7 +149,7 @@ model Drawing {
   /// staging for permanent deletion by the board's own owner, Archive is a
   /// reversible team-visible lifecycle state that does not change ownership
   /// or collection membership.
-  archivedAt                    DateTime?
+  archivedAt                         DateTime?
   /// Denormalized, lowercased plain text extracted from the board's name and
   /// its visible text-element content, recomputed on every save
   /// (`searchIndex.ts`). Existing purely so `contains` search has one column
@@ -151,9 +158,9 @@ model Drawing {
   /// is). SQLite `LIKE`-based, not FTS5: at ~10 accounts and their boards
   /// this is cheap enough that a second, rebuildable virtual index is not
   /// worth the dual-write hazard it would add.
-  searchText                    String               @default("")
-  createdAt                     DateTime             @default(now())
-  updatedAt                     DateTime             @updatedAt
+  searchText                         String                          @default("")
+  createdAt                          DateTime                        @default(now())
+  updatedAt                          DateTime                        @updatedAt
 
   @@index([userId, updatedAt])
   @@index([userId, collectionId, updatedAt])
@@ -187,10 +194,73 @@ model AgentContext {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  drawing Drawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  drawing              Drawing                    @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  thread               AgentThread?
+  semanticRelations    AgentSemanticRelation[]
+  instructionApprovals AgentInstructionApproval[]
+  lease                ContextLease?
+  leaseEvents          ContextLeaseEvent[]
+  dispatchLeases       AgentDispatchLease[]
 
   @@unique([drawingId, frameElementId])
   @@index([drawingId, createdAt])
+}
+
+/// One immutable-audience conversation. Context and orchestrator histories use
+/// the same ordered event domain; audience/owner are properties of the thread,
+/// never per-message flags that a later toggle could reinterpret.
+model AgentThread {
+  id                String   @id @default(uuid())
+  drawingId         String
+  threadKind        String
+  audienceKind      String
+  /// Server-authenticated subject id. Deliberately not a User FK: the
+  /// supported auth-disabled bootstrap identity has no User row, but is still
+  /// stable across devices and must be able to own a local thread.
+  audienceUserId    String?
+  contextId         String?  @unique
+  anchorElementId   String?
+  title             String
+  anchorX           Float?
+  anchorY           Float?
+  nextEventSequence Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  drawing          Drawing                @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  context          AgentContext?          @relation(fields: [contextId], references: [id], onDelete: Cascade)
+  events           AgentThreadEvent[]
+  dispatchOrigins  AgentDispatchReceipt[] @relation("DispatchOriginThread")
+  dispatchReceipts AgentDispatchReceipt[] @relation("DispatchPublicThread")
+
+  // SQLite and PostgreSQL both allow multiple NULLs here: there can be many
+  // drawing-audience Context/shared threads, but only one private orchestrator
+  // thread per account and board.
+  @@unique([drawingId, threadKind, audienceUserId])
+  @@unique([drawingId, anchorElementId])
+  @@index([drawingId, audienceKind, createdAt])
+  @@index([audienceUserId, updatedAt])
+}
+
+/// Server-ordered, append-only history for any AgentThread. The actor is
+/// deliberately polymorphic: agents and system events are not fake User rows.
+/// `payload` is event-kind-specific JSON; clients never overwrite or delete a
+/// row after append.
+model AgentThreadEvent {
+  id               String   @id @default(uuid())
+  threadId         String
+  sequence         Int
+  actorKind        String
+  actorId          String?
+  actorDisplayName String
+  eventKind        String
+  payload          String
+  createdAt        DateTime @default(now())
+
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, sequence])
+  @@index([threadId, createdAt])
 }
 
 /// A full, immutable source image for agent exploration. Unlike ordinary
@@ -205,6 +275,10 @@ model AgentBoardRevision {
   appState             String
   files                String
   contextMap           String
+  /// Explicit, server-owned instruction relations captured with this scene.
+  /// Dispatch validates an approval against this immutable map, never a live
+  /// relation set that may have changed after the run was pinned.
+  semanticRelations    String   @default("[]")
   createdAt            DateTime @default(now())
 
   drawing Drawing                   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
@@ -214,6 +288,203 @@ model AgentBoardRevision {
 
   @@unique([drawingId, contentHash])
   @@index([drawingId, createdAt])
+}
+
+/// Explicit machine meaning for an Agent Context. This is deliberately not
+/// Excalidraw arrow geometry or `customData`: only a human-authorized route
+/// may create it, and it is separately captured in AgentBoardRevision.
+model AgentSemanticRelation {
+  id              String   @id @default(uuid())
+  drawingId       String
+  contextId       String
+  fromElementId   String
+  toElementId     String
+  kind            String
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  drawing Drawing      @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@unique([contextId, fromElementId, toElementId, kind])
+  @@index([drawingId, contextId, createdAt])
+}
+
+/// Human approval is server state, not an element flag. The hash pair is the
+/// exact semantic instruction and transitive explicit closure the human saw.
+model AgentInstructionApproval {
+  id                 String   @id @default(uuid())
+  drawingId          String
+  contextId          String
+  elementId          String
+  schemaVersion      Int
+  semanticHash       String
+  closureHash        String
+  approvedByUserId   String
+  authority          String   @default("instruction")
+  approvedRevisionId String?
+  approvedAt         DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  drawing Drawing      @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@unique([contextId, elementId])
+  @@index([drawingId, contextId, approvedAt])
+}
+
+/// NIL-680. The single, reusable row of public-effect exclusivity for one
+/// Context. There is deliberately no read lease -- any number of read-only
+/// runs may explore a Context in parallel; this row exists only to answer
+/// "which run may currently cause a shared, board-visible effect through
+/// this Context." One row is created once per Context and then mutated in
+/// place by every later acquire/renew/transfer -- `leaseGeneration` is the
+/// opaque token a caller must present back for renew/transfer/release to
+/// prove it still addresses the lease it thinks it holds, not a stale one.
+/// A lease with `releasedAt` set or `expiresAt` in the past is not held by
+/// anyone; acquiring against it is a fresh grant, not a hostile takeover.
+model ContextLease {
+  id                   String    @id @default(uuid())
+  contextId            String    @unique
+  leaseGeneration      String
+  holderOrchestratorId String
+  initiatedByUserId    String
+  runId                String
+  acquiredAt           DateTime
+  expiresAt            DateTime
+  endHorizonAt         DateTime
+  releasedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@index([contextId, expiresAt])
+}
+
+/// Durable responsibility record for one approved dispatch whose result may
+/// become visible to the whole drawing. Admission, execution and effect are
+/// deliberately separate: accepting work is never represented as completing
+/// it, and a finished runtime is not proof that a Board write was committed.
+model AgentDispatchReceipt {
+  id                    String    @id @default(uuid())
+  drawingId             String
+  originThreadId        String
+  publicThreadId        String
+  /// Publicly projectable as `private|drawing`; the private thread id itself
+  /// is never included in a drawing-audience DTO.
+  originAudienceKind    String
+  initiatedByUserId     String
+  objectiveSummary      String
+  targetContextIds      String
+  revisionId            String
+  effectiveCapabilities String
+  budget                String
+  expectedArtifacts     String
+  runId                 String    @unique
+  admissionStatus       String    @default("accepted")
+  executionStatus       String    @default("queued")
+  effectStatus          String    @default("pending")
+  runtimeCapability     String?
+  runtimeAcknowledgedAt DateTime?
+  lastObservedAt        DateTime?
+  executionTerminalAt   DateTime?
+  effectTerminalAt      DateTime?
+  effectEvidence        String?
+  startDeadlineAt       DateTime
+  livenessDeadlineAt    DateTime
+  effectDeadlineAt      DateTime
+  nextEventSequence     Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  drawing      Drawing                     @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  originThread AgentThread                 @relation("DispatchOriginThread", fields: [originThreadId], references: [id], onDelete: Cascade)
+  publicThread AgentThread                 @relation("DispatchPublicThread", fields: [publicThreadId], references: [id], onDelete: Cascade)
+  mount        AgentRunMount               @relation(fields: [runId], references: [runId], onDelete: Cascade)
+  leases       AgentDispatchLease[]
+  events       AgentDispatchReceiptEvent[]
+  outbox       AgentDispatchOutbox?
+
+  @@index([drawingId, publicThreadId, createdAt])
+  @@index([executionStatus, startDeadlineAt])
+  @@index([effectStatus, effectDeadlineAt])
+}
+
+/// The exact Context Lease generations admitted for a DispatchReceipt. A
+/// ContextLease row is reused, so the generation (not merely contextId) is the
+/// immutable proof of which grant the dispatch consumed.
+model AgentDispatchLease {
+  dispatchId      String
+  contextId       String
+  leaseGeneration String
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  context  AgentContext         @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@id([dispatchId, contextId])
+  @@index([contextId, leaseGeneration])
+}
+
+/// Append-only evidence behind the receipt projection. Delayed observations
+/// cannot overwrite terminal state: transitions update the receipt and append
+/// one monotonically ordered event in the same transaction.
+model AgentDispatchReceiptEvent {
+  id         String   @id @default(uuid())
+  dispatchId String
+  sequence   Int
+  kind       String
+  payload    String
+  createdAt  DateTime @default(now())
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@unique([dispatchId, sequence])
+  @@index([dispatchId, createdAt])
+}
+
+/// Transactional outbox for crossing from the ExcaliDash database to a
+/// foreign runtime. `sending` is intentionally not blindly retried: after a
+/// crash it is unknown whether the remote runtime started, and a duplicate
+/// agent is worse than an explicit `outcome_unknown` receipt.
+model AgentDispatchOutbox {
+  dispatchId       String    @id
+  state            String    @default("pending")
+  /// Canonical runtime request plus its one-use mount capability. Cleared
+  /// after the only allowed delivery attempt reaches a terminal outbox state.
+  payload          String?
+  attemptStartedAt DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@index([state, createdAt])
+}
+
+/// NIL-680's own coordination trace -- deliberately separate from
+/// AgentThreadEvent/contextThread.ts's narrative log (message/tool/status/
+/// artifact/dispatch), which has its own closed event-kind union and its own
+/// per-context sequence counter that this module has no reason to couple
+/// into. This is lower-level protocol bookkeeping: every acquire attempt,
+/// grant, busy rejection, transfer, expiry, and release, in the order the
+/// server observed them. Append-only, never mutated -- there is no
+/// edit/retract concept for a Lease's own history.
+model ContextLeaseEvent {
+  id                   String   @id @default(uuid())
+  contextId            String
+  kind                 String
+  holderOrchestratorId String?
+  initiatedByUserId    String?
+  runId                String?
+  payload              String
+  createdAt            DateTime @default(now())
+
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@index([contextId, createdAt])
 }
 
 /// The per-run pin. The opaque capability token is returned once and only its
@@ -227,18 +498,19 @@ model AgentRunMount {
   capabilities        String
   capabilityTokenHash String   @unique
   /// Board-facing participant identity, fixed for the run.
-  displayName          String   @default("Agent")
+  displayName         String   @default("Agent")
   /// `private` reaches only audienceUserId; `drawing` reaches authorized
   /// human sockets currently present on the board.
-  audienceKind         String   @default("private")
+  audienceKind        String   @default("private")
   /// Derived from the authenticated mount issuer, never supplied as an id by
   /// the caller.
-  audienceUserId       String?
+  audienceUserId      String?
   createdAt           DateTime @default(now())
 
-  drawing  Drawing            @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  revision AgentBoardRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
-  audits   AgentToolAudit[]
+  drawing         Drawing               @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  revision        AgentBoardRevision    @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  audits          AgentToolAudit[]
+  dispatchReceipt AgentDispatchReceipt?
 
   @@index([drawingId, createdAt])
   @@index([revisionId])
@@ -749,12 +1021,12 @@ model Asset {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  owner          User                      @relation("AssetOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  uploadedBy     User?                     @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
-  blob           StoredBlob                @relation(fields: [blobId], references: [id], onDelete: Restrict)
-  drawings       DrawingAsset[]
-  snapshots      DrawingSnapshotAsset[]
-  pageViews      DocumentPageView[]
+  owner      User                   @relation("AssetOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  uploadedBy User?                  @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  blob       StoredBlob             @relation(fields: [blobId], references: [id], onDelete: Restrict)
+  drawings   DrawingAsset[]
+  snapshots  DrawingSnapshotAsset[]
+  pageViews  DocumentPageView[]
 
   @@index([ownerUserId, createdAt])
   @@index([blobId])
@@ -804,6 +1076,30 @@ model DocumentPageView {
 
   @@id([drawingId, elementId])
   @@index([assetId])
+}
+
+/// Whether an element has definitely been changed by a link-only guest.
+///
+/// Absence is deliberately NOT equivalent to false: elements that predate
+/// this table have unknown provenance. `false` is only written for a
+/// server-observed member creation or an explicit member confirmation;
+/// `true` is monotonic across ordinary writes and is only cleared by that
+/// explicit, audited confirmation path.
+///
+/// `elementId` is not a foreign key because elements live in Drawing.elements
+/// JSON rather than in their own table (the same boundary as DocumentPageView).
+model DrawingElementGuestProvenance {
+  drawingId        String
+  elementId        String
+  everGuestTouched Boolean
+  /// Optimistic guard for the explicit reset: a concurrent guest touch wins.
+  revision         Int      @default(1)
+  updatedAt        DateTime @updatedAt
+
+  drawing Drawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+
+  @@id([drawingId, elementId])
+  @@index([drawingId, everGuestTouched])
 }
 
 /// Which documents a snapshot needs, so restoring an old version still finds

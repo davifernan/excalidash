@@ -36,7 +36,11 @@ describe("instance guest capability ceiling", () => {
       },
     });
     const result = await getInstanceGuestCapabilities(prisma as any, "default");
-    expect(result).toEqual({ uploadFiles: true, viewComments: false });
+    expect(result).toEqual({
+      uploadFiles: true,
+      viewComments: false,
+      agentContextContribute: false,
+    });
   });
 
   it("only writes the field that was actually passed", async () => {
@@ -85,27 +89,36 @@ describe("combineGuestCapabilities", () => {
   it("is AND, per function: a board cannot raise what the instance closed", () => {
     expect(
       combineGuestCapabilities(
-        { uploadFiles: false, viewComments: true },
-        { uploadFiles: true, viewComments: true },
+        { uploadFiles: false, viewComments: true, agentContextContribute: true },
+        { uploadFiles: true, viewComments: true, agentContextContribute: true },
       ),
-    ).toEqual({ uploadFiles: false, viewComments: true });
+    ).toEqual({ uploadFiles: false, viewComments: true, agentContextContribute: true });
   });
 
   it("still requires the board's own opt-in even when the instance allows it", () => {
     expect(
       combineGuestCapabilities(
-        { uploadFiles: true, viewComments: true },
-        { uploadFiles: false, viewComments: true },
+        { uploadFiles: true, viewComments: true, agentContextContribute: true },
+        { uploadFiles: false, viewComments: true, agentContextContribute: false },
       ),
-    ).toEqual({ uploadFiles: false, viewComments: true });
+    ).toEqual({ uploadFiles: false, viewComments: true, agentContextContribute: false });
   });
 
-  it("grants both only when instance and board both agree", () => {
+  it("grants all three only when instance and board both agree", () => {
     expect(
       combineGuestCapabilities(
-        { uploadFiles: true, viewComments: true },
-        { uploadFiles: true, viewComments: true },
+        { uploadFiles: true, viewComments: true, agentContextContribute: true },
+        { uploadFiles: true, viewComments: true, agentContextContribute: true },
       ),
-    ).toEqual({ uploadFiles: true, viewComments: true });
+    ).toEqual({ uploadFiles: true, viewComments: true, agentContextContribute: true });
+  });
+
+  it("keeps agent context contribution closed unless instance and board both allow it", () => {
+    expect(
+      combineGuestCapabilities(
+        { uploadFiles: false, viewComments: true, agentContextContribute: true },
+        { uploadFiles: false, viewComments: true, agentContextContribute: false },
+      ),
+    ).toEqual({ uploadFiles: false, viewComments: true, agentContextContribute: false });
   });
 });

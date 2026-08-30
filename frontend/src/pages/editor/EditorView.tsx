@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { NotificationHost, notify } from "../../notifications";
 import { ExcalidrawHost } from "../../integrations/excalidraw/ExcalidrawHost";
 import { ElementStackingBoundary } from "../../integrations/excalidraw/ElementStackingBoundary";
@@ -34,6 +34,7 @@ import {
 import "./editorChrome.css";
 import { elementViewportBounds, isOnlySelectedElement } from "./floatingToolbarGeometry";
 import { readViewport } from "../../integrations/excalidraw/viewport";
+import { InstructionApprovalToolbar } from "./InstructionApprovalToolbar";
 
 type EditorViewProps = {
   id?: string;
@@ -103,6 +104,8 @@ type EditorViewProps = {
   onToggleComments: () => void;
   isAgentRuntimeOpen: boolean;
   onToggleAgentRuntime: () => void;
+  onOpenAgentRuntime: () => void;
+  onCreateOrchestratorThread: () => void;
   /**
    * Direction-hint arrows for collaborators whose cursor is currently
    * outside the viewport (NIL-590) -- same free-floating overlayRoot()
@@ -112,6 +115,45 @@ type EditorViewProps = {
   offscreenPresenceOverlay?: React.ReactNode;
   /** Named Agent Presence projected onto the exact elements it reads. */
   agentPresenceOverlay?: React.ReactNode;
+};
+
+export const approvalSceneKey = (
+  elements: readonly any[],
+  appState: {
+    selectedElementIds?: Record<string, unknown>;
+    scrollX?: number;
+    scrollY?: number;
+    zoom?: { value?: number };
+  } | null,
+) => {
+  const selectedIds = Object.keys(appState?.selectedElementIds ?? {})
+    .filter((id) => appState?.selectedElementIds?.[id])
+    .sort();
+
+  if (selectedIds.length === 0) return null;
+
+  const selectionKey = selectedIds
+    .map((id) => {
+      const element = elements.find((item) => item.id === id);
+      return element
+        ? [
+            id,
+            element.x,
+            element.y,
+            element.width,
+            element.height,
+            element.frameId,
+            element.text,
+            element.originalText,
+          ].join("\u0000")
+        : id;
+    })
+    .join("\u0001");
+
+  // The floating toolbar anchor is projected through the current viewport.
+  // Pan and zoom therefore need their own stable state transition, even when
+  // selection and element content are unchanged.
+  return [selectionKey, appState?.scrollX, appState?.scrollY, appState?.zoom?.value].join("\u0002");
 };
 
 export const EditorView: React.FC<EditorViewProps> = ({
@@ -176,8 +218,30 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onToggleComments,
   isAgentRuntimeOpen,
   onToggleAgentRuntime,
+  onOpenAgentRuntime,
+  onCreateOrchestratorThread,
 }) => {
   const excalidrawRoot = useExcalidrawRoot(editorContainerRef);
+  const [approvalScene, setApprovalScene] = useState<{ elements: readonly any[]; appState: any }>({
+    elements: [],
+    appState: null,
+  });
+  const lastApprovalSceneKey = useRef<string | null>(null);
+  // Excalidraw emits fresh element and app-state objects on every change. The
+  // approval seam needs a snapshot only when selection/content or its viewport
+  // changes; a per-change setState turns its own parent render back into
+  // Excalidraw work.
+  const handleCanvasChange = useCallback(
+    (elements: readonly any[], appState: any, files?: Record<string, any>) => {
+      const nextApprovalSceneKey = approvalSceneKey(elements, appState);
+      if (nextApprovalSceneKey !== lastApprovalSceneKey.current) {
+        lastApprovalSceneKey.current = nextApprovalSceneKey;
+        setApprovalScene({ elements, appState });
+      }
+      onCanvasChange(elements, appState, files);
+    },
+    [onCanvasChange],
+  );
   // Zen mode is handled by Excalidraw itself for everything rendered through
   // its own slots (MainMenu, renderTopRightUI both carry
   // `zen-mode-transition` already); this component no longer has a floating
@@ -225,6 +289,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
     onSetLangCode,
     onToggleComments,
     onToggleAgentRuntime,
+    orchestratorThreads: {
+      canCreate: canEdit,
+      onCreate: onCreateOrchestratorThread,
+    },
   };
 
   return (
@@ -260,7 +328,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             theme={theme === "dark" ? "dark" : "light"}
             langCode={langCode}
             initialData={initialData}
-            onChange={onCanvasChange}
+            onChange={handleCanvasChange}
             onPointerUpdate={onPointerUpdate}
             onLibraryChange={onLibraryChange}
             excalidrawAPI={onSetExcalidrawAPI}
@@ -369,6 +437,14 @@ export const EditorView: React.FC<EditorViewProps> = ({
             timer={workshopTimer}
             onStartVote={voting.openCompose}
             onOpenComments={onToggleComments}
+          />
+          <InstructionApprovalToolbar
+            drawingId={id}
+            canEdit={canEdit}
+            host={excalidrawRoot}
+            elements={approvalScene.elements}
+            appState={approvalScene.appState}
+            onOpenDispatch={onOpenAgentRuntime}
           />
           <ConnectionStatusBadge container={excalidrawRoot} status={connectionStatus} />
           <PresentationOverlay container={excalidrawRoot} frames={frames} presenting={presenting} />

@@ -18,6 +18,7 @@ const MOTION_EVIDENCE_SPECS = [
   "**/motion-evidence-config.spec.ts",
   "**/sticky-connect.spec.ts",
   "**/agent-presence.spec.ts",
+  "**/document-pages.spec.ts",
 ];
 const MOTION_EVIDENCE_CONTRACT_SPECS = ["**/motion-evidence-config.spec.ts"];
 

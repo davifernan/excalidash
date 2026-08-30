@@ -36,6 +36,7 @@ import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import { useOffscreenPresence } from "./editor/useOffscreenPresence";
 import { useAgentPresenceOverlay } from "./editor/useAgentPresenceOverlay";
 import { useAgentRuntimeFeature } from "./editor/useAgentRuntimeFeature";
+import { useOrchestratorThreadFeature } from "./editor/useOrchestratorThreadFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
@@ -51,7 +52,7 @@ export const Editor: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user, authEnabled } = useAuth();
   const [accessLevel, setAccessLevel] = useState<"none" | "view" | "comment" | "edit" | "owner">(
     "none",
   );
@@ -678,10 +679,24 @@ export const Editor: React.FC = () => {
   }, []);
   const { offscreenPresenceOverlay } = useOffscreenPresence({ adapter });
   const { agentPresenceOverlay } = useAgentPresenceOverlay({ adapter, presence: agentPresence });
-  const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime } = useAgentRuntimeFeature({
-    adapter,
-    drawingId: id,
-  });
+  const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime, openAgentRuntime } =
+    useAgentRuntimeFeature({
+      adapter,
+      drawingId: id,
+    });
+  const { orchestratorThreadOverlay, createThread: createOrchestratorThread } =
+    useOrchestratorThreadFeature({
+      adapter,
+      canEdit,
+      isReady,
+      drawingId: id,
+      socketRef,
+      // In auth-disabled mode the backend supplies one stable bootstrap
+      // subject even though AuthContext intentionally has no User row. This
+      // value only enables local UI; every API call derives the real owner id
+      // server-side and never trusts it.
+      currentUserId: user?.id ?? (authEnabled === false ? "bootstrap" : null),
+    });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
       drawingId: id,
@@ -784,6 +799,8 @@ export const Editor: React.FC = () => {
         unresolvedCommentCount={unresolvedCommentCount}
         isAgentRuntimeOpen={isAgentRuntimeOpen}
         onToggleAgentRuntime={toggleAgentRuntime}
+        onOpenAgentRuntime={openAgentRuntime}
+        onCreateOrchestratorThread={createOrchestratorThread}
         onCanvasDropCapture={handleCanvasDropCapture}
         onExportClick={handleExportClick}
         onLibraryChange={handleLibraryChange}
@@ -799,6 +816,7 @@ export const Editor: React.FC = () => {
         onHistoryOpen={() => setIsHistoryOpen(true)}
       />
       {agentRuntimeOverlay}
+      {orchestratorThreadOverlay}
       {canEdit ? (
         <LaserToolbarButton containerRef={editorContainerRef} interaction={adapter.interaction} />
       ) : null}

@@ -1,7 +1,21 @@
+import { resolveAgentContextContributePolicy } from "../authz/capabilities";
+import {
+  elementIdsInContextFrame,
+  markUnknownElementProvenanceGuestTouched,
+  readElementGuestProvenance,
+} from "./elementGuestProvenance";
+
 export type ContextIdentity = {
   id: string;
   frameElementId: string;
   pinned: boolean;
+};
+
+export type ContextRegistration = ContextIdentity & {
+  provenanceReview: {
+    confirmationRequired: boolean;
+    elementIdsRequiringConfirmation: string[];
+  };
 };
 
 type Element = Record<string, unknown>;
@@ -139,7 +153,7 @@ export const registerAgentContext = async (params: {
   drawingId: string;
   frameElementId: string;
   pinned?: boolean;
-}): Promise<ContextIdentity> =>
+}): Promise<ContextRegistration> =>
   params.prisma.$transaction(async (tx: any) => {
     await lockContextDrawing(tx, params.drawingId);
     const drawing = await tx.drawing.findUnique({
@@ -160,7 +174,7 @@ export const registerAgentContext = async (params: {
       pinned: params.pinned ?? false,
     };
     validateContextFrames(elements, [...existing, candidate]);
-    return tx.agentContext.create({
+    const created = await tx.agentContext.create({
       data: {
         drawingId: params.drawingId,
         frameElementId: params.frameElementId,
@@ -168,6 +182,42 @@ export const registerAgentContext = async (params: {
       },
       select: { id: true, frameElementId: true, pinned: true },
     });
+    await tx.agentThread.create({
+      data: {
+        // Context ids were also used as thread ids by the one-time NIL-679
+        // migration. Keeping the same invariant for new Contexts makes their
+        // history address deterministic without exposing another identity.
+        id: created.id,
+        drawingId: params.drawingId,
+        threadKind: "context",
+        audienceKind: "drawing",
+        contextId: created.id,
+        title: "Context thread",
+      },
+    });
+    const contextElementIds = elementIdsInContextFrame(elements, params.frameElementId);
+    const provenance = await readElementGuestProvenance(tx, params.drawingId, contextElementIds);
+    const unknownElementIds = provenance
+      .filter((entry) => entry.status === "unknown")
+      .map((entry) => entry.elementId);
+    const elementIdsRequiringConfirmation = provenance
+      .filter((entry) => entry.status !== "confirmed-clean")
+      .map((entry) => entry.elementId);
+    // Context registration is the explicit boundary at which legacy absence
+    // stops being ephemeral. Unknown content is persisted fail-closed as
+    // guest-touched; only the audited human confirmation seam may clear it.
+    await markUnknownElementProvenanceGuestTouched({
+      prisma: tx,
+      drawingId: params.drawingId,
+      elementIds: unknownElementIds,
+    });
+    return {
+      ...created,
+      provenanceReview: {
+        confirmationRequired: elementIdsRequiringConfirmation.length > 0,
+        elementIdsRequiringConfirmation,
+      },
+    };
   });
 
 /** Reject a scene mutation that would invalidate already registered Contexts. */
@@ -186,6 +236,67 @@ export const assertPersistedAgentContextFrames = async (
       typeof element === "object" && element !== null && !Array.isArray(element),
   );
   if (contexts.length > 0) validateContextFrames(records, contexts);
+};
+
+export class AgentContextGuestWriteDeniedError extends Error {
+  constructor(public readonly elementIds: readonly string[]) {
+    super(
+      `Guests cannot write to elements inside a registered Agent Context frame: ${elementIds.join(", ")}`,
+    );
+    this.name = "AgentContextGuestWriteDeniedError";
+  }
+}
+
+/**
+ * NIL-677 `agent_context:write`, Gate 1 (preventive). A guest may never
+ * change an element that resolves -- directly or through its frame's own
+ * frameId ancestry -- into a registered Agent Context frame, UNLESS the
+ * board's `agentContextContribute` policy is on. NIL-677's own "Fertig,
+ * wenn" criterion requires that one setting to govern both enforcement
+ * layers, not just `agent_context:contribute` (Gate 2) -- so this reads the
+ * exact same `resolveAgentContextContributePolicy` Gate 2 does, rather than
+ * carrying its own copy of "is this on" that could drift from Gate 2's.
+ * When the policy is off (the default), this stays the hard, unconditional
+ * deny it always was. Checked against the RESULTING scene (the `elements`
+ * argument), not the prior one, because the exact attack this exists to
+ * stop is a guest dragging an element INTO the frame -- the frameId that
+ * matters is the one the write is trying to produce.
+ *
+ * This is prevention, not the guarantee: a socket race, an old client, or an
+ * overlooked sixth mutation path can still slip an element into a frame's
+ * geometry without this check ever running. `executeAgentBoardTool`'s
+ * context-eligibility filter (boardMount.ts) is Gate 2, the one that
+ * actually decides what an agent reads, and never trusts this gate's
+ * earlier judgment.
+ */
+export const assertGuestElementWriteAllowed = async (params: {
+  prisma: any;
+  drawingId: string;
+  isGuest: boolean;
+  changedElementIds: readonly string[];
+  elements: readonly unknown[];
+}): Promise<void> => {
+  if (!params.isGuest || params.changedElementIds.length === 0) return;
+  const contexts = (await params.prisma.agentContext.findMany({
+    where: { drawingId: params.drawingId },
+    select: { frameElementId: true },
+  })) as { frameElementId: string }[];
+  if (contexts.length === 0) return;
+  if (await resolveAgentContextContributePolicy(params.prisma, params.drawingId)) return;
+  const records = params.elements.filter(
+    (element): element is Element =>
+      typeof element === "object" && element !== null && !Array.isArray(element),
+  );
+  const protectedElementIds = new Set<string>();
+  for (const context of contexts) {
+    for (const id of elementIdsInContextFrame(records, context.frameElementId)) {
+      protectedElementIds.add(id);
+    }
+  }
+  const denied = params.changedElementIds.filter((id) => protectedElementIds.has(id));
+  if (denied.length > 0) {
+    throw new AgentContextGuestWriteDeniedError(denied);
+  }
 };
 
 export const contextFrameBounds = (element: Element): Bounds | null => frameBounds(element);

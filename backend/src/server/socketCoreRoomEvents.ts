@@ -20,6 +20,11 @@ type CoreRoomEventDeps = {
   allowCursorMove: () => boolean;
   allowElementUpdate: (drawingId: string, serializedBytes: number) => boolean;
   authorizeFileDelta: (drawingId: string) => Promise<boolean>;
+  recordElementProvenance: (payload: {
+    drawingId: string;
+    elements: unknown[];
+    elementOrder?: string[];
+  }) => Promise<{ code: string; message: string } | void>;
 };
 
 type ActivityPayload = RoomEventPayload & { isActive: boolean };
@@ -45,6 +50,7 @@ export const registerCoreRoomEvents = ({
   allowCursorMove,
   allowElementUpdate,
   authorizeFileDelta,
+  recordElementProvenance,
 }: CoreRoomEventDeps): void => {
   registerAuthorizedRoomEvent({
     socket,
@@ -90,6 +96,19 @@ export const registerCoreRoomEvents = ({
               "Guests cannot upload files to this board. Ask the board owner to enable guest uploads.",
           },
         };
+      }
+      // This is part of admitting the write, not eventual bookkeeping. A
+      // guest mutation must be durably marked before another member can
+      // receive and later persist it under their own identity -- and
+      // NIL-677's Gate 1 rejection (a guest writing into a registered Agent
+      // Context frame) must land here too, before the broadcast, not after.
+      const provenanceError = await recordElementProvenance({
+        drawingId: payload.drawingId,
+        elements: payload.elements,
+        elementOrder: payload.elementOrder,
+      });
+      if (provenanceError) {
+        return { error: provenanceError };
       }
       socket.to(roomName(payload.drawingId)).emit("element-update", {
         elements: payload.elements,

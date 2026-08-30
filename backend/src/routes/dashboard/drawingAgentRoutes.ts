@@ -1,5 +1,6 @@
 import express from "express";
-import { canEditDrawing, canViewDrawing, getDrawingAccess } from "../../authz/sharing";
+import { canEditDrawing, canViewDrawing } from "../../authz/sharing";
+import { getDrawingCapabilities } from "../../authz/capabilities";
 import { opsBatchSchema } from "../../agent/opSchemas";
 import { applyOperations } from "../../agent/applyOps";
 import { encodeSnapshotField } from "../../snapshots/snapshotCodec";
@@ -21,9 +22,25 @@ import {
 import { AgentContextAuthorizationError } from "../../authz/agentContext";
 import {
   AgentContextValidationError,
+  assertGuestElementWriteAllowed,
+  AgentContextGuestWriteDeniedError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
 import { publishBoardAgentFocus } from "../../server/socketPresence";
+import {
+  diffSceneElementIds,
+  recordSuccessfulElementMutation,
+} from "../../agent/elementGuestProvenance";
+import {
+  assertDrawingStillEditable,
+  DrawingAccessRevokedError,
+} from "./drawingTransactionAuthorization";
+import {
+  commitDispatchBoardEffect,
+  DispatchReceiptError,
+  type DispatchReceiptProjection,
+} from "../../agent/dispatchReceipt";
+import { publishBoardAgentDispatchReceipt } from "../../server/socketDispatchReceipts";
 
 /**
  * The exclusive route surface a drawing-bound agent token (NIL-382) may
@@ -33,7 +50,7 @@ import { publishBoardAgentFocus } from "../../server/socketPresence";
  * disagree, either an agent token gets a 403 for a route it should reach, or
  * (the direction that matters) a route reachable by an agent token exists
  * that the allow-list never had to name. Every route here still re-checks
- * board access itself (`getDrawingAccess`/`canEditDrawing`) rather than
+ * board access itself (`getDrawingCapabilities`/`canEditDrawing`) rather than
  * trusting `req.apiKeyDrawingId`: a human JWT session can reach these routes
  * too, and an agent token's board access can be revoked after the token was
  * minted -- the auth-layer route restriction and this authz-layer access
@@ -58,22 +75,27 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
     req: express.Request,
     res: express.Response,
     requireEdit: boolean,
-  ): Promise<{ id: string; principal: Awaited<ReturnType<typeof getRequestPrincipal>> } | null> => {
+  ): Promise<{
+    id: string;
+    principal: Awaited<ReturnType<typeof getRequestPrincipal>>;
+    isGuest: boolean;
+  } | null> => {
     const principal = await getRequestPrincipal(req);
     const { id } = req.params;
-    const access = await getDrawingAccess({
+    const decision = await getDrawingCapabilities({
       prisma,
       principal,
       drawingId: id,
       shareToken: getShareToken(req),
     });
+    const { access } = decision;
     const allowed = requireEdit ? canEditDrawing(access) : canViewDrawing(access);
     if (!allowed) {
       if (respondWithAuthErrorIfPresent(req, res)) return null;
       res.status(404).json({ error: "Drawing not found", message: "Drawing does not exist" });
       return null;
     }
-    return { id, principal };
+    return { id, principal, isGuest: decision.isGuest };
   };
 
   const respondWithMountError = (res: express.Response, error: unknown): boolean => {
@@ -85,6 +107,14 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
       res
         .status(409)
         .json({ error: "Invalid Context map", code: error.code, message: error.message });
+      return true;
+    }
+    if (error instanceof AgentContextGuestWriteDeniedError) {
+      res.status(403).json({
+        error: "Forbidden",
+        code: "AGENT_CONTEXT_GUEST_WRITE_DENIED",
+        message: error.message,
+      });
       return true;
     }
     if (error instanceof AgentMountError) {
@@ -249,13 +279,28 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
         return res.status(400).json({ error: "Invalid operation", message: result.error });
       }
       const newElements = result.elements;
+      const elementMutation = diffSceneElementIds(currentElements, newElements);
 
       const versionConflictError = new Error("VERSION_CONFLICT");
       let updatedDrawing: typeof existingDrawing | null = null;
+      let committedDispatchReceipt: DispatchReceiptProjection | null = null;
 
       try {
         updatedDrawing = await prisma.$transaction(async (tx) => {
           await assertPersistedAgentContextFrames(tx, id, newElements);
+          const transactionDecision = await assertDrawingStillEditable({
+            prisma: tx,
+            principal: loaded.principal,
+            drawingId: id,
+            shareToken: getShareToken(req),
+          });
+          await assertGuestElementWriteAllowed({
+            prisma: tx,
+            drawingId: id,
+            isGuest: loaded.isGuest || transactionDecision.isGuest,
+            changedElementIds: elementMutation.changedElementIds,
+            elements: newElements,
+          });
           const compress = config.enableSnapshotCompression;
           const snapshot = await tx.drawingSnapshot.create({
             data: {
@@ -279,6 +324,31 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
             throw versionConflictError;
           }
 
+          await recordSuccessfulElementMutation({
+            prisma: tx,
+            drawingId: id,
+            isGuest: loaded.isGuest || transactionDecision.isGuest,
+            ...elementMutation,
+          });
+
+          if (parsed.data.dispatchReceipt) {
+            const mountCapabilityToken = req.header("x-agent-mount-token");
+            if (!mountCapabilityToken || mountCapabilityToken.length > 256) {
+              throw new DispatchReceiptError(
+                "DISPATCH_EFFECT_NOT_ALLOWED",
+                "A public dispatch effect requires its mounted run capability.",
+              );
+            }
+            committedDispatchReceipt = await commitDispatchBoardEffect({
+              tx,
+              drawingId: id,
+              dispatchId: parsed.data.dispatchReceipt.id,
+              runId: parsed.data.dispatchReceipt.runId,
+              mountCapabilityToken,
+              drawingVersion: existingDrawing.version + 1,
+            });
+          }
+
           await captureSnapshotAssets(tx, snapshot.id, id);
           await syncDrawingDocumentState(tx, id, newElements, {
             correlationId: requestIdOf(req),
@@ -288,7 +358,17 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           return tx.drawing.findFirst({ where: { id } });
         });
       } catch (error) {
+        if (error instanceof DrawingAccessRevokedError) {
+          return res.status(404).json({ error: "Drawing not found" });
+        }
         if (respondWithMountError(res, error)) return;
+        if (error instanceof DispatchReceiptError) {
+          return res.status(error.code === "DISPATCH_EFFECT_NOT_ALLOWED" ? 403 : 409).json({
+            error: "Dispatch effect rejected",
+            code: error.code,
+            message: error.message,
+          });
+        }
         if (error instanceof InvalidDocumentWidgetStateError) {
           return res.status(400).json({
             error: "Invalid document widgets",
@@ -319,6 +399,13 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
 
       invalidateDrawingsCache();
       io.to(`drawing_${id}`).emit("drawing-server-update", { drawingId: id });
+      if (committedDispatchReceipt) {
+        publishBoardAgentDispatchReceipt({
+          io,
+          presences: context.presences,
+          receipt: committedDispatchReceipt,
+        });
+      }
 
       return res.json({
         version: updatedDrawing.version,

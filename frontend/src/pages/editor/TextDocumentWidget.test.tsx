@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { Root } from "hast";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getDocumentAsset,
@@ -12,6 +13,28 @@ const { paginateDocumentOffThreadMock } = vi.hoisted(() => ({
   paginateDocumentOffThreadMock: vi.fn(),
 }));
 
+const { renderMarkdownOffThreadMock } = vi.hoisted(() => ({
+  renderMarkdownOffThreadMock: vi.fn(),
+}));
+
+const { paginateDocumentSourceMock } = vi.hoisted(() => ({
+  paginateDocumentSourceMock: vi.fn(),
+}));
+
+// NIL-624 moved this function into @excalidash/domain/documents, shared by
+// both runtimes; main's own version of this spy wrapped the old local
+// ./documentPagination module before that move.
+vi.mock("@excalidash/domain/documents", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@excalidash/domain/documents")>();
+  return {
+    ...actual,
+    paginateDocumentSource: (...args: Parameters<typeof actual.paginateDocumentSource>) => {
+      paginateDocumentSourceMock(...args);
+      return actual.paginateDocumentSource(...args);
+    },
+  };
+});
+
 vi.mock("./documentPaginationWorker", async () => {
   const actual = await vi.importActual<typeof import("@excalidash/domain/documents")>(
     "@excalidash/domain/documents",
@@ -21,6 +44,14 @@ vi.mock("./documentPaginationWorker", async () => {
       actual.paginateDocumentSource(source, kind),
   );
   return { paginateDocumentOffThread: paginateDocumentOffThreadMock };
+});
+
+vi.mock("./documentMarkdownWorker", async () => {
+  const actual = await vi.importActual<typeof import("./documentMarkdown")>("./documentMarkdown");
+  renderMarkdownOffThreadMock.mockImplementation(async (source: string) =>
+    actual.prepareMarkdownForRender(source),
+  );
+  return { renderMarkdownOffThread: renderMarkdownOffThreadMock };
 });
 
 // A widget that is not sharing its page with anybody: the same object every
@@ -47,6 +78,9 @@ vi.mock("../../api", () => ({
 
 describe("TextDocumentWidget", () => {
   beforeEach(() => {
+    paginateDocumentOffThreadMock.mockClear();
+    paginateDocumentSourceMock.mockClear();
+    renderMarkdownOffThreadMock.mockClear();
     vi.mocked(getDocumentAsset).mockResolvedValue({
       id: "asset-1",
       kind: "MARKDOWN",
@@ -121,7 +155,7 @@ describe("TextDocumentWidget", () => {
       elements: [{ id: "widget-1" }, { id: "widget-copy" }],
     });
     expect(screen.queryByRole("textbox", { name: "Markdown source" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Persisted" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Persisted" })).toBeInTheDocument();
   });
 
   it("renders a live preview beside the source while typing, without switching modes (NIL-583)", async () => {
@@ -190,7 +224,7 @@ describe("TextDocumentWidget", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel Markdown editing" }));
     expect(cancelLive).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledWith("lock-token");
-    expect(screen.getByRole("heading", { name: "Saved" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Saved" })).toBeVisible();
   });
 
   it("renders a remote live draft for a locked spectator without replacing saved content", async () => {
@@ -507,6 +541,58 @@ describe("TextDocumentWidget", () => {
     expect(screen.queryByRole("heading", { name: "Unavailable" })).toBeNull();
   });
 
+  it("publishes page controls before a slow Markdown rendering worker resolves", async () => {
+    let resolveMarkdown: ((tree: Root) => void) | undefined;
+    renderMarkdownOffThreadMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMarkdown = resolve;
+        }),
+    );
+    const first = `# First page\n\n${"first ".repeat(2_500)}`;
+    const second = `# Second page\n\n${"second ".repeat(2_500)}`;
+    vi.mocked(getDocumentContent).mockResolvedValue(`${first}\n\n${second}`);
+
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Rendering Markdown")).toBeInTheDocument();
+
+    const actual = await vi.importActual<typeof import("./documentMarkdown")>("./documentMarkdown");
+    resolveMarkdown?.(actual.prepareMarkdownForRender(first));
+    expect(await screen.findByRole("heading", { name: "First page" })).toBeInTheDocument();
+  });
+
+  it("shows the Markdown worker failure after page controls are available", async () => {
+    renderMarkdownOffThreadMock.mockRejectedValueOnce(new Error("worker crashed"));
+    const first = `# Unavailable\n\n${"first ".repeat(2_500)}`;
+    const second = `# Second page\n\n${"second ".repeat(2_500)}`;
+    vi.mocked(getDocumentContent).mockResolvedValue(`${first}\n\n${second}`);
+
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
+    expect(await screen.findByText("Unable to render this page.")).toBeInTheDocument();
+  });
+
   it("shows the correct page count and changes the rendered source when paging", async () => {
     const first = `# First page\n\n${"first ".repeat(2_500)}`;
     const second = `# Second page\n\n${"second ".repeat(2_500)}`;
@@ -530,9 +616,42 @@ describe("TextDocumentWidget", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
 
     expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Second page" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Second page" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "First page" })).toBeNull();
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+  });
+
+  it("shows a stable page error without logging worker input when later-page parsing fails", async () => {
+    const first = `# First page\n\n${"first ".repeat(2_500)}`;
+    const second = `# Secret LEAKME42\n\n${"second ".repeat(2_500)}`;
+    vi.mocked(getDocumentContent).mockResolvedValue(`${first}\n\n${second}`);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const actual = await vi.importActual<typeof import("./documentMarkdown")>("./documentMarkdown");
+    renderMarkdownOffThreadMock.mockImplementation(async (source: string) => {
+      if (source.includes("LEAKME42")) throw new SyntaxError("LEAKME42 is not valid Markdown");
+      return actual.prepareMarkdownForRender(source);
+    });
+
+    render(
+      <TextDocumentWidget
+        assetId="asset-1"
+        drawingId="drawing-1"
+        theme="light"
+        widgetKind="markdown"
+        sharing={soloSharing}
+        toolbar={toolbar}
+      />,
+    );
+
+    expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+
+    expect(await screen.findByText("Unable to render this page.")).toBeInTheDocument();
+    expect(consoleError).toHaveBeenCalledOnce();
+    const logLine = String(consoleError.mock.calls[0]?.[0]);
+    expect(logLine).not.toContain("LEAKME42");
+    expect(logLine).toContain('"errorName":"SyntaxError"');
+    consoleError.mockRestore();
   });
 
   it("only parses the current page of a pathological 500,000-row table", async () => {
@@ -553,6 +672,10 @@ describe("TextDocumentWidget", () => {
     expect(await screen.findByText("Page 1 of 226")).toBeInTheDocument();
     expect(performance.now() - started).toBeLessThan(5_000);
     expect(container.querySelectorAll("tbody tr").length).toBeLessThan(3_000);
+    expect(renderMarkdownOffThreadMock).toHaveBeenCalledOnce();
+    const parsedSource = renderMarkdownOffThreadMock.mock.calls[0]?.[0];
+    expect(parsedSource).not.toBe(`| Value |\n| --- |\n${rows}`);
+    expect(parsedSource.length).toBeLessThanOrEqual(20_000);
     expect(screen.getByRole("link", { name: "Download original document" })).toHaveAttribute(
       "href",
       "/api/drawings/drawing-1/assets/asset-1/original",

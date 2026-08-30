@@ -95,5 +95,16 @@ export const opsBatchSchema = z.object({
   /** The drawing version this batch was computed against -- same optimistic-concurrency contract as the full-scene PUT. */
   version: z.number().int().nonnegative(),
   ops: z.array(opSchema).min(1).max(MAX_OPS_PER_BATCH),
+  /**
+   * Optional public-responsibility binding. Its presence does not grant
+   * authority: the write transaction verifies the mounted run, receipt and
+   * exact live Lease generations before committing either board or evidence.
+   */
+  dispatchReceipt: z
+    .object({
+      id: z.string().uuid(),
+      runId: z.string().uuid(),
+    })
+    .optional(),
 });
 export type OpsBatch = z.infer<typeof opsBatchSchema>;

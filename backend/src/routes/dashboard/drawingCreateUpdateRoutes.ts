@@ -30,8 +30,18 @@ import { computeSearchText } from "../../search/searchIndex";
 import { requestIdOf } from "../../middleware/requestId";
 import {
   AgentContextValidationError,
+  assertGuestElementWriteAllowed,
+  AgentContextGuestWriteDeniedError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
+import {
+  diffSceneElementIds,
+  recordSuccessfulElementMutation,
+} from "../../agent/elementGuestProvenance";
+import {
+  assertDrawingStillEditable,
+  DrawingAccessRevokedError,
+} from "./drawingTransactionAuthorization";
 
 export const registerDrawingCreateUpdateRoutes = (
   app: express.Express,
@@ -325,6 +335,9 @@ export const registerDrawingCreateUpdateRoutes = (
 
       const versionConflictError = new Error("VERSION_CONFLICT");
       let updatedDrawing: typeof existingDrawing | null = null;
+      const elementMutation = payload.elements
+        ? diffSceneElementIds(parseJsonField(existingDrawing.elements, []), payload.elements)
+        : null;
 
       try {
         if (isSceneUpdate) {
@@ -340,6 +353,21 @@ export const registerDrawingCreateUpdateRoutes = (
             async (tx) => {
               if (payload.elements !== undefined) {
                 await assertPersistedAgentContextFrames(tx, id, payload.elements);
+              }
+              const transactionDecision = await assertDrawingStillEditable({
+                prisma: tx,
+                principal,
+                drawingId: id,
+                shareToken: getShareToken(req),
+              });
+              if (elementMutation && payload.elements !== undefined) {
+                await assertGuestElementWriteAllowed({
+                  prisma: tx,
+                  drawingId: id,
+                  isGuest: decision.isGuest || transactionDecision.isGuest,
+                  changedElementIds: elementMutation.changedElementIds,
+                  elements: payload.elements,
+                });
               }
               const compress = config.enableSnapshotCompression;
               const snapshot = await tx.drawingSnapshot.create({
@@ -358,6 +386,17 @@ export const registerDrawingCreateUpdateRoutes = (
               });
               if (updateResult.count === 0) {
                 throw versionConflictError;
+              }
+
+              if (elementMutation) {
+                await recordSuccessfulElementMutation({
+                  prisma: tx,
+                  drawingId: id,
+                  // A role transition cannot wash either side of the check:
+                  // guest before OR during the write remains guest provenance.
+                  isGuest: decision.isGuest || transactionDecision.isGuest,
+                  ...elementMutation,
+                });
               }
 
               // The version being replaced keeps whatever documents it used, so
@@ -394,10 +433,20 @@ export const registerDrawingCreateUpdateRoutes = (
           });
         }
       } catch (error) {
+        if (error instanceof DrawingAccessRevokedError) {
+          return res.status(404).json({ error: "Drawing not found" });
+        }
         if (error instanceof AgentContextValidationError) {
           return res.status(409).json({
             error: "Invalid Context map",
             code: error.code,
+            message: error.message,
+          });
+        }
+        if (error instanceof AgentContextGuestWriteDeniedError) {
+          return res.status(403).json({
+            error: "Forbidden",
+            code: "AGENT_CONTEXT_GUEST_WRITE_DENIED",
             message: error.message,
           });
         }

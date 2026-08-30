@@ -47,8 +47,25 @@ export default defineConfig(({ command }) => {
         process.env.VITE_E2E_HARNESS_ENABLED === "true",
       ),
     },
+    resolve: {
+      alias: {
+        // The package's `browser` export creates a DOM element at module load,
+        // but Markdown parsing now also runs in a Web Worker. Its data-table
+        // implementation is environment-neutral and produces identical entity
+        // decoding without requiring a fake `document` in that worker.
+        "decode-named-character-reference": path.resolve(
+          __dirname,
+          "node_modules/decode-named-character-reference/index.js",
+        ),
+      },
+    },
     optimizeDeps: {
-      include: ["zod"],
+      // Vite's static entry scan does not traverse module workers. Without
+      // these explicit entries, the first Markdown document discovers them
+      // at runtime and Vite reloads the editor after re-optimizing, dropping
+      // the user's current canvas selection. Keep the worker's runtime
+      // imports here so a cold development/CI server is stable on first use.
+      include: ["zod", "html-url-attributes", "remark-gfm", "remark-parse", "remark-rehype", "unified"],
       esbuildOptions: {
         define: processEnvDefines,
         target: "es2022",

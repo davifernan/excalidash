@@ -1,5 +1,6 @@
 import express from "express";
 import { canEditDrawing, getDrawingAccess } from "../../authz/sharing";
+import { getDrawingCapabilities } from "../../authz/capabilities";
 import { decodeSnapshotField, encodeSnapshotField } from "../../snapshots/snapshotCodec";
 import { captureSnapshotAssets } from "../../assets/assetService";
 import { referencedAssetIds, syncDrawingDocumentState } from "../../assets/documentWidgetState";
@@ -8,8 +9,18 @@ import { requestIdOf } from "../../middleware/requestId";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import {
   AgentContextValidationError,
+  assertGuestElementWriteAllowed,
+  AgentContextGuestWriteDeniedError,
   assertPersistedAgentContextFrames,
 } from "../../agent/boardContexts";
+import {
+  diffSceneElementIds,
+  recordSuccessfulElementMutation,
+} from "../../agent/elementGuestProvenance";
+import {
+  assertDrawingStillEditable,
+  DrawingAccessRevokedError,
+} from "./drawingTransactionAuthorization";
 
 export const registerDrawingHistoryRoutes = (
   app: express.Express,
@@ -106,12 +117,13 @@ export const registerDrawingHistoryRoutes = (
     asyncHandler(async (req, res) => {
       const principal = await getRequestPrincipal(req);
       const { id, snapshotId } = req.params;
-      const access = await getDrawingAccess({
+      const decision = await getDrawingCapabilities({
         prisma,
         principal,
         drawingId: id,
         shareToken: getShareToken(req),
       });
+      const { access } = decision;
       if (!canEditDrawing(access)) {
         if (respondWithAuthErrorIfPresent(req, res)) return;
         return res.status(404).json({ error: "Drawing not found" });
@@ -134,12 +146,28 @@ export const registerDrawingHistoryRoutes = (
         [],
       );
       const wantedAssetIds = referencedAssetIds(parsedRestoredElements);
-
       const updated = await prisma
         .$transaction(async (tx) => {
           await assertPersistedAgentContextFrames(tx, id, parsedRestoredElements);
+          const transactionDecision = await assertDrawingStillEditable({
+            prisma: tx,
+            principal,
+            drawingId: id,
+            shareToken: getShareToken(req),
+          });
           const current = await tx.drawing.findUnique({ where: { id } });
           if (!current) throw new Error("Drawing disappeared during restore");
+          const elementMutation = diffSceneElementIds(
+            parseJsonField(current.elements, []),
+            parsedRestoredElements,
+          );
+          await assertGuestElementWriteAllowed({
+            prisma: tx,
+            drawingId: id,
+            isGuest: decision.isGuest || transactionDecision.isGuest,
+            changedElementIds: elementMutation.changedElementIds,
+            elements: parsedRestoredElements,
+          });
           // Snapshot current state before restoring (so restore is reversible),
           // including the documents that make that state usable.
           const backup = await tx.drawingSnapshot.create({
@@ -186,14 +214,38 @@ export const registerDrawingHistoryRoutes = (
               version: { increment: 1 },
             },
           });
+          await recordSuccessfulElementMutation({
+            prisma: tx,
+            drawingId: id,
+            isGuest: decision.isGuest || transactionDecision.isGuest,
+            changedElementIds: elementMutation.changedElementIds,
+            // Reappearing in a restored snapshot is not creation. The server
+            // cannot reconstruct who authored that historical element, so a
+            // member restore must preserve absence as `unknown` rather than
+            // manufacture a confirmed-clean row. A guest restore still marks
+            // every changed id through changedElementIds above.
+            createdElementIds: [],
+          });
           await pruneDrawingSnapshots(tx, id, config.snapshotMaxCountPerDrawing);
           return restored;
         })
         .catch((error) => {
+          if (error instanceof DrawingAccessRevokedError) {
+            res.status(404).json({ error: "Drawing not found" });
+            return null;
+          }
           if (error instanceof AgentContextValidationError) {
             res.status(409).json({
               error: "Invalid Context map",
               code: error.code,
+              message: error.message,
+            });
+            return null;
+          }
+          if (error instanceof AgentContextGuestWriteDeniedError) {
+            res.status(403).json({
+              error: "Forbidden",
+              code: "AGENT_CONTEXT_GUEST_WRITE_DENIED",
               message: error.message,
             });
             return null;
