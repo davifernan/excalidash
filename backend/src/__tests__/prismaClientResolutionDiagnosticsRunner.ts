@@ -8,6 +8,7 @@ const backendRoot = path.resolve(__dirname, "../..");
 const packageJsonPath = path.join(backendRoot, "src", "generated", "client", "package.json");
 const diagnosticDirectory = process.env.NIL703_PRISMA_DIAGNOSTIC_DIR;
 const generationMarkerPath = process.env.NIL703_PRISMA_GENERATE_MARKER;
+const integrityMarkerPath = process.env.NIL703_PRISMA_INTEGRITY_MARKER;
 let suiteImportAttempt = 0;
 
 const errorDetails = (error: unknown) => {
@@ -57,21 +58,21 @@ const readPackageJsonSnapshot = () => {
   }
 };
 
-const readGenerationMarker = (capturedAtMs: number) => {
-  if (!generationMarkerPath) return { status: "not configured" };
+const readTimestampMarker = (markerPath: string | undefined, capturedAtMs: number) => {
+  if (!markerPath) return { status: "not configured" };
   try {
-    const value = JSON.parse(fs.readFileSync(generationMarkerPath, "utf8")) as {
+    const value = JSON.parse(fs.readFileSync(markerPath, "utf8")) as {
       finishedAt?: unknown;
     };
     const finishedAtMs =
       typeof value.finishedAt === "string" ? Date.parse(value.finishedAt) : Number.NaN;
     return {
-      path: generationMarkerPath,
+      path: markerPath,
       value,
       elapsedMsAtFailure: Number.isFinite(finishedAtMs) ? capturedAtMs - finishedAtMs : null,
     };
   } catch (error) {
-    return { path: generationMarkerPath, readError: errorDetails(error) };
+    return { path: markerPath, readError: errorDetails(error) };
   }
 };
 
@@ -99,7 +100,12 @@ const writeDiagnostic = (
       failingImport: { filepath, source, suiteImportAttempt: importAttempt },
       error: errorDetails(error),
       packageJson: readPackageJsonSnapshot(),
-      prismaGenerateFinished: readGenerationMarker(timestampMs),
+      // The integrity marker is the primary reference: it proves this exact
+      // file parsed after generation and before Vitest began importing suites.
+      // Keep the generation marker too, so a future failure still shows both
+      // intervals without assuming which one caused it.
+      prismaClientIntegrityVerified: readTimestampMarker(integrityMarkerPath, timestampMs),
+      prismaGenerateFinished: readTimestampMarker(generationMarkerPath, timestampMs),
     };
     fs.mkdirSync(diagnosticDirectory, { recursive: true });
     const outputPath = path.join(

@@ -35,10 +35,15 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nil703-resolution-diagno
 const backup = path.join(tempRoot, "package.json.backup");
 const diagnosticDirectory = path.join(tempRoot, "diagnostics");
 const generationMarker = path.join(tempRoot, "prisma-generate-finished.json");
+const integrityMarker = path.join(tempRoot, "prisma-client-integrity.json");
 fs.copyFileSync(packageJson, backup);
 fs.writeFileSync(
   generationMarker,
   `${JSON.stringify({ finishedAt: "2026-08-30T10:08:09.123Z", probe: "simulated after prisma generate" })}\n`,
+);
+fs.writeFileSync(
+  integrityMarker,
+  `${JSON.stringify({ finishedAt: "2026-08-30T10:08:11.456Z", probe: "simulated passed integrity check" })}\n`,
 );
 
 try {
@@ -53,6 +58,7 @@ try {
       ...process.env,
       NIL703_PRISMA_DIAGNOSTIC_DIR: diagnosticDirectory,
       NIL703_PRISMA_GENERATE_MARKER: generationMarker,
+      NIL703_PRISMA_INTEGRITY_MARKER: integrityMarker,
     },
   });
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
@@ -78,12 +84,18 @@ try {
   assert.equal(diagnostic.packageJson.bytes, invalidPackageBytes.byteLength);
   assert.equal(diagnostic.packageJson.utf8, invalidPackageBytes.toString("utf8"));
   assert.match(diagnostic.packageJson.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(
+    diagnostic.prismaClientIntegrityVerified.value.finishedAt,
+    "2026-08-30T10:08:11.456Z",
+  );
+  assert.equal(typeof diagnostic.prismaClientIntegrityVerified.elapsedMsAtFailure, "number");
   assert.equal(diagnostic.prismaGenerateFinished.value.finishedAt, "2026-08-30T10:08:09.123Z");
   assert.equal(typeof diagnostic.prismaGenerateFinished.elapsedMsAtFailure, "number");
   console.log(
     `red probe captured PID ${diagnostic.failingProcess.pid}, worker ${diagnostic.failingProcess.workerId}, ` +
       `timestamp ${diagnostic.capturedAt}, suite import ${diagnostic.failingImport.suiteImportAttempt}, ` +
-      `${diagnostic.packageJson.bytes} package bytes, and prisma marker ${diagnostic.prismaGenerateFinished.value.finishedAt}`,
+      `${diagnostic.packageJson.bytes} package bytes, integrity marker ${diagnostic.prismaClientIntegrityVerified.value.finishedAt}, ` +
+      `and prisma marker ${diagnostic.prismaGenerateFinished.value.finishedAt}`,
   );
 } finally {
   fs.copyFileSync(backup, packageJson);
