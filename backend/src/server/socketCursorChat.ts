@@ -1,6 +1,9 @@
 import type { Socket } from "socket.io";
+import { CURSOR_CHAT_EVENT, CURSOR_CHAT_TEXT_MAX_LENGTH } from "@excalidash/domain/collaboration";
 import { parseDrawingId } from "./socketProtocol";
 import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoomEvent";
+
+export { CURSOR_CHAT_EVENT } from "@excalidash/domain/collaboration";
 
 /**
  * Cursor chat: a sentence that hangs off your pointer and then is gone.
@@ -16,12 +19,15 @@ import { registerAuthorizedRoomEvent, type RoomEventPayload } from "./socketRoom
  * that the sender's identity is the socket's, never the payload's.
  */
 export const CURSOR_CHAT_LIMITS = {
-  /** Long enough for a sentence, short enough that it cannot become an essay. */
-  textLength: 140,
+  /**
+   * Shared with the frontend as `@excalidash/domain/collaboration`'s
+   * `CURSOR_CHAT_TEXT_MAX_LENGTH` -- not re-declared here, so the two sides
+   * cannot silently drift the way this value's own two independent
+   * declarations once did (NIL-637).
+   */
+  textLength: CURSOR_CHAT_TEXT_MAX_LENGTH,
   eventsPerSecond: 10,
 } as const;
-
-export const CURSOR_CHAT_EVENT = "cursor-chat";
 
 export type CursorChatPayload = RoomEventPayload & { text: string | null };
 
