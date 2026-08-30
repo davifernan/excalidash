@@ -80,10 +80,7 @@ jobs:
       # key. Keep this inside the existing frontend dependency context: it is
       # a required check without adding another job or any green-path output.
       - name: Check configuration keys are unique
-        run: |
-          cd frontend
-          node scripts/config-duplicate-keys.cjs
-          node scripts/config-duplicate-keys.test.cjs
+        run: npm run check:config-keys --prefix frontend
 
       # Deliberately inside an already-required context rather than a new job.
       # A new check would not be in the branch ruleset, so it could go red
