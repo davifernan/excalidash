@@ -75,7 +75,7 @@ it. Socket paths, workspace IDs, pane IDs and raw runtime errors are never retur
 disconnected or unconfigured runtime disables only agent start/status; the board and canvas remain
 available.
 
-## Configuration and unresolved topology
+## Configuration and runtime topology
 
 The direct Herdr connection is enabled only when all three variables are present:
 
@@ -95,7 +95,9 @@ route, socket payload, log, or mount handoff. `AGENT_RUNTIME_OPERATOR_LABEL` is 
 human-readable cost-bearer snapshot: the Board shows it before dispatch, while work is active,
 and in the durable receipt history. It is not a provider token or a money/token estimate.
 
-NIL-683 is still undecided. This package therefore does **not** select, document as supported,
-or silently implement any socket mount, SSH tunnel, remote TCP listener, laptop discovery,
-pairing flow or outbound bridge. A shared deployment must not treat a server-local Herdr socket
-as a user's laptop. Choosing and securing that topology remains a separate Davi decision.
+NIL-683 is decided: ExcaliDash is self-hosted on a server, while a person's runtime may be on a
+different machine behind NAT. The server never dials that machine. A user-paired daemon polls the
+server outward over HTTPS and registers a user-audienced connection behind the same
+`AgentRuntimeAdapter` seam. Pairing, epochs, fencing and the first Codex CLI executor are specified
+in [`RUNTIME_DAEMON.md`](RUNTIME_DAEMON.md). Herdr remains an optional installation-local adapter;
+it is not treated as a transport to a user's laptop.
