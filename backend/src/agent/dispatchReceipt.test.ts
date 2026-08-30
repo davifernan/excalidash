@@ -174,6 +174,25 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
     ]);
   });
 
+  it("projects only the runtime-unavailable reason to public board readers", async () => {
+    const receipt = await accept();
+    await prisma.agentDispatchReceipt.update({
+      where: { id: receipt.id },
+      data: { executionReasonCode: "BOARD_ACCESS_REVOKED" },
+    });
+    expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
+      expect.objectContaining({ id: receipt.id, executionReason: null }),
+    ]);
+
+    await prisma.agentDispatchReceipt.update({
+      where: { id: receipt.id },
+      data: { executionReasonCode: "RUNTIME_UNAVAILABLE" },
+    });
+    expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
+      expect.objectContaining({ id: receipt.id, executionReason: "RUNTIME_UNAVAILABLE" }),
+    ]);
+  });
+
   it("turns missing runtime acknowledgement into outcome_unknown by server deadline and releases authority", async () => {
     const receipt = await accept();
     const reconciled = await reconcileDispatchReceipt({

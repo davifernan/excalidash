@@ -89,6 +89,12 @@ const receiptInclude = {
   leases: { select: { contextId: true, leaseGeneration: true }, orderBy: { contextId: "asc" } },
 } as const;
 
+// Public board readers need to distinguish a runtime that was unavailable from
+// an accepted run. Authorization and payload reasons describe another actor or
+// server-internal state, so they must not cross this receipt projection.
+const publicExecutionReason = (reasonCode: string | null | undefined): string | null =>
+  reasonCode === "RUNTIME_UNAVAILABLE" ? reasonCode : null;
+
 const toReceipt = (row: any): DispatchReceiptProjection => ({
   id: row.id,
   drawingId: row.drawingId,
@@ -111,7 +117,7 @@ const toReceipt = (row: any): DispatchReceiptProjection => ({
   lastObservedAt: row.lastObservedAt?.toISOString() ?? null,
   executionTerminalAt: row.executionTerminalAt?.toISOString() ?? null,
   effectTerminalAt: row.effectTerminalAt?.toISOString() ?? null,
-  executionReason: row.executionReasonCode ?? null,
+  executionReason: publicExecutionReason(row.executionReasonCode),
   effectEvidence: parseObject(row.effectEvidence),
   startDeadlineAt: row.startDeadlineAt.toISOString(),
   livenessDeadlineAt: row.livenessDeadlineAt.toISOString(),
