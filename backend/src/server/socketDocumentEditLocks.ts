@@ -7,10 +7,17 @@ import {
   type RoomEventResult,
 } from "./socketRoomEvent";
 import { logger } from "../logger";
+import {
+  DOCUMENT_EDIT_LOCK_COMMAND_EVENT,
+  DOCUMENT_EDIT_LOCK_EVENT,
+  DOCUMENT_EDIT_LOCK_GRANTED_EVENT,
+} from "@excalidash/domain/collaboration";
 
-export const DOCUMENT_EDIT_LOCK_COMMAND_EVENT = "document-edit-lock-command";
-export const DOCUMENT_EDIT_LOCK_EVENT = "document-edit-lock-update";
-export const DOCUMENT_EDIT_LOCK_GRANTED_EVENT = "document-edit-lock-granted";
+export {
+  DOCUMENT_EDIT_LOCK_COMMAND_EVENT,
+  DOCUMENT_EDIT_LOCK_EVENT,
+  DOCUMENT_EDIT_LOCK_GRANTED_EVENT,
+} from "@excalidash/domain/collaboration";
 
 const ASSET_ID = /^[\w-]{1,64}$/;
 const TOKEN = /^[0-9a-f-]{36}$/i;

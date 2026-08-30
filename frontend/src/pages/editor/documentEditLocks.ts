@@ -1,14 +1,14 @@
 import type { Socket } from "socket.io-client";
+import {
+  DOCUMENT_EDIT_LOCK_COMMAND_EVENT,
+  DOCUMENT_EDIT_LOCK_EVENT,
+  DOCUMENT_EDIT_LOCK_GRANTED_EVENT,
+  type PublicDocumentEditLock,
+} from "@excalidash/domain/collaboration";
 
-export const DOCUMENT_EDIT_LOCK_COMMAND_EVENT = "document-edit-lock-command";
-const DOCUMENT_EDIT_LOCK_EVENT = "document-edit-lock-update";
-const DOCUMENT_EDIT_LOCK_GRANTED_EVENT = "document-edit-lock-granted";
+export { DOCUMENT_EDIT_LOCK_COMMAND_EVENT } from "@excalidash/domain/collaboration";
 
-export type DocumentEditLock = Readonly<{
-  assetId: string;
-  presenceId: string;
-  ownerName: string;
-}>;
+export type DocumentEditLock = PublicDocumentEditLock;
 
 export type DocumentEditLocks = Readonly<Record<string, DocumentEditLock>>;
 export type DocumentEditResult =

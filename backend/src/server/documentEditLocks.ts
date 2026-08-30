@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { PublicDocumentEditLock } from "@excalidash/domain/collaboration";
 
 export type DocumentEditLock = Readonly<{
   drawingId: string;
@@ -8,7 +9,13 @@ export type DocumentEditLock = Readonly<{
   token: string;
 }>;
 
-export type PublicDocumentEditLock = Omit<DocumentEditLock, "token" | "drawingId">;
+// The client-facing wire shape (assetId/presenceId/ownerName only -- never
+// token or drawingId) is @excalidash/domain/collaboration's
+// PublicDocumentEditLock, not re-declared here: `snapshot()` below returns
+// an object literal checked against that imported type, so a field added
+// or renamed on either side without the other stops this file compiling
+// instead of the two silently drifting apart.
+export type { PublicDocumentEditLock } from "@excalidash/domain/collaboration";
 
 export type DocumentEditDraft = Readonly<{
   drawingId: string;
