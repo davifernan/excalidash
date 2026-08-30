@@ -114,6 +114,29 @@ test.describe("the hamburger carries the board's identity and the way back", () 
     await expect(menuItems.last()).toContainText("Help");
   });
 
+  /**
+   * NIL-637 (comments/authz domain, slice 6): the Share header-control
+   * button and the "Comments" menu entry are gated by
+   * `isOwnerAccess`/`canViewDrawing` from `@excalidash/domain/authz`
+   * (chromeSlots.tsx) -- before this slice each was a hand-typed
+   * `ctx.accessLevel === "owner"` / `ctx.accessLevel !== "none"` literal.
+   * The board's creator here is the shared no-auth bootstrap identity,
+   * which `getDrawingAccess` resolves to `"owner"`: both controls must
+   * still render for it after the predicate extraction.
+   */
+  test("the owner-gated Share control and the Comments menu entry both render for the board's creator", async ({
+    page,
+  }) => {
+    await openEditor(page, drawingId);
+
+    await expect(page.getByTestId("editor-share")).toBeVisible();
+
+    await openMenu(page);
+    await expect(
+      page.getByTestId("dropdown-menu").getByText("Comments", { exact: true }),
+    ).toBeVisible();
+  });
+
   test("passes through Excalidraw's command palette and canvas search while omitting duplicate collaboration actions", async ({
     page,
     browser,
