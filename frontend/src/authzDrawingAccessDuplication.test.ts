@@ -32,7 +32,12 @@ import { describe, expect, it } from "vitest";
  * while every other suite stays green.
  */
 
-const FRONTEND_SRC = path.resolve(__dirname, "..");
+// This file lives at frontend/src/authzDrawingAccessDuplication.test.ts, so
+// __dirname already IS frontend/src -- no ".." (that would resolve to
+// frontend/ and additionally walk frontend/public, frontend/scripts, and
+// any local frontend/node_modules or dist that later exists, none of which
+// this guard is about).
+const FRONTEND_SRC = __dirname;
 
 const DRAWING_ACCESS_LITERAL = /"none"\s*\|\s*"view"\s*\|\s*"comment"\s*\|\s*"edit"\s*\|\s*"owner"/;
 const DRAWING_ACCESS_NO_NONE_LITERAL = /"view"\s*\|\s*"comment"\s*\|\s*"edit"\s*\|\s*"owner"/;
