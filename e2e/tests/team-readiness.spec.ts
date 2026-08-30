@@ -395,7 +395,7 @@ type WatchdogViolation = {
   sinceMs: number;
   /** The step the actor was in the middle of when this violation fired --
    * NIL-330's actual ask: not just that it stalled, but where. */
-  inFlightStep: string | null;
+  inFlightStep: string;
   lifecycle: SoakLifecycleState;
 };
 type ServerHealthEntry = { ts: number; code: number; latencyMs: number };
@@ -895,7 +895,7 @@ const writeArtifact = (params: {
         : violations
             .map(
               (v) =>
-                `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms, stuck in step "${v.inFlightStep ?? "unknown"}" ` +
+                `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms, stuck in step "${v.inFlightStep}" ` +
                 `(lifecycle=${v.lifecycle})`,
             )
             .join("; ")
