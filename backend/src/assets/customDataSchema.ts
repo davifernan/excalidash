@@ -7,7 +7,22 @@
  * moving this file leaves the widgets invisible to the server -- the board
  * renders, and every page command is refused as "not part of this board".
  *
- * Kept in step with frontend/src/integrations/excalidraw/customData.ts.
+ * The read path (`NAMESPACE`, `SCHEMA_VERSION`, `WidgetKind`, `WidgetRecord`,
+ * `readWidgetRecord`) is `@excalidash/domain/customData`, not duplicated here
+ * -- the same move NIL-624 made for document pagination, for the same
+ * reason: a hand-kept second copy is how the pagination byte-count
+ * regression (backend 1 page vs. frontend 3 for the same 50,000-character
+ * input, NIL-624) happened in the first place. See
+ * backend/src/assets/customDataWidget.contract.test.ts for the behavioral
+ * proof that this server and frontend/src/integrations/excalidraw/
+ * customData.ts still agree.
+ *
+ * `withWidgetRecord` stays local: it is this server's own single-purpose
+ * writer (replace only `widget`, preserve everything else in the
+ * namespace), not the frontend's `withExcalidashData`, which additionally
+ * patches `sticky`/`orchestratorThread` -- two record kinds this server
+ * never reads. Unifying the writers would mean building a server-side
+ * concept of a patch across fields the server has no reader for.
  *
  * `mindMap`/`mindMapProjection` (`mapId`/`parentId`/`orderKey`) are gone
  * (NIL-593, Schnitt 2): the frontend's own relationship layer for the v1
@@ -27,46 +42,18 @@
  * only preserves stored JSON and does not restore any Pin/Collapse behavior.
  */
 
-export const NAMESPACE = "excalidash";
-export const SCHEMA_VERSION = 2;
+export {
+  NAMESPACE,
+  SCHEMA_VERSION,
+  readWidgetRecord,
+  type WidgetKind,
+  type WidgetRecord,
+} from "@excalidash/domain/customData";
 
-export type WidgetKind = "pdf" | "markdown" | "text";
-
-export type WidgetRecord = {
-  kind: WidgetKind;
-  assetId: string;
-};
-
-const WIDGET_KINDS = new Set<string>(["pdf", "markdown", "text"]);
+import { NAMESPACE, SCHEMA_VERSION, type WidgetRecord } from "@excalidash/domain/customData";
 
 const isBag = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-const readNamespace = (element: unknown): Record<string, unknown> | null => {
-  if (!isBag(element)) return null;
-  const customData = element.customData;
-  if (!isBag(customData)) return null;
-  const own = customData[NAMESPACE];
-  return isBag(own) && own.schemaVersion === SCHEMA_VERSION ? own : null;
-};
-
-/**
- * Read the widget record off an element, or nothing.
- *
- * Every field is named and nothing is said about the ones that are not: an
- * element may legitimately carry another writer's data, and rejecting it for
- * that would blank a working widget.
- */
-export function readWidgetRecord(element: unknown): WidgetRecord | null {
-  const own = readNamespace(element);
-  if (!own) return null;
-  const widget = own.widget;
-  if (!isBag(widget)) return null;
-  const { kind, assetId } = widget;
-  if (typeof kind !== "string" || !WIDGET_KINDS.has(kind)) return null;
-  if (typeof assetId !== "string" || assetId.length === 0) return null;
-  return { kind: kind as WidgetKind, assetId };
-}
 
 /** Replace only this application's widget reference, preserving foreign data. */
 export function withWidgetRecord(element: unknown, widget: WidgetRecord): Record<string, unknown> {
