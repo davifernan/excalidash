@@ -113,7 +113,9 @@ const finishResponsivenessProbe = (page: Page) =>
  * 80 ms is deliberately above that measured local spread, yet a sustained
  * main-thread regression still lifts p95 beyond it on every trial. A separate
  * 800 ms maximum stays above the observed 240-390 ms runner outliers but
- * catches a single user-visible main-thread freeze.
+ * catches a single user-visible main-thread freeze. Consequently, a real
+ * freeze between the observed runner-noise range and 800 ms remains
+ * indistinguishable from runner noise; a green result does not rule it out.
  */
 const MAX_P95_GAP_MS = 80;
 const MAX_FREEZE_GAP_MS = 800;
