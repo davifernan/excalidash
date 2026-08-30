@@ -166,7 +166,12 @@ test("a pre-admission failure reports the workflow failure instead of promising 
 
 test("comment markers deduplicate reruns of the same outcome and SHA", () => {
   const existing = [
-    { body: buildSignalComment({ headSha: HEAD_SHA, decision: { action: "skip", reason: "draft" } }) },
+    {
+      body: buildSignalComment({
+        headSha: HEAD_SHA,
+        decision: { action: "skip", reason: "draft" },
+      }),
+    },
   ];
   assert.equal(hasSignalComment(existing, HEAD_SHA, "intentional-skip"), true);
   assert.equal(hasSignalComment(existing, HEAD_SHA, "delivery-contract"), false);
@@ -213,6 +218,49 @@ function assertTrustedBaseCheckout(workflow) {
   );
   assert.match(checkout, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
 }
+
+function readConcurrencyGroup(workflow) {
+  const group = workflow.match(/^  group: (.+)$/m)?.[1];
+  assert.ok(group, "workflow must declare a concurrency group");
+  return group;
+}
+
+function renderHansConcurrencyGroup(template, { draft }) {
+  return template.replace(
+    "${{ github.event.pull_request.draft && 'draft' || 'ready' }}",
+    draft ? "draft" : "ready",
+  );
+}
+
+test("both Hans workflows serialize one state while preserving the draft-to-ready lane", () => {
+  const workflowDirectory = path.join(__dirname, "..", ".github", "workflows");
+  const reviewWorkflow = fs.readFileSync(
+    path.join(workflowDirectory, "hans-friedrich.yml"),
+    "utf8",
+  );
+  const signalWorkflow = fs.readFileSync(
+    path.join(workflowDirectory, "hans-friedrich-signal.yml"),
+    "utf8",
+  );
+  const reviewGroup = readConcurrencyGroup(reviewWorkflow);
+  const signalGroup = readConcurrencyGroup(signalWorkflow);
+
+  assert.equal(
+    signalGroup,
+    reviewGroup,
+    "the two possible intentional-skip writers must share one serialization key",
+  );
+  assert.equal(
+    renderHansConcurrencyGroup(reviewGroup, { draft: true }),
+    renderHansConcurrencyGroup(signalGroup, { draft: true }),
+    "concurrent draft runs collide instead of racing their comment writes",
+  );
+  assert.notEqual(
+    renderHansConcurrencyGroup(reviewGroup, { draft: true }),
+    renderHansConcurrencyGroup(reviewGroup, { draft: false }),
+    "a ready admission remains independent from an earlier draft skip on the same head",
+  );
+});
 
 test("pull_request_target companion only comments from trusted base code", () => {
   const workflow = fs.readFileSync(

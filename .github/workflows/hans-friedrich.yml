@@ -33,6 +33,12 @@ permissions:
 # before either job starts when they share that group. Ready/edited events
 # still share a group and the webhook remains idempotent per head, so this
 # does not permit a second Hans review of the same code.
+#
+# Keep this expression identical to hans-friedrich-signal.yml. The two
+# workflows can both post an intentional-skip comment for one event; sharing
+# the state-partitioned key serializes that read-then-write pair. The final
+# draft/ready segment must remain, because it is what lets ready admission
+# proceed independently from a preceding draft skip.
 concurrency:
   group: hans-review-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.event.pull_request.draft && 'draft' || 'ready' }}
   cancel-in-progress: false
