@@ -7,6 +7,7 @@ import {
   acceptDispatchReceipt,
   acknowledgeDispatchRuntime,
   commitDispatchBoardEffect,
+  failDispatchBeforeRuntimeAck,
   listPublicDispatchReceipts,
   listUnresolvedDispatchReceipts,
   observeDispatchRuntime,
@@ -14,6 +15,7 @@ import {
 } from "./dispatchReceipt";
 import { processDispatchOutbox, reportDispatchBackgroundFailure } from "./dispatchWorker";
 import { logger } from "../logger";
+import { AgentRuntimeError } from "./runtime/contracts";
 
 describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
   let prisma: PrismaClient;
@@ -126,6 +128,10 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
       effectiveCapabilities: ["agent:run", "board:write"],
       budget: { maxRuntimeMs: 20 * 60_000 },
       expectedArtifacts: ["Board comparison"],
+      runtimeConnection: {
+        id: "connection-1",
+        costBearer: { ownerKind: "operator", ownerId: "test-operator", label: "Test operator" },
+      },
       runId,
       leases: [{ contextId, leaseGeneration }],
       runtimeRequest: {
@@ -147,13 +153,67 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
       admission: "accepted",
       execution: "queued",
       effect: "pending",
+      costBearer: { label: "Test operator" },
     });
     expect(receipt).not.toHaveProperty("originThreadId");
     expect(receipt).not.toHaveProperty("initiatedByUserId");
     expect(JSON.stringify(receipt)).not.toContain(privateThreadId);
     expect(JSON.stringify(receipt)).not.toContain(ownerId);
+    expect(JSON.stringify(receipt)).not.toContain("test-operator");
+    expect(
+      await prisma.agentDispatchReceipt.findUniqueOrThrow({ where: { id: receipt.id } }),
+    ).toMatchObject({
+      runtimeConnectionId: "connection-1",
+      costBearerOwnerKind: "operator",
+      costBearerOwnerId: "test-operator",
+      costBearerLabel: "Test operator",
+      runId,
+      revisionId,
+    });
     expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
       expect.objectContaining({ id: receipt.id, originVisibility: "private" }),
+    ]);
+  });
+
+  it("projects only the runtime-unavailable reason to public board readers", async () => {
+    const receipt = await accept();
+    await prisma.agentDispatchReceipt.update({
+      where: { id: receipt.id },
+      data: { executionReasonCode: "BOARD_ACCESS_REVOKED" },
+    });
+    expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
+      expect.objectContaining({ id: receipt.id, executionReason: null }),
+    ]);
+
+    await prisma.agentDispatchReceipt.update({
+      where: { id: receipt.id },
+      data: { executionReasonCode: "RUNTIME_UNAVAILABLE" },
+    });
+    expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
+      expect.objectContaining({ id: receipt.id, executionReason: "RUNTIME_UNAVAILABLE" }),
+    ]);
+  });
+
+  it("publishes the actual pre-ack runtime-loss terminal combination", async () => {
+    const receipt = await accept();
+    const terminal = await failDispatchBeforeRuntimeAck({
+      prisma,
+      dispatchId: receipt.id,
+      reasonCode: "RUNTIME_UNAVAILABLE",
+      now: new Date(acceptedAt.getTime() + 100),
+    });
+    expect(terminal).toMatchObject({
+      execution: "failed",
+      effect: "failed",
+      executionReason: "RUNTIME_UNAVAILABLE",
+    });
+    expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
+      expect.objectContaining({
+        id: receipt.id,
+        execution: "failed",
+        effect: "failed",
+        executionReason: "RUNTIME_UNAVAILABLE",
+      }),
     ]);
   });
 
@@ -180,6 +240,38 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
       expect.objectContaining({ sequence: 1, kind: "dispatch.accepted" }),
       expect.objectContaining({ sequence: 2, kind: "runtime.outcome_unknown" }),
     ]);
+  });
+
+  it("marks a runtime that is actually unavailable before acknowledgement as not started", async () => {
+    const receipt = await accept();
+    const result = await processDispatchOutbox({
+      prisma,
+      dispatchId: receipt.id,
+      gateway: {
+        planStart: () => ({ effectiveCapabilities: ["agent:run", "board:write"] }),
+        // This is a transport loss, not an orderly runtime status event.
+        start: async () => {
+          throw new AgentRuntimeError("RUNTIME_NOT_CONNECTED", "local runtime socket is gone");
+        },
+      } as any,
+      now: new Date(acceptedAt.getTime() + 100),
+    });
+    expect(result).toMatchObject({
+      execution: "failed",
+      executionReason: "RUNTIME_UNAVAILABLE",
+    });
+    expect(
+      (await prisma.contextLease.findUnique({ where: { contextId } }))?.releasedAt,
+    ).not.toBeNull();
+    expect(
+      await processDispatchOutbox({
+        prisma,
+        dispatchId: receipt.id,
+        gateway: {
+          planStart: () => ({ effectiveCapabilities: ["agent:run", "board:write"] }),
+        } as any,
+      }),
+    ).toBeNull();
   });
 
   it("releases authority when the initial runtime acknowledgement is explicitly unknown", async () => {

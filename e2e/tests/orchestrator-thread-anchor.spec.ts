@@ -245,6 +245,7 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
               id: "runtime-1",
               label: "Local runtime",
               audience: { kind: "installation" },
+              costBearer: { label: "Instance operator" },
               profiles: [{ id: "review", label: "Review" }],
               health: { connected: true, status: "connected" },
             },
@@ -289,6 +290,8 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
               admission: "accepted",
               execution: "succeeded",
               effect: "pending",
+              executionReason: null,
+              costBearer: { label: "Instance operator" },
               acceptedAt: "2026-08-30T03:00:00.000Z",
               lastObservedAt: "2026-08-30T03:01:00.000Z",
               effectEvidence: null,
@@ -317,11 +320,17 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     await panel.getByLabel("Approved public objective").fill("Publish the approved comparison");
     await panel.getByLabel("Public effect Context").selectOption("context-1");
     await panel.getByLabel("Agent runtime connection").selectOption("runtime-1");
+    await expect(
+      panel.getByText("This dispatch uses Local runtime and is charged to Instance operator."),
+    ).toBeVisible();
     await panel.getByLabel("Agent runtime profile").selectOption("review");
-    await panel.getByRole("button", { name: "Dispatch publicly" }).click();
+    await panel
+      .getByRole("button", { name: "Dispatch via Local runtime · charged to Instance operator" })
+      .click();
 
     const pendingEffect = panel.getByText("Execution finished · publication pending");
     await expect(pendingEffect).toBeVisible();
+    await expect(panel.getByText("Charged to: Instance operator")).toBeVisible();
     await expect(panel.getByText("Effect confirmed on the board")).toHaveCount(0);
     expect(JSON.stringify(dispatchedBody)).not.toContain("private-token-LEAKME-NIL679");
     await page.screenshot({

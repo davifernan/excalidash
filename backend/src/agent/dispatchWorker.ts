@@ -2,6 +2,7 @@ import { canEditDrawing, getDrawingAccess } from "../authz/sharing";
 import { logger } from "../logger";
 import { canonicalJson } from "./canonicalJson";
 import type { AgentRuntimeGateway } from "./runtime/gateway";
+import { AgentRuntimeError } from "./runtime/contracts";
 import {
   acknowledgeDispatchRuntime,
   claimDispatchOutbox,
@@ -173,6 +174,14 @@ export const processDispatchOutbox = async (params: {
       },
     });
   } catch (error) {
+    if (error instanceof AgentRuntimeError && error.code === "RUNTIME_NOT_CONNECTED") {
+      return failDispatchBeforeRuntimeAck({
+        prisma: params.prisma,
+        dispatchId: params.dispatchId,
+        reasonCode: "RUNTIME_UNAVAILABLE",
+        now,
+      });
+    }
     // A transport failure cannot prove the foreign runtime did not start.
     // Keep `sending`; the bounded server deadline will make the uncertainty
     // explicit instead of lying with either "failed" or "succeeded".

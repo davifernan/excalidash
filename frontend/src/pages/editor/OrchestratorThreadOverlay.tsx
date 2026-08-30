@@ -60,10 +60,15 @@ export type OrchestratorThreadPanelView = {
 
 const receiptLabel = (receipt: PublicDispatchReceipt): string => {
   if (receipt.effect === "committed") return "Effect confirmed on the board";
+  if (receipt.execution === "failed" && receipt.executionReason === "RUNTIME_UNAVAILABLE") {
+    return "Runtime unavailable · execution did not start";
+  }
   if (["failed", "rejected"].includes(receipt.effect)) {
     return "Board effect failed · publication not completed";
   }
-  if (receipt.execution === "outcome_unknown") return "Outcome unknown · runtime not observable";
+  if (receipt.execution === "outcome_unknown") {
+    return "Runtime disconnected · outcome and board effect unknown";
+  }
   if (["failed", "cancelled"].includes(receipt.execution)) return "Execution failed";
   if (receipt.execution === "succeeded" && receipt.effect === "pending") {
     return "Execution finished · publication pending";
@@ -472,6 +477,7 @@ export const OrchestratorThreadOverlay = ({
                           minute: "2-digit",
                         })}
                       </small>
+                      <small>Charged to: {receipt.costBearer.label}</small>
                     </article>
                   ))}
                 </section>
@@ -573,7 +579,7 @@ export const OrchestratorThreadOverlay = ({
                       .filter((connection) => connection.health.connected)
                       .map((connection) => (
                         <option key={connection.id} value={connection.id}>
-                          {connection.label}
+                          {connection.label} · charged to {connection.costBearer.label}
                         </option>
                       ))}
                   </select>
@@ -589,6 +595,12 @@ export const OrchestratorThreadOverlay = ({
                       </option>
                     ))}
                   </select>
+                  {selectedConnection ? (
+                    <small role="status">
+                      This dispatch uses {selectedConnection.label} and is charged to{" "}
+                      {selectedConnection.costBearer.label}.
+                    </small>
+                  ) : null}
                   <button
                     type="submit"
                     disabled={
@@ -601,7 +613,11 @@ export const OrchestratorThreadOverlay = ({
                       !profileId
                     }
                   >
-                    {panelView.dispatch.submitting ? "Dispatching…" : "Dispatch publicly"}
+                    {panelView.dispatch.submitting
+                      ? "Dispatching…"
+                      : selectedConnection
+                        ? `Dispatch via ${selectedConnection.label} · charged to ${selectedConnection.costBearer.label}`
+                        : "Dispatch publicly"}
                   </button>
                   <button
                     type="button"

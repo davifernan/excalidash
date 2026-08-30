@@ -75,6 +75,7 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
     audience: { kind: "installation" },
     profiles: [{ id: "default", label: "Default" }],
     policyCapabilities: ["agent:read", "agent:run", "agent:prompt"],
+    costBearer: { ownerKind: "operator", ownerId: "test-operator", label: "Test operator" },
     adapterConfig: {},
   };
   const prisma = {

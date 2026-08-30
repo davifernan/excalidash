@@ -28,6 +28,7 @@ const connection = (adapterId: string): AgentRuntimeConnection => ({
   audience: { kind: "installation" },
   profiles: [{ id: "default", label: "Default" }],
   policyCapabilities: ["agent:read", "agent:run", "agent:prompt"],
+  costBearer: { ownerKind: "operator", ownerId: "test-operator", label: "Test operator" },
   adapterConfig: {},
 });
 
@@ -49,6 +50,19 @@ const startWith = (adapter: AgentRuntimeAdapter) => {
 };
 
 describe("runtime-neutral gateway seam", () => {
+  it("projects only the immutable cost label and never the server audit owner", async () => {
+    const adapter = new StubAdapter("cost");
+    const runtimeConnection = connection(adapter.id);
+    const gateway = new AgentRuntimeGateway(
+      new AgentRuntimeRegistry({ adapters: [adapter], connections: [runtimeConnection] }),
+      "secret",
+    );
+    await expect(gateway.connections("user-1")).resolves.toEqual([
+      expect.objectContaining({ costBearer: { label: "Test operator" } }),
+    ]);
+    expect(JSON.stringify(await gateway.connections("user-1"))).not.toContain("test-operator");
+  });
+
   it("runs the identical caller against two independent adapter implementations", async () => {
     const first = new StubAdapter("first");
     const second = new StubAdapter("second");

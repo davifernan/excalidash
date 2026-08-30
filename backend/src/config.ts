@@ -91,6 +91,10 @@ export type AgentRuntimeConfig = {
     socketPath: string;
     workingDirectory: string;
     profiles: Array<{ id: string; label: string; agentKind: string; args: string[] }>;
+    /** Server-only audit key; it is never projected to callers. */
+    operatorId: string;
+    /** Immutable human-facing snapshot copied into each dispatch receipt. */
+    operatorLabel: string;
   } | null;
 };
 
@@ -605,7 +609,16 @@ const resolveAgentRuntimeConfig = (): AgentRuntimeConfig => {
   if (new Set(profiles.map((profile) => profile.id)).size !== profiles.length) {
     throw new Error("AGENT_RUNTIME_HERDR_PROFILES ids must be unique");
   }
-  return { herdr: { socketPath, workingDirectory, profiles } };
+  // A runtime belongs to the installation unless a later, separately approved
+  // topology adds a user-owned connection. The id stays server-only; the label
+  // is the deliberately non-sensitive snapshot a Board participant may see.
+  const operatorId = getOptionalTrimmedEnv("AGENT_RUNTIME_OPERATOR_ID") ?? "installation";
+  const operatorLabel =
+    getOptionalTrimmedEnv("AGENT_RUNTIME_OPERATOR_LABEL") ?? "Instance operator";
+  if (operatorId.length > 128 || operatorLabel.length > 120) {
+    throw new Error("AGENT_RUNTIME_OPERATOR_ID and AGENT_RUNTIME_OPERATOR_LABEL are too long");
+  }
+  return { herdr: { socketPath, workingDirectory, profiles, operatorId, operatorLabel } };
 };
 
 export const config: Config = {

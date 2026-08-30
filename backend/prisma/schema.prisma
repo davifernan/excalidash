@@ -382,6 +382,11 @@ model AgentDispatchReceipt {
   effectiveCapabilities String
   budget                String
   expectedArtifacts     String
+  /// Immutable server/audit mapping and safe Board-visible cost snapshot.
+  runtimeConnectionId   String
+  costBearerOwnerKind   String
+  costBearerOwnerId     String
+  costBearerLabel       String
   runId                 String    @unique
   admissionStatus       String    @default("accepted")
   executionStatus       String    @default("queued")
@@ -390,6 +395,8 @@ model AgentDispatchReceipt {
   runtimeAcknowledgedAt DateTime?
   lastObservedAt        DateTime?
   executionTerminalAt   DateTime?
+  /// Safe stable reason code, projected without adapter errors or credentials.
+  executionReasonCode   String?
   effectTerminalAt      DateTime?
   effectEvidence        String?
   startDeadlineAt       DateTime

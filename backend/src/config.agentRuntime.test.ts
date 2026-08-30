@@ -5,6 +5,8 @@ const RUNTIME_KEYS = [
   "AGENT_RUNTIME_HERDR_SOCKET_PATH",
   "AGENT_RUNTIME_HERDR_WORKING_DIRECTORY",
   "AGENT_RUNTIME_HERDR_PROFILES",
+  "AGENT_RUNTIME_OPERATOR_ID",
+  "AGENT_RUNTIME_OPERATOR_LABEL",
 ] as const;
 
 const loadConfig = async () => {
@@ -38,6 +40,25 @@ describe("Agent Runtime config", () => {
       socketPath: "/run/user/1000/herdr.sock",
       workingDirectory: "/srv/agent-workspace",
       profiles: [{ id: "codex", label: "Codex", agentKind: "codex", args: ["--model", "default"] }],
+      operatorId: "installation",
+      operatorLabel: "Instance operator",
+    });
+  });
+
+  it("keeps a configured operator audit id separate from its safe display label", async () => {
+    process.env.AGENT_RUNTIME_HERDR_SOCKET_PATH = "/run/user/1000/herdr.sock";
+    process.env.AGENT_RUNTIME_HERDR_WORKING_DIRECTORY = "/srv/agent-workspace";
+    process.env.AGENT_RUNTIME_HERDR_PROFILES = JSON.stringify([
+      { id: "codex", label: "Codex", agentKind: "codex", args: [] },
+    ]);
+    process.env.AGENT_RUNTIME_OPERATOR_ID = "internal-billing-record-17";
+    process.env.AGENT_RUNTIME_OPERATOR_LABEL = "Research Operations";
+
+    const { config } = await loadConfig();
+
+    expect(config.agentRuntime.herdr).toMatchObject({
+      operatorId: "internal-billing-record-17",
+      operatorLabel: "Research Operations",
     });
   });
 

@@ -171,6 +171,8 @@ describe("OrchestratorThreadOverlay", () => {
               admission: "accepted",
               execution: "succeeded",
               effect: "pending",
+              executionReason: null,
+              costBearer: { label: "Instance operator" },
               acceptedAt: "2026-08-30T02:00:00.000Z",
               lastObservedAt: "2026-08-30T02:01:00.000Z",
               effectEvidence: null,
@@ -190,10 +192,35 @@ describe("OrchestratorThreadOverlay", () => {
               admission: "accepted",
               execution: "succeeded",
               effect: "failed",
+              executionReason: null,
+              costBearer: { label: "Instance operator" },
               acceptedAt: "2026-08-30T02:02:00.000Z",
               lastObservedAt: "2026-08-30T02:03:00.000Z",
               effectEvidence: null,
               updatedAt: "2026-08-30T02:04:00.000Z",
+            },
+            {
+              id: "receipt-3",
+              drawingId: "drawing-1",
+              publicThreadId: "shared-alpha",
+              originVisibility: "private",
+              objectiveSummary: "Publish only if the runtime starts",
+              targetContextIds: ["context-1"],
+              revisionId: "revision-1",
+              effectiveCapabilities: ["agent:run", "board:write"],
+              expectedArtifacts: ["Board update"],
+              runId: "run-3",
+              admission: "accepted",
+              // Matches the durable receipt written by failDispatchBeforeRuntimeAck:
+              // execution, effect, and the one public reason arrive together.
+              execution: "failed",
+              effect: "failed",
+              executionReason: "RUNTIME_UNAVAILABLE",
+              costBearer: { label: "Instance operator" },
+              acceptedAt: "2026-08-30T02:05:00.000Z",
+              lastObservedAt: null,
+              effectEvidence: null,
+              updatedAt: "2026-08-30T02:05:00.000Z",
             },
           ],
           dispatch: {
@@ -210,6 +237,8 @@ describe("OrchestratorThreadOverlay", () => {
     expect(screen.getByText("Execution finished · publication pending")).toBeVisible();
     expect(screen.getByText("Board effect failed · publication not completed")).toBeVisible();
     expect(screen.getByText("Public effects on this board")).toBeVisible();
+    expect(screen.getAllByText("Charged to: Instance operator")).toHaveLength(3);
+    expect(screen.getByText("Runtime unavailable · execution did not start")).toBeVisible();
     expect(screen.getByText(/not part of this private thread history/)).toBeVisible();
     expect(screen.queryByText("Effect confirmed on the board")).toBeNull();
     expect(screen.queryByText("Dispatch durably accepted")).toBeNull();
@@ -256,6 +285,7 @@ describe("OrchestratorThreadOverlay", () => {
                 id: "runtime-1",
                 label: "Runtime",
                 audience: { kind: "installation" },
+                costBearer: { label: "Instance operator" },
                 profiles: [{ id: "profile-1", label: "Profile" }],
                 health: { connected: true, status: "connected" },
               },
@@ -288,16 +318,23 @@ describe("OrchestratorThreadOverlay", () => {
     fireEvent.change(screen.getByLabelText("Agent runtime connection"), {
       target: { value: "runtime-1" },
     });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This dispatch uses Runtime and is charged to Instance operator.",
+    );
     fireEvent.change(screen.getByLabelText("Agent runtime profile"), {
       target: { value: "profile-1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Dispatch publicly" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Dispatch via Runtime · charged to Instance operator" }),
+    );
     await expect(callbacks.onDispatch).toHaveBeenCalledOnce();
     expect(callbacks.onDispatch).toHaveBeenCalledWith(
       expect.objectContaining({ publicThreadId: "shared-alpha" }),
     );
     expect(objective).toHaveValue("Do not lose this objective");
-    expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Dispatch via Runtime · charged to Instance operator" }),
+    ).toBeVisible();
   });
 
   it("renders Board Cards as the closed state and opens the selected identity", () => {
