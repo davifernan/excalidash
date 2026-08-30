@@ -165,6 +165,9 @@ const trialHasHealthyP95 = (trial: ResponsivenessTrial): boolean => trial.p95Gap
 const trialHasNoFreeze = (trial: ResponsivenessTrial): boolean =>
   trial.maxGapMs < MAX_FREEZE_GAP_MS;
 
+const trialIsUnderBudget = (trial: ResponsivenessTrial): boolean =>
+  trialHasHealthyP95(trial) && trialHasNoFreeze(trial);
+
 /**
  * Two of three trials under budget, not the first sample alone (NIL-592).
  *
