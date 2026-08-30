@@ -115,6 +115,21 @@ for a user; only the implementer reliably knows that, at the same moment they wr
 `User-Facing`. Must be `none` exactly when `User-Facing` is `none` -- otherwise a real change
 would ship uncategorized, and an opted-out package would have nothing to categorize.
 
+### Declaring removed files
+
+The pull-request guard compares removals with the branch's merge-base, so it
+does not confuse deletions already made on a newer `main` with the PR's own
+work. A PR that removes files declares the exact set and its review reason:
+
+```text
+Deletes-Files: backend/src/obsolete.ts, backend/src/obsolete.test.ts
+Deletion-Reason: Replaced by the consolidated implementation in this PR.
+```
+
+No declaration is needed when the PR removes nothing. An undeclared, partial,
+or stale list fails CI; a declared removal is printed by the check so review
+can inspect it rather than treating deletions as implicitly safe.
+
 The admission gate requires these exact labels at the start of checked lines:
 
 ```text
