@@ -136,3 +136,67 @@
   flex-basis: 30px;
   line-height: 30px;
 }
+
+.instruction-approval-toolbar__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+}
+
+.instruction-approval-toolbar__row button {
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: rgb(99 102 241 / 14%);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.instruction-approval-toolbar__row button:hover:not(:disabled) {
+  background: rgb(99 102 241 / 24%);
+}
+
+.instruction-approval-toolbar__row button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.instruction-approval-toolbar__status,
+.instruction-approval-toolbar__preview {
+  white-space: nowrap;
+}
+
+.instruction-approval-toolbar__preview pre {
+  max-width: min(480px, calc(100vw - 48px));
+  max-height: 160px;
+  margin: 4px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+}
+
+.instruction-approval-toolbar__divider {
+  align-self: stretch;
+  width: 1px;
+  background: var(--default-border-color, rgb(0 0 0 / 10%));
+}
+
+.element-floating-toolbar[data-layout="compact"] .instruction-approval-toolbar__row {
+  width: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+}
+
+.element-floating-toolbar[data-layout="compact"] .instruction-approval-toolbar__divider {
+  width: calc(100% - 8px);
+  height: 1px;
+}

@@ -9,6 +9,7 @@ import { registerDrawingSharingRoutes } from "./drawingSharingRoutes";
 import { registerGuestCapabilityRoutes } from "./guestCapabilityRoutes";
 import { registerDrawingHistoryRoutes } from "./drawingHistoryRoutes";
 import { registerDrawingAgentRoutes } from "./drawingAgentRoutes";
+import { registerDrawingInstructionApprovalRoutes } from "./drawingInstructionApprovalRoutes";
 import { registerDrawingRuntimeRoutes } from "./drawingRuntimeRoutes";
 import { registerElementGuestProvenanceRoutes } from "./elementGuestProvenanceRoutes";
 import { registerCommentRoutes } from "./commentRoutes";
@@ -29,6 +30,7 @@ export const registerDrawingRoutes = (app: express.Express, deps: DashboardRoute
   registerGuestCapabilityRoutes(app, context);
   registerDrawingHistoryRoutes(app, context);
   registerDrawingAgentRoutes(app, context);
+  registerDrawingInstructionApprovalRoutes(app, context);
   registerDrawingRuntimeRoutes(app, context);
   registerElementGuestProvenanceRoutes(app, context);
   registerCommentRoutes(app, context);

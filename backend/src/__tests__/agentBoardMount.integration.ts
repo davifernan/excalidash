@@ -7,6 +7,8 @@ import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { registerAgentContext } from "../agent/boardContexts";
 import { executeAgentBoardTool } from "../agent/boardMount";
+import { approveInstruction, previewInstructionApproval } from "../agent/instructionApprovals";
+import { confirmElementGuestProvenance } from "../agent/elementGuestProvenance";
 import { getTestPrisma, setupTestDb } from "./testUtils";
 
 describe("immutable Agent Board Mount (NIL-671)", () => {
@@ -17,6 +19,7 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
   let contextAId: string;
   let contextBId: string;
   let agentToken: string;
+  let ownerId: string;
   let ownerToken: string;
   let ownerAgent: any;
   let ownerCsrfHeaderName: string;
@@ -150,6 +153,7 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
       },
       select: { id: true, email: true },
     });
+    ownerId = owner.id;
     const signOptions: SignOptions = { expiresIn: config.jwtAccessExpiresIn as StringValue };
     ownerToken = jwt.sign(
       { userId: owner.id, email: owner.email, type: "access" },
@@ -179,6 +183,22 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     });
     contextAId = contextA.id;
     contextBId = contextB.id;
+    // NIL-677 Gate 2: registration conservatively marks pre-existing content
+    // as guest-touched pending review (contextA/B.provenanceReview). This
+    // fixture is a solo owner's own content with no guest ever involved --
+    // confirm it, the same action a diligent owner takes at registration,
+    // so this file keeps testing NIL-671's revision pinning and context
+    // boundary rather than re-litigating NIL-677's separate provenance gate.
+    await confirmElementGuestProvenance(
+      prisma,
+      drawingId,
+      contextA.provenanceReview.elementIdsRequiringConfirmation,
+    );
+    await confirmElementGuestProvenance(
+      prisma,
+      drawingId,
+      contextB.provenanceReview.elementIdsRequiringConfirmation,
+    );
 
     for (const side of ["a", "b"] as const) {
       const blob = await prisma.storedBlob.create({
@@ -270,6 +290,35 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     expect(status.body.revisionId).toBe(mount.revisionId);
     expect(status.body.result).toMatchObject({ changed: true });
     expect(status.body.result.latestRevisionId).not.toBe(mount.revisionId);
+  });
+
+  it("marks only a currently human-approved text element as an Agent instruction", async () => {
+    const mount = await createMount({ runId: "instruction-approval-projection" });
+    const beforeApproval = await tool(mount, "readElements", { ids: ["answer-a"] });
+    expect(beforeApproval.status).toBe(200);
+    expect(beforeApproval.body.result[0].instruction).toBeUndefined();
+
+    const preview = await previewInstructionApproval({
+      prisma,
+      drawingId,
+      contextId: contextAId,
+      elementId: "answer-a",
+    });
+    await approveInstruction({
+      prisma,
+      drawingId,
+      contextId: contextAId,
+      elementId: "answer-a",
+      approvedByUserId: ownerId,
+      expectedClosureHash: preview.closure.closureHash,
+    });
+
+    const afterApproval = await tool(mount, "readElements", { ids: ["answer-a"] });
+    expect(afterApproval.status).toBe(200);
+    expect(afterApproval.body.result[0].instruction).toEqual({
+      closureHash: preview.closure.closureHash,
+      schemaVersion: 1,
+    });
   });
 
   it("enforces allowedContextIds transitively across ids, edges, search, render, and assets", async () => {
@@ -426,5 +475,51 @@ describe("immutable Agent Board Mount (NIL-671)", () => {
     const render = await tool(mount, "render");
     expect(render.status).toBe(403);
     expect(render.body.code).toBe("CAPABILITY_MISSING");
+  });
+
+  it("persists semantic relations and reports a stale closure as a client error", async () => {
+    const relation = await ownerAgent
+      .put(`/drawings/${drawingId}/instruction-contexts/${contextAId}/semantic-relations`)
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken)
+      .send({ fromElementId: "answer-a", toElementId: "asset-a-widget", kind: "references" });
+    expect(relation.status).toBe(201);
+    expect(relation.body.relation).toMatchObject({
+      contextId: contextAId,
+      fromElementId: "answer-a",
+      toElementId: "asset-a-widget",
+      kind: "references",
+    });
+
+    await prisma.agentSemanticRelation.create({
+      data: {
+        drawingId,
+        contextId: contextAId,
+        fromElementId: "answer-a",
+        toElementId: "deleted-element",
+        kind: "depends_on",
+        createdByUserId: ownerId,
+      },
+    });
+    const preview = await ownerAgent
+      .get(
+        `/drawings/${drawingId}/instruction-contexts/${contextAId}/instructions/answer-a/approval-preview`,
+      )
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(preview.status).toBe(400);
+    expect(preview.body.code).toBe("SEMANTIC_RELATION_INVALID");
+
+    const approval = await ownerAgent
+      .post(
+        `/drawings/${drawingId}/instruction-contexts/${contextAId}/instructions/answer-a/approval`,
+      )
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken)
+      .send({ expectedClosureHash: "a".repeat(64) });
+    expect(approval.status).toBe(400);
+    expect(approval.body.code).toBe("SEMANTIC_RELATION_INVALID");
   });
 });

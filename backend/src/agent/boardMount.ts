@@ -1,8 +1,14 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { config } from "../config";
+import { logger } from "../logger";
 import { readStoredBytes } from "../assets/assetStorage";
 import { readWidgetRecord } from "../assets/customDataSchema";
 import { decodeSnapshotField, encodeSnapshotField } from "../snapshots/snapshotCodec";
+import {
+  InstructionApprovalError,
+  prepareInstructionApprovalRevision,
+  requireCurrentInstructionApproval,
+} from "./instructionApprovals";
 import {
   AGENT_ASSET_READ,
   AGENT_BOARD_EXPLORE,
@@ -13,8 +19,13 @@ import {
   requireAgentMountCapability,
   resolveEffectiveAgentContextIds,
 } from "../authz/agentContext";
+import { resolveAgentContextContributePolicy } from "../authz/capabilities";
 import { type ContextIdentity, contextFrameBounds, validateContextFrames } from "./boardContexts";
 import { canonicalJson, secretsEqual, sha256Json, sha256Text } from "./canonicalJson";
+import {
+  isEligibleForAgentContribution,
+  readElementGuestProvenance,
+} from "./elementGuestProvenance";
 import {
   boardAgentAudienceFromMount,
   boardAgentFocusTargetsFromResult,
@@ -114,6 +125,9 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
               },
             },
           },
+          agentSemanticRelations: {
+            select: { contextId: true, fromElementId: true, toElementId: true, kind: true },
+          },
         },
       });
       if (!drawing) throw new AgentMountError("MOUNT_NOT_FOUND", "Drawing does not exist.");
@@ -134,6 +148,22 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
           sizeBytes: asset.blob.sizeBytes,
         }))
         .sort((left: any, right: any) => left.assetId.localeCompare(right.assetId));
+      // Relations are an explicit server-side semantic graph. Invalid historic
+      // rows are not silently reinterpreted as a permissive edge; later
+      // approval compilation will reject them, while the revision still makes
+      // their exact stored state auditable.
+      const semanticRelations = (drawing.agentSemanticRelations ?? [])
+        .map((relation: any) => ({
+          contextId: relation.contextId,
+          fromElementId: relation.fromElementId,
+          toElementId: relation.toElementId,
+          kind: relation.kind,
+        }))
+        .sort((left: any, right: any) =>
+          `${left.contextId}\u0000${left.kind}\u0000${left.fromElementId}\u0000${left.toElementId}`.localeCompare(
+            `${right.contextId}\u0000${right.kind}\u0000${right.fromElementId}\u0000${right.toElementId}`,
+          ),
+        );
       const parsedAppState = parseJson<Record<string, unknown>>(drawing.appState, {});
       const parsedFiles = parseJson<Record<string, unknown>>(drawing.files, {});
       const contentHash = sha256Json({
@@ -141,6 +171,7 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
         appState: parsedAppState,
         files: parsedFiles,
         contextMap,
+        semanticRelations,
         assets,
       });
       expectedContentHash = contentHash;
@@ -161,6 +192,7 @@ export const materializeAgentBoardRevision = async (prisma: any, drawingId: stri
           ),
           files: encodeSnapshotField(canonicalJson(parsedFiles), config.enableSnapshotCompression),
           contextMap: canonicalJson(contextMap),
+          semanticRelations: canonicalJson(semanticRelations),
           assets: { create: assets },
         },
       });
@@ -288,7 +320,10 @@ const loadMountedScene = async (params: {
   };
 };
 
-const contextIndex = (elements: readonly Element[], contexts: readonly ContextSnapshot[]) => {
+export const contextIndex = (
+  elements: readonly Element[],
+  contexts: readonly ContextSnapshot[],
+) => {
   const byId = new Map(elements.map((element) => [element.id as string, element]));
   const contextByFrame = new Map(contexts.map((context) => [context.frameElementId, context.id]));
   const cache = new Map<string, string | null>();
@@ -435,15 +470,135 @@ export const executeAgentBoardTool = async (params: {
   const scene = await loadMountedScene(params);
   const args = params.args ?? {};
   const { byId, resolve } = contextIndex(scene.elements, scene.contexts);
-  const allowedElements = scene.elements.filter((element) =>
+  const inAllowedContext = scene.elements.filter((element) =>
     canReadAgentContext(scene.allowedContextIds, resolve(element)),
   );
+  // NIL-677 Gate 2: a Context-readable element still only contributes if its
+  // guest provenance clears isEligibleForAgentContribution. Batched once per
+  // tool call, not per element -- every tool below reads from the same
+  // allowedElements, so this is the single chokepoint, not N lookups. The
+  // exact same policy read Gate 1 (assertGuestElementWriteAllowed) uses --
+  // see resolveAgentContextContributePolicy's own comment for why neither
+  // gate may carry its own copy of "is this on".
+  const agentContextContributeEnabled = await resolveAgentContextContributePolicy(
+    params.prisma,
+    params.drawingId,
+  );
+  const provenance = await readElementGuestProvenance(
+    params.prisma,
+    params.drawingId,
+    inAllowedContext.map((element) => element.id as string),
+  );
+  const provenanceByElementId = new Map(provenance.map((entry) => [entry.elementId, entry.status]));
+  // A Context's own frame is the boundary marker, not admitted content --
+  // registration conservatively backfills its provenance the same as any
+  // other pre-existing element in the frame (boardContexts.ts's
+  // elementIdsInContextFrame includes the frame itself), so a frame with no
+  // confirmed-clean row would otherwise become unreadable and break every
+  // tool that needs to resolve it, including ones that never expose its
+  // content. Gate 2 protects content leaving the frame, not whether the
+  // frame boundary itself can be addressed.
+  const contextFrameElementIds = new Set(scene.contexts.map((context) => context.frameElementId));
+  // Not just a log line: registerAgentContext (boardContexts.ts) backfills
+  // EVERY element without a provenance row as guest-touched the moment an
+  // existing frame is registered, whether or not a guest was ever near it --
+  // so on a board with real history, this filter can silently drop most of
+  // its content the first time anything actually reads through it. A tool
+  // result that only shows what survived, with no sign anything was cut,
+  // lets an agent answer confidently from a board it never fully saw. The
+  // count below is the minimum an agent needs to know its own view is
+  // incomplete -- not which elements, not their content, just that some
+  // exist and were withheld.
+  let excludedElementCount = 0;
+  const allowedElements = inAllowedContext.filter((element) => {
+    if (contextFrameElementIds.has(element.id as string)) return true;
+    const status = provenanceByElementId.get(element.id as string) ?? "unknown";
+    const eligible = isEligibleForAgentContribution({ status, agentContextContributeEnabled });
+    if (!eligible) {
+      excludedElementCount += 1;
+      // Not proof that Gate 1 (assertGuestElementWriteAllowed) was bypassed
+      // -- an ordinary member drag of old, never-confirmed content into the
+      // frame produces the exact same status, and Gate 1 never restricts
+      // members. Still worth surfacing rather than silently filtering: this
+      // is the one place a human can see that Gate 2 is actually doing
+      // something, not just agreeing with Gate 1 by construction.
+      logger.warn("NIL-677 Gate 2 excluded a Context-readable element from Agent Context", {
+        drawingId: params.drawingId,
+        runId: params.runId,
+        elementId: element.id,
+        contextId: resolve(element),
+        provenanceStatus: status,
+      });
+    }
+    return eligible;
+  });
   const allowedElementIds = new Set(allowedElements.map((element) => element.id as string));
   const revisionAssetIds = new Set<string>(
     scene.revision.assets.map((asset: any) => String(asset.assetId)),
   );
-  const project = (element: Element) =>
-    projectElement(element, allowedElementIds, resolve(element)!, revisionAssetIds);
+  const preparedInstructionRevision = prepareInstructionApprovalRevision(scene.revision);
+  const readableTextElements = allowedElements.filter((element) => element.type === "text");
+  const approvalRows =
+    readableTextElements.length === 0
+      ? []
+      : await params.prisma.agentInstructionApproval.findMany({
+          where: {
+            drawingId: params.drawingId,
+            authority: "instruction",
+            contextId: { in: [...scene.allowedContextIds] },
+            elementId: { in: readableTextElements.map((element) => element.id as string) },
+          },
+        });
+  const approvalByContextAndElement = new Map(
+    approvalRows.map((approval: any) => [
+      `${approval.contextId}\u0000${approval.elementId}`,
+      approval,
+    ]),
+  );
+  const instructionByElementId = new Map<
+    string,
+    { closureHash: string; schemaVersion: number } | null
+  >();
+  const project = async (element: Element) => {
+    const projected = projectElement(
+      element,
+      allowedElementIds,
+      resolve(element)!,
+      revisionAssetIds,
+    );
+    if (element.type !== "text") return projected;
+
+    let instruction = instructionByElementId.get(element.id);
+    if (!instructionByElementId.has(element.id)) {
+      try {
+        const approval = await requireCurrentInstructionApproval({
+          prisma: params.prisma,
+          drawingId: params.drawingId,
+          contextId: resolve(element)!,
+          elementId: element.id,
+          revision: scene.revision,
+          prepared: preparedInstructionRevision,
+          approval:
+            approvalByContextAndElement.get(`${resolve(element)}\u0000${element.id}`) ?? null,
+        });
+        instruction = {
+          closureHash: approval.closure.closureHash,
+          schemaVersion: approval.closure.schemaVersion,
+        };
+      } catch (error) {
+        if (
+          !(error instanceof InstructionApprovalError) ||
+          (error.code !== "APPROVAL_NOT_FOUND" && error.code !== "APPROVAL_EXPIRED")
+        ) {
+          throw error;
+        }
+        instruction = null;
+      }
+      instructionByElementId.set(element.id, instruction);
+    }
+
+    return instruction ? { ...projected, instruction } : projected;
+  };
   const requireReadableElement = (
     id: string,
     code: "ELEMENT_NOT_READABLE" | "FRAME_NOT_READABLE",
@@ -543,10 +698,12 @@ export const executeAgentBoardTool = async (params: {
           }));
         break;
       case "listFrames":
-        result = allowedElements
-          .filter((element) => element.type === "frame")
-          .slice(0, boundedLimit(args, 100))
-          .map(project);
+        result = await Promise.all(
+          allowedElements
+            .filter((element) => element.type === "frame")
+            .slice(0, boundedLimit(args, 100))
+            .map(project),
+        );
         break;
       case "readFrame": {
         const frame = requireReadableElement(
@@ -558,11 +715,13 @@ export const executeAgentBoardTool = async (params: {
         }
         const contextId = resolve(frame)!;
         result = {
-          frame: project(frame),
-          elements: allowedElements
-            .filter((element) => element.id !== frame.id && resolve(element) === contextId)
-            .slice(0, boundedLimit(args, 100))
-            .map(project),
+          frame: await project(frame),
+          elements: await Promise.all(
+            allowedElements
+              .filter((element) => element.id !== frame.id && resolve(element) === contextId)
+              .slice(0, boundedLimit(args, 100))
+              .map(project),
+          ),
         };
         break;
       }
@@ -573,24 +732,26 @@ export const executeAgentBoardTool = async (params: {
             "ids must contain between one and 100 element ids.",
           );
         }
-        result = args.ids.map((id) =>
-          project(requireReadableElement(String(id), "ELEMENT_NOT_READABLE")),
+        result = await Promise.all(
+          args.ids.map((id) => project(requireReadableElement(String(id), "ELEMENT_NOT_READABLE"))),
         );
         break;
       }
       case "search": {
         const query = stringArg(args, "query").toLocaleLowerCase();
         const limit = boundedLimit(args, 20);
-        result = allowedElements
-          .filter(
-            (element) =>
-              (typeof element.text === "string" &&
-                element.text.toLocaleLowerCase().includes(query)) ||
-              (typeof element.name === "string" &&
-                element.name.toLocaleLowerCase().includes(query)),
-          )
-          .slice(0, limit)
-          .map(project);
+        result = await Promise.all(
+          allowedElements
+            .filter(
+              (element) =>
+                (typeof element.text === "string" &&
+                  element.text.toLocaleLowerCase().includes(query)) ||
+                (typeof element.name === "string" &&
+                  element.name.toLocaleLowerCase().includes(query)),
+            )
+            .slice(0, limit)
+            .map(project),
+        );
         break;
       }
       case "neighbors": {
@@ -613,10 +774,12 @@ export const executeAgentBoardTool = async (params: {
             related.add(element.id);
           }
         }
-        result = [...related]
-          .sort()
-          .slice(0, boundedLimit(args, 100))
-          .map((id) => project(byId.get(id)!));
+        result = await Promise.all(
+          [...related]
+            .sort()
+            .slice(0, boundedLimit(args, 100))
+            .map((id) => project(byId.get(id)!)),
+        );
         break;
       }
       case "followEdge": {
@@ -630,15 +793,15 @@ export const executeAgentBoardTool = async (params: {
             "The requested element is not an edge.",
           );
         }
-        const endpoint = (binding: any) => {
+        const endpoint = async (binding: any) => {
           const id = typeof binding?.elementId === "string" ? binding.elementId : null;
           return id && allowedElementIds.has(id) ? project(byId.get(id)!) : null;
         };
         result = {
-          edge: project(edge),
+          edge: await project(edge),
           semantics: { kind: "unspecified" },
-          start: endpoint(edge.startBinding),
-          end: endpoint(edge.endBinding),
+          start: await endpoint(edge.startBinding),
+          end: await endpoint(edge.endBinding),
         };
         break;
       }
@@ -783,6 +946,12 @@ export const executeAgentBoardTool = async (params: {
       tool: params.tool,
       resultHash,
       result,
+      // The count, not the ids or content -- see excludedElementCount's own
+      // comment above for why this must never be silently absent. Outside
+      // resultHash on purpose: this is a fact about the mount's provenance
+      // state at call time, not part of the tool's own answer, and it must
+      // not perturb the audit hash of that answer.
+      excludedElementCount,
     };
   } catch (error) {
     if (!focusStarted && deferredFocusFallbackTargets.length > 0) {

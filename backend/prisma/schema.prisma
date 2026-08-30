@@ -69,6 +69,7 @@ model SystemConfig {
   registrationEnabled              Boolean   @default(false)
   guestUploadEnabled               Boolean   @default(false)
   guestCommentVisibilityEnabled    Boolean   @default(true)
+  guestAgentContextContributeEnabled Boolean @default(false)
   oidcJitProvisioningEnabled       Boolean?
   authLoginRateLimitEnabled        Boolean   @default(true)
   authLoginRateLimitWindowMs       Int       @default(900000)
@@ -104,6 +105,7 @@ model Drawing {
   version                       Int                  @default(1)
   guestUploadEnabled            Boolean              @default(false)
   guestCommentVisibilityEnabled Boolean              @default(true)
+  guestAgentContextContributeEnabled Boolean         @default(false)
   /// Monotonic ordering marker for persisted name snapshots and broadcasts.
   nameRevision                  Int                  @default(1)
   /// Who controls the board: shares it, moves it, deletes it, and carries its
@@ -131,6 +133,8 @@ model Drawing {
   agentContexts                 AgentContext[]
   agentRevisions                AgentBoardRevision[]
   agentRunMounts                AgentRunMount[]
+  agentSemanticRelations        AgentSemanticRelation[]
+  agentInstructionApprovals     AgentInstructionApproval[]
   /// Not named `files` -- the scalar `files` column below is Drawing's own
   /// JSON blob of embedded Excalidraw file entries, an unrelated field this
   /// relation would collide with.
@@ -189,8 +193,10 @@ model AgentContext {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  drawing      Drawing             @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  threadEvents AgentContextEvent[]
+  drawing              Drawing                    @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  threadEvents         AgentContextEvent[]
+  semanticRelations AgentSemanticRelation[]
+  instructionApprovals AgentInstructionApproval[]
 
   @@unique([drawingId, frameElementId])
   @@index([drawingId, createdAt])
@@ -229,6 +235,10 @@ model AgentBoardRevision {
   appState             String
   files                String
   contextMap           String
+  /// Explicit, server-owned instruction relations captured with this scene.
+  /// Dispatch validates an approval against this immutable map, never a live
+  /// relation set that may have changed after the run was pinned.
+  semanticRelations    String   @default("[]")
   createdAt            DateTime @default(now())
 
   drawing Drawing                   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
@@ -238,6 +248,50 @@ model AgentBoardRevision {
 
   @@unique([drawingId, contentHash])
   @@index([drawingId, createdAt])
+}
+
+/// Explicit machine meaning for an Agent Context. This is deliberately not
+/// Excalidraw arrow geometry or `customData`: only a human-authorized route
+/// may create it, and it is separately captured in AgentBoardRevision.
+model AgentSemanticRelation {
+  id            String   @id @default(uuid())
+  drawingId     String
+  contextId     String
+  fromElementId String
+  toElementId   String
+  kind          String
+  createdByUserId String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  drawing Drawing      @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@unique([contextId, fromElementId, toElementId, kind])
+  @@index([drawingId, contextId, createdAt])
+}
+
+/// Human approval is server state, not an element flag. The hash pair is the
+/// exact semantic instruction and transitive explicit closure the human saw.
+model AgentInstructionApproval {
+  id                 String   @id @default(uuid())
+  drawingId          String
+  contextId          String
+  elementId          String
+  schemaVersion      Int
+  semanticHash       String
+  closureHash        String
+  approvedByUserId   String
+  authority          String   @default("instruction")
+  approvedRevisionId String?
+  approvedAt         DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  drawing Drawing      @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@unique([contextId, elementId])
+  @@index([drawingId, contextId, approvedAt])
 }
 
 /// The per-run pin. The opaque capability token is returned once and only its

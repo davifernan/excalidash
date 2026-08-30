@@ -15,10 +15,12 @@ export const useAgentRuntimeFeature = ({
 }) => {
   const [isAgentRuntimeOpen, setIsAgentRuntimeOpen] = useState(false);
   const toggleAgentRuntime = useCallback(() => setIsAgentRuntimeOpen((current) => !current), []);
+  const openAgentRuntime = useCallback(() => setIsAgentRuntimeOpen(true), []);
   const root = adapter.ui.overlayRoot();
   return {
     isAgentRuntimeOpen,
     toggleAgentRuntime,
+    openAgentRuntime,
     agentRuntimeOverlay: root.ok ? (
       <AgentRuntimePanel
         container={root.value}

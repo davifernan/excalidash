@@ -248,7 +248,9 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     }
   };
 
-  const toggleGuestCapability = async (key: "uploadFiles" | "viewComments") => {
+  const toggleGuestCapability = async (
+    key: "uploadFiles" | "viewComments" | "agentContextContribute",
+  ) => {
     if (!guestCapabilities) return;
     setIsLoading(true);
     setError(null);
@@ -349,6 +351,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
             settings={guestCapabilities}
             onToggleUploadFiles={() => toggleGuestCapability("uploadFiles")}
             onToggleViewComments={() => toggleGuestCapability("viewComments")}
+            onToggleAgentContextContribute={() => toggleGuestCapability("agentContextContribute")}
           />
         </div>
 

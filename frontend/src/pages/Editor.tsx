@@ -678,10 +678,11 @@ export const Editor: React.FC = () => {
   }, []);
   const { offscreenPresenceOverlay } = useOffscreenPresence({ adapter });
   const { agentPresenceOverlay } = useAgentPresenceOverlay({ adapter, presence: agentPresence });
-  const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime } = useAgentRuntimeFeature({
-    adapter,
-    drawingId: id,
-  });
+  const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime, openAgentRuntime } =
+    useAgentRuntimeFeature({
+      adapter,
+      drawingId: id,
+    });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
       drawingId: id,
@@ -784,6 +785,7 @@ export const Editor: React.FC = () => {
         unresolvedCommentCount={unresolvedCommentCount}
         isAgentRuntimeOpen={isAgentRuntimeOpen}
         onToggleAgentRuntime={toggleAgentRuntime}
+        onOpenAgentRuntime={openAgentRuntime}
         onCanvasDropCapture={handleCanvasDropCapture}
         onExportClick={handleExportClick}
         onLibraryChange={handleLibraryChange}
