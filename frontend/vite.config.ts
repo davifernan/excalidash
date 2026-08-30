@@ -55,6 +55,18 @@ export default defineConfig(({ command }) => {
       },
     },
     optimizeDeps: {
+      // Vite's static entry scan does not traverse module workers. Without
+      // these explicit entries, the first Markdown document discovers them
+      // at runtime and Vite reloads the editor after re-optimizing, dropping
+      // the user's current canvas selection. Keep the worker's runtime
+      // imports here so a cold development/CI server is stable on first use.
+      include: [
+        "html-url-attributes",
+        "remark-gfm",
+        "remark-parse",
+        "remark-rehype",
+        "unified",
+      ],
       esbuildOptions: {
         define: processEnvDefines,
         target: "es2022",
