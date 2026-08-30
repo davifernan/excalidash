@@ -114,13 +114,17 @@ test("aggregate fails rather than reporting success when any required part faile
     workflowSource,
     "Fail the aggregate when a required soak part did not pass",
   );
+  const notificationStep = workflowStep(
+    workflowSource,
+    "Comment nightly result (pass or fail) on the tracking issue",
+  );
   assert.ok(
     /run: node scripts\/soak-required-part-result\.cjs --enforce/.test(enforcementStep),
     "Aggregate + report must execute the required-part enforcement helper",
   );
   assert.ok(
-    /status="\$\(NEEDS_JSON='\$\{\{ toJSON\(needs\) \}\}' node scripts\/soak-required-part-result\.cjs\)"[\s\S]*?--status="\$status"/.test(
-      workflowSource,
+    /env:[\s\S]*?NEEDS_JSON: \$\{\{ toJSON\(needs\) \}\}[\s\S]*?status="\$\(node scripts\/soak-required-part-result\.cjs\)"[\s\S]*?--status="\$status"/.test(
+      notificationStep,
     ),
     "the tracking-issue notification must use the required-part helper status",
   );

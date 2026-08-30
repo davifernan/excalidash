@@ -184,6 +184,7 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           # Hans-Friedrich finding on #223: this status used to come ONLY
           # from the four part jobs' results, never from whether the
@@ -193,7 +194,7 @@ jobs:
           # tracking issue exists to close. steps.aggregate.outcome is
           # 'failure' whenever that step's script exits non-zero (see its
           # own comment on the evidence PUT), independent of the parts.
-          status="$(NEEDS_JSON='${{ toJSON(needs) }}' node scripts/soak-required-part-result.cjs)"
+          status="$(node scripts/soak-required-part-result.cjs)"
           if [ "${{ steps.aggregate.outcome }}" = "failure" ]; then status="failed"; fi
           node scripts/soak-nightly-notify.cjs \
             --status="$status" \
