@@ -4,7 +4,12 @@
  *
  * JSON.parse and most JavaScript bundlers use "last key wins" semantics. That
  * makes a duplicate configuration block look valid while silently discarding
- * the earlier value. This check deliberately parses configuration without
+ * the earlier value. Two real merge regressions made that concrete:
+ * frontend/vite.config.ts gained a second resolve key, which esbuild warned
+ * about only when the development server ran; frontend/knip.json gained a
+ * second ignoreDependencies key, silently losing
+ * decode-named-character-reference through JSON.parse. Neither TypeScript nor
+ * the unit suite exercised the relevant parser. This check deliberately parses configuration without
  * executing it: TypeScript gives us the object-literal AST for JSON, JS and
  * TS, while js-yaml rejects duplicate mapping keys with source locations.
  *
