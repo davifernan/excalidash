@@ -36,6 +36,7 @@ import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import { useOffscreenPresence } from "./editor/useOffscreenPresence";
 import { useAgentPresenceOverlay } from "./editor/useAgentPresenceOverlay";
 import { useAgentRuntimeFeature } from "./editor/useAgentRuntimeFeature";
+import { useOrchestratorThreadFeature } from "./editor/useOrchestratorThreadFeature";
 import type { PreviewTransaction } from "../integrations/excalidraw/capabilities";
 import { useFrameNavigator } from "./editor/frameNavigator";
 import { insertWorkshopTemplate, WORKSHOP_TEMPLATES } from "./editor/workshopTemplates";
@@ -683,6 +684,8 @@ export const Editor: React.FC = () => {
       adapter,
       drawingId: id,
     });
+  const { orchestratorThreadOverlay, createThread: createOrchestratorThread } =
+    useOrchestratorThreadFeature({ adapter, canEdit, isReady });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
       drawingId: id,
@@ -786,6 +789,7 @@ export const Editor: React.FC = () => {
         isAgentRuntimeOpen={isAgentRuntimeOpen}
         onToggleAgentRuntime={toggleAgentRuntime}
         onOpenAgentRuntime={openAgentRuntime}
+        onCreateOrchestratorThread={createOrchestratorThread}
         onCanvasDropCapture={handleCanvasDropCapture}
         onExportClick={handleExportClick}
         onLibraryChange={handleLibraryChange}
@@ -801,6 +805,7 @@ export const Editor: React.FC = () => {
         onHistoryOpen={() => setIsHistoryOpen(true)}
       />
       {agentRuntimeOverlay}
+      {orchestratorThreadOverlay}
       {canEdit ? (
         <LaserToolbarButton containerRef={editorContainerRef} interaction={adapter.interaction} />
       ) : null}

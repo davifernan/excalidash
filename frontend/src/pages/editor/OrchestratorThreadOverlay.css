@@ -1,0 +1,404 @@
+.orchestrator-thread-layer {
+  position: absolute;
+  inset: 0;
+  z-index: var(--excalidash-z-anchored-overlay);
+  pointer-events: none;
+  color: var(--color-on-surface, #1b1b1f);
+}
+
+.orchestrator-thread-invitation {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(540px, calc(100% - 48px));
+  transform: translate(-50%, -50%);
+  /* This is guidance layered over an otherwise usable empty canvas, not a
+     modal surface. Canvas gestures pass through; the explicit action below
+     is the only DOM control that opts back into pointer handling. */
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 34px 40px;
+  border: 1px solid rgba(74, 58, 134, 0.2);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--island-bg-color, white) 97%, #efeaff);
+  box-shadow: 0 18px 48px rgba(29, 22, 55, 0.15);
+  text-align: center;
+}
+
+.orchestrator-thread-invitation__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #6d5bd0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orchestrator-thread-invitation h2,
+.orchestrator-thread-invitation p {
+  margin: 0;
+}
+
+.orchestrator-thread-invitation h2 {
+  font-size: clamp(22px, 3vw, 32px);
+}
+
+.orchestrator-thread-invitation p {
+  max-width: 440px;
+  color: var(--text-secondary-color, #64616d);
+  line-height: 1.5;
+}
+
+.orchestrator-thread-invitation__artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.orchestrator-thread-invitation__artifacts span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(109, 91, 208, 0.1);
+  color: #5140ad;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.orchestrator-thread-invitation > button {
+  pointer-events: auto;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: #6d5bd0;
+  color: white;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.orchestrator-thread-invitation > button:hover,
+.orchestrator-thread-invitation > button:focus-visible {
+  background: #5947bd;
+  outline: 3px solid rgba(109, 91, 208, 0.25);
+}
+
+.orchestrator-thread-invitation small {
+  color: var(--text-secondary-color, #64616d);
+}
+
+.orchestrator-thread-card {
+  position: absolute;
+  /* The Excalidraw element below owns dragging and selection. Only the small
+     Open control opts back into pointer events. */
+  pointer-events: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.28em;
+  padding: 0.8em;
+  border-radius: 0.8em;
+  background: transparent;
+  color: #2b2152;
+  text-align: left;
+}
+
+.orchestrator-thread-card__open {
+  position: absolute;
+  right: 0.72em;
+  top: 0.72em;
+  pointer-events: auto;
+  padding: 0.32em 0.55em;
+  border: 0.1em solid rgba(109, 91, 208, 0.42);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--island-bg-color, white) 88%, #e9e3ff);
+  color: #5140ad;
+  font-size: 0.64em;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.orchestrator-thread-card__open:hover,
+.orchestrator-thread-card__open:focus-visible {
+  border-color: #6d5bd0;
+  outline: 0.12em solid rgba(109, 91, 208, 0.3);
+}
+
+.orchestrator-thread-card__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: 0.64em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orchestrator-thread-card__eyebrow svg {
+  width: 1em;
+  height: 1em;
+}
+
+.orchestrator-thread-card strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestrator-thread-card > span:nth-of-type(2) {
+  font-size: 0.68em;
+  opacity: 0.74;
+}
+
+.orchestrator-thread-cluster {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.orchestrator-thread-locator {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.orchestrator-thread-locator > button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 9px;
+  border: 1px solid rgba(74, 58, 134, 0.3);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--island-bg-color, white) 94%, #efeaff);
+  color: inherit;
+  box-shadow: 0 6px 18px rgba(29, 22, 55, 0.16);
+  font-weight: 800;
+}
+
+.orchestrator-thread-locator__members {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 6px);
+  min-width: 190px;
+  max-height: 240px;
+  transform: translateX(-50%);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid rgba(74, 58, 134, 0.3);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--island-bg-color, white) 94%, #efeaff);
+  box-shadow: 0 8px 24px rgba(29, 22, 55, 0.18);
+}
+
+.orchestrator-thread-locator__members button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.orchestrator-thread-locator__members button:hover {
+  background: rgba(109, 91, 208, 0.11);
+}
+
+.orchestrator-thread-cluster > button,
+.orchestrator-thread-cluster__members,
+.orchestrator-thread-backpressure,
+.orchestrator-thread-panel {
+  border: 1px solid rgba(74, 58, 134, 0.3);
+  background: color-mix(in srgb, var(--island-bg-color, white) 94%, #efeaff);
+  box-shadow: 0 8px 24px rgba(29, 22, 55, 0.18);
+}
+
+.orchestrator-thread-cluster > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: inherit;
+  font-weight: 700;
+}
+
+.orchestrator-thread-cluster__members {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  min-width: 190px;
+  transform: translateX(-50%);
+  padding: 5px;
+  border-radius: 10px;
+}
+
+.orchestrator-thread-cluster__members button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.orchestrator-thread-cluster__members button:hover {
+  background: rgba(109, 91, 208, 0.11);
+}
+
+.orchestrator-thread-backpressure {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  width: min(440px, calc(100% - 36px));
+  transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  border-left: 4px solid #d97706;
+  border-radius: 10px;
+}
+
+.orchestrator-thread-backpressure span,
+.orchestrator-thread-backpressure small {
+  color: var(--text-secondary-color, #64616d);
+}
+
+.orchestrator-thread-panel {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.orchestrator-thread-panel--anchored {
+  border-color: rgba(109, 91, 208, 0.58);
+}
+
+.orchestrator-thread-panel--docked {
+  border-color: rgba(217, 119, 6, 0.58);
+}
+
+.orchestrator-thread-panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 13px 14px 10px;
+  border-bottom: 1px solid rgba(100, 97, 109, 0.16);
+}
+
+.orchestrator-thread-panel header > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.orchestrator-thread-panel header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestrator-thread-panel header button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+}
+
+.orchestrator-thread-panel header button:hover {
+  background: rgba(109, 91, 208, 0.11);
+}
+
+.orchestrator-thread-panel__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #6d5bd0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.orchestrator-thread-panel__location {
+  margin: 10px 12px 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(217, 119, 6, 0.1);
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  text-align: left;
+}
+
+button.orchestrator-thread-panel__location span {
+  margin-left: auto;
+  color: #6d5bd0;
+  font-weight: 800;
+}
+
+.orchestrator-thread-panel__location--anchored {
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.orchestrator-thread-panel__pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #16a34a;
+}
+
+.orchestrator-thread-panel__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 22px;
+  text-align: center;
+}
+
+.orchestrator-thread-panel__empty svg {
+  color: #6d5bd0;
+}
+
+.orchestrator-thread-panel__empty p {
+  margin: 0;
+  color: var(--text-secondary-color, #64616d);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 540px) {
+  .orchestrator-thread-invitation {
+    padding: 26px 22px;
+  }
+
+  .orchestrator-thread-panel {
+    max-width: calc(100% - 24px);
+  }
+}
