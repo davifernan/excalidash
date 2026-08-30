@@ -60,6 +60,9 @@ export type OrchestratorThreadPanelView = {
 
 const receiptLabel = (receipt: PublicDispatchReceipt): string => {
   if (receipt.effect === "committed") return "Effect confirmed on the board";
+  if (["failed", "rejected"].includes(receipt.effect)) {
+    return "Board effect failed · publication not completed";
+  }
   if (receipt.execution === "outcome_unknown") return "Outcome unknown · runtime not observable";
   if (["failed", "cancelled"].includes(receipt.execution)) return "Execution failed";
   if (receipt.execution === "succeeded" && receipt.effect === "pending") {
@@ -483,10 +486,13 @@ export const OrchestratorThreadOverlay = ({
                         connectionId,
                         profileId,
                       }),
-                    ).then(() => {
-                      setDispatchSummary("");
-                      setDispatchComposerOpen(false);
-                    });
+                    ).then(
+                      () => {
+                        setDispatchSummary("");
+                        setDispatchComposerOpen(false);
+                      },
+                      () => undefined,
+                    );
                   }}
                 >
                   <strong>Approve a public effect</strong>
@@ -578,7 +584,10 @@ export const OrchestratorThreadOverlay = ({
                     event.preventDefault();
                     const text = draft.trim();
                     if (!text || panelView.sending) return;
-                    void Promise.resolve(onSendMessage?.(text)).then(() => setDraft(""));
+                    void Promise.resolve(onSendMessage?.(text)).then(
+                      () => setDraft(""),
+                      () => undefined,
+                    );
                   }}
                 >
                   <label htmlFor="orchestrator-thread-message">Message this audience</label>

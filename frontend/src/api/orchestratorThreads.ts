@@ -47,6 +47,8 @@ export type PublicDispatchReceipt = {
   acceptedAt: string;
   lastObservedAt: string | null;
   effectEvidence: Record<string, unknown> | null;
+  /** Server transition clock; used to reject a late, older HTTP snapshot. */
+  updatedAt: string;
 };
 
 export type PublicDispatchInput = {

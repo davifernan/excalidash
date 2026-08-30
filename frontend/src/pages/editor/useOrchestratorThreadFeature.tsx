@@ -82,6 +82,26 @@ const emptySurface: OrchestratorThreadSurface = {
   backpressure: { blocked: false, occupiedRatio: 0, message: null },
 };
 
+const mergeReceiptLists = (
+  current: readonly PublicDispatchReceipt[],
+  incoming: readonly PublicDispatchReceipt[],
+): PublicDispatchReceipt[] => {
+  const byId = new Map(current.map((receipt) => [receipt.id, receipt] as const));
+  let changed = false;
+  for (const receipt of incoming) {
+    const existing = byId.get(receipt.id);
+    if (!existing || Date.parse(receipt.updatedAt) >= Date.parse(existing.updatedAt)) {
+      if (existing !== receipt) changed = true;
+      byId.set(receipt.id, receipt);
+    }
+  }
+  if (!changed) return current as PublicDispatchReceipt[];
+  return [...byId.values()].sort(
+    (left, right) =>
+      Date.parse(left.acceptedAt) - Date.parse(right.acceptedAt) || left.id.localeCompare(right.id),
+  );
+};
+
 const sameRect = (left: ScreenRect, right: ScreenRect) =>
   left.left === right.left &&
   left.top === right.top &&
@@ -171,18 +191,23 @@ export const useOrchestratorThreadFeature = ({
   const [threads, setThreads] = useState<OrchestratorThreadDTO[]>([]);
   const [eventsByThread, setEventsByThread] = useState<Record<string, AgentThreadEventDTO[]>>({});
   const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
-  const [sendingThreadId, setSendingThreadId] = useState<string | null>(null);
+  const [sendingThreadIds, setSendingThreadIds] = useState<ReadonlySet<string>>(new Set());
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [actionErrorsByThread, setActionErrorsByThread] = useState<Record<string, string | null>>(
+    {},
+  );
   const [receiptsByThread, setReceiptsByThread] = useState<Record<string, PublicDispatchReceipt[]>>(
     {},
   );
   const [dispatchContexts, setDispatchContexts] = useState<InstructionContext[]>([]);
   const [dispatchConnections, setDispatchConnections] = useState<AgentRuntimeConnection[]>([]);
-  const [dispatching, setDispatching] = useState(false);
+  const [dispatchingThreadIds, setDispatchingThreadIds] = useState<ReadonlySet<string>>(new Set());
   const previousMode = useRef<ThreadPanelMode>("closed");
   const pendingCreatedElementId = useRef<string | null>(null);
   const requestedThreadIds = useRef(new Set<string>());
   const lastDrawingThreadId = useRef<string | null>(null);
+  const pendingMessageThreadIds = useRef(new Set<string>());
+  const pendingDispatchThreadIds = useRef(new Set<string>());
 
   const upsertThread = useCallback((incoming: OrchestratorThreadDTO) => {
     setThreads((current) => {
@@ -201,12 +226,15 @@ export const useOrchestratorThreadFeature = ({
     setActiveElementId(null);
     setEventsByThread({});
     setLoadingThreadId(null);
-    setSendingThreadId(null);
+    setSendingThreadIds(new Set());
     setThreadError(null);
+    setActionErrorsByThread({});
     setReceiptsByThread({});
     setDispatchContexts([]);
     setDispatchConnections([]);
-    setDispatching(false);
+    setDispatchingThreadIds(new Set());
+    pendingMessageThreadIds.current.clear();
+    pendingDispatchThreadIds.current.clear();
     requestedThreadIds.current.clear();
     lastDrawingThreadId.current = null;
     previousMode.current = "closed";
@@ -247,12 +275,8 @@ export const useOrchestratorThreadFeature = ({
       if (receipt.drawingId !== drawingId) return;
       setReceiptsByThread((current) => {
         const existing = current[receipt.publicThreadId] ?? [];
-        const index = existing.findIndex((candidate) => candidate.id === receipt.id);
-        const next =
-          index < 0
-            ? [...existing, receipt]
-            : existing.map((item) => (item.id === receipt.id ? receipt : item));
-        return { ...current, [receipt.publicThreadId]: next };
+        const merged = mergeReceiptLists(existing, [receipt]);
+        return merged === existing ? current : { ...current, [receipt.publicThreadId]: merged };
       });
     };
     socket.on("agent.thread.updated", onThread);
@@ -557,7 +581,11 @@ export const useOrchestratorThreadFeature = ({
     void getPublicDispatchReceipts(drawingId, publicDispatchThread.id)
       .then((receipts) => {
         if (cancelled) return;
-        setReceiptsByThread((current) => ({ ...current, [publicDispatchThread.id]: receipts }));
+        setReceiptsByThread((current) => {
+          const existing = current[publicDispatchThread.id] ?? [];
+          const merged = mergeReceiptLists(existing, receipts);
+          return merged === existing ? current : { ...current, [publicDispatchThread.id]: merged };
+        });
       })
       .catch(() => {
         if (!cancelled) setThreadError("Public dispatch receipts could not be loaded.");
@@ -634,21 +662,33 @@ export const useOrchestratorThreadFeature = ({
 
   const sendMessage = useCallback(
     async (text: string) => {
-      if (!drawingId || !activeThread) return;
-      setSendingThreadId(activeThread.id);
-      setThreadError(null);
+      if (!drawingId || !activeThread) throw new Error("No active thread");
+      const threadId = activeThread.id;
+      if (pendingMessageThreadIds.current.has(threadId)) throw new Error("Message already pending");
+      pendingMessageThreadIds.current.add(threadId);
+      setSendingThreadIds((current) => new Set(current).add(threadId));
+      setActionErrorsByThread((current) => ({ ...current, [threadId]: null }));
       try {
-        const event = await appendOrchestratorThreadMessage(drawingId, activeThread.id, text);
+        const event = await appendOrchestratorThreadMessage(drawingId, threadId, text);
         setEventsByThread((current) => {
-          const existing = current[activeThread.id] ?? [];
+          const existing = current[threadId] ?? [];
           return existing.some((candidate) => candidate.id === event.id)
             ? current
-            : { ...current, [activeThread.id]: [...existing, event] };
+            : { ...current, [threadId]: [...existing, event] };
         });
-      } catch {
-        setThreadError("The message was not accepted. Nothing was published.");
+      } catch (error) {
+        setActionErrorsByThread((current) => ({
+          ...current,
+          [threadId]: "The message was not accepted. Nothing was published.",
+        }));
+        throw error;
       } finally {
-        setSendingThreadId(null);
+        pendingMessageThreadIds.current.delete(threadId);
+        setSendingThreadIds((current) => {
+          const next = new Set(current);
+          next.delete(threadId);
+          return next;
+        });
       }
     },
     [activeThread, drawingId],
@@ -662,12 +702,18 @@ export const useOrchestratorThreadFeature = ({
       profileId: string;
     }) => {
       if (!drawingId || !activeThread || !publicDispatchThread || surface.backpressure.blocked)
-        return;
-      setDispatching(true);
-      setThreadError(null);
+        throw new Error("Public dispatch is unavailable");
+      const originThreadId = activeThread.id;
+      const publicThreadId = publicDispatchThread.id;
+      if (pendingDispatchThreadIds.current.has(originThreadId)) {
+        throw new Error("Dispatch already pending");
+      }
+      pendingDispatchThreadIds.current.add(originThreadId);
+      setDispatchingThreadIds((current) => new Set(current).add(originThreadId));
+      setActionErrorsByThread((current) => ({ ...current, [originThreadId]: null }));
       try {
-        const receipt = await createPublicDispatch(drawingId, activeThread.id, {
-          publicThreadId: publicDispatchThread.id,
+        const receipt = await createPublicDispatch(drawingId, originThreadId, {
+          publicThreadId,
           objectiveSummary: input.objectiveSummary,
           targetContextIds: [input.targetContextId],
           connectionId: input.connectionId,
@@ -676,12 +722,21 @@ export const useOrchestratorThreadFeature = ({
         });
         setReceiptsByThread((current) => ({
           ...current,
-          [publicDispatchThread.id]: [...(current[publicDispatchThread.id] ?? []), receipt],
+          [publicThreadId]: mergeReceiptLists(current[publicThreadId] ?? [], [receipt]),
         }));
-      } catch {
-        setThreadError("The public dispatch was not accepted. No public work started.");
+      } catch (error) {
+        setActionErrorsByThread((current) => ({
+          ...current,
+          [originThreadId]: "The public dispatch was not accepted. No public work started.",
+        }));
+        throw error;
       } finally {
-        setDispatching(false);
+        pendingDispatchThreadIds.current.delete(originThreadId);
+        setDispatchingThreadIds((current) => {
+          const next = new Set(current);
+          next.delete(originThreadId);
+          return next;
+        });
       }
     },
     [activeThread, drawingId, publicDispatchThread, surface.backpressure.blocked],
@@ -715,6 +770,7 @@ export const useOrchestratorThreadFeature = ({
     orchestratorThreadOverlay: root.ok
       ? createPortal(
           <OrchestratorThreadOverlay
+            key={activeThread?.id ?? "closed"}
             surface={surface}
             onCreate={createThread}
             onCreateLocal={drawingId && currentUserId ? () => void createLocalThread() : undefined}
@@ -725,11 +781,11 @@ export const useOrchestratorThreadFeature = ({
                     audience: activeThread.audience.kind,
                     events: eventsByThread[activeThread.id] ?? [],
                     loading: loadingThreadId === activeThread.id,
-                    sending: sendingThreadId === activeThread.id,
+                    sending: sendingThreadIds.has(activeThread.id),
                     canWrite:
                       Boolean(currentUserId) &&
                       (activeThread.audience.kind === "private" || canEdit),
-                    error: threadError,
+                    error: actionErrorsByThread[activeThread.id] ?? threadError,
                     receipts: publicDispatchThread
                       ? (receiptsByThread[publicDispatchThread.id] ?? [])
                       : [],
@@ -739,7 +795,7 @@ export const useOrchestratorThreadFeature = ({
                             publicThreadId: publicDispatchThread.id,
                             contexts: dispatchContexts,
                             connections: dispatchConnections,
-                            submitting: dispatching,
+                            submitting: dispatchingThreadIds.has(activeThread.id),
                             blocked: surface.backpressure.blocked,
                           }
                         : null,

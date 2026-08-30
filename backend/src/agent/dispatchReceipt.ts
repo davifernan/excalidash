@@ -401,6 +401,9 @@ export const acknowledgeDispatchRuntime = async (params: {
       where: { dispatchId: params.dispatchId, state: "sending" },
       data: { state: "completed", payload: null, completedAt: now, updatedAt: now },
     });
+    if (mapped === "outcome_unknown") {
+      await releaseReceiptLeases(tx, params.dispatchId, now);
+    }
     return receipt;
   });
   return row ? toReceipt(row) : null;
@@ -449,8 +452,8 @@ export const observeDispatchRuntime = async (params: {
         : params.runtimeStatus === "blocked"
           ? "blocked"
           : "running";
-  const row = await params.prisma.$transaction((tx: PrismaLike) =>
-    appendTransition(tx, {
+  const row = await params.prisma.$transaction(async (tx: PrismaLike) => {
+    const receipt = await appendTransition(tx, {
       dispatchId: params.dispatchId,
       from: ["runtime_acknowledged", "running", "blocked"],
       executionStatus: mapped,
@@ -462,8 +465,12 @@ export const observeDispatchRuntime = async (params: {
         ...(isExecutionTerminal(mapped) ? { executionTerminalAt: now } : {}),
       },
       now,
-    }),
-  );
+    });
+    if (receipt && mapped === "outcome_unknown") {
+      await releaseReceiptLeases(tx, params.dispatchId, now);
+    }
+    return receipt;
+  });
   return row ? toReceipt(row) : null;
 };
 

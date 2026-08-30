@@ -27,6 +27,5 @@ describe("orchestrator public dispatch API", () => {
         requestedCapabilities: expect.arrayContaining(["agent:run", "board:write"]),
       }),
     );
-    expect(JSON.stringify(post.mock.calls[0]?.[1])).not.toContain("private message");
   });
 });

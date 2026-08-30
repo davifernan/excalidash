@@ -1,4 +1,5 @@
 import { canEditDrawing, getDrawingAccess } from "../authz/sharing";
+import { logger } from "../logger";
 import { canonicalJson } from "./canonicalJson";
 import type { AgentRuntimeGateway } from "./runtime/gateway";
 import {
@@ -49,6 +50,14 @@ const parseRuntimeRequest = (value: string | null | undefined): RuntimeRequest |
   }
 };
 
+const safeRuntimeErrorFields = (error: unknown) => ({
+  errorName: error instanceof Error ? error.name : "UnknownError",
+  errorCode:
+    error && typeof error === "object" && "code" in error && typeof error.code === "string"
+      ? error.code
+      : null,
+});
+
 /**
  * Performs the one allowed foreign start attempt. The outbox is claimed
  * before the call. A process failure after `gateway.start()` therefore leaves
@@ -98,13 +107,28 @@ export const processDispatchOutbox = async (params: {
   }
 
   const approvedCapabilities = parseStringArray(dispatch.effectiveCapabilities);
-  const freshPlan = params.gateway.planStart({
-    access,
-    principal,
-    connectionId: runtimeRequest.connectionId,
-    profileId: runtimeRequest.profileId,
-    approvedCapabilities,
-  });
+  let freshPlan: ReturnType<AgentRuntimeGateway["planStart"]>;
+  try {
+    freshPlan = params.gateway.planStart({
+      access,
+      principal,
+      connectionId: runtimeRequest.connectionId,
+      profileId: runtimeRequest.profileId,
+      approvedCapabilities,
+    });
+  } catch (error) {
+    logger.error("Dispatch runtime authority changed before foreign start", {
+      dispatchId: dispatch.id,
+      drawingId: dispatch.drawingId,
+      ...safeRuntimeErrorFields(error),
+    });
+    return failDispatchBeforeRuntimeAck({
+      prisma: params.prisma,
+      dispatchId: params.dispatchId,
+      reasonCode: "DISPATCH_AUTHORITY_CHANGED",
+      now,
+    });
+  }
   if (
     canonicalJson([...freshPlan.effectiveCapabilities].sort()) !==
     canonicalJson([...approvedCapabilities].sort())
@@ -136,10 +160,15 @@ export const processDispatchOutbox = async (params: {
         allowedContextIds: runtimeRequest.allowedContextIds,
       },
     });
-  } catch {
+  } catch (error) {
     // A transport failure cannot prove the foreign runtime did not start.
     // Keep `sending`; the bounded server deadline will make the uncertainty
     // explicit instead of lying with either "failed" or "succeeded".
+    logger.error("Dispatch foreign runtime start outcome is unknown", {
+      dispatchId: dispatch.id,
+      drawingId: dispatch.drawingId,
+      ...safeRuntimeErrorFields(error),
+    });
     return null;
   }
   await params.afterForeignStart?.();

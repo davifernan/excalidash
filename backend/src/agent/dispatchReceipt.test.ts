@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../generated/client";
 import { cleanupTestDb, createTestUser, getTestPrisma, setupTestDb } from "../__tests__/testUtils";
 import { sha256Text } from "./canonicalJson";
@@ -13,6 +13,7 @@ import {
   reconcileDispatchReceipt,
 } from "./dispatchReceipt";
 import { processDispatchOutbox } from "./dispatchWorker";
+import { logger } from "../logger";
 
 describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
   let prisma: PrismaClient;
@@ -177,6 +178,65 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
       expect.objectContaining({ sequence: 1, kind: "dispatch.accepted" }),
       expect.objectContaining({ sequence: 2, kind: "runtime.outcome_unknown" }),
     ]);
+  });
+
+  it("releases authority when the initial runtime acknowledgement is explicitly unknown", async () => {
+    const receipt = await accept();
+    const unknown = await acknowledgeDispatchRuntime({
+      prisma,
+      dispatchId: receipt.id,
+      runtimeCapability: "encrypted-runtime-capability",
+      runtimeStatus: "unknown",
+      now: new Date(acceptedAt.getTime() + 100),
+    });
+
+    expect(unknown).toMatchObject({ execution: "outcome_unknown", effect: "pending" });
+    expect(
+      (await prisma.contextLease.findUnique({ where: { contextId } }))?.releasedAt,
+    ).not.toBeNull();
+  });
+
+  it("does not release publication authority for a stale unknown acknowledgement", async () => {
+    const receipt = await accept();
+    await acknowledgeDispatchRuntime({
+      prisma,
+      dispatchId: receipt.id,
+      runtimeCapability: "encrypted-runtime-capability",
+      runtimeStatus: "done",
+      now: new Date(acceptedAt.getTime() + 100),
+    });
+    const stale = await acknowledgeDispatchRuntime({
+      prisma,
+      dispatchId: receipt.id,
+      runtimeCapability: "encrypted-runtime-capability",
+      runtimeStatus: "unknown",
+      now: new Date(acceptedAt.getTime() + 200),
+    });
+
+    expect(stale).toBeNull();
+    expect((await prisma.contextLease.findUnique({ where: { contextId } }))?.releasedAt).toBeNull();
+  });
+
+  it("releases authority when an observed runtime state becomes explicitly unknown", async () => {
+    const receipt = await accept();
+    await acknowledgeDispatchRuntime({
+      prisma,
+      dispatchId: receipt.id,
+      runtimeCapability: "encrypted-runtime-capability",
+      runtimeStatus: "working",
+      now: new Date(acceptedAt.getTime() + 100),
+    });
+    const unknown = await observeDispatchRuntime({
+      prisma,
+      dispatchId: receipt.id,
+      runtimeStatus: "unknown",
+      now: new Date(acceptedAt.getTime() + 200),
+    });
+
+    expect(unknown).toMatchObject({ execution: "outcome_unknown", effect: "pending" });
+    expect(
+      (await prisma.contextLease.findUnique({ where: { contextId } }))?.releasedAt,
+    ).not.toBeNull();
   });
 
   it("does not let a deliberately delayed running observation overwrite terminal success", async () => {
@@ -368,5 +428,77 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
         where: { dispatchId: receipt.id, kind: "runtime.failed" },
       }),
     ).toMatchObject({ payload: JSON.stringify({ reasonCode: "DISPATCH_AUTHORITY_CHANGED" }) });
+  });
+
+  it("turns a thrown fresh plan into a visible authority failure and logs safe correlation", async () => {
+    const receipt = await accept();
+    const log = vi.spyOn(logger, "error").mockImplementation(() => {});
+    try {
+      const planningError = Object.assign(new Error("profile secret must not reach the log"), {
+        name: "AgentRuntimeError",
+        code: "RUNTIME_PROFILE_NOT_FOUND",
+      });
+      const result = await processDispatchOutbox({
+        prisma,
+        dispatchId: receipt.id,
+        gateway: {
+          planStart: () => {
+            throw planningError;
+          },
+          start: async () => {
+            throw new Error("must not cross the runtime boundary");
+          },
+        } as any,
+        now: new Date(acceptedAt.getTime() + 100),
+      });
+
+      expect(result).toMatchObject({ execution: "failed", effect: "failed" });
+      expect(log).toHaveBeenCalledWith(
+        "Dispatch runtime authority changed before foreign start",
+        expect.objectContaining({
+          dispatchId: receipt.id,
+          drawingId,
+          errorName: "AgentRuntimeError",
+          errorCode: "RUNTIME_PROFILE_NOT_FOUND",
+        }),
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain("profile secret");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs an unproven foreign-start outcome without claiming failure or success", async () => {
+    const receipt = await accept();
+    const log = vi.spyOn(logger, "error").mockImplementation(() => {});
+    try {
+      const result = await processDispatchOutbox({
+        prisma,
+        dispatchId: receipt.id,
+        gateway: {
+          planStart: () => ({ effectiveCapabilities: ["agent:run", "board:write"] }),
+          start: async () => {
+            throw Object.assign(new Error("transport detail"), { code: "RUNTIME_UNAVAILABLE" });
+          },
+        } as any,
+        now: new Date(acceptedAt.getTime() + 100),
+      });
+
+      expect(result).toBeNull();
+      expect(
+        await prisma.agentDispatchOutbox.findUnique({ where: { dispatchId: receipt.id } }),
+      ).toMatchObject({ state: "sending" });
+      expect(log).toHaveBeenCalledWith(
+        "Dispatch foreign runtime start outcome is unknown",
+        expect.objectContaining({
+          dispatchId: receipt.id,
+          drawingId,
+          errorName: "Error",
+          errorCode: "RUNTIME_UNAVAILABLE",
+        }),
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 });

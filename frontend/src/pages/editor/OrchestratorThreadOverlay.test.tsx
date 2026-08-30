@@ -167,6 +167,26 @@ describe("OrchestratorThreadOverlay", () => {
               acceptedAt: "2026-08-30T02:00:00.000Z",
               lastObservedAt: "2026-08-30T02:01:00.000Z",
               effectEvidence: null,
+              updatedAt: "2026-08-30T02:01:00.000Z",
+            },
+            {
+              id: "receipt-2",
+              drawingId: "drawing-1",
+              publicThreadId: "shared-alpha",
+              originVisibility: "private",
+              objectiveSummary: "Publish a Board result that never committed",
+              targetContextIds: ["context-1"],
+              revisionId: "revision-1",
+              effectiveCapabilities: ["agent:run", "board:write"],
+              expectedArtifacts: ["Board update"],
+              runId: "run-2",
+              admission: "accepted",
+              execution: "succeeded",
+              effect: "failed",
+              acceptedAt: "2026-08-30T02:02:00.000Z",
+              lastObservedAt: "2026-08-30T02:03:00.000Z",
+              effectEvidence: null,
+              updatedAt: "2026-08-30T02:04:00.000Z",
             },
           ],
           dispatch: {
@@ -182,10 +202,86 @@ describe("OrchestratorThreadOverlay", () => {
     );
 
     expect(screen.getByText("Execution finished · publication pending")).toBeVisible();
+    expect(screen.getByText("Board effect failed · publication not completed")).toBeVisible();
     expect(screen.queryByText("Effect confirmed on the board")).toBeNull();
+    expect(screen.queryByText("Dispatch durably accepted")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Approve a public effect" }));
     expect(screen.getByText(/Dispatch paused: the Board thread view is saturated/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeDisabled();
+  });
+
+  it("keeps message and public-effect drafts when their requests fail", async () => {
+    const callbacks = {
+      ...handlers(),
+      onSendMessage: vi.fn().mockRejectedValue(new Error("message rejected")),
+      onDispatch: vi.fn().mockRejectedValue(new Error("dispatch rejected")),
+    };
+    const openSurface = surface({
+      clusters: [],
+      active: {
+        anchor: anchor("shared-alpha", 100),
+        placement: {
+          mode: "anchored",
+          panelRect: { left: 340, top: 100, right: 700, bottom: 650 },
+          direction: null,
+          distance: 0,
+        },
+      },
+    });
+    render(
+      <OrchestratorThreadOverlay
+        surface={openSurface}
+        panelView={{
+          threadId: "shared-alpha",
+          audience: "drawing",
+          loading: false,
+          sending: false,
+          canWrite: true,
+          error: null,
+          events: [],
+          receipts: [],
+          dispatch: {
+            publicThreadId: "shared-alpha",
+            contexts: [{ id: "context-1", frameElementId: "frame-1" }],
+            connections: [
+              {
+                id: "runtime-1",
+                label: "Runtime",
+                audience: { kind: "installation" },
+                profiles: [{ id: "profile-1", label: "Profile" }],
+                health: { connected: true, status: "connected" },
+              },
+            ],
+            submitting: false,
+            blocked: false,
+          },
+        }}
+        {...callbacks}
+      />,
+    );
+
+    const message = screen.getByLabelText("Message this audience");
+    fireEvent.change(message, { target: { value: "Do not lose this message" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await expect(callbacks.onSendMessage).toHaveBeenCalledWith("Do not lose this message");
+    expect(message).toHaveValue("Do not lose this message");
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve a public effect" }));
+    const objective = screen.getByLabelText("Approved public objective");
+    fireEvent.change(objective, { target: { value: "Do not lose this objective" } });
+    fireEvent.change(screen.getByLabelText("Public effect Context"), {
+      target: { value: "context-1" },
+    });
+    fireEvent.change(screen.getByLabelText("Agent runtime connection"), {
+      target: { value: "runtime-1" },
+    });
+    fireEvent.change(screen.getByLabelText("Agent runtime profile"), {
+      target: { value: "profile-1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dispatch publicly" }));
+    await expect(callbacks.onDispatch).toHaveBeenCalledOnce();
+    expect(objective).toHaveValue("Do not lose this objective");
+    expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeVisible();
   });
 
   it("renders Board Cards as the closed state and opens the selected identity", () => {
