@@ -102,17 +102,22 @@ test("every part_N>1's board_id input references a job listed in that same job's
 
 test("aggregate fails rather than reporting success when any required part failed, was cancelled, or was skipped", () => {
   const workflowSource = fs.readFileSync(WORKFLOW_PATH, "utf8");
-  const requiredPartDidNotPass =
-    "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')";
-
   assert.ok(
-    workflowSource.includes(`if: ${requiredPartDidNotPass}`),
-    "a failed, cancelled, or skipped required part must fail Aggregate + report",
+    /name: Fail the aggregate when a required soak part did not pass[\s\S]*?run: node scripts\/soak-required-part-result\.cjs --enforce/.test(
+      workflowSource,
+    ),
+    "Aggregate + report must execute the required-part enforcement helper",
   );
   assert.ok(
-    workflowSource.includes(
-      `--status="\${{ (${requiredPartDidNotPass} || steps.aggregate.outcome == 'failure') && 'failed' || 'passed' }}"`,
+    /status="\$\(NEEDS_JSON='\$\{\{ toJSON\(needs\) \}\}' node scripts\/soak-required-part-result\.cjs\)"[\s\S]*?--status="\$status"/.test(
+      workflowSource,
     ),
-    "the tracking-issue notification must also report a failed, cancelled, or skipped required part as failed",
+    "the tracking-issue notification must use the required-part helper status",
+  );
+  assert.ok(
+    !/name: Fail the aggregate when a required soak part did not pass[\s\S]*?continue-on-error:\s*true/.test(
+      workflowSource,
+    ),
+    "the required-part enforcement step must not be neutralized with continue-on-error",
   );
 });
