@@ -42,8 +42,15 @@
  * affecting Arrange or rendering hidden content.
  */
 
-export const NAMESPACE = "excalidash";
-export const SCHEMA_VERSION = 2;
+import {
+  NAMESPACE,
+  SCHEMA_VERSION,
+  parseWidgetRecord,
+  type WidgetKind,
+  type WidgetRecord,
+} from "@excalidash/domain/customData";
+
+export { NAMESPACE, SCHEMA_VERSION, type WidgetKind, type WidgetRecord };
 
 export type StickyRecord = {
   readonly color: string;
@@ -58,21 +65,14 @@ export type StickyRecord = {
   readonly height: number;
 };
 
-export type WidgetKind = "pdf" | "markdown" | "text";
-
 /**
  * Identity values stored in customData survive Excalidraw duplicate/copy-paste.
  * They therefore identify the referenced domain object, never the one canvas
  * element carrying them. Code that needs a unique Board address must key by
  * elementId, or an explicit duplication seam must mint a new domain identity.
- * This applies to assetId, threadId and every future identity added here.
- */
-export type WidgetRecord = {
-  readonly kind: WidgetKind;
-  readonly assetId: string;
-};
-
-/**
+ * This applies to assetId, threadId and every future identity added here
+ * (assetId lives on `WidgetRecord` in `@excalidash/domain/customData`).
+ *
  * Stable identity for a shared Orchestrator Thread Board Card (NIL-678).
  * This is deliberately only a reference and display label. Audience,
  * Context, Dispatch and Lease authority stay outside the drawing payload;
@@ -107,8 +107,6 @@ const str = (value: unknown): string | null =>
 const num = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
-const WIDGET_KINDS: readonly WidgetKind[] = ["pdf", "markdown", "text"];
-
 const parseSticky = (value: unknown): StickyRecord | undefined => {
   if (!isBag(value)) return undefined;
   const color = str(value.color);
@@ -119,14 +117,6 @@ const parseSticky = (value: unknown): StickyRecord | undefined => {
     return undefined;
   }
   return { color, ink, width, height };
-};
-
-const parseWidget = (value: unknown): WidgetRecord | undefined => {
-  if (!isBag(value)) return undefined;
-  const kind = WIDGET_KINDS.find((candidate) => candidate === value.kind);
-  const assetId = str(value.assetId);
-  if (!kind || assetId === null) return undefined;
-  return { kind, assetId };
 };
 
 const parseOrchestratorThread = (value: unknown): OrchestratorThreadAnchorRecord | undefined => {
@@ -152,7 +142,7 @@ export const readExcalidashData = (element: unknown): ExcalidashData | null => {
   if (!isBag(own) || own.schemaVersion !== SCHEMA_VERSION) return null;
 
   const sticky = parseSticky(own.sticky);
-  const widget = parseWidget(own.widget);
+  const widget = parseWidgetRecord(own.widget);
   const orchestratorThread = parseOrchestratorThread(own.orchestratorThread);
   if (!sticky && !widget && !orchestratorThread) return null;
 
@@ -188,7 +178,8 @@ export const withExcalidashData = (
   const existing = isBag(element) && isBag(element.customData) ? element.customData : {};
   const previous = isBag(existing[NAMESPACE]) ? (existing[NAMESPACE] as Bag) : {};
   const sticky = data.sticky === null ? undefined : (data.sticky ?? parseSticky(previous.sticky));
-  const widget = data.widget === null ? undefined : (data.widget ?? parseWidget(previous.widget));
+  const widget =
+    data.widget === null ? undefined : (data.widget ?? parseWidgetRecord(previous.widget));
   const orchestratorThread =
     data.orchestratorThread === null
       ? undefined
