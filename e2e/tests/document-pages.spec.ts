@@ -325,7 +325,7 @@ test("motion evidence: a 2 MiB Markdown document renders without freezing the bo
     await activateWidget(page);
     await expect(pageLabel(page)).toContainText("Page 1 of", { timeout: 30_000 });
     expect(measurement.p95GapMs).toBeLessThan(MAX_P95_GAP_MS);
-    expect(measurement.maxGapMs).toBeLessThan(300);
+    expect(measurement.maxGapMs).toBeLessThan(maxFreezeGapMsForEngine("webkit"));
   } finally {
     await deleteDrawing(request, drawing.id);
   }

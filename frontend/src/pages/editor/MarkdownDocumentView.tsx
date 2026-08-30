@@ -25,23 +25,13 @@ const markdownComponents: Components = {
   img: () => null,
 };
 
-export type PreparedMarkdown = { source: string; tree: Root };
+type RenderedMarkdown = { source: string; tree: Root };
 
-export const MarkdownDocumentView = ({
-  source,
-  prepared,
-}: {
-  source: string;
-  prepared?: PreparedMarkdown | null;
-}) => {
-  const [rendered, setRendered] = useState<PreparedMarkdown | null>(null);
+export const MarkdownDocumentView = ({ source }: { source: string }) => {
+  const [rendered, setRendered] = useState<RenderedMarkdown | null>(null);
   const [failedSource, setFailedSource] = useState<string | null>(null);
 
   useEffect(() => {
-    if (prepared?.source === source) {
-      setFailedSource(null);
-      return;
-    }
     const controller = new AbortController();
     setFailedSource(null);
     void renderMarkdownOffThread(source, controller.signal)
@@ -58,14 +48,9 @@ export const MarkdownDocumentView = ({
         setFailedSource(source);
       });
     return () => controller.abort();
-  }, [prepared, source]);
+  }, [source]);
 
-  const tree =
-    prepared?.source === source
-      ? prepared.tree
-      : rendered?.source === source
-        ? rendered.tree
-        : null;
+  const tree = rendered?.source === source ? rendered.tree : null;
   const content = useMemo<ReactNode>(() => {
     if (!tree) return null;
     return toJsxRuntime(tree, {

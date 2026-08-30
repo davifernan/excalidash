@@ -363,9 +363,7 @@ export const TextDocumentWidget = ({
         ) : null}
         {!editing && pages && loaded?.asset.kind === "MARKDOWN" ? (
           <div className="text-document-widget__markdown">
-            <MarkdownDocumentView
-              source={deferredLiveDraft ?? page}
-            />
+            <MarkdownDocumentView source={deferredLiveDraft ?? page} />
           </div>
         ) : null}
       </div>

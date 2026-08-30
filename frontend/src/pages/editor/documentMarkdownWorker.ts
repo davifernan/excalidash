@@ -1,7 +1,7 @@
 import type { Root } from "hast";
 
 export type DocumentMarkdownRequest = { source: string };
-export type DocumentMarkdownResponse = { ok: true; tree: Root } | { ok: false };
+export type DocumentMarkdownResponse = { ok: true; tree: Root } | { ok: false; errorName: string };
 
 const abortError = () => new DOMException("Markdown rendering was cancelled.", "AbortError");
 
@@ -32,7 +32,11 @@ export const renderMarkdownOffThread = (source: string, signal?: AbortSignal): P
     worker.onmessage = ({ data }: MessageEvent<DocumentMarkdownResponse>) => {
       finish();
       if (data.ok) resolve(data.tree);
-      else reject(new Error("Markdown rendering worker failed."));
+      else {
+        const error = new Error("Markdown rendering worker failed.");
+        error.name = data.errorName;
+        reject(error);
+      }
     };
     worker.onerror = () => {
       finish();

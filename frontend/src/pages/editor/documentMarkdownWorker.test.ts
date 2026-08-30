@@ -57,4 +57,18 @@ describe("Markdown worker client", () => {
     await expect(result).rejects.not.toThrow("LEAKME42");
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
+
+  it("preserves the worker error class without exposing document content", async () => {
+    const result = renderMarkdownOffThread("secret marker LEAKME42");
+    const worker = FakeWorker.instances[0];
+
+    worker.onmessage?.(
+      new MessageEvent("message", { data: { ok: false, errorName: "SyntaxError" } }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: "SyntaxError",
+      message: "Markdown rendering worker failed.",
+    });
+  });
 });

@@ -5,8 +5,11 @@ self.onmessage = ({ data }: MessageEvent<DocumentMarkdownRequest>) => {
   let response: DocumentMarkdownResponse;
   try {
     response = { ok: true, tree: prepareMarkdownForRender(data.source) };
-  } catch {
-    response = { ok: false };
+  } catch (error) {
+    response = {
+      ok: false,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    };
   }
   self.postMessage(response);
 };
