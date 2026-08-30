@@ -127,14 +127,12 @@ describe("Context Lease HTTP routes (NIL-680)", () => {
     const { contextId } = await buildContext("http-auth-frame");
     const requestAs = authedRequest(owner);
     const response = await requestAs((req) =>
-      req
-        .post(`/drawings/does-not-exist/agent/contexts/${contextId}/lease/acquire`)
-        .send({
-          holderOrchestratorId: "x",
-          runId: "y",
-          ttlMs: 1000,
-          endHorizonAt: new Date().toISOString(),
-        }),
+      req.post(`/drawings/does-not-exist/agent/contexts/${contextId}/lease/acquire`).send({
+        holderOrchestratorId: "x",
+        runId: "y",
+        ttlMs: 1000,
+        endHorizonAt: new Date().toISOString(),
+      }),
     );
     expect(response.status).toBe(404);
   });
