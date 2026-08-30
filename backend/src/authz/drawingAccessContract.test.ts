@@ -51,3 +51,48 @@ describe("drawing access contract identity", () => {
     if (owner) expect(ACCESS_RANK[access]).toBe(ACCESS_RANK.owner);
   });
 });
+
+/**
+ * Old-condition-vs-new-predicate equivalence table (requested on review,
+ * moved here from the planned frontend PR: the predicates are DEFINED in
+ * this PR, so the proof of what they mean belongs here too -- PR B's
+ * frontend swap then becomes a plain substitution whose equivalence is
+ * already on record, not something it has to separately establish).
+ *
+ * Each `old*` function below is not a paraphrase -- it is the exact
+ * expression every hand-derived frontend call site used before this slice
+ * (`accessLevel !== "none"` in chromeSlots.tsx/commentsFeature.ts/etc.,
+ * `accessLevel === "edit" || accessLevel === "owner"` in Editor.tsx/
+ * DrawingCard.tsx/DrawingCardContextMenu.tsx, `canEdit || accessLevel ===
+ * "comment"` in Editor.tsx, `accessLevel === "owner"` in chromeSlots.tsx/
+ * Search.tsx), frozen here so a real divergence at any of the 5
+ * `DrawingAccess` values fails loudly instead of being assumed away.
+ */
+describe("old accessLevel comparisons vs the new domain predicates, value by value", () => {
+  const oldCanView = (accessLevel: domain.DrawingAccess) => accessLevel !== "none";
+  const oldCanEdit = (accessLevel: domain.DrawingAccess) =>
+    accessLevel === "edit" || accessLevel === "owner";
+  const oldCanComment = (accessLevel: domain.DrawingAccess) =>
+    oldCanEdit(accessLevel) || accessLevel === "comment";
+  const oldIsOwner = (accessLevel: domain.DrawingAccess) => accessLevel === "owner";
+
+  it.each(["none", "view", "comment", "edit", "owner"] as const)(
+    "%s: every old inline comparison agrees with its new predicate",
+    (access) => {
+      expect(canViewDrawing(access), 'canViewDrawing vs accessLevel !== "none"').toBe(
+        oldCanView(access),
+      );
+      expect(
+        canEditDrawing(access),
+        'canEditDrawing vs accessLevel === "edit" || accessLevel === "owner"',
+      ).toBe(oldCanEdit(access));
+      expect(
+        canCommentDrawing(access),
+        'canCommentDrawing vs canEdit || accessLevel === "comment"',
+      ).toBe(oldCanComment(access));
+      expect(isOwnerAccess(access), 'isOwnerAccess vs accessLevel === "owner"').toBe(
+        oldIsOwner(access),
+      );
+    },
+  );
+});
