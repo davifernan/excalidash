@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "../generated/client";
 import { registerAgentContext } from "../agent/boardContexts";
+import { createAgentRunMount, executeAgentBoardTool } from "../agent/boardMount";
 import {
   acquireContextLease,
   ContextLeaseHeldError,
@@ -24,7 +25,7 @@ describe("Context Lease (NIL-680)", () => {
 
   const horizon = (ms: number) => new Date(Date.now() + ms);
 
-  const newContext = async (frameId: string): Promise<string> => {
+  const newContext = async (frameId: string): Promise<{ contextId: string; drawingId: string }> => {
     const drawing = await prisma.drawing.create({
       data: {
         name: `Lease test ${frameId}`,
@@ -49,7 +50,7 @@ describe("Context Lease (NIL-680)", () => {
       drawingId: drawing.id,
       frameElementId: frameId,
     });
-    return context.id;
+    return { contextId: context.id, drawingId: drawing.id };
   };
 
   beforeAll(async () => {
@@ -66,7 +67,7 @@ describe("Context Lease (NIL-680)", () => {
   });
 
   it("grants exactly one winner when two orchestrators race to dispatch to the same Context, and logs the busy signal", async () => {
-    const contextId = await newContext("race-frame");
+    const { contextId } = await newContext("race-frame");
 
     const [a, b] = await Promise.allSettled([
       acquireContextLease({
@@ -115,7 +116,7 @@ describe("Context Lease (NIL-680)", () => {
   });
 
   it("frees a crashed orchestrator's Context by expiry, and the Context becomes usable again", async () => {
-    const contextId = await newContext("expiry-frame");
+    const { contextId, drawingId } = await newContext("expiry-frame");
     const now = new Date();
 
     await acquireContextLease({
@@ -167,8 +168,78 @@ describe("Context Lease (NIL-680)", () => {
     expect(expiredEvents[0]?.runId).toBe("run-crashed");
   });
 
+  it("stops public-effect authority at expiry without cutting off the crashed run's ongoing read-only work", async () => {
+    const { contextId, drawingId } = await newContext("split-frame");
+    const now = new Date();
+    const mount = await createAgentRunMount({
+      prisma,
+      drawingId,
+      runId: "run-reading",
+      displayName: "Reading agent",
+      audience: { kind: "drawing" },
+    });
+
+    await acquireContextLease({
+      prisma,
+      contextId,
+      holderOrchestratorId: "orchestrator-reading",
+      initiatedByUserId: userId,
+      runId: "run-reading",
+      ttlMs: 1_000,
+      endHorizonAt: horizon(300_000),
+      now,
+    });
+
+    // While the lease is live, the same run can both read and, in
+    // principle, still act publicly (it holds the lease).
+    const readWhileLive = await executeAgentBoardTool({
+      prisma,
+      drawingId,
+      runId: mount.runId,
+      capabilityToken: mount.capabilityToken,
+      tool: "overview",
+    });
+    expect(readWhileLive.result).toBeDefined();
+    await expect(
+      isContextLeaseHeldByRun({ prisma, contextId, runId: "run-reading", now }),
+    ).resolves.toBe(true);
+
+    // Past expiry: public-effect authority is gone -- a fresh acquire by
+    // this same run would now succeed only as a NEW grant, not a
+    // continuation, and another orchestrator's acquire is no longer
+    // refused. But its read-only exploration is completely untouched:
+    // read tools never consult ContextLease at all, by construction.
+    const afterExpiry = new Date(now.getTime() + 2_000);
+    await expect(
+      isContextLeaseHeldByRun({ prisma, contextId, runId: "run-reading", now: afterExpiry }),
+    ).resolves.toBe(false);
+
+    const readAfterExpiry = await executeAgentBoardTool({
+      prisma,
+      drawingId,
+      runId: mount.runId,
+      capabilityToken: mount.capabilityToken,
+      tool: "overview",
+    });
+    expect(readAfterExpiry.result).toBeDefined();
+    expect(readAfterExpiry.resultHash).toBe(readWhileLive.resultHash);
+
+    // And the Context's public effect is now free for someone else.
+    const other = await acquireContextLease({
+      prisma,
+      contextId,
+      holderOrchestratorId: "orchestrator-other",
+      initiatedByUserId: userId,
+      runId: "run-other",
+      ttlMs: 60_000,
+      endHorizonAt: horizon(300_000),
+      now: afterExpiry,
+    });
+    expect(other.runId).toBe("run-other");
+  });
+
   it("logs a takeover visibly in the shared room, and denies transfer to anyone but the holder without an override", async () => {
-    const contextId = await newContext("transfer-frame");
+    const { contextId } = await newContext("transfer-frame");
     const lease = await acquireContextLease({
       prisma,
       contextId,
@@ -218,7 +289,7 @@ describe("Context Lease (NIL-680)", () => {
   });
 
   it("never renews past the human-approved end horizon", async () => {
-    const contextId = await newContext("horizon-frame");
+    const { contextId } = await newContext("horizon-frame");
     const now = new Date();
     const endHorizonAt = new Date(now.getTime() + 5_000);
     const lease = await acquireContextLease({
@@ -245,7 +316,7 @@ describe("Context Lease (NIL-680)", () => {
   });
 
   it("rejects a renew from a run that no longer matches the current lease generation", async () => {
-    const contextId = await newContext("stale-frame");
+    const { contextId } = await newContext("stale-frame");
     const lease = await acquireContextLease({
       prisma,
       contextId,
