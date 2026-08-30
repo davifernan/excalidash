@@ -179,7 +179,9 @@ sind und Davi eine schriftliche Go-Entscheidung zu einer Kosten-/Risikovorlage f
 Vorlage muss mindestens Sandbox-Isolation, CPU-/RAM-/Zeit-/Speichergrenzen, Netzwerk- und
 Secret-Zugriff, Sitzungslebenszyklus, Ausgabemengen und Betriebsverantwortung beziffern oder
 begrenzen. Ohne diese dokumentierte Entscheidung ist das Gate nicht bestanden; semantische
-Ereignisse und der externe Runtime-Adapter bleiben der Endzustand.
+Ereignisse und der externe Runtime-Adapter bleiben der Endzustand. Die ausformulierten
+Voraussetzungen, offenen Fragen und die Wirkung auf V1-V4 stehen in
+[`TERMINAL_TAB_PRECONDITIONS.md`](TERMINAL_TAB_PRECONDITIONS.md).
 
 ## Offene Punkte und Entscheidungen
 
