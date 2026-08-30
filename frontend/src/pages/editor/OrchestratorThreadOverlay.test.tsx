@@ -211,8 +211,10 @@ describe("OrchestratorThreadOverlay", () => {
               expectedArtifacts: ["Board update"],
               runId: "run-3",
               admission: "accepted",
+              // Matches the durable receipt written by failDispatchBeforeRuntimeAck:
+              // execution, effect, and the one public reason arrive together.
               execution: "failed",
-              effect: "pending",
+              effect: "failed",
               executionReason: "RUNTIME_UNAVAILABLE",
               costBearer: { label: "Instance operator" },
               acceptedAt: "2026-08-30T02:05:00.000Z",

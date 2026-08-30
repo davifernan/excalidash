@@ -60,14 +60,14 @@ export type OrchestratorThreadPanelView = {
 
 const receiptLabel = (receipt: PublicDispatchReceipt): string => {
   if (receipt.effect === "committed") return "Effect confirmed on the board";
+  if (receipt.execution === "failed" && receipt.executionReason === "RUNTIME_UNAVAILABLE") {
+    return "Runtime unavailable · execution did not start";
+  }
   if (["failed", "rejected"].includes(receipt.effect)) {
     return "Board effect failed · publication not completed";
   }
   if (receipt.execution === "outcome_unknown") {
     return "Runtime disconnected · outcome and board effect unknown";
-  }
-  if (receipt.execution === "failed" && receipt.executionReason === "RUNTIME_UNAVAILABLE") {
-    return "Runtime unavailable · execution did not start";
   }
   if (["failed", "cancelled"].includes(receipt.execution)) return "Execution failed";
   if (receipt.execution === "succeeded" && receipt.effect === "pending") {

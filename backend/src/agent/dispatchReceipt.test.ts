@@ -7,6 +7,7 @@ import {
   acceptDispatchReceipt,
   acknowledgeDispatchRuntime,
   commitDispatchBoardEffect,
+  failDispatchBeforeRuntimeAck,
   listPublicDispatchReceipts,
   listUnresolvedDispatchReceipts,
   observeDispatchRuntime,
@@ -190,6 +191,29 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
     });
     expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
       expect.objectContaining({ id: receipt.id, executionReason: "RUNTIME_UNAVAILABLE" }),
+    ]);
+  });
+
+  it("publishes the actual pre-ack runtime-loss terminal combination", async () => {
+    const receipt = await accept();
+    const terminal = await failDispatchBeforeRuntimeAck({
+      prisma,
+      dispatchId: receipt.id,
+      reasonCode: "RUNTIME_UNAVAILABLE",
+      now: new Date(acceptedAt.getTime() + 100),
+    });
+    expect(terminal).toMatchObject({
+      execution: "failed",
+      effect: "failed",
+      executionReason: "RUNTIME_UNAVAILABLE",
+    });
+    expect(await listPublicDispatchReceipts({ prisma, drawingId, publicThreadId })).toEqual([
+      expect.objectContaining({
+        id: receipt.id,
+        execution: "failed",
+        effect: "failed",
+        executionReason: "RUNTIME_UNAVAILABLE",
+      }),
     ]);
   });
 
