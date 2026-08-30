@@ -5,6 +5,9 @@ outputs:
   action:
     description: Whether the pull request should be admitted or intentionally skipped
     value: ${{ steps.intent.outputs.action }}
+  code:
+    description: The machine-readable reason for the admission decision
+    value: ${{ steps.intent.outputs.code }}
   decision:
     description: Complete JSON preflight decision
     value: ${{ steps.intent.outputs.decision }}
@@ -37,4 +40,5 @@ runs:
           | node scripts/hans-review-signal.cjs preflight)
         echo "$decision"
         echo "action=$(jq -r '.action' <<<"$decision")" >> "$GITHUB_OUTPUT"
+        echo "code=$(jq -r '.code' <<<"$decision")" >> "$GITHUB_OUTPUT"
         echo "decision=$(jq -c '.' <<<"$decision")" >> "$GITHUB_OUTPUT"

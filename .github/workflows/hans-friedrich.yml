@@ -28,10 +28,13 @@ permissions:
   contents: read
   pull-requests: write
 
-# A rerun waits for the previous signal attempt on the same head. The PR
-# comment also carries a head/kind marker, so a retry cannot post it twice.
+# A ready PR's admission must not queue behind the intentional draft skip for
+# the same head. #290 proved that GitHub can cancel both follow-up events
+# before either job starts when they share that group. Ready/edited events
+# still share a group and the webhook remains idempotent per head, so this
+# does not permit a second Hans review of the same code.
 concurrency:
-  group: hans-review-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: hans-review-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.event.pull_request.draft && 'draft' || 'ready' }}
   cancel-in-progress: false
 
 jobs:
@@ -145,12 +148,14 @@ jobs:
         if: always()
         env:
           INTENT_ACTION: ${{ steps.intent.outputs.action }}
+          INTENT_CODE: ${{ steps.intent.outputs.code }}
           ADMISSION_OUTCOME: ${{ steps.admission.outcome }}
         run: |
           jq -cn \
             --arg intentAction "${INTENT_ACTION}" \
+            --arg intentCode "${INTENT_CODE}" \
             --arg admissionOutcome "${ADMISSION_OUTCOME}" \
-            '{intentAction:$intentAction,admissionOutcome:$admissionOutcome}' \
+            '{intentAction:$intentAction,intentCode:$intentCode,admissionOutcome:$admissionOutcome}' \
             | node scripts/hans-review-signal.cjs enforce
 
       - name: Check commit identity and trailer
@@ -264,7 +269,6 @@ jobs:
             ignored)   echo "::warning::Multica ignored the trigger — autopilot paused, or the event was filtered." ;;
             *)         echo "::warning::Unexpected status '${status}'." ;;
           esac
-
 
       # After a body correction that now passes, say so (NIL-585). Without
       # this, the last visible word on the PR stays the superseded

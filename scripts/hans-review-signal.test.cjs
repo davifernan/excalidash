@@ -73,7 +73,8 @@ test("intentional skip and delivery-contract comments explain different outcomes
   const skipDecision = decideReviewPreflight({ ...REVIEW_CANDIDATE, draft: true });
   const skipComment = buildSignalComment({ headSha: HEAD_SHA, decision: skipDecision });
   assert.match(skipComment, /bewusst nicht gestartet/);
-  assert.match(skipComment, /bleibt grün/);
+  assert.match(skipComment, /bleibt rot/);
+  assert.match(skipComment, /Wechsel auf ready/);
   assert.match(skipComment, new RegExp(signalMarker(HEAD_SHA, "intentional-skip")));
 
   const rule =
@@ -88,9 +89,21 @@ test("intentional skip and delivery-contract comments explain different outcomes
   assert.match(failureComment, new RegExp(signalMarker(HEAD_SHA, "delivery-contract")));
 });
 
-test("draft skip is green while a ready admission failure is red", () => {
+test("a draft is red until ready while other intentional skips remain green", () => {
   assert.equal(
-    decideAdmissionEnforcement({ intentAction: "skip", admissionOutcome: "skipped" }).ok,
+    decideAdmissionEnforcement({
+      intentAction: "skip",
+      intentCode: "draft",
+      admissionOutcome: "skipped",
+    }).ok,
+    false,
+  );
+  assert.equal(
+    decideAdmissionEnforcement({
+      intentAction: "skip",
+      intentCode: "measurement-only",
+      admissionOutcome: "skipped",
+    }).ok,
     true,
   );
   assert.equal(
@@ -99,18 +112,41 @@ test("draft skip is green while a ready admission failure is red", () => {
   );
 
   const script = path.join(__dirname, "hans-review-signal.cjs");
-  const skipped = spawnSync(process.execPath, [script, "enforce"], {
+  const draft = spawnSync(process.execPath, [script, "enforce"], {
     encoding: "utf8",
-    input: JSON.stringify({ intentAction: "skip", admissionOutcome: "skipped" }),
+    input: JSON.stringify({
+      intentAction: "skip",
+      intentCode: "draft",
+      admissionOutcome: "skipped",
+    }),
   });
   const brokenReadyPr = spawnSync(process.execPath, [script, "enforce"], {
     encoding: "utf8",
     input: JSON.stringify({ intentAction: "admit", admissionOutcome: "failure" }),
   });
-  assert.equal(skipped.status, 0);
-  assert.match(skipped.stdout, /remains green/);
+  assert.equal(draft.status, 1);
+  assert.match(draft.stdout, /has not been reviewed/);
   assert.equal(brokenReadyPr.status, 1);
   assert.match(brokenReadyPr.stdout, /::error::Review admission failed/);
+});
+
+test("the draft-to-ready lifecycle releases review admission on the same head", () => {
+  const draftDecision = decideReviewPreflight({ ...REVIEW_CANDIDATE, draft: true });
+  const readyDecision = decideReviewPreflight({ ...REVIEW_CANDIDATE, draft: false });
+
+  const draft = decideAdmissionEnforcement({
+    intentAction: draftDecision.action,
+    intentCode: draftDecision.code,
+    admissionOutcome: "skipped",
+  });
+  const ready = decideAdmissionEnforcement({
+    intentAction: readyDecision.action,
+    intentCode: readyDecision.code,
+    admissionOutcome: "success",
+  });
+
+  assert.equal(draft.ok, false, "an unreviewed draft must not leave a green request-review check");
+  assert.equal(ready.ok, true, "the same head is admissible after ready_for_review");
 });
 
 test("a pre-admission failure reports the workflow failure instead of promising a PR comment", () => {
@@ -156,6 +192,13 @@ test("workflow keeps admission as the red enforcement boundary after preflight",
   assert.match(workflow, /uses: \.\/\.github\/actions\/hans-review-intent/);
   assert.doesNotMatch(workflow, /node scripts\/hans-review-signal\.cjs preflight/);
   assert.doesNotMatch(workflow, /request-review:\n\s+if:/);
+  assert.match(workflow, /types: \[opened, ready_for_review, edited\]/);
+  assert.match(
+    workflow,
+    /github\.event\.pull_request\.draft && 'draft' \|\| 'ready'/,
+    "draft skips must not share the ready admission concurrency group",
+  );
+  assert.match(workflow, /INTENT_CODE: \$\{\{ steps\.intent\.outputs\.code \}\}/);
 });
 
 function assertTrustedBaseCheckout(workflow) {
