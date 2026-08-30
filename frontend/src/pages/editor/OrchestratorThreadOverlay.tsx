@@ -43,14 +43,14 @@ export const OrchestratorThreadOverlay = ({
 }: {
   readonly surface: OrchestratorThreadSurface;
   readonly onCreate: () => void;
-  readonly onOpen: (threadId: string) => void;
+  readonly onOpen: (elementId: string) => void;
   readonly onClose: () => void;
-  readonly onJump: (threadId: string) => void;
+  readonly onJump: (elementId: string) => void;
   readonly onClusterNavigate: (action: ClusterNavigation) => void;
 }) => {
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
-  const byThreadId = useMemo(
-    () => new Map(surface.anchors.map((item) => [item.threadId, item] as const)),
+  const byElementId = useMemo(
+    () => new Map(surface.anchors.map((item) => [item.elementId, item] as const)),
     [surface.anchors],
   );
 
@@ -93,8 +93,8 @@ export const OrchestratorThreadOverlay = ({
       ) : null}
 
       {surface.clusters.map((cluster) => {
-        if (cluster.memberThreadIds.length === 1) {
-          const item = byThreadId.get(cluster.memberThreadIds[0]!);
+        if (cluster.members.length === 1) {
+          const item = byElementId.get(cluster.members[0]!.elementId);
           if (!item) return null;
           const width = Math.max(0, item.rect.right - item.rect.left);
           const height = Math.max(0, item.rect.bottom - item.rect.top);
@@ -120,7 +120,7 @@ export const OrchestratorThreadOverlay = ({
               <button
                 type="button"
                 className="orchestrator-thread-card__open"
-                onClick={() => onOpen(item.threadId)}
+                onClick={() => onOpen(item.elementId)}
                 aria-label={`Open ${item.title}`}
               >
                 Open
@@ -144,23 +144,23 @@ export const OrchestratorThreadOverlay = ({
               aria-expanded={expanded}
               onClick={() => setExpandedClusterId(expanded ? null : cluster.id)}
             >
-              <Layers3 size={15} /> {cluster.memberThreadIds.length} threads
+              <Layers3 size={15} /> {cluster.members.length} threads
             </button>
             {expanded ? (
               <div className="orchestrator-thread-cluster__members" role="menu">
-                {cluster.memberThreadIds.map((threadId) => {
-                  const item = byThreadId.get(threadId);
+                {cluster.members.map((member) => {
+                  const item = byElementId.get(member.elementId);
                   if (!item) return null;
                   return (
                     <button
-                      key={threadId}
+                      key={member.elementId}
                       type="button"
                       role="menuitem"
                       onClick={() => {
                         // Navigation to exactly one original anchor is the
                         // cluster's entire action vocabulary. No Context,
                         // Dispatch or Lease action exists at this boundary.
-                        onClusterNavigate({ kind: "navigate", threadId });
+                        onClusterNavigate({ kind: "navigate", ...member });
                         setExpandedClusterId(null);
                       }}
                     >
@@ -189,22 +189,20 @@ export const OrchestratorThreadOverlay = ({
               onClick={() => setExpandedClusterId(expanded ? null : locator.id)}
             >
               {directionIcon(locator.direction)}
-              {locator.memberThreadIds.length === 1
-                ? "1 thread"
-                : `${locator.memberThreadIds.length} threads`}
+              {locator.members.length === 1 ? "1 thread" : `${locator.members.length} threads`}
             </button>
             {expanded ? (
               <div className="orchestrator-thread-locator__members" role="menu">
-                {locator.memberThreadIds.map((threadId) => {
-                  const item = byThreadId.get(threadId);
+                {locator.members.map((member) => {
+                  const item = byElementId.get(member.elementId);
                   if (!item) return null;
                   return (
                     <button
-                      key={threadId}
+                      key={member.elementId}
                       type="button"
                       role="menuitem"
                       onClick={() => {
-                        onClusterNavigate({ kind: "navigate", threadId });
+                        onClusterNavigate({ kind: "navigate", ...member });
                         setExpandedClusterId(null);
                       }}
                     >
@@ -265,7 +263,7 @@ export const OrchestratorThreadOverlay = ({
             <button
               type="button"
               className="orchestrator-thread-panel__location"
-              onClick={() => onJump(surface.active!.anchor.threadId)}
+              onClick={() => onJump(surface.active!.anchor.elementId)}
             >
               {directionIcon(surface.active.placement.direction)}
               Anchor outside the readable view

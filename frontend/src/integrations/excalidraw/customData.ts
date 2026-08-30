@@ -60,6 +60,13 @@ export type StickyRecord = {
 
 export type WidgetKind = "pdf" | "markdown" | "text";
 
+/**
+ * Identity values stored in customData survive Excalidraw duplicate/copy-paste.
+ * They therefore identify the referenced domain object, never the one canvas
+ * element carrying them. Code that needs a unique Board address must key by
+ * elementId, or an explicit duplication seam must mint a new domain identity.
+ * This applies to assetId, threadId and every future identity added here.
+ */
 export type WidgetRecord = {
   readonly kind: WidgetKind;
   readonly assetId: string;
@@ -185,7 +192,9 @@ export const withExcalidashData = (
   const orchestratorThread =
     data.orchestratorThread === null
       ? undefined
-      : (data.orchestratorThread ?? parseOrchestratorThread(previous.orchestratorThread));
+      : data.orchestratorThread
+        ? parseOrchestratorThread(data.orchestratorThread)
+        : parseOrchestratorThread(previous.orchestratorThread);
 
   return {
     ...existing,

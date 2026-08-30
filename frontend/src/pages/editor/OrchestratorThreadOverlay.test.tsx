@@ -5,12 +5,14 @@ import {
   type OrchestratorThreadSurface,
 } from "./OrchestratorThreadOverlay";
 
-const anchor = (threadId: string, left: number) => ({
+const anchor = (threadId: string, left: number, elementId = `element-${threadId}`) => ({
   threadId,
-  elementId: `element-${threadId}`,
+  elementId,
   title: `Thread ${threadId}`,
   rect: { left, top: 100, right: left + 220, bottom: 240 },
 });
+
+const member = (threadId: string) => ({ threadId, elementId: `element-${threadId}` });
 
 const surface = (
   overrides: Partial<OrchestratorThreadSurface> = {},
@@ -20,12 +22,12 @@ const surface = (
   clusters: [
     {
       id: "cluster-alpha",
-      memberThreadIds: ["alpha"],
+      members: [member("alpha")],
       rect: anchor("alpha", 100).rect,
     },
     {
       id: "cluster-beta",
-      memberThreadIds: ["beta"],
+      members: [member("beta")],
       rect: anchor("beta", 500).rect,
     },
   ],
@@ -67,7 +69,39 @@ describe("OrchestratorThreadOverlay", () => {
 
     expect(screen.queryByTestId("orchestrator-thread-panel")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open Thread beta" }));
-    expect(callbacks.onOpen).toHaveBeenCalledWith("beta");
+    expect(callbacks.onOpen).toHaveBeenCalledWith("element-beta");
+  });
+
+  it("opens the selected board address when duplicated cards share a thread identity", () => {
+    const callbacks = handlers();
+    const original = anchor("alpha", 100);
+    const copy = anchor("alpha", 500, "element-alpha-copy");
+    render(
+      <OrchestratorThreadOverlay
+        surface={surface({
+          anchors: [original, copy],
+          clusters: [
+            { id: "cluster-original", members: [member("alpha")], rect: original.rect },
+            {
+              id: "cluster-copy",
+              members: [{ threadId: "alpha", elementId: "element-alpha-copy" }],
+              rect: copy.rect,
+            },
+          ],
+        })}
+        {...callbacks}
+      />,
+    );
+
+    const cards = screen.getAllByTestId("orchestrator-thread-card");
+    expect(cards[0]).toHaveStyle({ left: "100px" });
+    expect(cards[1]).toHaveStyle({ left: "500px" });
+    const openButtons = screen.getAllByRole("button", { name: "Open Thread alpha" });
+    expect(openButtons).toHaveLength(2);
+    fireEvent.click(openButtons[0]!);
+    expect(callbacks.onOpen).toHaveBeenCalledWith("element-alpha");
+    fireEvent.click(openButtons[1]!);
+    expect(callbacks.onOpen).toHaveBeenCalledWith("element-alpha-copy");
   });
 
   it("renders exactly one fully open panel", () => {
@@ -77,7 +111,7 @@ describe("OrchestratorThreadOverlay", () => {
           clusters: [
             {
               id: "cluster-beta",
-              memberThreadIds: ["beta"],
+              members: [member("beta")],
               rect: anchor("beta", 500).rect,
             },
           ],
@@ -122,7 +156,7 @@ describe("OrchestratorThreadOverlay", () => {
 
     expect(screen.getByTestId("orchestrator-thread-panel")).toHaveAttribute("data-mode", "docked");
     fireEvent.click(screen.getByRole("button", { name: /anchor outside the readable view/i }));
-    expect(callbacks.onJump).toHaveBeenCalledWith("alpha");
+    expect(callbacks.onJump).toHaveBeenCalledWith("element-alpha");
   });
 
   it("disambiguates a visual cluster before navigating to one thread", () => {
@@ -133,7 +167,7 @@ describe("OrchestratorThreadOverlay", () => {
           clusters: [
             {
               id: "cluster-both",
-              memberThreadIds: ["alpha", "beta"],
+              members: [member("alpha"), member("beta")],
               rect: { left: 100, top: 100, right: 720, bottom: 240 },
             },
           ],
@@ -148,6 +182,7 @@ describe("OrchestratorThreadOverlay", () => {
     expect(callbacks.onClusterNavigate).toHaveBeenCalledWith({
       kind: "navigate",
       threadId: "beta",
+      elementId: "element-beta",
     });
     expect(callbacks.onOpen).not.toHaveBeenCalled();
   });
@@ -162,7 +197,7 @@ describe("OrchestratorThreadOverlay", () => {
             {
               id: "thread-offscreen:right",
               direction: "right",
-              memberThreadIds: ["alpha", "beta"],
+              members: [member("alpha"), member("beta")],
               left: 1170,
               top: 380,
             },
@@ -177,6 +212,7 @@ describe("OrchestratorThreadOverlay", () => {
     expect(callbacks.onClusterNavigate).toHaveBeenCalledWith({
       kind: "navigate",
       threadId: "alpha",
+      elementId: "element-alpha",
     });
     expect(callbacks.onOpen).not.toHaveBeenCalled();
   });

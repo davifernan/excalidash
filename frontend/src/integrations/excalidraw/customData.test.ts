@@ -25,11 +25,15 @@ describe("the customData schema", () => {
   });
 
   it("round-trips a stable orchestrator thread anchor without storing authority", () => {
-    const written = withExcalidashData({}, { orchestratorThread });
+    const suppliedAtRuntime = {
+      ...orchestratorThread,
+      permissions: ["board:write"],
+      dispatch: { target: "context-1" },
+      lease: { holder: "agent-1" },
+    } as typeof orchestratorThread;
+    const written = withExcalidashData({}, { orchestratorThread: suppliedAtRuntime });
     expect(readOrchestratorThreadAnchor({ customData: written })).toEqual(orchestratorThread);
-    expect(written).not.toHaveProperty("permissions");
-    expect(written).not.toHaveProperty("dispatch");
-    expect(written).not.toHaveProperty("lease");
+    expect(written).toHaveProperty(`${NAMESPACE}.orchestratorThread`, orchestratorThread);
   });
 
   it("refuses a malformed orchestrator thread reference", () => {

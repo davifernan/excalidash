@@ -51,17 +51,20 @@ verdichtet. Weder die gespeicherten Elemente noch ihre `threadId`s werden versch
 zusammengeführt oder neu gebunden. Ein Cluster besitzt genau eine Aktion:
 
 ```text
-{ kind: "navigate", threadId }
+{ kind: "navigate", threadId, elementId }
 ```
 
 Der Nutzer muss zuerst einen einzelnen ursprünglichen Faden auswählen. Es gibt am Cluster
-keine Context-, Dispatch- oder Lease-Operation. Der Negativtest mit zwei Fäden in derselben
+keine Context-, Dispatch- oder Lease-Operation. `threadId` benennt den logischen Faden;
+`elementId` benennt seine konkrete Board-Adresse und bleibt auch dann eindeutig, wenn
+Excalidraw beim Duplizieren das `customData` mitsamt `threadId` kopiert. Der Negativtest mit
+zwei Fäden in derselben
 visuellen Komponente hält diese V3-Grenze fest.
 
 Geschlossene Fäden außerhalb des Ausschnitts werden nicht als unsichtbare DOM-Karten oder als
 Rand voller Einzelpfeile belassen. Sie werden zu höchstens einem gezählten Locator pro Richtung
-verdichtet. Dessen Menü enthält weiterhin jede ursprüngliche `threadId`; auch hier ist die
-einzige Wirkung die Auswahl und Navigation zu genau einem Faden. Die 20-Fäden-Fixture belegt,
+verdichtet. Dessen Menü enthält weiterhin jede ursprüngliche Board-Adresse; auch hier ist die
+einzige Wirkung die Auswahl und Navigation zu genau einem Anker. Die 20-Fäden-Fixture belegt,
 dass keine Identität in der Verdichtung verloren geht.
 
 ## Sichtbare Sättigung und Backpressure

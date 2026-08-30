@@ -14,9 +14,10 @@ const viewport = { width: 1200, height: 760 };
 const anchor = (
   threadId: string,
   rect: { left: number; top: number; right: number; bottom: number },
+  elementId = `element-${threadId}`,
 ): ProjectedThreadAnchor => ({
   threadId,
-  elementId: `element-${threadId}`,
+  elementId,
   title: `Thread ${threadId}`,
   rect,
 });
@@ -93,6 +94,19 @@ describe("orchestrator thread view state", () => {
 });
 
 describe("visual clustering has no coordination semantics", () => {
+  it("keeps duplicated cards with the same thread identity as separate board addresses", () => {
+    const clusters = clusterThreadAnchors([
+      anchor("alpha", { left: 100, top: 100, right: 300, bottom: 220 }),
+      anchor("alpha", { left: 600, top: 100, right: 800, bottom: 220 }, "element-alpha-copy"),
+    ]);
+
+    expect(clusters).toHaveLength(2);
+    expect(new Set(clusters.map((cluster) => cluster.id))).toHaveLength(2);
+    expect(
+      clusters.flatMap((cluster) => cluster.members.map((member) => member.elementId)),
+    ).toEqual(["element-alpha", "element-alpha-copy"]);
+  });
+
   it("keeps two visually clustered threads as separate navigation targets", () => {
     const clusters = clusterThreadAnchors([
       anchor("alpha", { left: 100, top: 100, right: 300, bottom: 220 }),
@@ -100,20 +114,29 @@ describe("visual clustering has no coordination semantics", () => {
     ]);
 
     expect(clusters).toHaveLength(1);
-    expect(clusters[0].memberThreadIds).toEqual(["alpha", "beta"]);
-    expect(activateClusterMember(clusters[0], "alpha")).toEqual({
+    expect(clusters[0].members).toEqual([
+      { elementId: "element-alpha", threadId: "alpha" },
+      { elementId: "element-beta", threadId: "beta" },
+    ]);
+    expect(activateClusterMember(clusters[0], "element-alpha")).toEqual({
       kind: "navigate",
       threadId: "alpha",
+      elementId: "element-alpha",
     });
-    expect(activateClusterMember(clusters[0], "beta")).toEqual({
+    expect(activateClusterMember(clusters[0], "element-beta")).toEqual({
       kind: "navigate",
       threadId: "beta",
+      elementId: "element-beta",
     });
     expect(activateClusterMember(clusters[0], "missing")).toBeNull();
 
     // The visual aggregate owns no Context, Dispatch or Lease effect. Its
     // complete action vocabulary is navigation to one original thread.
-    expect(Object.keys(activateClusterMember(clusters[0], "alpha")!)).toEqual(["kind", "threadId"]);
+    expect(Object.keys(activateClusterMember(clusters[0], "element-alpha")!).sort()).toEqual([
+      "elementId",
+      "kind",
+      "threadId",
+    ]);
   });
 
   it("keeps a twenty-thread offscreen crowd reachable through one directional locator", () => {
@@ -129,12 +152,12 @@ describe("visual clustering has no coordination semantics", () => {
 
     expect(locators).toHaveLength(1);
     expect(locators[0].direction).toBe("right");
-    expect(locators[0].memberThreadIds).toHaveLength(20);
-    expect(new Set(locators[0].memberThreadIds)).toEqual(
+    expect(locators[0].members).toHaveLength(20);
+    expect(new Set(locators[0].members.map((member) => member.threadId))).toEqual(
       new Set(crowd.map((item) => item.threadId)),
     );
     expect(Object.keys(locators[0]).sort()).toEqual(
-      ["direction", "id", "left", "memberThreadIds", "top"].sort(),
+      ["direction", "id", "left", "members", "top"].sort(),
     );
   });
 });

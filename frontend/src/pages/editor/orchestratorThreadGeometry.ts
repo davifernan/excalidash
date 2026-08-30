@@ -14,6 +14,8 @@ export type ProjectedThreadAnchor = {
   readonly rect: ScreenRect;
 };
 
+export type ThreadAnchorReference = Pick<ProjectedThreadAnchor, "threadId" | "elementId">;
+
 export type ThreadPanelMode = "closed" | "anchored" | "docked";
 export type DockDirection = "left" | "right" | "up" | "down";
 
@@ -26,14 +28,14 @@ export type ThreadPanelPlacement = {
 
 export type ThreadVisualCluster = {
   readonly id: string;
-  readonly memberThreadIds: readonly string[];
+  readonly members: readonly ThreadAnchorReference[];
   readonly rect: ScreenRect;
 };
 
 export type ThreadOffscreenLocator = {
   readonly id: string;
   readonly direction: DockDirection;
-  readonly memberThreadIds: readonly string[];
+  readonly members: readonly ThreadAnchorReference[];
   readonly left: number;
   readonly top: number;
 };
@@ -41,6 +43,7 @@ export type ThreadOffscreenLocator = {
 export type ClusterNavigation = {
   readonly kind: "navigate";
   readonly threadId: string;
+  readonly elementId: string;
 };
 
 const PANEL_WIDTH = 360;
@@ -186,12 +189,15 @@ export const selectOpenThread = (current: string | null, requested: string): str
 export const clusterThreadAnchors = (
   anchors: readonly ProjectedThreadAnchor[],
 ): ThreadVisualCluster[] => {
-  const unseen = new Set(anchors.map((item) => item.threadId));
-  const byId = new Map(anchors.map((item) => [item.threadId, item] as const));
+  // customData survives Excalidraw duplication, so threadId names the logical
+  // thread but cannot identify one concrete Board Card. Geometry is always
+  // keyed by the unique elementId of the address being projected.
+  const unseen = new Set(anchors.map((item) => item.elementId));
+  const byId = new Map(anchors.map((item) => [item.elementId, item] as const));
   const clusters: ThreadVisualCluster[] = [];
 
   for (const seed of anchors) {
-    if (!unseen.delete(seed.threadId)) continue;
+    if (!unseen.delete(seed.elementId)) continue;
     const members = [seed];
     for (let cursor = 0; cursor < members.length; cursor += 1) {
       const current = members[cursor]!;
@@ -202,10 +208,12 @@ export const clusterThreadAnchors = (
         members.push(candidate);
       }
     }
-    const memberThreadIds = members.map((item) => item.threadId).sort();
+    const memberReferences = members
+      .map(({ threadId, elementId }) => ({ threadId, elementId }))
+      .sort((left, right) => left.elementId.localeCompare(right.elementId));
     clusters.push({
-      id: `thread-cluster:${memberThreadIds.join(":")}`,
-      memberThreadIds,
+      id: `thread-cluster:${memberReferences.map((item) => item.elementId).join(":")}`,
+      members: memberReferences,
       rect: unionRect(members.map((item) => item.rect)),
     });
   }
@@ -230,16 +238,16 @@ export const computeOffscreenThreadLocators = (
   anchors: readonly ProjectedThreadAnchor[],
   viewport: { readonly width: number; readonly height: number },
 ): ThreadOffscreenLocator[] => {
-  const byDirection = new Map<DockDirection, string[]>();
+  const byDirection = new Map<DockDirection, ThreadAnchorReference[]>();
   for (const anchor of anchors) {
     if (!isThreadAnchorOffscreen(anchor, viewport)) continue;
     const direction = dockDirection(anchor.rect, viewport);
     const members = byDirection.get(direction) ?? [];
-    members.push(anchor.threadId);
+    members.push({ threadId: anchor.threadId, elementId: anchor.elementId });
     byDirection.set(direction, members);
   }
 
-  return [...byDirection.entries()].map(([direction, memberThreadIds]) => {
+  return [...byDirection.entries()].map(([direction, members]) => {
     const edge = 34;
     const left =
       direction === "left"
@@ -251,11 +259,13 @@ export const computeOffscreenThreadLocators = (
     // the raw top edge. Other directions sit at their edge midpoint.
     const top =
       direction === "up" ? 82 : direction === "down" ? viewport.height - edge : viewport.height / 2;
-    const sorted = [...memberThreadIds].sort();
+    const sorted = [...members].sort((left, right) =>
+      left.elementId.localeCompare(right.elementId),
+    );
     return {
       id: `thread-offscreen:${direction}`,
       direction,
-      memberThreadIds: sorted,
+      members: sorted,
       left,
       top,
     };
@@ -270,9 +280,11 @@ export const computeOffscreenThreadLocators = (
  */
 export const activateClusterMember = (
   cluster: ThreadVisualCluster,
-  threadId: string,
-): ClusterNavigation | null =>
-  cluster.memberThreadIds.includes(threadId) ? { kind: "navigate", threadId } : null;
+  elementId: string,
+): ClusterNavigation | null => {
+  const member = cluster.members.find((candidate) => candidate.elementId === elementId);
+  return member ? { kind: "navigate", ...member } : null;
+};
 
 const clippedRect = (
   rect: ScreenRect,

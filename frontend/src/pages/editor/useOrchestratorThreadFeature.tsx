@@ -71,8 +71,15 @@ const sameRect = (left: ScreenRect, right: ScreenRect) =>
   left.right === right.right &&
   left.bottom === right.bottom;
 
-const sameStrings = (left: readonly string[], right: readonly string[]) =>
-  left.length === right.length && left.every((value, index) => value === right[index]);
+const sameReferences = (
+  left: readonly { readonly threadId: string; readonly elementId: string }[],
+  right: readonly { readonly threadId: string; readonly elementId: string }[],
+) =>
+  left.length === right.length &&
+  left.every(
+    (value, index) =>
+      value.threadId === right[index]?.threadId && value.elementId === right[index]?.elementId,
+  );
 
 const sameAnchor = (left: ProjectedThreadAnchor, right: ProjectedThreadAnchor) =>
   left.threadId === right.threadId &&
@@ -95,7 +102,7 @@ const sameSurface = (left: OrchestratorThreadSurface, right: OrchestratorThreadS
     const candidate = right.clusters[index]!;
     return (
       cluster.id === candidate.id &&
-      sameStrings(cluster.memberThreadIds, candidate.memberThreadIds) &&
+      sameReferences(cluster.members, candidate.members) &&
       sameRect(cluster.rect, candidate.rect)
     );
   }) &&
@@ -105,7 +112,7 @@ const sameSurface = (left: OrchestratorThreadSurface, right: OrchestratorThreadS
     return (
       locator.id === candidate.id &&
       locator.direction === candidate.direction &&
-      sameStrings(locator.memberThreadIds, candidate.memberThreadIds) &&
+      sameReferences(locator.members, candidate.members) &&
       locator.left === candidate.left &&
       locator.top === candidate.top
     );
@@ -136,10 +143,10 @@ export const useOrchestratorThreadFeature = ({
   readonly canEdit: boolean;
   readonly isReady: boolean;
 }) => {
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeElementId, setActiveElementId] = useState<string | null>(null);
   const [surface, setSurface] = useState<OrchestratorThreadSurface>(emptySurface);
   const previousMode = useRef<ThreadPanelMode>("closed");
-  const pendingCreatedThreadId = useRef<string | null>(null);
+  const pendingCreatedElementId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isReady) {
@@ -173,15 +180,15 @@ export const useOrchestratorThreadFeature = ({
         });
       }
 
-      const activeAnchor = activeThreadId
-        ? (anchors.find((item) => item.threadId === activeThreadId) ?? null)
+      const activeAnchor = activeElementId
+        ? (anchors.find((item) => item.elementId === activeElementId) ?? null)
         : null;
-      if (activeAnchor && pendingCreatedThreadId.current === activeThreadId) {
-        pendingCreatedThreadId.current = null;
+      if (activeAnchor && pendingCreatedElementId.current === activeElementId) {
+        pendingCreatedElementId.current = null;
       }
-      if (activeThreadId && !activeAnchor && pendingCreatedThreadId.current !== activeThreadId) {
+      if (activeElementId && !activeAnchor && pendingCreatedElementId.current !== activeElementId) {
         previousMode.current = "closed";
-        setActiveThreadId(null);
+        setActiveElementId(null);
       }
       const active = activeAnchor
         ? {
@@ -210,7 +217,7 @@ export const useOrchestratorThreadFeature = ({
       previousMode.current = active?.placement.mode ?? "closed";
 
       const closedAnchors = activeAnchor
-        ? anchors.filter((item) => item.threadId !== activeAnchor.threadId)
+        ? anchors.filter((item) => item.elementId !== activeAnchor.elementId)
         : anchors;
       const nextSurface: OrchestratorThreadSurface = {
         anchors,
@@ -239,7 +246,7 @@ export const useOrchestratorThreadFeature = ({
       unsubscribeScene();
       unsubscribeScroll();
     };
-  }, [activeThreadId, adapter, canEdit, isReady]);
+  }, [activeElementId, adapter, canEdit, isReady]);
 
   const createThread = useCallback(() => {
     if (!canEdit || !isReady) return;
@@ -292,7 +299,7 @@ export const useOrchestratorThreadFeature = ({
       ],
       { regenerateIds: false },
     ) as unknown as NewElement[];
-    pendingCreatedThreadId.current = threadId;
+    pendingCreatedElementId.current = elementId;
     const result = adapter.scene.apply(
       [
         {
@@ -304,22 +311,22 @@ export const useOrchestratorThreadFeature = ({
       { capture: "immediate" },
     );
     if (!result.ok) {
-      pendingCreatedThreadId.current = null;
+      pendingCreatedElementId.current = null;
       notify("error", "The thread anchor could not be placed.");
       return;
     }
     previousMode.current = "closed";
-    setActiveThreadId(threadId);
+    setActiveElementId(elementId);
   }, [adapter, canEdit, isReady]);
 
-  const openThread = useCallback((threadId: string) => {
+  const openThread = useCallback((elementId: string) => {
     previousMode.current = "closed";
-    setActiveThreadId((current) => selectOpenThread(current, threadId));
+    setActiveElementId((current) => selectOpenThread(current, elementId));
   }, []);
 
   const jumpToThread = useCallback(
-    (threadId: string) => {
-      const anchor = surface.anchors.find((item) => item.threadId === threadId);
+    (elementId: string) => {
+      const anchor = surface.anchors.find((item) => item.elementId === elementId);
       if (!anchor) return;
       adapter.viewport.scrollToElement(anchor.elementId as ElementId);
     },
@@ -337,24 +344,24 @@ export const useOrchestratorThreadFeature = ({
             onOpen={openThread}
             onClose={() => {
               previousMode.current = "closed";
-              setActiveThreadId(null);
+              setActiveElementId(null);
             }}
             onJump={jumpToThread}
             onClusterNavigate={(action) => {
               const cluster = surface.clusters.find((candidate) =>
-                candidate.memberThreadIds.includes(action.threadId),
+                candidate.members.some((member) => member.elementId === action.elementId),
               );
               const locator = surface.offscreenLocators.find((candidate) =>
-                candidate.memberThreadIds.includes(action.threadId),
+                candidate.members.some((member) => member.elementId === action.elementId),
               );
               if (
-                (!cluster || !activateClusterMember(cluster, action.threadId)) &&
-                !locator?.memberThreadIds.includes(action.threadId)
+                (!cluster || !activateClusterMember(cluster, action.elementId)) &&
+                !locator?.members.some((member) => member.elementId === action.elementId)
               ) {
                 return;
               }
-              jumpToThread(action.threadId);
-              openThread(action.threadId);
+              jumpToThread(action.elementId);
+              openThread(action.elementId);
             }}
           />,
           root.value,
