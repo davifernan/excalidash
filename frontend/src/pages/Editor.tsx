@@ -52,7 +52,7 @@ export const Editor: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user, authEnabled } = useAuth();
   const [accessLevel, setAccessLevel] = useState<"none" | "view" | "comment" | "edit" | "owner">(
     "none",
   );
@@ -685,7 +685,18 @@ export const Editor: React.FC = () => {
       drawingId: id,
     });
   const { orchestratorThreadOverlay, createThread: createOrchestratorThread } =
-    useOrchestratorThreadFeature({ adapter, canEdit, isReady });
+    useOrchestratorThreadFeature({
+      adapter,
+      canEdit,
+      isReady,
+      drawingId: id,
+      socketRef,
+      // In auth-disabled mode the backend supplies one stable bootstrap
+      // subject even though AuthContext intentionally has no User row. This
+      // value only enables local UI; every API call derives the real owner id
+      // server-side and never trusts it.
+      currentUserId: user?.id ?? (authEnabled === false ? "bootstrap" : null),
+    });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
       drawingId: id,

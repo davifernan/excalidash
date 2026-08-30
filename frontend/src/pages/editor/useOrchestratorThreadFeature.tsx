@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
+import type { Socket } from "socket.io-client";
+import {
+  appendOrchestratorThreadMessage,
+  getOrCreateLocalOrchestratorThread,
+  getOrchestratorThreadEvents,
+  getOrchestratorThreads,
+  registerSharedOrchestratorThread,
+  type AgentThreadEventDTO,
+  type OrchestratorThreadDTO,
+} from "../../api/orchestratorThreads";
 import {
   readOrchestratorThreadAnchor,
   withExcalidashData,
@@ -28,6 +39,7 @@ import {
 
 const CARD_WIDTH = 260;
 const CARD_HEIGHT = 156;
+const privateElementId = (threadId: string) => `private-thread:${threadId}`;
 
 const projectRect = (adapter: ExcalidrawAdapter, element: ElementSummary): ScreenRect | null => {
   const centre = { x: element.x + element.width / 2, y: element.y + element.height / 2 };
@@ -138,15 +150,132 @@ export const useOrchestratorThreadFeature = ({
   adapter,
   canEdit,
   isReady,
+  drawingId,
+  socketRef,
+  currentUserId,
 }: {
   readonly adapter: ExcalidrawAdapter;
   readonly canEdit: boolean;
   readonly isReady: boolean;
+  readonly drawingId?: string;
+  readonly socketRef?: MutableRefObject<Socket | null>;
+  readonly currentUserId?: string | null;
 }) => {
   const [activeElementId, setActiveElementId] = useState<string | null>(null);
   const [surface, setSurface] = useState<OrchestratorThreadSurface>(emptySurface);
+  const [threads, setThreads] = useState<OrchestratorThreadDTO[]>([]);
+  const [eventsByThread, setEventsByThread] = useState<Record<string, AgentThreadEventDTO[]>>({});
+  const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
+  const [sendingThreadId, setSendingThreadId] = useState<string | null>(null);
+  const [threadError, setThreadError] = useState<string | null>(null);
   const previousMode = useRef<ThreadPanelMode>("closed");
   const pendingCreatedElementId = useRef<string | null>(null);
+  const requestedThreadIds = useRef(new Set<string>());
+  const lastDrawingThreadId = useRef<string | null>(null);
+
+  const upsertThread = useCallback((incoming: OrchestratorThreadDTO) => {
+    setThreads((current) => {
+      const index = current.findIndex((thread) => thread.id === incoming.id);
+      if (index < 0) return [...current, incoming];
+      const next = [...current];
+      next[index] = incoming;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    // Editor can move between route ids without a full page reload. No local
+    // cache, open identity or already-requested marker may cross that Board
+    // boundary even though thread ids are globally generated.
+    setActiveElementId(null);
+    setEventsByThread({});
+    setLoadingThreadId(null);
+    setSendingThreadId(null);
+    setThreadError(null);
+    requestedThreadIds.current.clear();
+    lastDrawingThreadId.current = null;
+    previousMode.current = "closed";
+  }, [drawingId]);
+
+  useEffect(() => {
+    if (!drawingId || !isReady) {
+      setThreads([]);
+      return;
+    }
+    let cancelled = false;
+    void getOrchestratorThreads(drawingId)
+      .then((loaded) => {
+        if (!cancelled) setThreads(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setThreadError("Thread audiences could not be loaded.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drawingId, isReady]);
+
+  useEffect(() => {
+    const socket = socketRef?.current;
+    if (!socket || !drawingId) return;
+    const onThread = (thread: OrchestratorThreadDTO) => {
+      if (thread.drawingId === drawingId) upsertThread(thread);
+    };
+    const onEvent = (payload: { threadId: string; event: AgentThreadEventDTO }) => {
+      setEventsByThread((current) => {
+        const existing = current[payload.threadId] ?? [];
+        if (existing.some((event) => event.id === payload.event.id)) return current;
+        return { ...current, [payload.threadId]: [...existing, payload.event] };
+      });
+    };
+    socket.on("agent.thread.updated", onThread);
+    socket.on("agent.thread.event.appended", onEvent);
+    return () => {
+      socket.off("agent.thread.updated", onThread);
+      socket.off("agent.thread.event.appended", onEvent);
+    };
+  }, [drawingId, socketRef, upsertThread]);
+
+  // Registration waits for the ordinary autosave path to persist the Board
+  // Card. A rejected attempt is retried, but never turns raw client customData
+  // into shared authority; the backend accepts only a card it can read itself.
+  useEffect(() => {
+    if (!drawingId || !canEdit || !isReady) return;
+    let cancelled = false;
+    let busy = false;
+    const reconcile = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const summaries = adapter.scene.summaries();
+        if (!summaries.ok) return;
+        const registered = new Set(
+          threads
+            .filter((thread) => thread.anchor.kind === "drawing")
+            .map((thread) => (thread.anchor.kind === "drawing" ? thread.anchor.elementId : "")),
+        );
+        for (const element of summaries.value) {
+          if (cancelled || element.isDeleted || registered.has(element.id)) continue;
+          if (!readOrchestratorThreadAnchor({ customData: element.customData })) continue;
+          try {
+            const thread = await registerSharedOrchestratorThread(drawingId, element.id);
+            if (!cancelled) upsertThread(thread);
+          } catch {
+            // The card may still be in the one-second autosave window. A later
+            // pass retries; no local fallback is allowed for a shared thread.
+          }
+        }
+      } finally {
+        busy = false;
+      }
+    };
+    void reconcile();
+    const interval = window.setInterval(() => void reconcile(), 1_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [adapter, canEdit, drawingId, isReady, threads, upsertThread]);
 
   useEffect(() => {
     if (!isReady) {
@@ -172,12 +301,41 @@ export const useOrchestratorThreadFeature = ({
         if (!record) continue;
         const rect = projectRect(adapter, element);
         if (!rect) continue;
+        const registered = threads.find(
+          (thread) => thread.anchor.kind === "drawing" && thread.anchor.elementId === element.id,
+        );
         anchors.push({
-          threadId: record.threadId,
+          // customData.threadId survives duplicate/copy-paste and therefore
+          // cannot address server history. Until registration succeeds it is
+          // display-only; the element id is the unique Board address.
+          threadId: registered?.id ?? `unregistered:${element.id}`,
           elementId: element.id,
-          title: record.title,
+          title: registered?.title ?? record.title,
           rect,
         });
+      }
+
+      const privateThread = threads.find(
+        (thread) => thread.audience.kind === "private" && thread.anchor.kind === "private",
+      );
+      if (privateThread?.anchor.kind === "private") {
+        const projected = adapter.viewport.toViewport({
+          x: privateThread.anchor.x,
+          y: privateThread.anchor.y,
+        });
+        if (projected.ok) {
+          anchors.push({
+            threadId: privateThread.id,
+            elementId: privateElementId(privateThread.id),
+            title: privateThread.title,
+            rect: {
+              left: projected.value.x - 90,
+              top: projected.value.y - 30,
+              right: projected.value.x + 90,
+              bottom: projected.value.y + 30,
+            },
+          });
+        }
       }
 
       const activeAnchor = activeElementId
@@ -246,7 +404,7 @@ export const useOrchestratorThreadFeature = ({
       unsubscribeScene();
       unsubscribeScroll();
     };
-  }, [activeElementId, adapter, canEdit, isReady]);
+  }, [activeElementId, adapter, canEdit, isReady, threads]);
 
   const createThread = useCallback(() => {
     if (!canEdit || !isReady) return;
@@ -319,18 +477,137 @@ export const useOrchestratorThreadFeature = ({
     setActiveElementId(elementId);
   }, [adapter, canEdit, isReady]);
 
+  const createLocalThread = useCallback(async () => {
+    if (!drawingId || !currentUserId || !isReady) {
+      notify("error", "Sign in to start a local orchestrator thread.");
+      return;
+    }
+    const viewport = adapter.viewport.read();
+    if (!viewport.ok) return;
+    const at = adapter.viewport.toScene({
+      x: viewport.value.width / 2,
+      y: viewport.value.height / 2,
+    });
+    if (!at.ok) return;
+    try {
+      const thread = await getOrCreateLocalOrchestratorThread(drawingId, at.value);
+      upsertThread(thread);
+      previousMode.current = "closed";
+      setActiveElementId(privateElementId(thread.id));
+    } catch {
+      notify("error", "The local thread could not be opened.");
+    }
+  }, [adapter, currentUserId, drawingId, isReady, upsertThread]);
+
   const openThread = useCallback((elementId: string) => {
     previousMode.current = "closed";
     setActiveElementId((current) => selectOpenThread(current, elementId));
   }, []);
 
+  const activeThread = useMemo(
+    () =>
+      surface.active
+        ? (threads.find((thread) => thread.id === surface.active!.anchor.threadId) ?? null)
+        : null,
+    [surface.active, threads],
+  );
+
+  useEffect(() => {
+    if (activeThread?.audience.kind === "drawing") {
+      lastDrawingThreadId.current = activeThread.id;
+    }
+  }, [activeThread]);
+
+  useEffect(() => {
+    if (
+      !drawingId ||
+      !activeThread ||
+      eventsByThread[activeThread.id] ||
+      requestedThreadIds.current.has(activeThread.id)
+    ) {
+      return;
+    }
+    let cancelled = false;
+    requestedThreadIds.current.add(activeThread.id);
+    setLoadingThreadId(activeThread.id);
+    setThreadError(null);
+    void getOrchestratorThreadEvents(drawingId, activeThread.id)
+      .then((events) => {
+        if (!cancelled) setEventsByThread((current) => ({ ...current, [activeThread.id]: events }));
+      })
+      .catch(() => {
+        if (!cancelled) setThreadError("This thread history could not be loaded.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingThreadId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThread, drawingId, eventsByThread]);
+
+  const switchAudience = useCallback(
+    (audience: "private" | "drawing") => {
+      const target =
+        audience === "drawing"
+          ? (threads.find((thread) => thread.id === lastDrawingThreadId.current) ??
+            threads.find((thread) => thread.audience.kind === "drawing"))
+          : threads.find((thread) => thread.audience.kind === "private");
+      if (!target) {
+        if (audience === "private") void createLocalThread();
+        else if (canEdit) createThread();
+        return;
+      }
+      const elementId =
+        target.anchor.kind === "private" ? privateElementId(target.id) : target.anchor.elementId;
+      previousMode.current = "closed";
+      setActiveElementId(elementId);
+    },
+    [canEdit, createLocalThread, createThread, threads],
+  );
+
+  const sendMessage = useCallback(
+    async (text: string) => {
+      if (!drawingId || !activeThread) return;
+      setSendingThreadId(activeThread.id);
+      setThreadError(null);
+      try {
+        const event = await appendOrchestratorThreadMessage(drawingId, activeThread.id, text);
+        setEventsByThread((current) => {
+          const existing = current[activeThread.id] ?? [];
+          return existing.some((candidate) => candidate.id === event.id)
+            ? current
+            : { ...current, [activeThread.id]: [...existing, event] };
+        });
+      } catch {
+        setThreadError("The message was not accepted. Nothing was published.");
+      } finally {
+        setSendingThreadId(null);
+      }
+    },
+    [activeThread, drawingId],
+  );
+
   const jumpToThread = useCallback(
     (elementId: string) => {
       const anchor = surface.anchors.find((item) => item.elementId === elementId);
       if (!anchor) return;
+      const thread = threads.find((candidate) => candidate.id === anchor.threadId);
+      if (thread?.anchor.kind === "private") {
+        adapter.viewport.showBounds(
+          [
+            thread.anchor.x - 120,
+            thread.anchor.y - 80,
+            thread.anchor.x + 120,
+            thread.anchor.y + 80,
+          ],
+          { animate: true },
+        );
+        return;
+      }
       adapter.viewport.scrollToElement(anchor.elementId as ElementId);
     },
-    [adapter, surface.anchors],
+    [adapter, surface.anchors, threads],
   );
 
   const root = adapter.ui.overlayRoot();
@@ -341,6 +618,24 @@ export const useOrchestratorThreadFeature = ({
           <OrchestratorThreadOverlay
             surface={surface}
             onCreate={createThread}
+            onCreateLocal={drawingId && currentUserId ? () => void createLocalThread() : undefined}
+            panelView={
+              activeThread
+                ? {
+                    threadId: activeThread.id,
+                    audience: activeThread.audience.kind,
+                    events: eventsByThread[activeThread.id] ?? [],
+                    loading: loadingThreadId === activeThread.id,
+                    sending: sendingThreadId === activeThread.id,
+                    canWrite:
+                      Boolean(currentUserId) &&
+                      (activeThread.audience.kind === "private" || canEdit),
+                    error: threadError,
+                  }
+                : null
+            }
+            onSwitchAudience={switchAudience}
+            onSendMessage={sendMessage}
             onOpen={openThread}
             onClose={() => {
               previousMode.current = "closed";

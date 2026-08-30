@@ -6,6 +6,17 @@ const openMenu = async (page: Page) => {
   await page.getByTestId("main-menu-trigger").click();
 };
 
+const expectInside = async (
+  inner: ReturnType<Page["getByText"]>,
+  outer: ReturnType<Page["getByTestId"]>,
+) => {
+  const [innerBox, outerBox] = await Promise.all([inner.boundingBox(), outer.boundingBox()]);
+  expect(innerBox).not.toBeNull();
+  expect(outerBox).not.toBeNull();
+  expect(innerBox!.y).toBeGreaterThanOrEqual(outerBox!.y);
+  expect(innerBox!.y + innerBox!.height).toBeLessThanOrEqual(outerBox!.y + outerBox!.height);
+};
+
 test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
   let drawingId: string;
   let api: APIRequestContext;
@@ -28,7 +39,7 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     await expect(invitation).toBeVisible();
     await expect(invitation).toContainText("Where should we coordinate?");
     await page.screenshot({ path: testInfo.outputPath("empty-board-invitation.png") });
-    await page.getByRole("button", { name: "Place thread here" }).click();
+    await page.getByRole("button", { name: "Place shared thread here" }).click();
     await expect(invitation).toHaveCount(0);
 
     const panel = page.getByTestId("orchestrator-thread-panel");
@@ -131,8 +142,57 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     await page.mouse.up();
 
     await expect
-      .poll(async () => (await scene(page)).filter((element) => element.type === "rectangle").length)
+      .poll(
+        async () => (await scene(page)).filter((element) => element.type === "rectangle").length,
+      )
       .toBe(1);
     await expect(invitation).toHaveCount(0);
+  });
+
+  test("keeps local and multiplayer histories separate across a reload", async ({
+    page,
+  }, testInfo) => {
+    await openEditor(page, drawingId);
+    await page.getByRole("button", { name: "Start a local thread" }).click();
+    const panel = page.getByTestId("orchestrator-thread-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Local" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await panel.getByLabel("Message this audience").fill("private-device-history");
+    await panel.getByRole("button", { name: "Send message" }).click();
+    const privateMessage = panel.getByText("private-device-history");
+    await expect(privateMessage).toBeVisible();
+    await expectInside(privateMessage, panel.locator(".orchestrator-thread-panel__events"));
+    await page.screenshot({ path: testInfo.outputPath("local-thread-history.png") });
+
+    await page.reload();
+    await page.waitForSelector("canvas");
+    await page.waitForFunction(() => !!(window as any).__EXCALIDASH_TEST__);
+    await page.getByRole("button", { name: "Open Local orchestrator thread" }).click();
+    await expect(panel.getByText("private-device-history")).toBeVisible();
+    await panel.getByRole("button", { name: "Close orchestrator thread" }).click();
+
+    await page.getByRole("button", { name: "Place shared thread here" }).click();
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Multiplayer" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await panel.getByLabel("Message this audience").fill("shared-board-history");
+    await panel.getByRole("button", { name: "Send message" }).click();
+    const sharedMessage = panel.getByText("shared-board-history");
+    await expect(sharedMessage).toBeVisible();
+    await expectInside(sharedMessage, panel.locator(".orchestrator-thread-panel__events"));
+    await expect(panel.getByText("private-device-history")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("multiplayer-thread-history.png") });
+
+    await panel.getByRole("button", { name: "Local" }).click();
+    await expect(panel.getByText("private-device-history")).toBeVisible();
+    await expect(panel.getByText("shared-board-history")).toHaveCount(0);
+    await panel.getByRole("button", { name: "Multiplayer" }).click();
+    await expect(panel.getByText("shared-board-history")).toBeVisible();
+    await expect(panel.getByText("private-device-history")).toHaveCount(0);
   });
 });

@@ -59,8 +59,68 @@ describe("OrchestratorThreadOverlay", () => {
       "Where should we coordinate?",
     );
     expect(screen.queryByRole("textbox")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Place thread here" }));
+    fireEvent.click(screen.getByRole("button", { name: "Place shared thread here" }));
     expect(callbacks.onCreate).toHaveBeenCalledOnce();
+  });
+
+  it("switches between two audiences without presenting the action as publication", () => {
+    const callbacks = {
+      ...handlers(),
+      onSwitchAudience: vi.fn(),
+      onSendMessage: vi.fn(),
+    };
+    const openSurface = surface({
+      clusters: [],
+      active: {
+        anchor: anchor("local-alpha", 100, "private-thread:local-alpha"),
+        placement: {
+          mode: "anchored",
+          panelRect: { left: 340, top: 100, right: 700, bottom: 500 },
+          direction: null,
+          distance: 0,
+        },
+      },
+    });
+    const localPanelView = {
+      threadId: "local-alpha",
+      audience: "private" as const,
+      loading: false,
+      sending: false,
+      canWrite: true,
+      error: null,
+      events: [
+        {
+          id: "local-message",
+          threadId: "local-alpha",
+          sequence: 1,
+          actor: { kind: "user" as const, id: "owner", displayName: "Owner" },
+          kind: "message" as const,
+          payload: { text: "Only on my local history" },
+          createdAt: "2026-08-30T02:00:00.000Z",
+        },
+      ],
+    };
+    const rendered = render(
+      <OrchestratorThreadOverlay surface={openSurface} panelView={localPanelView} {...callbacks} />,
+    );
+
+    expect(screen.getByText("Only on my local history")).toBeVisible();
+    expect(
+      screen.getByText(/Switching opens another thread; it never publishes this one/),
+    ).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "private draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Multiplayer" }));
+    expect(callbacks.onSwitchAudience).toHaveBeenCalledWith("drawing");
+    expect(callbacks.onCreate).not.toHaveBeenCalled();
+
+    rendered.rerender(
+      <OrchestratorThreadOverlay
+        surface={openSurface}
+        panelView={{ ...localPanelView, threadId: "shared-alpha", audience: "drawing", events: [] }}
+        {...callbacks}
+      />,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("");
   });
 
   it("renders Board Cards as the closed state and opens the selected identity", () => {

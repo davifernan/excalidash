@@ -1,4 +1,5 @@
 import type React from "react";
+import { createRef } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExcalidrawAdapter } from "../../integrations/excalidraw/capabilities";
@@ -9,6 +10,15 @@ import {
 import { ok } from "../../integrations/excalidraw/errors";
 import type { ElementId, ElementSummary, SceneOp } from "../../integrations/excalidraw/types";
 import { useOrchestratorThreadFeature } from "./useOrchestratorThreadFeature";
+import * as threadApi from "../../api/orchestratorThreads";
+
+vi.mock("../../api/orchestratorThreads", () => ({
+  getOrchestratorThreads: vi.fn(async () => []),
+  getOrCreateLocalOrchestratorThread: vi.fn(),
+  getOrchestratorThreadEvents: vi.fn(async () => []),
+  registerSharedOrchestratorThread: vi.fn(),
+  appendOrchestratorThreadMessage: vi.fn(),
+}));
 
 const viewportState = {
   zoom: 1,
@@ -73,12 +83,17 @@ const Harness: React.FC<{
   canEdit?: boolean;
   isReady?: boolean;
   onRender?: () => void;
-}> = ({ adapter, canEdit = true, isReady = true, onRender }) => {
+  drawingId?: string;
+  currentUserId?: string | null;
+}> = ({ adapter, canEdit = true, isReady = true, onRender, drawingId, currentUserId = null }) => {
   onRender?.();
   const { orchestratorThreadOverlay, createThread } = useOrchestratorThreadFeature({
     adapter,
     canEdit,
     isReady,
+    drawingId,
+    currentUserId,
+    socketRef: createRef() as any,
   });
   return (
     <>
@@ -94,6 +109,9 @@ describe("useOrchestratorThreadFeature", () => {
   let root: HTMLDivElement;
 
   beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(threadApi.getOrchestratorThreads).mockResolvedValue([]);
+    vi.mocked(threadApi.getOrchestratorThreadEvents).mockResolvedValue([]);
     root = document.createElement("div");
     document.body.appendChild(root);
   });
@@ -218,5 +236,56 @@ describe("useOrchestratorThreadFeature", () => {
         }),
     );
     expect(renders).toHaveBeenCalledTimes(settledRenderCount);
+  });
+
+  it("keeps local and multiplayer histories separate when the audience control changes", async () => {
+    const local = {
+      id: "server-local",
+      drawingId: "drawing-1",
+      audience: { kind: "private" as const, userId: "owner-1" },
+      title: "Local orchestrator thread",
+      anchor: { kind: "private" as const, x: 850, y: 140 },
+      createdAt: "2026-08-30T02:00:00.000Z",
+      updatedAt: "2026-08-30T02:00:00.000Z",
+    };
+    const shared = {
+      id: "server-shared",
+      drawingId: "drawing-1",
+      audience: { kind: "drawing" as const },
+      title: "Release coordination",
+      anchor: { kind: "drawing" as const, elementId: "element-alpha" },
+      createdAt: "2026-08-30T02:00:00.000Z",
+      updatedAt: "2026-08-30T02:00:00.000Z",
+    };
+    vi.mocked(threadApi.getOrchestratorThreads).mockResolvedValue([local, shared]);
+    vi.mocked(threadApi.registerSharedOrchestratorThread).mockResolvedValue(shared);
+    vi.mocked(threadApi.getOrchestratorThreadEvents).mockImplementation(async (_drawing, id) => [
+      {
+        id: `${id}-event`,
+        threadId: id,
+        sequence: 1,
+        actor: { kind: "user", id: "owner-1", displayName: "Owner" },
+        kind: "message",
+        payload: { text: id === local.id ? "private-history" : "shared-history" },
+        createdAt: "2026-08-30T02:00:00.000Z",
+      },
+    ]);
+
+    render(
+      <Harness
+        adapter={makeAdapter(root, [persistedAnchor()])}
+        drawingId="drawing-1"
+        currentUserId="owner-1"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Local orchestrator thread" }));
+    expect(await screen.findByText("private-history")).toBeVisible();
+    expect(screen.queryByText("shared-history")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Multiplayer" }));
+    expect(await screen.findByText("shared-history")).toBeVisible();
+    expect(screen.queryByText("private-history")).toBeNull();
+    expect(threadApi.getOrCreateLocalOrchestratorThread).not.toHaveBeenCalled();
   });
 });

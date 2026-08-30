@@ -47,7 +47,11 @@ export type ClusterNavigation = {
 };
 
 const PANEL_WIDTH = 360;
-const PANEL_HEIGHT = 286;
+// The thread now contains an immutable-audience explanation, history and a
+// composer. Keep enough vertical room for at least one event: a panel that
+// reports a saved message only below its clipped viewport makes persistence
+// technically true and operationally invisible.
+const PANEL_HEIGHT = 420;
 const VIEWPORT_MARGIN = 18;
 const READABLE_ENTER = { width: 190, height: 120 };
 const READABLE_EXIT = { width: 150, height: 96 };

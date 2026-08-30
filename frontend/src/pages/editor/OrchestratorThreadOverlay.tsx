@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bot, Layers3, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Bot,
+  Layers3,
+  Lock,
+  Send,
+  Users,
+  X,
+} from "lucide-react";
+import type { AgentThreadEventDTO } from "../../api/orchestratorThreads";
 import type {
   ClusterNavigation,
   ProjectedThreadAnchor,
@@ -25,6 +37,16 @@ export type OrchestratorThreadSurface = {
   };
 };
 
+export type OrchestratorThreadPanelView = {
+  readonly threadId: string;
+  readonly audience: "private" | "drawing";
+  readonly events: readonly AgentThreadEventDTO[];
+  readonly loading: boolean;
+  readonly sending: boolean;
+  readonly canWrite: boolean;
+  readonly error: string | null;
+};
+
 const directionIcon = (direction: ThreadPanelPlacement["direction"]) => {
   if (direction === "left") return <ArrowLeft size={15} />;
   if (direction === "right") return <ArrowRight size={15} />;
@@ -40,6 +62,10 @@ export const OrchestratorThreadOverlay = ({
   onClose,
   onJump,
   onClusterNavigate,
+  panelView,
+  onCreateLocal,
+  onSwitchAudience,
+  onSendMessage,
 }: {
   readonly surface: OrchestratorThreadSurface;
   readonly onCreate: () => void;
@@ -47,8 +73,13 @@ export const OrchestratorThreadOverlay = ({
   readonly onClose: () => void;
   readonly onJump: (elementId: string) => void;
   readonly onClusterNavigate: (action: ClusterNavigation) => void;
+  readonly panelView?: OrchestratorThreadPanelView | null;
+  readonly onCreateLocal?: () => void;
+  readonly onSwitchAudience?: (audience: "private" | "drawing") => void;
+  readonly onSendMessage?: (text: string) => Promise<void> | void;
 }) => {
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
   const byElementId = useMemo(
     () => new Map(surface.anchors.map((item) => [item.elementId, item] as const)),
     [surface.anchors],
@@ -63,6 +94,14 @@ export const OrchestratorThreadOverlay = ({
       setExpandedClusterId(null);
     }
   }, [expandedClusterId, surface.clusters, surface.offscreenLocators]);
+
+  useEffect(() => {
+    // A draft belongs to the immutable thread/audience it was composed for.
+    // Carrying local text into a Multiplayer composer would turn switching
+    // into an implicit publication affordance even though histories remain
+    // separate on the server.
+    setDraft("");
+  }, [panelView?.threadId]);
 
   return (
     <div className="orchestrator-thread-layer" data-testid="orchestrator-thread-layer">
@@ -86,8 +125,17 @@ export const OrchestratorThreadOverlay = ({
             <span>Result</span>
           </div>
           <button type="button" onClick={onCreate}>
-            Place thread here
+            Place shared thread here
           </button>
+          {onCreateLocal ? (
+            <button
+              type="button"
+              className="orchestrator-thread-invitation__local"
+              onClick={onCreateLocal}
+            >
+              Start a local thread
+            </button>
+          ) : null}
           <small>Messages and dispatch are added only through their explicit contracts.</small>
         </section>
       ) : null}
@@ -259,6 +307,30 @@ export const OrchestratorThreadOverlay = ({
             </button>
           </header>
 
+          {panelView ? (
+            <div className="orchestrator-thread-panel__audiences" aria-label="Thread audience">
+              <button
+                type="button"
+                aria-pressed={panelView.audience === "private"}
+                onClick={() => onSwitchAudience?.("private")}
+              >
+                <Lock size={13} /> Local
+              </button>
+              <button
+                type="button"
+                aria-pressed={panelView.audience === "drawing"}
+                onClick={() => onSwitchAudience?.("drawing")}
+              >
+                <Users size={13} /> Multiplayer
+              </button>
+              <small>
+                {panelView.audience === "private"
+                  ? "Only you can read this server-saved history. Switching opens another thread; it never publishes this one."
+                  : "Everyone with Board access can read this history. It is a separate thread, not a visibility toggle."}
+              </small>
+            </div>
+          ) : null}
+
           {surface.active.placement.mode === "docked" ? (
             <button
               type="button"
@@ -278,15 +350,83 @@ export const OrchestratorThreadOverlay = ({
             </div>
           )}
 
-          <div className="orchestrator-thread-panel__empty">
-            <Layers3 size={24} />
-            <strong>No orchestrator events yet</strong>
-            <p>
-              This shared anchor keeps the thread at the place it coordinates. Message audience,
-              Dispatch and Lease effects arrive through their own contracts, never through visual
-              proximity.
-            </p>
-          </div>
+          {panelView ? (
+            <>
+              <div className="orchestrator-thread-panel__events" aria-live="polite">
+                {panelView.loading ? <p>Loading history…</p> : null}
+                {!panelView.loading && panelView.events.length === 0 ? (
+                  <div className="orchestrator-thread-panel__empty">
+                    <Layers3 size={24} />
+                    <strong>No orchestrator events yet</strong>
+                    <p>
+                      This {panelView.audience === "private" ? "local" : "shared"} thread has its
+                      own immutable audience. Visual proximity never changes it.
+                    </p>
+                  </div>
+                ) : null}
+                {panelView.events.map((event) => (
+                  <article key={event.id} data-kind={event.kind}>
+                    <header>
+                      <strong>{event.actor.displayName}</strong>
+                      <time dateTime={event.createdAt}>
+                        {new Date(event.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                    </header>
+                    <p>
+                      {typeof event.payload.text === "string"
+                        ? event.payload.text
+                        : typeof event.payload.title === "string"
+                          ? event.payload.title
+                          : event.kind}
+                    </p>
+                  </article>
+                ))}
+                {panelView.error ? <p role="alert">{panelView.error}</p> : null}
+              </div>
+              {panelView.canWrite ? (
+                <form
+                  className="orchestrator-thread-panel__composer"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const text = draft.trim();
+                    if (!text || panelView.sending) return;
+                    void Promise.resolve(onSendMessage?.(text)).then(() => setDraft(""));
+                  }}
+                >
+                  <label htmlFor="orchestrator-thread-message">Message this audience</label>
+                  <div>
+                    <textarea
+                      id="orchestrator-thread-message"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      maxLength={10_000}
+                      rows={2}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!draft.trim() || panelView.sending}
+                      aria-label="Send message"
+                    >
+                      <Send size={15} />
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+            </>
+          ) : (
+            <div className="orchestrator-thread-panel__empty">
+              <Layers3 size={24} />
+              <strong>No orchestrator events yet</strong>
+              <p>
+                This shared anchor keeps the thread at the place it coordinates. Message audience,
+                Dispatch and Lease effects arrive through their own contracts, never through visual
+                proximity.
+              </p>
+            </div>
+          )}
         </aside>
       ) : null}
     </div>

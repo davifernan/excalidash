@@ -16,18 +16,29 @@ const CORRECTION_EVENTS = ["edit", "retract"] as const;
 const EVENTS = [...ROOT_EVENTS, ...CORRECTION_EVENTS] as const;
 
 type ActorKind = (typeof ACTORS)[number];
-type RootEventKind = (typeof ROOT_EVENTS)[number];
 type EventKind = (typeof EVENTS)[number];
 
-export type ContextThreadEntry = {
+export type AgentThreadEntry = {
   id: string;
-  contextId: string;
+  threadId: string;
   sequence: number;
   actor: { kind: ActorKind; id: string | null; displayName: string };
   kind: EventKind;
   payload: Record<string, unknown>;
   createdAt: string;
 };
+
+export type ContextThreadEntry = AgentThreadEntry & { contextId: string };
+
+export class AgentThreadError extends Error {
+  constructor(
+    public readonly code: "THREAD_NOT_FOUND" | "INVALID_THREAD_EVENT",
+    message: string,
+  ) {
+    super(message);
+    this.name = "AgentThreadError";
+  }
+}
 
 export class ContextThreadError extends Error {
   constructor(
@@ -54,8 +65,8 @@ type CorruptionMetadata = {
 };
 
 const corruptRow = (row: any, reason: string, metadata?: CorruptionMetadata): never => {
-  logger.error("Stored Agent Context event is corrupt", {
-    contextId: row?.contextId,
+  logger.error("Stored Agent thread event is corrupt", {
+    threadId: row?.threadId,
     eventId: row?.id,
     sequence: row?.sequence,
     createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : undefined,
@@ -63,7 +74,7 @@ const corruptRow = (row: any, reason: string, metadata?: CorruptionMetadata): ne
     ...metadata,
   });
   throw new ContextThreadCorruptionError(
-    `Stored Agent Context event ${String(row?.id ?? "<unknown>")} is corrupt: ${reason}`,
+    `Stored Agent thread event ${String(row?.id ?? "<unknown>")} is corrupt: ${reason}`,
   );
 };
 
@@ -85,7 +96,7 @@ const parsePayload = (row: any): Record<string, unknown> => {
   }
 };
 
-const toEntry = (row: any): ContextThreadEntry => {
+const toEntry = (row: any): AgentThreadEntry => {
   if (!(ACTORS as readonly unknown[]).includes(row.actorKind)) {
     return corruptRow(row, "actor kind is outside the allowed set", {
       allowedValues: ACTORS,
@@ -104,7 +115,7 @@ const toEntry = (row: any): ContextThreadEntry => {
   }
   return {
     id: row.id,
-    contextId: row.contextId,
+    threadId: row.threadId,
     sequence: row.sequence,
     actor: {
       kind: row.actorKind,
@@ -152,56 +163,64 @@ const validatePayload = (kind: EventKind, payload: Record<string, unknown>): str
 };
 
 /**
- * Append exactly one event and allocate its order on the Context row.
+ * Append exactly one event and allocate its order on the AgentThread row.
  * The increment and insert share a transaction: concurrent writers serialize
  * on the same row and either commit both the sequence and event, or neither.
  */
-export const appendContextThreadEvent = async (params: {
+export const appendAgentThreadEvent = async (params: {
   prisma: any;
   drawingId: string;
-  contextId: string;
+  threadId: string;
   actor: { kind: ActorKind; id?: string | null; displayName: string };
   kind: EventKind;
   payload: Record<string, unknown>;
-}): Promise<ContextThreadEntry> => {
+}): Promise<AgentThreadEntry> => {
   if (!ACTORS.includes(params.actor.kind) || !EVENTS.includes(params.kind)) {
-    throw new ContextThreadError("INVALID_CONTEXT_EVENT", "Unknown Context event kind.");
+    throw new AgentThreadError("INVALID_THREAD_EVENT", "Unknown Agent thread event kind.");
   }
   if (!params.actor.displayName.trim() || params.actor.displayName.length > 200) {
-    throw new ContextThreadError("INVALID_CONTEXT_EVENT", "The event actor needs a display name.");
+    throw new AgentThreadError("INVALID_THREAD_EVENT", "The event actor needs a display name.");
   }
-  const serializedPayload = validatePayload(params.kind, params.payload);
+  let serializedPayload: string;
+  try {
+    serializedPayload = validatePayload(params.kind, params.payload);
+  } catch (error) {
+    if (error instanceof ContextThreadError) {
+      throw new AgentThreadError("INVALID_THREAD_EVENT", error.message);
+    }
+    throw error;
+  }
 
   const row = await params.prisma.$transaction(async (tx: any) => {
-    const incremented = await tx.agentContext.updateMany({
-      where: { id: params.contextId, drawingId: params.drawingId },
+    const incremented = await tx.agentThread.updateMany({
+      where: { id: params.threadId, drawingId: params.drawingId },
       data: { nextEventSequence: { increment: 1 } },
     });
     if (incremented.count !== 1) {
-      throw new ContextThreadError("CONTEXT_NOT_FOUND", "Agent Context does not exist.");
+      throw new AgentThreadError("THREAD_NOT_FOUND", "Agent thread does not exist.");
     }
-    const context = await tx.agentContext.findUniqueOrThrow({
-      where: { id: params.contextId },
+    const thread = await tx.agentThread.findUniqueOrThrow({
+      where: { id: params.threadId },
       select: { nextEventSequence: true },
     });
     if (params.kind === "edit" || params.kind === "retract") {
       const referencedId =
         params.kind === "edit" ? params.payload.supersedes : params.payload.retracts;
-      const referenced = await tx.agentContextEvent.findFirst({
-        where: { id: referencedId as string, contextId: params.contextId },
+      const referenced = await tx.agentThreadEvent.findFirst({
+        where: { id: referencedId as string, threadId: params.threadId },
         select: { eventKind: true },
       });
       if (!referenced || !(ROOT_EVENTS as readonly string[]).includes(referenced.eventKind)) {
-        throw new ContextThreadError(
-          "INVALID_CONTEXT_EVENT",
-          `${params.kind} must reference a message/tool/status/artifact/dispatch event in the same Context, not another correction.`,
+        throw new AgentThreadError(
+          "INVALID_THREAD_EVENT",
+          `${params.kind} must reference a message/tool/status/artifact/dispatch event in the same thread, not another correction.`,
         );
       }
     }
-    return tx.agentContextEvent.create({
+    return tx.agentThreadEvent.create({
       data: {
-        contextId: params.contextId,
-        sequence: context.nextEventSequence,
+        threadId: params.threadId,
+        sequence: thread.nextEventSequence,
         actorKind: params.actor.kind,
         actorId: params.actor.id ?? null,
         actorDisplayName: params.actor.displayName.trim(),
@@ -213,6 +232,73 @@ export const appendContextThreadEvent = async (params: {
   return toEntry(row);
 };
 
+export const listAgentThreadEvents = async (params: {
+  prisma: any;
+  drawingId: string;
+  threadId: string;
+  afterSequence?: number;
+  limit?: number;
+}): Promise<AgentThreadEntry[]> => {
+  const thread = await params.prisma.agentThread.findFirst({
+    where: { id: params.threadId, drawingId: params.drawingId },
+    select: { id: true },
+  });
+  if (!thread) {
+    throw new AgentThreadError("THREAD_NOT_FOUND", "Agent thread does not exist.");
+  }
+  const rows = await params.prisma.agentThreadEvent.findMany({
+    where: {
+      threadId: params.threadId,
+      sequence: { gt: Math.max(0, params.afterSequence ?? 0) },
+    },
+    orderBy: { sequence: "asc" },
+    take: Math.min(200, Math.max(1, params.limit ?? 100)),
+  });
+  return rows.map(toEntry);
+};
+
+const contextThread = async (params: {
+  prisma: any;
+  drawingId: string;
+  contextId: string;
+}): Promise<string> => {
+  const context = await params.prisma.agentContext.findFirst({
+    where: { id: params.contextId, drawingId: params.drawingId },
+    select: { thread: { select: { id: true } } },
+  });
+  if (!context?.thread) {
+    throw new ContextThreadError("CONTEXT_NOT_FOUND", "Agent Context does not exist.");
+  }
+  return context.thread.id;
+};
+
+const asContextEntry = (contextId: string, entry: AgentThreadEntry): ContextThreadEntry => ({
+  ...entry,
+  contextId,
+});
+
+export const appendContextThreadEvent = async (params: {
+  prisma: any;
+  drawingId: string;
+  contextId: string;
+  actor: { kind: ActorKind; id?: string | null; displayName: string };
+  kind: EventKind;
+  payload: Record<string, unknown>;
+}): Promise<ContextThreadEntry> => {
+  const threadId = await contextThread(params);
+  try {
+    return asContextEntry(params.contextId, await appendAgentThreadEvent({ ...params, threadId }));
+  } catch (error) {
+    if (error instanceof AgentThreadError) {
+      throw new ContextThreadError(
+        error.code === "THREAD_NOT_FOUND" ? "CONTEXT_NOT_FOUND" : "INVALID_CONTEXT_EVENT",
+        error.message,
+      );
+    }
+    throw error;
+  }
+};
+
 export const listContextThreadEvents = async (params: {
   prisma: any;
   drawingId: string;
@@ -220,22 +306,16 @@ export const listContextThreadEvents = async (params: {
   afterSequence?: number;
   limit?: number;
 }): Promise<ContextThreadEntry[]> => {
-  const context = await params.prisma.agentContext.findFirst({
-    where: { id: params.contextId, drawingId: params.drawingId },
-    select: { id: true },
-  });
-  if (!context) {
-    throw new ContextThreadError("CONTEXT_NOT_FOUND", "Agent Context does not exist.");
-  }
-  const rows = await params.prisma.agentContextEvent.findMany({
-    where: {
-      contextId: params.contextId,
-      sequence: { gt: Math.max(0, params.afterSequence ?? 0) },
-    },
-    orderBy: { sequence: "asc" },
-    take: Math.min(200, Math.max(1, params.limit ?? 100)),
-  });
-  return rows.map(toEntry);
+  const threadId = await contextThread(params);
+  return (
+    await listAgentThreadEvents({
+      prisma: params.prisma,
+      drawingId: params.drawingId,
+      threadId,
+      afterSequence: params.afterSequence,
+      limit: params.limit,
+    })
+  ).map((entry) => asContextEntry(params.contextId, entry));
 };
 
 /**
@@ -247,15 +327,17 @@ export const listContextThreadEvents = async (params: {
  * all -- the one guarantee a reader of this state actually needs is that a
  * retracted root's original content never leaks back out.
  */
-export type ResolvedContextThreadEntry = {
+export type ResolvedThreadEntry<T extends AgentThreadEntry = AgentThreadEntry> = {
   /** The root event, always present, never mutated. */
-  original: ContextThreadEntry;
+  original: T;
   status: "active" | "edited" | "retracted";
   /** Present only when `status === "edited"`: the latest edit event. */
-  currentEdit: ContextThreadEntry | null;
+  currentEdit: T | null;
   /** Every edit event found for this root, in sequence order (for a history view). */
-  edits: readonly ContextThreadEntry[];
+  edits: readonly T[];
 };
+
+export type ResolvedContextThreadEntry = ResolvedThreadEntry<ContextThreadEntry>;
 
 /**
  * The one place that decides what a root event currently means, given every
@@ -267,13 +349,11 @@ export type ResolvedContextThreadEntry = {
  * retract can reference a root far earlier than any reasonable page size, and
  * resolving against a partial window would silently under-correct.
  */
-export const resolveThreadState = (
-  events: readonly ContextThreadEntry[],
-): ResolvedContextThreadEntry[] => {
+export const resolveThreadState = <T extends AgentThreadEntry>(
+  events: readonly T[],
+): ResolvedThreadEntry<T>[] => {
   const roots = events
-    .filter((event): event is ContextThreadEntry & { kind: RootEventKind } =>
-      (ROOT_EVENTS as readonly string[]).includes(event.kind),
-    )
+    .filter((event) => (ROOT_EVENTS as readonly string[]).includes(event.kind))
     .sort((left, right) => left.sequence - right.sequence);
 
   const correctionsFor = (rootId: string) =>
@@ -310,6 +390,38 @@ export const resolveThreadState = (
  * not a page of it (see `resolveThreadState`).
  */
 const PAGE_LIMIT = 200;
+
+const listAllAgentThreadEvents = async (params: {
+  prisma: any;
+  drawingId: string;
+  threadId: string;
+}): Promise<AgentThreadEntry[]> => {
+  const all: AgentThreadEntry[] = [];
+  let afterSequence = 0;
+  for (;;) {
+    const page = await listAgentThreadEvents({ ...params, afterSequence, limit: PAGE_LIMIT });
+    all.push(...page);
+    if (page.length < PAGE_LIMIT) return all;
+    afterSequence = page[page.length - 1]!.sequence;
+  }
+};
+
+export const listResolvedAgentThreadEvents = async (params: {
+  prisma: any;
+  drawingId: string;
+  threadId: string;
+}): Promise<ResolvedThreadEntry[]> => resolveThreadState(await listAllAgentThreadEvents(params));
+
+export const resolveAgentThreadForRun = async (params: {
+  prisma: any;
+  drawingId: string;
+  threadId: string;
+}): Promise<AgentThreadEntry[]> => {
+  const resolved = await listResolvedAgentThreadEvents(params);
+  return resolved
+    .filter((entry) => entry.status !== "retracted")
+    .map((entry) => entry.currentEdit ?? entry.original);
+};
 
 /**
  * Pages through `listContextThreadEvents` until exhausted. `limit` there is

@@ -13,6 +13,12 @@ import {
   publishBoardAgentFocus,
   publishBoardAgentRuntime,
 } from "./socketPresence";
+import {
+  BOARD_AGENT_THREAD_EVENT_APPENDED_EVENT,
+  BOARD_AGENT_THREAD_UPDATED_EVENT,
+  publishBoardAgentThreadEvent,
+  publishBoardAgentThreadUpdated,
+} from "./socketAgentThreads";
 
 const secret = "agent-presence-test-secret";
 const tokenFor = (userId: string) =>
@@ -112,12 +118,38 @@ describe("private Agent Presence audience", () => {
         status: "working",
       } satisfies BoardAgentRuntimePresenceEvent,
     });
+    const privateThread = {
+      id: "thread-private",
+      drawingId: "drawing-1",
+      audience: { kind: "private", userId: "owner-user" } as const,
+      title: "Local orchestrator thread",
+      anchor: { kind: "private", x: 10, y: 20 } as const,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    };
+    publishBoardAgentThreadUpdated({ io: io as any, presences, thread: privateThread });
+    publishBoardAgentThreadEvent({
+      io: io as any,
+      presences,
+      thread: privateThread,
+      event: {
+        id: "thread-event-private",
+        threadId: privateThread.id,
+        sequence: 1,
+        actor: { kind: "user", id: "owner-user", displayName: "Owner" },
+        kind: "message",
+        payload: { text: "private" },
+        createdAt: new Date(0).toISOString(),
+      },
+    });
 
     const guardedEvents = new Set([
       BOARD_AGENT_FOCUS_STARTED_EVENT,
       BOARD_AGENT_FOCUS_FINISHED_EVENT,
       BOARD_AGENT_RUNTIME_EVENT,
       BOARD_AGENT_PRESENCE_EVENT,
+      BOARD_AGENT_THREAD_UPDATED_EVENT,
+      BOARD_AGENT_THREAD_EVENT_APPENDED_EVENT,
     ]);
     const deliveredTo = (socketId: string) =>
       io.emissions.filter(
@@ -129,6 +161,8 @@ describe("private Agent Presence audience", () => {
         BOARD_AGENT_FOCUS_FINISHED_EVENT,
         BOARD_AGENT_RUNTIME_EVENT,
         BOARD_AGENT_PRESENCE_EVENT,
+        BOARD_AGENT_THREAD_UPDATED_EVENT,
+        BOARD_AGENT_THREAD_EVENT_APPENDED_EVENT,
       ]),
     );
     expect(deliveredTo("foreign-socket")).toEqual([]);

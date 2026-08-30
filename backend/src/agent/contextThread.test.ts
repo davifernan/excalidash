@@ -27,8 +27,6 @@ describe("context thread: append-only event log", () => {
   });
 
   beforeEach(async () => {
-    await prisma.agentContextEvent.deleteMany({});
-    await prisma.agentContext.deleteMany({});
     await cleanupTestDb(prisma);
     const user = await createTestUser(prisma, `contextthread-${Date.now()}@example.com`);
     userId = user.id;
@@ -40,6 +38,16 @@ describe("context thread: append-only event log", () => {
       data: { drawingId, frameElementId: "frame-1" },
     });
     contextId = context.id;
+    await prisma.agentThread.create({
+      data: {
+        id: contextId,
+        drawingId,
+        threadKind: "context",
+        audienceKind: "drawing",
+        contextId,
+        title: "Context thread",
+      },
+    });
   });
 
   const append = (
@@ -62,12 +70,13 @@ describe("context thread: append-only event log", () => {
   const readStoredRow = (overrides: Record<string, unknown>) =>
     listContextThreadEvents({
       prisma: {
-        agentContext: { findFirst: async () => ({ id: contextId }) },
-        agentContextEvent: {
+        agentContext: { findFirst: async () => ({ thread: { id: contextId } }) },
+        agentThread: { findFirst: async () => ({ id: contextId }) },
+        agentThreadEvent: {
           findMany: async () => [
             {
               id: "stored-event-1",
-              contextId,
+              threadId: contextId,
               sequence: 1,
               actorKind: "agent",
               actorId: null,
@@ -175,6 +184,7 @@ describe("context thread: append-only event log", () => {
 
     it("resolveThreadState is a pure function of its input (no hidden dependency on fetch order)", () => {
       const base = {
+        threadId: contextId,
         contextId,
         actor: { kind: "agent" as const, id: null, displayName: "Agent" },
         createdAt: new Date().toISOString(),
@@ -213,9 +223,9 @@ describe("context thread: append-only event log", () => {
   });
 
   it("fails loudly when a persisted row is corrupt instead of inventing a placeholder event", async () => {
-    await prisma.agentContextEvent.create({
+    await prisma.agentThreadEvent.create({
       data: {
-        contextId,
+        threadId: contextId,
         sequence: 1,
         actorKind: "agent",
         actorDisplayName: "Research Agent",
@@ -232,9 +242,9 @@ describe("context thread: append-only event log", () => {
   it("identifies an unreadable persisted payload without logging any payload content", async () => {
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
-      await prisma.agentContextEvent.create({
+      await prisma.agentThreadEvent.create({
         data: {
-          contextId,
+          threadId: contextId,
           sequence: 1,
           actorKind: "agent",
           actorDisplayName: "Research Agent",
@@ -248,7 +258,7 @@ describe("context thread: append-only event log", () => {
       );
 
       const logged = stderr.mock.calls.map(([chunk]) => String(chunk)).join("\n");
-      expect(logged).toContain("Stored Agent Context event is corrupt");
+      expect(logged).toContain("Stored Agent thread event is corrupt");
       expect(logged).toContain(contextId);
       expect(logged).not.toContain("LEAKME42");
     } finally {
@@ -275,7 +285,7 @@ describe("context thread: append-only event log", () => {
 
       expect(caught).toBeInstanceOf(ContextThreadCorruptionError);
       const observable = `${logged}\n${String(caught)}`;
-      expect(observable).toContain("Stored Agent Context event is corrupt");
+      expect(observable).toContain("Stored Agent thread event is corrupt");
       expect(observable).not.toContain(marker);
     }
   });
