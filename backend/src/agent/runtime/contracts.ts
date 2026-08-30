@@ -34,6 +34,12 @@ export type AgentRuntimeConnection = {
   audience: RuntimeConnectionAudience;
   profiles: readonly AgentRuntimeProfile[];
   policyCapabilities: readonly AgentRuntimeCapability[];
+  /** Server-only audit identity plus the safe immutable display snapshot. */
+  costBearer: {
+    ownerKind: "operator" | "user";
+    ownerId: string;
+    label: string;
+  };
   /** Adapter-private configuration. Gateway and route code must not inspect it. */
   adapterConfig: unknown;
 };

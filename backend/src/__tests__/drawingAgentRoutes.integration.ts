@@ -390,6 +390,10 @@ describe("Agent operations routes (NIL-382)", () => {
       effectiveCapabilities: ["agent:run", "board:write"],
       budget: { maxRuntimeMs: 60_000 },
       expectedArtifacts: ["Board update"],
+      runtimeConnection: {
+        id: "test-runtime",
+        costBearer: { ownerKind: "operator", ownerId: "test-operator", label: "Test operator" },
+      },
       runId,
       leases: [{ contextId: context.id, leaseGeneration }],
       runtimeRequest: {

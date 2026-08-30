@@ -32,6 +32,7 @@ export class AgentRuntimeGateway {
         id: connection.id,
         label: connection.label,
         audience: { kind: connection.audience.kind },
+        costBearer: { label: connection.costBearer.label },
         profiles: connection.profiles,
         health: await this.registry
           .resolve(connection.id, userId)
@@ -53,7 +54,13 @@ export class AgentRuntimeGateway {
     connectionId: string;
     profileId: string;
     approvedCapabilities: readonly string[];
-  }): { effectiveCapabilities: AgentRuntimeCapability[] } {
+  }): {
+    effectiveCapabilities: AgentRuntimeCapability[];
+    runtimeConnection: {
+      id: string;
+      costBearer: { ownerKind: "operator" | "user"; ownerId: string; label: string };
+    };
+  } {
     const resolved = this.registry.resolve(params.connectionId, params.principal.userId);
     if (!resolved.connection.profiles.some((profile) => profile.id === params.profileId)) {
       throw new AgentRuntimeError(
@@ -74,7 +81,13 @@ export class AgentRuntimeGateway {
         "The effective capability set does not grant agent:run.",
       );
     }
-    return { effectiveCapabilities };
+    return {
+      effectiveCapabilities,
+      runtimeConnection: {
+        id: resolved.connection.id,
+        costBearer: { ...resolved.connection.costBearer },
+      },
+    };
   }
 
   async start(params: {

@@ -21,6 +21,7 @@ const connection = (
   audience,
   profiles: [],
   policyCapabilities: [],
+  costBearer: { ownerKind: "operator", ownerId: "test-operator", label: "Test operator" },
   adapterConfig: {},
 });
 

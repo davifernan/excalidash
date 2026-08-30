@@ -337,6 +337,7 @@ export const registerDrawingOrchestratorThreadRoutes = (
           effectiveCapabilities: planned.effectiveCapabilities,
           budget: parsed.data.budget,
           expectedArtifacts: parsed.data.expectedArtifacts,
+          runtimeConnection: planned.runtimeConnection,
           runId,
           leases: admittedLeases.map((lease) => ({
             contextId: lease.contextId,

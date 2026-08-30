@@ -42,6 +42,9 @@ export type DispatchReceiptProjection = {
   lastObservedAt: string | null;
   executionTerminalAt: string | null;
   effectTerminalAt: string | null;
+  executionReason: string | null;
+  /** The owner id never crosses the public DTO boundary. */
+  costBearer: { label: string };
   effectEvidence: Record<string, unknown> | null;
   startDeadlineAt: string;
   livenessDeadlineAt: string;
@@ -97,6 +100,7 @@ const toReceipt = (row: any): DispatchReceiptProjection => ({
   effectiveCapabilities: parseArray(row.effectiveCapabilities),
   budget: parseObject(row.budget) ?? {},
   expectedArtifacts: parseArray(row.expectedArtifacts),
+  costBearer: { label: row.costBearerLabel },
   runId: row.runId,
   leases: row.leases,
   admission: row.admissionStatus,
@@ -107,6 +111,7 @@ const toReceipt = (row: any): DispatchReceiptProjection => ({
   lastObservedAt: row.lastObservedAt?.toISOString() ?? null,
   executionTerminalAt: row.executionTerminalAt?.toISOString() ?? null,
   effectTerminalAt: row.effectTerminalAt?.toISOString() ?? null,
+  executionReason: row.executionReasonCode ?? null,
   effectEvidence: parseObject(row.effectEvidence),
   startDeadlineAt: row.startDeadlineAt.toISOString(),
   livenessDeadlineAt: row.livenessDeadlineAt.toISOString(),
@@ -171,6 +176,10 @@ export const acceptDispatchReceipt = async (params: {
   effectiveCapabilities: string[];
   budget: Record<string, unknown>;
   expectedArtifacts: string[];
+  runtimeConnection: {
+    id: string;
+    costBearer: { ownerKind: "operator" | "user"; ownerId: string; label: string };
+  };
   runId: string;
   leases: Array<{ contextId: string; leaseGeneration: string }>;
   runtimeRequest: {
@@ -271,6 +280,10 @@ export const acceptDispatchReceipt = async (params: {
         effectiveCapabilities: canonicalJson([...new Set(params.effectiveCapabilities)].sort()),
         budget: canonicalJson(params.budget),
         expectedArtifacts: canonicalJson(params.expectedArtifacts),
+        runtimeConnectionId: params.runtimeConnection.id,
+        costBearerOwnerKind: params.runtimeConnection.costBearer.ownerKind,
+        costBearerOwnerId: params.runtimeConnection.costBearer.ownerId,
+        costBearerLabel: params.runtimeConnection.costBearer.label,
         runId: params.runId,
         startDeadlineAt,
         livenessDeadlineAt,
@@ -424,7 +437,12 @@ export const failDispatchBeforeRuntimeAck = async (params: {
       executionStatus: "failed",
       kind: "runtime.failed",
       payload: { reasonCode: params.reasonCode },
-      data: { executionTerminalAt: now, effectStatus: "failed", effectTerminalAt: now },
+      data: {
+        executionTerminalAt: now,
+        executionReasonCode: params.reasonCode,
+        effectStatus: "failed",
+        effectTerminalAt: now,
+      },
       now,
     });
     if (!receipt) return null;
@@ -516,7 +534,7 @@ export const reconcileDispatchReceipt = async (params: {
         executionStatus: "outcome_unknown",
         kind: "runtime.outcome_unknown",
         payload: { reasonCode: "START_ACK_DEADLINE_ELAPSED" },
-        data: { executionTerminalAt: now },
+        data: { executionTerminalAt: now, executionReasonCode: "START_ACK_DEADLINE_ELAPSED" },
         now,
       });
       await tx.agentDispatchOutbox.updateMany({
@@ -538,7 +556,7 @@ export const reconcileDispatchReceipt = async (params: {
         executionStatus: "outcome_unknown",
         kind: "runtime.outcome_unknown",
         payload: { reasonCode: "LIVENESS_DEADLINE_ELAPSED" },
-        data: { executionTerminalAt: now },
+        data: { executionTerminalAt: now, executionReasonCode: "LIVENESS_DEADLINE_ELAPSED" },
         now,
       });
     }

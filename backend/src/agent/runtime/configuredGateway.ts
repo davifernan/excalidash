@@ -17,6 +17,11 @@ export const createConfiguredAgentRuntimeGateway = (
           audience: { kind: "installation" as const },
           profiles: config.herdr.profiles.map(({ id, label }) => ({ id, label })),
           policyCapabilities: ["agent:read", "agent:run", "agent:prompt"] as const,
+          costBearer: {
+            ownerKind: "operator" as const,
+            ownerId: config.herdr.operatorId,
+            label: config.herdr.operatorLabel,
+          },
           adapterConfig: config.herdr,
         },
       ]

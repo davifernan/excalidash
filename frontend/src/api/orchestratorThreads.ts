@@ -44,6 +44,8 @@ export type PublicDispatchReceipt = {
     | "cancelled"
     | "outcome_unknown";
   effect: "not_requested" | "pending" | "committed" | "rejected" | "failed";
+  executionReason: string | null;
+  costBearer: { label: string };
   acceptedAt: string;
   lastObservedAt: string | null;
   effectEvidence: Record<string, unknown> | null;

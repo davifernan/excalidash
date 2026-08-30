@@ -83,10 +83,17 @@ The direct Herdr connection is enabled only when all three variables are present
 AGENT_RUNTIME_HERDR_SOCKET_PATH=/run/user/1000/herdr.sock
 AGENT_RUNTIME_HERDR_WORKING_DIRECTORY=/srv/excalidash-agent-workspace
 AGENT_RUNTIME_HERDR_PROFILES='[{"id":"codex","label":"Codex","agentKind":"codex","args":[]}]'
+AGENT_RUNTIME_OPERATOR_ID=installation
+AGENT_RUNTIME_OPERATOR_LABEL='Instance operator'
 ```
 
 Profiles are an administrator allowlist; callers choose an ID, not an executable or arbitrary
 arguments. Between one and twenty profiles are accepted.
+
+`AGENT_RUNTIME_OPERATOR_ID` is a server-only stable audit mapping. It is never emitted in a
+route, socket payload, log, or mount handoff. `AGENT_RUNTIME_OPERATOR_LABEL` is a trusted,
+human-readable cost-bearer snapshot: the Board shows it before dispatch, while work is active,
+and in the durable receipt history. It is not a provider token or a money/token estimate.
 
 NIL-683 is still undecided. This package therefore does **not** select, document as supported,
 or silently implement any socket mount, SSH tunnel, remote TCP listener, laptop discovery,

@@ -21,6 +21,7 @@ export type AgentRuntimeConnection = {
   id: string;
   label: string;
   audience: { kind: "installation" | "user" };
+  costBearer: { label: string };
   profiles: Array<{ id: string; label: string }>;
   health: { connected: boolean; status: "connected" | "disconnected" };
 };

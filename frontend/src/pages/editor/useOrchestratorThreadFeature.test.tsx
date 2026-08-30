@@ -389,6 +389,8 @@ describe("useOrchestratorThreadFeature", () => {
       admission: "accepted" as const,
       execution: "running" as const,
       effect: "pending" as const,
+      executionReason: null,
+      costBearer: { label: "Instance operator" },
       acceptedAt: "2026-08-30T02:00:00.000Z",
       lastObservedAt: "2026-08-30T02:02:00.000Z",
       effectEvidence: null,
@@ -584,6 +586,7 @@ describe("useOrchestratorThreadFeature", () => {
         id: "runtime-1",
         label: "Runtime",
         audience: { kind: "installation" },
+        costBearer: { label: "Instance operator" },
         profiles: [{ id: "profile-1", label: "Profile" }],
         health: { connected: true, status: "connected" },
       },
@@ -618,7 +621,9 @@ describe("useOrchestratorThreadFeature", () => {
       fireEvent.change(screen.getByLabelText("Agent runtime profile"), {
         target: { value: "profile-1" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Dispatch publicly" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Dispatch via Runtime · charged to Instance operator" }),
+      );
     };
     const receipt = (id: string): threadApi.PublicDispatchReceipt => ({
       id,
@@ -634,6 +639,8 @@ describe("useOrchestratorThreadFeature", () => {
       admission: "accepted",
       execution: "queued",
       effect: "pending",
+      executionReason: null,
+      costBearer: { label: "Test operator" },
       acceptedAt: "2026-08-30T02:00:00.000Z",
       lastObservedAt: null,
       effectEvidence: null,
