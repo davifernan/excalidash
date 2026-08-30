@@ -22,10 +22,11 @@ const fixture = "src/__tests__/prismaClientResolutionFixture.test.ts";
 // `exports` map rejects a direct `require.resolve("vitest/vitest.mjs")`),
 // so the executable is located relative to the package root instead
 // (NIL-624).
-const vitestCli = path.join(
-  path.dirname(require.resolve("vitest/package.json", { paths: [backendRoot] })),
-  "vitest.mjs",
-);
+const resolveVitestCli = () =>
+  path.join(
+    path.dirname(require.resolve("vitest/package.json", { paths: [root, backendRoot] })),
+    "vitest.mjs",
+  );
 const invalidPackageFixture = path.join(
   root,
   "scripts",
@@ -39,6 +40,8 @@ if (!fs.existsSync(packageJson)) {
   );
   process.exit(0);
 }
+
+const vitestCli = resolveVitestCli();
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nil703-resolution-diagnostic-"));
 const backup = path.join(tempRoot, "package.json.backup");
