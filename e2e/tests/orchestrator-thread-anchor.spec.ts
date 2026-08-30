@@ -109,13 +109,25 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     // The invitation is visual guidance, not a modal surface. A normal canvas
     // gesture that starts over its body must still reach Excalidraw; only the
     // explicit Place-thread button is interactive DOM chrome.
-    await page.locator("canvas.excalidraw__canvas.interactive").click({
-      position: { x: 1100, y: 600 },
-    });
+    const invitationBox = await invitation.boundingBox();
+    expect(invitationBox).not.toBeNull();
+    const invitationCenter = {
+      x: invitationBox!.x + invitationBox!.width / 2,
+      y: invitationBox!.y + invitationBox!.height / 2,
+    };
+    const gestureEnd = {
+      x: invitationCenter.x + 180,
+      y: invitationCenter.y + 80,
+    };
+
+    // Both the focus click and the drawing gesture start at the measured
+    // centre of the invitation. This is a pass-through assertion, not a click
+    // on conveniently empty canvas beside the surface under test.
+    await page.mouse.click(invitationCenter.x, invitationCenter.y);
     await page.keyboard.press("r");
-    await page.mouse.move(400, 300);
+    await page.mouse.move(invitationCenter.x, invitationCenter.y);
     await page.mouse.down();
-    await page.mouse.move(600, 380, { steps: 8 });
+    await page.mouse.move(gestureEnd.x, gestureEnd.y, { steps: 8 });
     await page.mouse.up();
 
     await expect
