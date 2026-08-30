@@ -20,7 +20,14 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-const { evaluateBareTagSafety, readVersion, checkRepo, SEMVER_PATTERN } = require("./release-tag-guard.cjs");
+const {
+  evaluateBareTagSafety,
+  parseReleaseClaims,
+  evaluateChangelogDelivery,
+  readVersion,
+  checkRepo,
+  SEMVER_PATTERN,
+} = require("./release-tag-guard.cjs");
 
 function git(args, cwd) {
   execFileSync("git", args, { cwd, stdio: "pipe" });
@@ -96,6 +103,130 @@ test("SEMVER_PATTERN matches only X.Y.Z", () => {
   assert.equal(SEMVER_PATTERN.test("0.7"), false);
   assert.equal(SEMVER_PATTERN.test("v0.7.0"), false);
   assert.equal(SEMVER_PATTERN.test("0.7.0-dev"), false);
+});
+
+const CHANGELOG_WITH_SOURCES = `# Changelog
+
+## v1.2.3 -- 2026-08-30
+
+<!-- release-source: #10 -->
+This release has a delivered summary claim.
+
+### Added
+
+<!-- release-source: #10 -->
+- A delivered feature is visible to people using the product.
+
+### Fixed
+
+<!-- release-source: #11 -->
+- A delivered repair now works.
+`;
+
+function mergedDelivery(mergeCommit = "a".repeat(40)) {
+  return {
+    state: "MERGED",
+    mergeCommit,
+    body: "User-Facing: A delivered feature is visible to people using the product.",
+  };
+}
+
+test("parseReleaseClaims keeps visible changelog claims attached to their source markers", () => {
+  const parsed = parseReleaseClaims(CHANGELOG_WITH_SOURCES, "1.2.3");
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.claims.map((claim) => claim.sources), [[10], [10], [11]]);
+});
+
+test("RED: the original v0.17 prose would have exposed both unmarked claims", () => {
+  const historical = `# Changelog
+
+## v0.17.0 -- 2026-08-30
+
+This is the first release in which an agent can actually be started.
+
+### Added
+
+- Bring your own computer: pair a personal machine as an outbound runtime.
+`;
+  const result = evaluateChangelogDelivery({
+    version: "0.17.0",
+    changelog: historical,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.findings.length, 2);
+  assert.match(result.findings[0], /first release in which an agent can actually be started/);
+  assert.match(result.findings[1], /Bring your own computer/);
+});
+
+test("RED: a changelog claim sourced from an unmerged PR is rejected", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES.replace("#10", "#288"),
+    getDelivery: (number) =>
+      number === 288
+        ? { state: "OPEN", mergeCommit: null, body: "User-Facing: An unshipped feature." }
+        : mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /#288.*not merged/);
+});
+
+test("RED: an unmarked visible changelog claim is rejected instead of assumed delivered", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES.replace("<!-- release-source: #10 -->\n", ""),
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /has no release-source marker/);
+});
+
+test("RED: a marker cannot cross a subsection boundary to cover a later claim", () => {
+  const changelog = `# Changelog
+
+## v1.2.3 -- 2026-08-30
+
+### Added
+
+<!-- release-source: #10 -->
+### Fixed
+
+- An unrelated claim must not inherit the marker.
+`;
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /section heading instead of a claim/);
+  assert.match(result.findings[1], /has no release-source marker/);
+});
+
+test("a marker immediately before its own claim is accepted", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => true,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("RED: a merged PR outside the checked history cannot source a release claim", () => {
+  const result = evaluateChangelogDelivery({
+    version: "1.2.3",
+    changelog: CHANGELOG_WITH_SOURCES,
+    getDelivery: () => mergedDelivery(),
+    isAncestor: () => false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0], /not an ancestor/);
 });
 
 // --- End-to-end cases against a disposable git repository ---

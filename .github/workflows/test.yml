@@ -43,7 +43,9 @@ jobs:
       # holds by accident stops holding the moment somebody renames a file.
       - name: Check the real-auth E2E spec isolation list
         run: node scripts/real-auth-boundary.cjs
-      - name: Check the release tag guard (VERSION vs. a same-named foreign tag, NIL-507)
+      - name: Check release tag and changelog delivery guards
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/release-tag-guard.cjs
       - name: Prove the release tag guard rejects what it claims to
         run: node scripts/release-tag-guard.test.cjs
