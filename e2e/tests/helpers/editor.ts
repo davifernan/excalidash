@@ -462,22 +462,38 @@ export const activateDocumentWidget = async (
       const overlay = document.createElement("div");
       overlay.dataset.e2eActivationBlocker = "true";
       Object.assign(overlay.style, {
-        position: "fixed", left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px`,
-        zIndex: "2147483647", pointerEvents: "auto", background: "transparent",
+        position: "fixed",
+        left: `${x}px`,
+        top: `${y}px`,
+        width: `${width}px`,
+        height: `${height}px`,
+        zIndex: "2147483647",
+        pointerEvents: "auto",
+        background: "transparent",
       });
       document.body.appendChild(overlay);
     }, box);
   }
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   try {
-    await page.waitForFunction(() => {
-      const widget = document.querySelector(".text-document-widget");
-      const inner = widget?.closest(".excalidraw__embeddable-container__inner");
-      return inner instanceof HTMLElement && getComputedStyle(inner).pointerEvents !== "none";
-    }, undefined, { timeout });
+    await page.waitForFunction(
+      () => {
+        const widget = document.querySelector(".text-document-widget");
+        const inner = widget?.closest(".excalidraw__embeddable-container__inner");
+        return (
+          inner instanceof HTMLElement &&
+          getComputedStyle(inner).pointerEvents !== "none" &&
+          !document.querySelector('[data-e2e-activation-blocker="true"]')
+        );
+      },
+      undefined,
+      { timeout },
+    );
   } finally {
     if (options?.blockActivation) {
-      await page.locator('[data-e2e-activation-blocker="true"]').evaluateAll((nodes) => nodes.forEach((n) => n.remove()));
+      await page
+        .locator('[data-e2e-activation-blocker="true"]')
+        .evaluateAll((nodes) => nodes.forEach((n) => n.remove()));
     }
   }
 };
