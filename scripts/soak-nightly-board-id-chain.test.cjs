@@ -102,9 +102,17 @@ test("every part_N>1's board_id input references a job listed in that same job's
 
 test("aggregate fails rather than reporting success when any required part failed, was cancelled, or was skipped", () => {
   const workflowSource = fs.readFileSync(WORKFLOW_PATH, "utf8");
-  const aggregateGuard =
-    /name: Fail the aggregate when a required soak part did not pass[\s\S]*?if: contains\(needs\.\*\.result, 'failure'\) \|\| contains\(needs\.\*\.result, 'cancelled'\) \|\| contains\(needs\.\*\.result, 'skipped'\)[\s\S]*?exit 1/.test(
-      workflowSource,
-    );
-  assert.ok(aggregateGuard, "a failed, cancelled, or skipped required part must fail Aggregate + report");
+  const requiredPartDidNotPass =
+    "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')";
+
+  assert.ok(
+    workflowSource.includes(`if: ${requiredPartDidNotPass}`),
+    "a failed, cancelled, or skipped required part must fail Aggregate + report",
+  );
+  assert.ok(
+    workflowSource.includes(
+      `--status="\${{ (${requiredPartDidNotPass} || steps.aggregate.outcome == 'failure') && 'failed' || 'passed' }}"`,
+    ),
+    "the tracking-issue notification must also report a failed, cancelled, or skipped required part as failed",
+  );
 });
