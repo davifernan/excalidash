@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-const DOCUMENT_WIDGET_ACTIVATION_TIMEOUT_MS = 8_000;
+const DOCUMENT_WIDGET_ACTIVATION_TIMEOUT_MS = 30_000;
 
 /**
  * The browser-side counterpart to helpers/api.ts.

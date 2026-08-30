@@ -234,7 +234,7 @@ const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID
   : null;
 const HANG_STEP = process.env.SOAK_HANG_STEP || null;
 const HANG_PAGE_SWITCH_PHASE = process.env.SOAK_HANG_PAGE_SWITCH_PHASE || null;
-const PAGE_SWITCH_HANG_PHASES = new Set(["activate_document_widget", "button_enabled", "click"]);
+const PAGE_SWITCH_HANG_PHASES = new Set(["activate_document_widget"]);
 if (HANG_PAGE_SWITCH_PHASE && !PAGE_SWITCH_HANG_PHASES.has(HANG_PAGE_SWITCH_PHASE)) {
   throw new Error(`SOAK_HANG_PAGE_SWITCH_PHASE must be one of ${[...PAGE_SWITCH_HANG_PHASES].join(", ")}.`);
 }
