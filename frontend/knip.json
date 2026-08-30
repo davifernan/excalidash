@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/**/*.{test,spec}.{ts,tsx}"],
+  "entry": ["src/**/*.{test,spec}.{ts,tsx}", "scripts/**/*.{js,mjs,cjs,ts}"],
   "ignoreDependencies": [
     "decode-named-character-reference",
     "@excalidash/domain",
