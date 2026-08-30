@@ -476,7 +476,9 @@ export const activateDocumentWidget = async (
       return inner instanceof HTMLElement && getComputedStyle(inner).pointerEvents !== "none";
     }, undefined, { timeout });
   } finally {
-    await page.locator('[data-e2e-activation-blocker="true"]').evaluateAll((nodes) => nodes.forEach((n) => n.remove()));
+    if (options?.blockActivation) {
+      await page.locator('[data-e2e-activation-blocker="true"]').evaluateAll((nodes) => nodes.forEach((n) => n.remove()));
+    }
   }
 };
 

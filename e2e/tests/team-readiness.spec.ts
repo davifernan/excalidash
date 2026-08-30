@@ -204,6 +204,9 @@ import {
  *                        image_over / page_switch / offline_toggle /
  *                        network_chaos. Only meaningful together with
  *                        SOAK_HANG_ACTOR_ID; see above.
+ *   SOAK_HANG_PAGE_SWITCH_PHASE  test-only: activate_document_widget;
+ *                        forces that actor into page_switch and recreates
+ *                        the unbounded activation wait for watchdog proof.
  *   SOAK_PAGE_SWITCH_CLICK_TIMEOUT_MS  default 5000 -- bound on the "Next
  *                        page" click specifically (see "Does page_switch
  *                        move or get covered?" above).
@@ -328,7 +331,7 @@ type PageSwitchTrace = {
   /** Written before the first browser operation, so a non-returning call is
    * evidence rather than an absent trace. */
   phase: "activate_document_widget" | "button_enabled" | "click" | "complete";
-  outcome: "started" | "clicked" | "not_visible" | "timeout" | "error";
+  outcome: "started" | "clicked" | "disabled" | "timeout" | "error";
   samples: ButtonSample[];
   /** True when the first and last position samples differ by more than a
    * few pixels -- the button relocated while we were waiting on it. */
@@ -597,7 +600,12 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
       await enterPhase("activate_document_widget");
       try {
         await activateDocumentWidget(actor.page, {
-          timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS,
+          // The deterministic regression recreates NIL-694's original
+          // unbounded activation wait so the watchdog, not the phase limit,
+          // must name the active phase. Ordinary soaks retain the 8s budget.
+          timeout: actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget"
+            ? 0
+            : PAGE_SWITCH_PHASE_TIMEOUT_MS,
           blockActivation: actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget",
         });
       // Paging backward sometimes, not just forward: both buttons stay
@@ -620,7 +628,7 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
         await enterPhase("button_enabled");
         const enabled = await button.isEnabled({ timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS });
         if (!enabled) {
-          trace.outcome = "not_visible";
+          trace.outcome = "disabled";
           trace.phase = "complete";
           break;
         }
