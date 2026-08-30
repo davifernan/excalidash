@@ -86,6 +86,8 @@ interface UpdateCheckConfig {
 }
 
 export type AgentRuntimeConfig = {
+  /** Outbound daemons older than this are rejected before a session is opened. */
+  daemonMinimumVersion: string;
   /** Null means the board remains fully usable with no runtime attached. */
   herdr: {
     socketPath: string;
@@ -556,10 +558,17 @@ const resolveS3Config = (): S3Config => ({
 });
 
 const resolveAgentRuntimeConfig = (): AgentRuntimeConfig => {
+  const daemonMinimumVersion =
+    getOptionalTrimmedEnv("AGENT_RUNTIME_DAEMON_MIN_VERSION") ?? "0.16.0";
+  if (!/^\d+\.\d+\.\d+$/.test(daemonMinimumVersion)) {
+    throw new Error("AGENT_RUNTIME_DAEMON_MIN_VERSION must be a stable semantic version");
+  }
   const socketPath = getOptionalTrimmedEnv("AGENT_RUNTIME_HERDR_SOCKET_PATH");
   const workingDirectory = getOptionalTrimmedEnv("AGENT_RUNTIME_HERDR_WORKING_DIRECTORY");
   const rawProfiles = getOptionalTrimmedEnv("AGENT_RUNTIME_HERDR_PROFILES");
-  if (!socketPath && !workingDirectory && !rawProfiles) return { herdr: null };
+  if (!socketPath && !workingDirectory && !rawProfiles) {
+    return { daemonMinimumVersion, herdr: null };
+  }
   if (!socketPath || !workingDirectory || !rawProfiles) {
     throw new Error(
       "AGENT_RUNTIME_HERDR_SOCKET_PATH, AGENT_RUNTIME_HERDR_WORKING_DIRECTORY and AGENT_RUNTIME_HERDR_PROFILES must be configured together",
@@ -618,7 +627,10 @@ const resolveAgentRuntimeConfig = (): AgentRuntimeConfig => {
   if (operatorId.length > 128 || operatorLabel.length > 120) {
     throw new Error("AGENT_RUNTIME_OPERATOR_ID and AGENT_RUNTIME_OPERATOR_LABEL are too long");
   }
-  return { herdr: { socketPath, workingDirectory, profiles, operatorId, operatorLabel } };
+  return {
+    daemonMinimumVersion,
+    herdr: { socketPath, workingDirectory, profiles, operatorId, operatorLabel },
+  };
 };
 
 export const config: Config = {

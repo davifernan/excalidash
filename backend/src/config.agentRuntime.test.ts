@@ -7,6 +7,7 @@ const RUNTIME_KEYS = [
   "AGENT_RUNTIME_HERDR_PROFILES",
   "AGENT_RUNTIME_OPERATOR_ID",
   "AGENT_RUNTIME_OPERATOR_LABEL",
+  "AGENT_RUNTIME_DAEMON_MIN_VERSION",
 ] as const;
 
 const loadConfig = async () => {
@@ -24,7 +25,7 @@ describe("Agent Runtime config", () => {
 
     const { config } = await loadConfig();
 
-    expect(config.agentRuntime).toEqual({ herdr: null });
+    expect(config.agentRuntime).toEqual({ daemonMinimumVersion: "0.16.0", herdr: null });
   });
 
   it("accepts an allowlisted co-located Herdr connection", async () => {
@@ -89,5 +90,11 @@ describe("Agent Runtime config", () => {
     ]);
 
     await expect(loadConfig()).rejects.toThrow("ids must be unique");
+  });
+
+  it("requires a stable semantic minimum for outbound daemons", async () => {
+    for (const key of RUNTIME_KEYS) delete process.env[key];
+    process.env.AGENT_RUNTIME_DAEMON_MIN_VERSION = "latest";
+    await expect(loadConfig()).rejects.toThrow("stable semantic version");
   });
 });

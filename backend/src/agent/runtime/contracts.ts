@@ -50,6 +50,8 @@ export type RuntimeHealth = {
 };
 
 export type RuntimeStartInput = {
+  /** Stable server assignment identity. Retries of one assignment keep this value. */
+  assignmentId: string;
   profileId: string;
   displayName: string;
   initialPrompt?: string;

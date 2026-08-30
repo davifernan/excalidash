@@ -41,6 +41,7 @@ describe("Herdr runtime adapter", () => {
     };
     const adapter = new HerdrAgentRuntimeAdapter(transport);
     const result = await adapter.start(connection, {
+      assignmentId: "assignment-1",
       profileId: "review",
       displayName: "Research",
       initialPrompt: "Inspect the board context",
@@ -84,6 +85,7 @@ describe("Herdr runtime adapter", () => {
       });
     const adapter = new HerdrAgentRuntimeAdapter({ request, subscribe: vi.fn() });
     await adapter.start(connection, {
+      assignmentId: "dispatch-1",
       profileId: "review",
       displayName: "Research",
       runId: "run-public",

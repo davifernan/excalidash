@@ -28,6 +28,13 @@ test.describe("board Agent Runtime panel", () => {
     await expect(page.getByTestId("agent-runtime-panel")).toContainText(
       "The board remains available",
     );
+    await expect(page.getByTestId("agent-runtime-panel")).toContainText(
+      "never opens a connection to your computer",
+    );
+    await page.getByRole("button", { name: "Create one-use pairing" }).click();
+    await expect(page.getByTestId("agent-runtime-panel").locator("code")).toContainText(
+      "excalidash-runtime-daemon pair",
+    );
     await expect(page.locator(".excalidraw__canvas.interactive")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("runtime-not-connected.png") });
   });
@@ -38,10 +45,11 @@ test.describe("board Agent Runtime panel", () => {
         json: {
           connections: [
             {
-              id: "runtime",
-              label: "Herdr",
-              audience: { kind: "installation" },
-              profiles: [{ id: "review", label: "Review" }],
+              id: "daemon:alice-laptop",
+              label: "Alice's laptop",
+              audience: { kind: "user" },
+              costBearer: { label: "Alice" },
+              profiles: [{ id: "codex", label: "Codex CLI" }],
               health: { connected: true, status: "connected" },
             },
           ],
@@ -77,8 +85,12 @@ test.describe("board Agent Runtime panel", () => {
     await openEditor(page, drawingId);
     await openAgents(page);
     const panel = page.getByTestId("agent-runtime-panel");
-    await expect(panel.getByRole("combobox").nth(0)).toHaveValue("runtime");
-    await expect(panel.getByRole("combobox").nth(1)).toHaveValue("review");
+    await expect(panel.getByRole("combobox").nth(0)).toHaveValue("daemon:alice-laptop");
+    await expect(panel.getByRole("combobox").nth(1)).toHaveValue("codex");
+    await expect(panel).toContainText("Cost bearer");
+    await expect(panel).toContainText("Alice");
+    await expect(panel).toContainText("Your paired runtime");
+    await page.screenshot({ path: testInfo.outputPath("runtime-cost-bearer.png") });
     await panel.getByRole("button", { name: "Start agent" }).click();
     await expect(panel).toContainText("Board agent");
     await expect(panel).toContainText("working");

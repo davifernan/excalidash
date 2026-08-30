@@ -94,6 +94,132 @@
   color: var(--color-on-surface-secondary, #868e96);
   font-size: 12px;
 }
+.agent-runtime-panel__empty--pairing {
+  justify-items: stretch;
+}
+.agent-runtime-panel__empty--pairing > strong,
+.agent-runtime-panel__empty--pairing > span {
+  text-align: center;
+}
+.agent-runtime-panel__pairing {
+  display: grid;
+  width: 100%;
+  box-sizing: border-box;
+  border-top: 1px solid var(--color-surface-low, #e9ecef);
+  padding-top: 10px;
+  text-align: left;
+}
+.agent-runtime-panel__pairing[open] {
+  gap: 8px;
+}
+.agent-runtime-panel__pairing label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.agent-runtime-panel__pairing input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-surface-low, #e9ecef);
+  border-radius: 7px;
+  padding: 8px;
+  background: var(--color-surface-mid, #f8f9fa);
+  color: inherit;
+  font: inherit;
+}
+.agent-runtime-panel__pairing summary,
+.agent-runtime-panel__pairing button,
+.agent-runtime-panel__devices li,
+.agent-runtime-panel__cost {
+  display: flex;
+  align-items: center;
+}
+.agent-runtime-panel__pairing summary {
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.agent-runtime-panel__pairing p {
+  margin: 0;
+  color: var(--color-on-surface-secondary, #868e96);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.agent-runtime-panel__pairing > button,
+.agent-runtime-panel__pairing-code button {
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--color-surface-low, #e9ecef);
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: var(--color-surface-mid, #f8f9fa);
+  color: inherit;
+  cursor: pointer;
+}
+.agent-runtime-panel__pairing-code {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+.agent-runtime-panel__pairing-code code {
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--color-surface-mid, #f8f9fa);
+  font-size: 11px;
+}
+.agent-runtime-panel__load-error {
+  display: grid;
+  gap: 7px;
+  border-radius: 7px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--color-danger, #e03131) 10%, transparent);
+  color: var(--color-on-surface, #1b1b1f);
+  font-size: 12px;
+}
+.agent-runtime-panel__load-error button {
+  justify-content: center;
+  border: 1px solid var(--color-surface-low, #e9ecef);
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: var(--color-surface-mid, #f8f9fa);
+  color: inherit;
+  cursor: pointer;
+}
+.agent-runtime-panel__devices {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-runtime-panel__devices li {
+  justify-content: space-between;
+  gap: 8px;
+}
+.agent-runtime-panel__devices li span,
+.agent-runtime-panel__cost {
+  display: grid;
+  gap: 2px;
+}
+.agent-runtime-panel__devices li button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.agent-runtime-panel__devices small,
+.agent-runtime-panel__cost small,
+.agent-runtime-panel__cost > span {
+  color: var(--color-on-surface-secondary, #868e96);
+  font-size: 11px;
+}
+.agent-runtime-panel__cost {
+  border-radius: 7px;
+  padding: 8px;
+  background: var(--color-surface-mid, #f8f9fa);
+}
 .agent-runtime-panel__run {
   gap: 10px;
 }

@@ -99,6 +99,7 @@ export class AgentRuntimeGateway {
     displayName: string;
     initialPrompt?: string;
     approvedCapabilities: readonly string[];
+    assignmentId?: string;
     runId?: string;
     dispatchId?: string;
     boardMount?: RuntimeStartInput["boardMount"];
@@ -108,6 +109,7 @@ export class AgentRuntimeGateway {
 
     const runId = params.runId ?? crypto.randomUUID();
     const runtimeRun = await resolved.adapter.start(resolved.connection, {
+      assignmentId: params.assignmentId ?? params.dispatchId ?? runId,
       profileId: params.profileId,
       displayName: params.displayName,
       initialPrompt: params.initialPrompt,
