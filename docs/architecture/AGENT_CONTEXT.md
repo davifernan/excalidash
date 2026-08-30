@@ -141,6 +141,11 @@ Dispatch-Grenze); das Modul entscheidet ihn nie selbst und lässt keinen Renew d
 
 ## Freigabe-Gates
 
+Die ausführbaren, vorab registrierten Fixtures, Abläufe, Gegenversuche,
+Entscheidungsregeln und Nachweisorte stehen in
+[`AGENT_CONTEXT_GATE_RUNBOOK.md`](AGENT_CONTEXT_GATE_RUNBOOK.md) (NIL-701).
+Dieses Runbook führt kein Gate durch und ist kein Bestehensnachweis.
+
 ### Gate 1 — Trägt der Board-Mount? (nach NIL-671)
 
 Vor dem Versuch werden ein Board-Fixture, eine Frage und die richtige Antwort festgeschrieben.

@@ -392,6 +392,19 @@ jobs:
           cd backend
           npx prisma generate
 
+      # NIL-703: this job crashed twice with "Failed Suites 1" naming an
+      # unrelated test file and zero failed assertions -- both times the
+      # actual cause was `backend/src/generated/client/package.json` being
+      # unreadable, not anything the named test did. Catch that here, in one
+      # line, right after the step that produces the client, instead of
+      # letting the next occurrence cost another twenty minutes in test logs
+      # where nothing failed.
+      - name: Verify the generated Prisma client is usable
+        run: node scripts/prisma-client-integrity.cjs
+
+      - name: Prove the Prisma client integrity check rejects what it claims to
+        run: node scripts/prisma-client-integrity.test.cjs
+
       - name: Check the backend logging boundary
         run: node scripts/logging-boundary.cjs
 
