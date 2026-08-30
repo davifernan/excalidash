@@ -123,6 +123,71 @@ describe("OrchestratorThreadOverlay", () => {
     expect(screen.getByRole("textbox")).toHaveValue("");
   });
 
+  it("never renders runtime completion as confirmed public effect and exposes visible backpressure", () => {
+    const callbacks = { ...handlers(), onDispatch: vi.fn() };
+    const openSurface = surface({
+      clusters: [],
+      active: {
+        anchor: anchor("shared-alpha", 100),
+        placement: {
+          mode: "anchored",
+          panelRect: { left: 340, top: 100, right: 700, bottom: 650 },
+          direction: null,
+          distance: 0,
+        },
+      },
+      backpressure: { blocked: true, occupiedRatio: 0.72, message: "Too many visible anchors" },
+    });
+    render(
+      <OrchestratorThreadOverlay
+        surface={openSurface}
+        panelView={{
+          threadId: "shared-alpha",
+          audience: "drawing",
+          loading: false,
+          sending: false,
+          canWrite: true,
+          error: null,
+          events: [],
+          receipts: [
+            {
+              id: "receipt-1",
+              drawingId: "drawing-1",
+              publicThreadId: "shared-alpha",
+              originVisibility: "private",
+              objectiveSummary: "Publish the approved comparison",
+              targetContextIds: ["context-1"],
+              revisionId: "revision-1",
+              effectiveCapabilities: ["agent:run", "board:write"],
+              expectedArtifacts: ["Board update"],
+              runId: "run-1",
+              admission: "accepted",
+              execution: "succeeded",
+              effect: "pending",
+              acceptedAt: "2026-08-30T02:00:00.000Z",
+              lastObservedAt: "2026-08-30T02:01:00.000Z",
+              effectEvidence: null,
+            },
+          ],
+          dispatch: {
+            publicThreadId: "shared-alpha",
+            contexts: [{ id: "context-1", frameElementId: "frame-1" }],
+            connections: [],
+            submitting: false,
+            blocked: true,
+          },
+        }}
+        {...callbacks}
+      />,
+    );
+
+    expect(screen.getByText("Execution finished · publication pending")).toBeVisible();
+    expect(screen.queryByText("Effect confirmed on the board")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Approve a public effect" }));
+    expect(screen.getByText(/Dispatch paused: the Board thread view is saturated/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeDisabled();
+  });
+
   it("renders Board Cards as the closed state and opens the selected identity", () => {
     const callbacks = handlers();
     render(<OrchestratorThreadOverlay surface={surface()} {...callbacks} />);

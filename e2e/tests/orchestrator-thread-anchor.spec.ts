@@ -195,4 +195,97 @@ test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
     await expect(panel.getByText("shared-board-history")).toBeVisible();
     await expect(panel.getByText("private-device-history")).toHaveCount(0);
   });
+
+  test("shows a public receipt without claiming that runtime completion is board effect", async ({
+    page,
+  }, testInfo) => {
+    let dispatchedBody: Record<string, unknown> | null = null;
+    await page.route(`**/drawings/${drawingId}/agent/runtime`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          connections: [
+            {
+              id: "runtime-1",
+              label: "Local runtime",
+              audience: { kind: "installation" },
+              profiles: [{ id: "review", label: "Review" }],
+              health: { connected: true, status: "connected" },
+            },
+          ],
+        }),
+      });
+    });
+    await page.route(`**/drawings/${drawingId}/instruction-contexts`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ contexts: [{ id: "context-1", frameElementId: "Decision frame" }] }),
+      });
+    });
+    await page.route(
+      `**/drawings/${drawingId}/orchestrator-threads/*/dispatches`,
+      async (route) => {
+        if (route.request().method() === "GET") {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: '{"receipts":[]}',
+          });
+          return;
+        }
+        dispatchedBody = route.request().postDataJSON();
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify({
+            receipt: {
+              id: "receipt-1",
+              drawingId,
+              publicThreadId: (dispatchedBody as any).publicThreadId,
+              originVisibility: "private",
+              objectiveSummary: (dispatchedBody as any).objectiveSummary,
+              targetContextIds: ["context-1"],
+              revisionId: "revision-1",
+              effectiveCapabilities: ["agent:run", "board:write"],
+              expectedArtifacts: ["Board update"],
+              runId: "run-1",
+              admission: "accepted",
+              execution: "succeeded",
+              effect: "pending",
+              acceptedAt: "2026-08-30T03:00:00.000Z",
+              lastObservedAt: "2026-08-30T03:01:00.000Z",
+              effectEvidence: null,
+            },
+          }),
+        });
+      },
+    );
+
+    await openEditor(page, drawingId);
+    await page.getByRole("button", { name: "Start a local thread" }).click();
+    const panel = page.getByTestId("orchestrator-thread-panel");
+    await panel.getByLabel("Message this audience").fill("private-token-LEAKME-NIL679");
+    await panel.getByRole("button", { name: "Send message" }).click();
+    await expect(panel.getByText("private-token-LEAKME-NIL679")).toBeVisible();
+    await panel.getByRole("button", { name: "Close orchestrator thread" }).click();
+    await page.getByRole("button", { name: "Place shared thread here" }).click();
+    await panel.getByRole("button", { name: "Local" }).click();
+
+    await panel.getByRole("button", { name: "Approve a public effect" }).click();
+    await panel.getByLabel("Approved public objective").fill("Publish the approved comparison");
+    await panel.getByLabel("Public effect Context").selectOption("context-1");
+    await panel.getByLabel("Agent runtime connection").selectOption("runtime-1");
+    await panel.getByLabel("Agent runtime profile").selectOption("review");
+    await panel.getByRole("button", { name: "Dispatch publicly" }).click();
+
+    const pendingEffect = panel.getByText("Execution finished · publication pending");
+    await expect(pendingEffect).toBeVisible();
+    await expect(panel.getByText("Effect confirmed on the board")).toHaveCount(0);
+    expect(JSON.stringify(dispatchedBody)).not.toContain("private-token-LEAKME-NIL679");
+    await page.screenshot({
+      path: testInfo.outputPath("dispatch-receipt-publication-pending.png"),
+    });
+  });
 });

@@ -35,6 +35,12 @@ import {
   assertDrawingStillEditable,
   DrawingAccessRevokedError,
 } from "./drawingTransactionAuthorization";
+import {
+  commitDispatchBoardEffect,
+  DispatchReceiptError,
+  type DispatchReceiptProjection,
+} from "../../agent/dispatchReceipt";
+import { publishBoardAgentDispatchReceipt } from "../../server/socketDispatchReceipts";
 
 /**
  * The exclusive route surface a drawing-bound agent token (NIL-382) may
@@ -277,6 +283,7 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
 
       const versionConflictError = new Error("VERSION_CONFLICT");
       let updatedDrawing: typeof existingDrawing | null = null;
+      let committedDispatchReceipt: DispatchReceiptProjection | null = null;
 
       try {
         updatedDrawing = await prisma.$transaction(async (tx) => {
@@ -324,6 +331,24 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
             ...elementMutation,
           });
 
+          if (parsed.data.dispatchReceipt) {
+            const mountCapabilityToken = req.header("x-agent-mount-token");
+            if (!mountCapabilityToken || mountCapabilityToken.length > 256) {
+              throw new DispatchReceiptError(
+                "DISPATCH_EFFECT_NOT_ALLOWED",
+                "A public dispatch effect requires its mounted run capability.",
+              );
+            }
+            committedDispatchReceipt = await commitDispatchBoardEffect({
+              tx,
+              drawingId: id,
+              dispatchId: parsed.data.dispatchReceipt.id,
+              runId: parsed.data.dispatchReceipt.runId,
+              mountCapabilityToken,
+              drawingVersion: existingDrawing.version + 1,
+            });
+          }
+
           await captureSnapshotAssets(tx, snapshot.id, id);
           await syncDrawingDocumentState(tx, id, newElements, {
             correlationId: requestIdOf(req),
@@ -337,6 +362,13 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
           return res.status(404).json({ error: "Drawing not found" });
         }
         if (respondWithMountError(res, error)) return;
+        if (error instanceof DispatchReceiptError) {
+          return res.status(error.code === "DISPATCH_EFFECT_NOT_ALLOWED" ? 403 : 409).json({
+            error: "Dispatch effect rejected",
+            code: error.code,
+            message: error.message,
+          });
+        }
         if (error instanceof InvalidDocumentWidgetStateError) {
           return res.status(400).json({
             error: "Invalid document widgets",
@@ -367,6 +399,13 @@ export const registerDrawingAgentRoutes = (app: express.Express, context: Drawin
 
       invalidateDrawingsCache();
       io.to(`drawing_${id}`).emit("drawing-server-update", { drawingId: id });
+      if (committedDispatchReceipt) {
+        publishBoardAgentDispatchReceipt({
+          io,
+          presences: context.presences,
+          receipt: committedDispatchReceipt,
+        });
+      }
 
       return res.json({
         version: updatedDrawing.version,

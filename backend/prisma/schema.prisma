@@ -132,6 +132,7 @@ model Drawing {
   apiKeys                            ApiKey[]
   agentContexts                      AgentContext[]
   agentThreads                       AgentThread[]
+  agentDispatchReceipts              AgentDispatchReceipt[]
   agentRevisions                     AgentBoardRevision[]
   agentRunMounts                     AgentRunMount[]
   agentSemanticRelations             AgentSemanticRelation[]
@@ -199,6 +200,7 @@ model AgentContext {
   instructionApprovals AgentInstructionApproval[]
   lease                ContextLease?
   leaseEvents          ContextLeaseEvent[]
+  dispatchLeases       AgentDispatchLease[]
 
   @@unique([drawingId, frameElementId])
   @@index([drawingId, createdAt])
@@ -225,9 +227,11 @@ model AgentThread {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  drawing Drawing            @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  context AgentContext?      @relation(fields: [contextId], references: [id], onDelete: Cascade)
-  events  AgentThreadEvent[]
+  drawing          Drawing                @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  context          AgentContext?          @relation(fields: [contextId], references: [id], onDelete: Cascade)
+  events           AgentThreadEvent[]
+  dispatchOrigins  AgentDispatchReceipt[] @relation("DispatchOriginThread")
+  dispatchReceipts AgentDispatchReceipt[] @relation("DispatchPublicThread")
 
   // SQLite and PostgreSQL both allow multiple NULLs here: there can be many
   // drawing-audience Context/shared threads, but only one private orchestrator
@@ -359,6 +363,107 @@ model ContextLease {
   @@index([contextId, expiresAt])
 }
 
+/// Durable responsibility record for one approved dispatch whose result may
+/// become visible to the whole drawing. Admission, execution and effect are
+/// deliberately separate: accepting work is never represented as completing
+/// it, and a finished runtime is not proof that a Board write was committed.
+model AgentDispatchReceipt {
+  id                    String    @id @default(uuid())
+  drawingId             String
+  originThreadId        String
+  publicThreadId        String
+  /// Publicly projectable as `private|drawing`; the private thread id itself
+  /// is never included in a drawing-audience DTO.
+  originAudienceKind    String
+  initiatedByUserId     String
+  objectiveSummary      String
+  targetContextIds      String
+  revisionId            String
+  effectiveCapabilities String
+  budget                String
+  expectedArtifacts     String
+  runId                 String    @unique
+  admissionStatus       String    @default("accepted")
+  executionStatus       String    @default("queued")
+  effectStatus          String    @default("pending")
+  runtimeCapability     String?
+  runtimeAcknowledgedAt DateTime?
+  lastObservedAt        DateTime?
+  executionTerminalAt   DateTime?
+  effectTerminalAt      DateTime?
+  effectEvidence        String?
+  startDeadlineAt       DateTime
+  livenessDeadlineAt    DateTime
+  effectDeadlineAt      DateTime
+  nextEventSequence     Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  drawing      Drawing                     @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  originThread AgentThread                 @relation("DispatchOriginThread", fields: [originThreadId], references: [id], onDelete: Cascade)
+  publicThread AgentThread                 @relation("DispatchPublicThread", fields: [publicThreadId], references: [id], onDelete: Cascade)
+  mount        AgentRunMount               @relation(fields: [runId], references: [runId], onDelete: Cascade)
+  leases       AgentDispatchLease[]
+  events       AgentDispatchReceiptEvent[]
+  outbox       AgentDispatchOutbox?
+
+  @@index([drawingId, publicThreadId, createdAt])
+  @@index([executionStatus, startDeadlineAt])
+  @@index([effectStatus, effectDeadlineAt])
+}
+
+/// The exact Context Lease generations admitted for a DispatchReceipt. A
+/// ContextLease row is reused, so the generation (not merely contextId) is the
+/// immutable proof of which grant the dispatch consumed.
+model AgentDispatchLease {
+  dispatchId      String
+  contextId       String
+  leaseGeneration String
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  context  AgentContext         @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@id([dispatchId, contextId])
+  @@index([contextId, leaseGeneration])
+}
+
+/// Append-only evidence behind the receipt projection. Delayed observations
+/// cannot overwrite terminal state: transitions update the receipt and append
+/// one monotonically ordered event in the same transaction.
+model AgentDispatchReceiptEvent {
+  id         String   @id @default(uuid())
+  dispatchId String
+  sequence   Int
+  kind       String
+  payload    String
+  createdAt  DateTime @default(now())
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@unique([dispatchId, sequence])
+  @@index([dispatchId, createdAt])
+}
+
+/// Transactional outbox for crossing from the ExcaliDash database to a
+/// foreign runtime. `sending` is intentionally not blindly retried: after a
+/// crash it is unknown whether the remote runtime started, and a duplicate
+/// agent is worse than an explicit `outcome_unknown` receipt.
+model AgentDispatchOutbox {
+  dispatchId       String    @id
+  state            String    @default("pending")
+  /// Canonical runtime request plus its one-use mount capability. Cleared
+  /// after the only allowed delivery attempt reaches a terminal outbox state.
+  payload          String?
+  attemptStartedAt DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@index([state, createdAt])
+}
+
 /// NIL-680's own coordination trace -- deliberately separate from
 /// AgentThreadEvent/contextThread.ts's narrative log (message/tool/status/
 /// artifact/dispatch), which has its own closed event-kind union and its own
@@ -402,9 +507,10 @@ model AgentRunMount {
   audienceUserId      String?
   createdAt           DateTime @default(now())
 
-  drawing  Drawing            @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  revision AgentBoardRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
-  audits   AgentToolAudit[]
+  drawing         Drawing               @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  revision        AgentBoardRevision    @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  audits          AgentToolAudit[]
+  dispatchReceipt AgentDispatchReceipt?
 
   @@index([drawingId, createdAt])
   @@index([revisionId])

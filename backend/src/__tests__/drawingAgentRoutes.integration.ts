@@ -10,9 +10,12 @@ import request from "supertest";
 import bcrypt from "bcrypt";
 import jwt, { SignOptions } from "jsonwebtoken";
 import { StringValue } from "ms";
+import { randomUUID } from "node:crypto";
 import { PrismaClient } from "../generated/client";
 import { config } from "../config";
 import { getTestPrisma, setupTestDb } from "./testUtils";
+import { sha256Text } from "../agent/canonicalJson";
+import { acceptDispatchReceipt } from "../agent/dispatchReceipt";
 
 describe("Agent operations routes (NIL-382)", () => {
   const userAgent = "vitest-agent-ops-routes";
@@ -175,6 +178,37 @@ describe("Agent operations routes (NIL-382)", () => {
     expect(res.status).toBe(401);
   });
 
+  it("rejects a three-Context public dispatch unless the human explicitly approves fan-out", async () => {
+    const before = await prisma.agentDispatchReceipt.count();
+    const res = await ownerAgent
+      .post(
+        `/drawings/${drawingId}/orchestrator-threads/00000000-0000-4000-8000-000000000001/dispatches`,
+      )
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken)
+      .send({
+        publicThreadId: "00000000-0000-4000-8000-000000000002",
+        objectiveSummary: "Publish three results",
+        targetContextIds: [
+          "00000000-0000-4000-8000-000000000003",
+          "00000000-0000-4000-8000-000000000004",
+          "00000000-0000-4000-8000-000000000005",
+        ],
+        requestedCapabilities: ["agent:run", "board:write"],
+        budget: { maxRuntimeMs: 60_000 },
+        expectedArtifacts: [],
+        connectionId: "default",
+        profileId: "default",
+        displayName: "Fan-out agent",
+        approval: { publicEffect: true },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("FANOUT_APPROVAL_REQUIRED");
+    expect(await prisma.agentDispatchReceipt.count()).toBe(before);
+    expect(await prisma.contextLease.count()).toBe(0);
+  });
+
   it("POST .../agent/ops applies create/update/delete atomically and bumps the version", async () => {
     const before = await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } });
     const version = before.version;
@@ -267,5 +301,149 @@ describe("Agent operations routes (NIL-382)", () => {
         })),
       });
     expect(res.status).toBe(400);
+  });
+
+  it("confirms a public effect only in the same transaction as the real drawing write", async () => {
+    const before = await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } });
+    const frameId = `dispatch-frame-${randomUUID()}`;
+    const elements = [
+      ...JSON.parse(before.elements),
+      { id: frameId, type: "frame", x: 0, y: 0, width: 500, height: 500, isDeleted: false },
+    ];
+    const seeded = await prisma.drawing.update({
+      where: { id: drawingId },
+      data: { elements: JSON.stringify(elements), version: { increment: 1 } },
+    });
+    const context = await prisma.agentContext.create({
+      data: { drawingId, frameElementId: frameId },
+    });
+    const privateThread = await prisma.agentThread.create({
+      data: {
+        drawingId,
+        threadKind: "orchestrator",
+        audienceKind: "private",
+        audienceUserId: owner.id,
+        title: "Local",
+        anchorX: 10,
+        anchorY: 20,
+      },
+    });
+    const publicThread = await prisma.agentThread.create({
+      data: {
+        drawingId,
+        threadKind: "orchestrator",
+        audienceKind: "drawing",
+        title: "Multiplayer",
+        anchorElementId: "thread-card",
+      },
+    });
+    const revision = await prisma.agentBoardRevision.create({
+      data: {
+        drawingId,
+        sourceDrawingVersion: seeded.version,
+        contentHash: `dispatch-${randomUUID()}`,
+        elements: seeded.elements,
+        appState: seeded.appState,
+        files: seeded.files,
+        contextMap: JSON.stringify([{ id: context.id, frameElementId: frameId, pinned: false }]),
+      },
+    });
+    const runId = randomUUID();
+    const dispatchId = randomUUID();
+    const mountToken = `exd_mount_${randomUUID()}`;
+    await prisma.agentRunMount.create({
+      data: {
+        runId,
+        drawingId,
+        revisionId: revision.id,
+        allowedContextIds: JSON.stringify([context.id]),
+        capabilities: JSON.stringify(["board:explore"]),
+        capabilityTokenHash: sha256Text(mountToken),
+        displayName: "Public effect agent",
+        audienceKind: "drawing",
+      },
+    });
+    const leaseGeneration = randomUUID();
+    const now = new Date();
+    await prisma.contextLease.create({
+      data: {
+        contextId: context.id,
+        leaseGeneration,
+        holderOrchestratorId: publicThread.id,
+        initiatedByUserId: owner.id,
+        runId,
+        acquiredAt: now,
+        expiresAt: new Date(now.getTime() + 60_000),
+        endHorizonAt: new Date(now.getTime() + 60_000),
+      },
+    });
+    await acceptDispatchReceipt({
+      prisma,
+      dispatchId,
+      drawingId,
+      originThreadId: privateThread.id,
+      publicThreadId: publicThread.id,
+      initiatedByUserId: owner.id,
+      objectiveSummary: "Move the comparison into the public frame",
+      targetContextIds: [context.id],
+      revisionId: revision.id,
+      effectiveCapabilities: ["agent:run", "board:write"],
+      budget: { maxRuntimeMs: 60_000 },
+      expectedArtifacts: ["Board update"],
+      runId,
+      leases: [{ contextId: context.id, leaseGeneration }],
+      runtimeRequest: {
+        connectionId: "test",
+        profileId: "test",
+        displayName: "Public effect agent",
+        mountCapabilityToken: mountToken,
+        allowedContextIds: [context.id],
+      },
+      effectDeadlineAt: new Date(now.getTime() + 60_000),
+      now,
+    });
+
+    const rejected = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .set("x-agent-mount-token", "wrong-mount-token")
+      .send({
+        version: seeded.version,
+        ops: [{ op: "update", id: "el-1", patch: { x: 44 } }],
+        dispatchReceipt: { id: dispatchId, runId },
+      });
+    expect(rejected.status).toBe(403);
+    expect((await prisma.drawing.findUniqueOrThrow({ where: { id: drawingId } })).version).toBe(
+      seeded.version,
+    );
+    expect(
+      await prisma.agentDispatchReceipt.findUniqueOrThrow({ where: { id: dispatchId } }),
+    ).toMatchObject({ effectStatus: "pending" });
+
+    const res = await request(app)
+      .post(`/drawings/${drawingId}/agent/ops`)
+      .set("Authorization", `Bearer ${agentToken}`)
+      .set("x-agent-mount-token", mountToken)
+      .send({
+        version: seeded.version,
+        ops: [{ op: "update", id: "el-1", patch: { x: 44 } }],
+        dispatchReceipt: { id: dispatchId, runId },
+      });
+    expect(res.status).toBe(200);
+    const persistedReceipt = await prisma.agentDispatchReceipt.findUniqueOrThrow({
+      where: { id: dispatchId },
+    });
+    expect(persistedReceipt).toMatchObject({
+      executionStatus: "queued",
+      effectStatus: "committed",
+    });
+    expect(JSON.parse(persistedReceipt.effectEvidence!)).toEqual({
+      kind: "drawing.version",
+      drawingId,
+      version: seeded.version + 1,
+    });
+    expect(
+      (await prisma.contextLease.findUnique({ where: { contextId: context.id } }))?.releasedAt,
+    ).not.toBeNull();
   });
 });

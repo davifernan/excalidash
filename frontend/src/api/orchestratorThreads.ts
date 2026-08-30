@@ -22,6 +22,42 @@ export type AgentThreadEventDTO = {
   createdAt: string;
 };
 
+export type PublicDispatchReceipt = {
+  id: string;
+  drawingId: string;
+  publicThreadId: string;
+  originVisibility: "private" | "drawing";
+  objectiveSummary: string;
+  targetContextIds: string[];
+  revisionId: string;
+  effectiveCapabilities: string[];
+  expectedArtifacts: string[];
+  runId: string;
+  admission: "accepted" | "rejected";
+  execution:
+    | "queued"
+    | "runtime_acknowledged"
+    | "running"
+    | "blocked"
+    | "succeeded"
+    | "failed"
+    | "cancelled"
+    | "outcome_unknown";
+  effect: "not_requested" | "pending" | "committed" | "rejected" | "failed";
+  acceptedAt: string;
+  lastObservedAt: string | null;
+  effectEvidence: Record<string, unknown> | null;
+};
+
+export type PublicDispatchInput = {
+  publicThreadId: string;
+  objectiveSummary: string;
+  targetContextIds: string[];
+  connectionId: string;
+  profileId: string;
+  displayName: string;
+};
+
 export const getOrchestratorThreads = async (
   drawingId: string,
 ): Promise<OrchestratorThreadDTO[]> => {
@@ -86,3 +122,31 @@ export const appendOrchestratorThreadMessage = async (
   );
   return response.data.event;
 };
+
+export const getPublicDispatchReceipts = async (
+  drawingId: string,
+  publicThreadId: string,
+): Promise<PublicDispatchReceipt[]> =>
+  (
+    await api.get<{ receipts: PublicDispatchReceipt[] }>(
+      `/drawings/${drawingId}/orchestrator-threads/${publicThreadId}/dispatches`,
+    )
+  ).data.receipts;
+
+export const createPublicDispatch = async (
+  drawingId: string,
+  originThreadId: string,
+  input: PublicDispatchInput,
+): Promise<PublicDispatchReceipt> =>
+  (
+    await api.post<{ receipt: PublicDispatchReceipt }>(
+      `/drawings/${drawingId}/orchestrator-threads/${originThreadId}/dispatches`,
+      {
+        ...input,
+        requestedCapabilities: ["agent:read", "agent:run", "board:read", "board:write"],
+        budget: { maxRuntimeMs: 10 * 60_000 },
+        expectedArtifacts: ["Board update"],
+        approval: { publicEffect: true },
+      },
+    )
+  ).data.receipt;

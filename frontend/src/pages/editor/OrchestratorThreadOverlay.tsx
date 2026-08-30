@@ -12,6 +12,9 @@ import {
   X,
 } from "lucide-react";
 import type { AgentThreadEventDTO } from "../../api/orchestratorThreads";
+import type { PublicDispatchReceipt } from "../../api/orchestratorThreads";
+import type { AgentRuntimeConnection } from "../../api/agentRuntime";
+import type { InstructionContext } from "../../api/instructionApprovals";
 import type {
   ClusterNavigation,
   ProjectedThreadAnchor,
@@ -45,6 +48,27 @@ export type OrchestratorThreadPanelView = {
   readonly sending: boolean;
   readonly canWrite: boolean;
   readonly error: string | null;
+  readonly receipts: readonly PublicDispatchReceipt[];
+  readonly dispatch: {
+    readonly publicThreadId: string;
+    readonly contexts: readonly InstructionContext[];
+    readonly connections: readonly AgentRuntimeConnection[];
+    readonly submitting: boolean;
+    readonly blocked: boolean;
+  } | null;
+};
+
+const receiptLabel = (receipt: PublicDispatchReceipt): string => {
+  if (receipt.effect === "committed") return "Effect confirmed on the board";
+  if (receipt.execution === "outcome_unknown") return "Outcome unknown · runtime not observable";
+  if (["failed", "cancelled"].includes(receipt.execution)) return "Execution failed";
+  if (receipt.execution === "succeeded" && receipt.effect === "pending") {
+    return "Execution finished · publication pending";
+  }
+  if (receipt.execution === "running") return "Running · last confirmed by runtime";
+  if (receipt.execution === "blocked") return "Runtime blocked";
+  if (receipt.execution === "runtime_acknowledged") return "Runtime acknowledged";
+  return "Dispatch durably accepted";
 };
 
 const directionIcon = (direction: ThreadPanelPlacement["direction"]) => {
@@ -66,6 +90,7 @@ export const OrchestratorThreadOverlay = ({
   onCreateLocal,
   onSwitchAudience,
   onSendMessage,
+  onDispatch,
 }: {
   readonly surface: OrchestratorThreadSurface;
   readonly onCreate: () => void;
@@ -77,9 +102,20 @@ export const OrchestratorThreadOverlay = ({
   readonly onCreateLocal?: () => void;
   readonly onSwitchAudience?: (audience: "private" | "drawing") => void;
   readonly onSendMessage?: (text: string) => Promise<void> | void;
+  readonly onDispatch?: (input: {
+    objectiveSummary: string;
+    targetContextId: string;
+    connectionId: string;
+    profileId: string;
+  }) => Promise<void> | void;
 }) => {
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [dispatchSummary, setDispatchSummary] = useState("");
+  const [dispatchComposerOpen, setDispatchComposerOpen] = useState(false);
+  const [targetContextId, setTargetContextId] = useState("");
+  const [connectionId, setConnectionId] = useState("");
+  const [profileId, setProfileId] = useState("");
   const byElementId = useMemo(
     () => new Map(surface.anchors.map((item) => [item.elementId, item] as const)),
     [surface.anchors],
@@ -101,7 +137,13 @@ export const OrchestratorThreadOverlay = ({
     // into an implicit publication affordance even though histories remain
     // separate on the server.
     setDraft("");
+    setDispatchSummary("");
+    setDispatchComposerOpen(false);
   }, [panelView?.threadId]);
+
+  const selectedConnection = panelView?.dispatch?.connections.find(
+    (connection) => connection.id === connectionId,
+  );
 
   return (
     <div className="orchestrator-thread-layer" data-testid="orchestrator-thread-layer">
@@ -386,6 +428,149 @@ export const OrchestratorThreadOverlay = ({
                 ))}
                 {panelView.error ? <p role="alert">{panelView.error}</p> : null}
               </div>
+              {(panelView.receipts ?? []).length > 0 ? (
+                <section
+                  className="orchestrator-thread-panel__receipts"
+                  aria-label="Public dispatch receipts"
+                >
+                  <strong>Public responsibility</strong>
+                  {(panelView.receipts ?? []).map((receipt) => (
+                    <article
+                      key={receipt.id}
+                      data-execution={receipt.execution}
+                      data-effect={receipt.effect}
+                    >
+                      <span>{receipt.objectiveSummary}</span>
+                      <strong>{receiptLabel(receipt)}</strong>
+                      <small>
+                        Accepted{" "}
+                        {new Date(receipt.acceptedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </small>
+                    </article>
+                  ))}
+                </section>
+              ) : null}
+              {panelView.canWrite && panelView.dispatch && !dispatchComposerOpen ? (
+                <button
+                  type="button"
+                  className="orchestrator-thread-panel__dispatch-toggle"
+                  onClick={() => setDispatchComposerOpen(true)}
+                >
+                  <Bot size={14} /> Approve a public effect
+                </button>
+              ) : null}
+              {panelView.canWrite && panelView.dispatch && dispatchComposerOpen ? (
+                <form
+                  className="orchestrator-thread-panel__dispatch"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (
+                      panelView.dispatch?.submitting ||
+                      panelView.dispatch?.blocked ||
+                      !dispatchSummary.trim() ||
+                      !targetContextId ||
+                      !connectionId ||
+                      !profileId
+                    )
+                      return;
+                    void Promise.resolve(
+                      onDispatch?.({
+                        objectiveSummary: dispatchSummary.trim(),
+                        targetContextId,
+                        connectionId,
+                        profileId,
+                      }),
+                    ).then(() => {
+                      setDispatchSummary("");
+                      setDispatchComposerOpen(false);
+                    });
+                  }}
+                >
+                  <strong>Approve a public effect</strong>
+                  <small>
+                    Only this summary becomes shared responsibility. Local messages are never
+                    published.
+                  </small>
+                  {panelView.dispatch.blocked ? (
+                    <p role="status">Dispatch paused: the Board thread view is saturated.</p>
+                  ) : null}
+                  <textarea
+                    aria-label="Approved public objective"
+                    placeholder="What may the agent make public?"
+                    value={dispatchSummary}
+                    onChange={(event) => setDispatchSummary(event.target.value)}
+                    maxLength={2_000}
+                    rows={2}
+                  />
+                  <select
+                    aria-label="Public effect Context"
+                    value={targetContextId}
+                    onChange={(event) => setTargetContextId(event.target.value)}
+                  >
+                    <option value="">Choose Context…</option>
+                    {panelView.dispatch.contexts.map((context) => (
+                      <option key={context.id} value={context.id}>
+                        {context.frameElementId}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Agent runtime connection"
+                    value={connectionId}
+                    onChange={(event) => {
+                      setConnectionId(event.target.value);
+                      setProfileId("");
+                    }}
+                  >
+                    <option value="">Choose runtime…</option>
+                    {panelView.dispatch.connections
+                      .filter((connection) => connection.health.connected)
+                      .map((connection) => (
+                        <option key={connection.id} value={connection.id}>
+                          {connection.label}
+                        </option>
+                      ))}
+                  </select>
+                  <select
+                    aria-label="Agent runtime profile"
+                    value={profileId}
+                    onChange={(event) => setProfileId(event.target.value)}
+                  >
+                    <option value="">Choose profile…</option>
+                    {selectedConnection?.profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={
+                      panelView.dispatch.submitting ||
+                      panelView.dispatch.blocked ||
+                      !dispatchSummary.trim() ||
+                      !targetContextId ||
+                      !connectionId ||
+                      !profileId
+                    }
+                  >
+                    {panelView.dispatch.submitting ? "Dispatching…" : "Dispatch publicly"}
+                  </button>
+                  <button
+                    type="button"
+                    className="orchestrator-thread-panel__dispatch-cancel"
+                    onClick={() => {
+                      setDispatchComposerOpen(false);
+                      setDispatchSummary("");
+                    }}
+                  >
+                    Cancel public approval
+                  </button>
+                </form>
+              ) : null}
               {panelView.canWrite ? (
                 <form
                   className="orchestrator-thread-panel__composer"
@@ -403,7 +588,7 @@ export const OrchestratorThreadOverlay = ({
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                       maxLength={10_000}
-                      rows={2}
+                      rows={1}
                     />
                     <button
                       type="submit"

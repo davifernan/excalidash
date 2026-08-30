@@ -246,6 +246,25 @@ wird aus belegter sichtbarer Fläche statt aus einer festen Fadenzahl abgeleitet
 Backpressure sichtbar gemacht; Read-only-Arbeit bleibt möglich. Der vollständige ausführbare
 UI-Vertrag steht in [`ORCHESTRATOR_THREAD_ANCHOR.md`](ORCHESTRATOR_THREAD_ANCHOR.md).
 
+### NIL-679: Was quittiert öffentliche Orchestrator-Wirkung?
+
+Lokaler und Multiplayer-Faden sind getrennte, unveränderliche Audiences. Ein Wechsel öffnet
+eine andere serverseitig gefilterte Historie; er konvertiert oder veröffentlicht keine
+Nachricht. Ein öffentlicher Dispatch aus einem lokalen Faden benötigt eine ausdrückliche zweite
+Geste und schreibt vor jedem Runtime-Signal ein gemeinsames `DispatchReceipt`, das nur die
+genehmigte Zusammenfassung offenlegt.
+
+Das Receipt ist kein Erfolgsbeleg. `admission`, `execution` und `effect` entwickeln sich
+getrennt. Runtime-Schweigen oder verlorene Beobachtbarkeit wird nach einer Serverfrist
+`outcome_unknown`; ein geschlossenes Event-Stream ist niemals Erfolg. `effect=committed`
+entsteht ausschließlich in derselben Transaktion wie die autoritative Board-Mutation, nach
+erneuter Prüfung des Run-Mounts und der unveränderten Lease-Generationen. Der persistente
+Outbox-Versuch wird vor dem Fremdaufruf auf `sending` gesetzt und danach nie blind wiederholt.
+Damit konkretisiert NIL-679 V4 auch zeitlich: delegierte Rechte dürfen nach Entzug nicht
+fortdauern, und unklare Fremdzustände dürfen keine öffentliche Wirkung behaupten. Der UI- und
+Zustandsvertrag steht in
+[`ORCHESTRATOR_THREAD_ANCHOR.md`](ORCHESTRATOR_THREAD_ANCHOR.md#dispatchreceipt-verantwortung-statt-erfolgsbadge).
+
 ### NIL-683: Für wen wird die Runtime gebaut?
 
 Offen: nur für selbstgehosteten, co-lokalen Einzelbetrieb oder für mehrere Menschen mit eigenen

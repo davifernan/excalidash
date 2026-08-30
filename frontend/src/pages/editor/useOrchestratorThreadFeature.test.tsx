@@ -18,6 +18,12 @@ vi.mock("../../api/orchestratorThreads", () => ({
   getOrchestratorThreadEvents: vi.fn(async () => []),
   registerSharedOrchestratorThread: vi.fn(),
   appendOrchestratorThreadMessage: vi.fn(),
+  getPublicDispatchReceipts: vi.fn(async () => []),
+  createPublicDispatch: vi.fn(),
+}));
+vi.mock("../../api/agentRuntime", () => ({ getAgentRuntimeConnections: vi.fn(async () => []) }));
+vi.mock("../../api/instructionApprovals", () => ({
+  getInstructionContexts: vi.fn(async () => []),
 }));
 
 const viewportState = {
