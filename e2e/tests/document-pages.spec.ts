@@ -111,9 +111,12 @@ const finishResponsivenessProbe = (page: Page) =>
  * 59.0 to 69.9 ms in three local pathological-document runs, while the CI
  * incident samples were below 20 ms and had only isolated maximum spikes.
  * 80 ms is deliberately above that measured local spread, yet a sustained
- * main-thread regression still lifts p95 beyond it on every trial.
+ * main-thread regression still lifts p95 beyond it on every trial. A separate
+ * 800 ms maximum stays above the observed 240-390 ms runner outliers but
+ * catches a single user-visible main-thread freeze.
  */
 const MAX_P95_GAP_MS = 80;
+const MAX_FREEZE_GAP_MS = 800;
 
 type ResponsivenessTrial = { samples: number; p95GapMs: number; maxGapMs: number };
 
@@ -155,19 +158,24 @@ const runResponsivenessTrial = async (
 const RESPONSIVENESS_TRIALS = 3;
 const RESPONSIVENESS_TRIALS_REQUIRED = 2;
 
-const trialIsUnderBudget = (trial: ResponsivenessTrial): boolean => trial.p95GapMs < MAX_P95_GAP_MS;
+const trialHasHealthyP95 = (trial: ResponsivenessTrial): boolean => trial.p95GapMs < MAX_P95_GAP_MS;
+
+const trialHasNoFreeze = (trial: ResponsivenessTrial): boolean =>
+  trial.maxGapMs < MAX_FREEZE_GAP_MS;
 
 /**
  * Two of three trials under budget, not the first sample alone (NIL-592).
  *
  * NIL-592 introduced the majority rule because a single runner outlier is
- * not a sustained responsiveness regression. NIL-697 replaces the former
- * absolute maximum with p95: a lone GC/scheduler pause belongs in maxGap for
- * diagnostics, while repeated main-thread blocking raises the p95 in enough
- * trials to fail this contract.
+ * not a sustained responsiveness regression. NIL-697 keeps two distinct
+ * signals: two healthy p95 values catch repeated degradation while tolerating
+ * one noisy trial; every maximum must remain below the higher freeze ceiling
+ * because p95 alone hides its worst sample. Neither may replace the other:
+ * a low maximum alone measures runner jitter instead of the product.
  */
 export const passesResponsivenessBudget = (trials: readonly ResponsivenessTrial[]): boolean =>
-  trials.filter((trial) => trialIsUnderBudget(trial)).length >= RESPONSIVENESS_TRIALS_REQUIRED;
+  trials.every(trialHasNoFreeze) &&
+  trials.filter(trialHasHealthyP95).length >= RESPONSIVENESS_TRIALS_REQUIRED;
 
 test.describe("responsiveness budget: two of three trials, not one absolute sample (NIL-592)", () => {
   test("stays green on the actual incident measurement (509.9 ms) alongside two ordinary trials", () => {
@@ -177,6 +185,15 @@ test.describe("responsiveness budget: two of three trials, not one absolute samp
       { samples: 39, p95GapMs: 11, maxGapMs: 470 },
     ];
     expect(passesResponsivenessBudget(trials)).toBe(true);
+  });
+
+  test("goes red on one freeze even when every p95 is healthy", () => {
+    const trials: ResponsivenessTrial[] = [
+      { samples: 40, p95GapMs: 12, maxGapMs: 900 },
+      { samples: 41, p95GapMs: 10, maxGapMs: 120 },
+      { samples: 39, p95GapMs: 11, maxGapMs: 130 },
+    ];
+    expect(passesResponsivenessBudget(trials)).toBe(false);
   });
 
   test("goes red on a genuine regression that blocks every trial, not just one", () => {
