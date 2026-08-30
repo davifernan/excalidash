@@ -391,6 +391,7 @@ jobs:
         run: |
           cd backend
           npx prisma generate
+          node -e 'const fs = require("node:fs"); fs.writeFileSync(`${process.env.RUNNER_TEMP}/nil-703-prisma-generate.json`, `${JSON.stringify({ finishedAt: new Date().toISOString(), pid: process.pid, cwd: process.cwd() })}\n`);'
 
       # NIL-703: this job crashed twice with "Failed Suites 1" naming an
       # unrelated test file and zero failed assertions -- both times the
@@ -417,7 +418,16 @@ jobs:
           npm test
         env:
           POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/excalidash_test
+          NIL703_PRISMA_GENERATE_MARKER: ${{ runner.temp }}/nil-703-prisma-generate.json
+          NIL703_PRISMA_DIAGNOSTIC_DIR: ${{ runner.temp }}/nil-703-prisma-client-resolution
 
+      - name: Upload Prisma client-resolution diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nil-703-prisma-client-resolution
+          path: ${{ runner.temp }}/nil-703-prisma-client-resolution
+          if-no-files-found: ignore
   frontend-unit-tests:
     name: Frontend Unit Tests
     runs-on: ubuntu-latest
