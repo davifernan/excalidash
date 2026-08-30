@@ -14,8 +14,12 @@ services:
   # Backend API server
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      # Repo root as build context, same reason as the frontend service
+      # below: `backend/Dockerfile` COPYs root-level `package.json`/
+      # `package-lock.json` and all three workspace `package.json`s (NIL-636's
+      # root Workspace restructuring), not just `backend/`'s own files.
+      context: ..
+      dockerfile: backend/Dockerfile
     environment:
       # Use an absolute sqlite path so Prisma CLI + the running app always point
       # at the same DB file (avoids schema being applied to a different relative path).

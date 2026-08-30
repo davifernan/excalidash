@@ -45,6 +45,22 @@ jobs:
         run: node scripts/release-tag-guard.cjs
       - name: Prove the release tag guard rejects what it claims to
         run: node scripts/release-tag-guard.test.cjs
+      # Named explicitly, same reasoning as real-auth-boundary.cjs above:
+      # `node --test scripts/*.test.cjs` only runs the counterprobe
+      # (duplicate-object-keys.test.cjs), never the guard itself. Two silent
+      # duplicate keys (vite.config.ts's `resolve:`, knip.json's
+      # `ignoreDependencies`) reached this branch before this guard existed;
+      # a guard nobody calls would not have stopped either one (NIL-636).
+      - name: Check for duplicate top-level config keys (JSON/JS/TS/YAML)
+        run: node scripts/duplicate-object-keys.cjs
+      # Docker context vs. Dockerfile COPY sources: root-Workspace COPYs in
+      # backend/Dockerfile silently broke six build call sites still passing
+      # the pre-Workspace `context: ./backend` (two of them release-tag build
+      # steps -- discovered only by review, not by this job, since every
+      # Docker build this job itself runs already used the correct context;
+      # NIL-636).
+      - name: Check Docker build contexts against their Dockerfile's COPY sources
+        run: node scripts/docker-build-context-guard.cjs
       # Runs against the real GitHub API (main's own tip and its real
       # check-runs), not a fixture -- Davi, PR #79: a test that only covers
       # the single-page case would stay green and prove nothing, since the

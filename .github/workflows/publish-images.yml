@@ -79,7 +79,9 @@ jobs:
       - name: Build and push the backend
         uses: docker/build-push-action@v6
         with:
-          context: ./backend
+          # Repo root: backend/Dockerfile COPYs root package.json/lockfile
+          # and all workspace package.jsons (NIL-636's root Workspace).
+          context: .
           file: backend/Dockerfile
           platforms: linux/amd64
           push: true

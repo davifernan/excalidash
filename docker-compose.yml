@@ -7,8 +7,8 @@ x-default-logging: &default-logging
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: excalidash-backend
     # A container without a memory limit can take the whole host with it. This
     # instance froze exactly that way: rendering a PDF spawned unbounded
