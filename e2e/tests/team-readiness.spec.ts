@@ -17,6 +17,14 @@ import {
   activateDocumentWidget,
   injectNoiseImage,
 } from "./helpers/editor";
+import {
+  beginInFlightStep,
+  enterIntercycleWait,
+  enterTransition,
+  finishInFlightStep,
+  watchdogDiagnosticStep,
+  type SoakLifecycleState,
+} from "./helpers/soakWatchdogLifecycle";
 
 /**
  * NIL-330's "Verbindlicher Team-Readiness-Baseline-Lauf" -- an operator-
@@ -114,6 +122,19 @@ import {
  * step, not just the fact of silence. See `SOAK_HANG_STEP` below for how this
  * is proven, not just asserted.
  *
+ * ## What no in-flight step DOES tell us (NIL-698)
+ *
+ * The absence of `inFlightStep` is not automatically idle: it can mean that
+ * the actor is deliberately in its intercycle wait, or that it is in the
+ * transition immediately before/after `runCycle`. `lastStep`, `cycles`, and
+ * `lastHeartbeatAt` only describe the prior completed cycle, so deriving a
+ * current state from them would make the watchdog guess. The loop instead
+ * writes `lifecycle` at every boundary. The watchdog reports
+ * `intercycle_wait` or `transition` when no step is in flight, while an
+ * unfinished page_switch trace remains more precise as `page_switch.<phase>`.
+ * `SOAK_HANG_LIFECYCLE` deliberately hangs after either lifecycle write to
+ * prove that the watchdog can observe both states.
+ *
  * ## Does page_switch move or get covered? (NIL-330, 2026-08-25)
  *
  * `inFlightStep` named the culprit: three independent runs (this file's own
@@ -207,6 +228,10 @@ import {
  *   SOAK_HANG_PAGE_SWITCH_PHASE  test-only: activate_document_widget;
  *                        forces that actor into page_switch and recreates
  *                        the unbounded activation wait for watchdog proof.
+ *   SOAK_HANG_LIFECYCLE  test-only: transition or intercycle_wait; forces
+ *                        that actor to hang exactly after that explicit
+ *                        lifecycle state is written, proving the watchdog
+ *                        reads a current state rather than lastStep.
  *   SOAK_PAGE_SWITCH_CLICK_TIMEOUT_MS  default 5000 -- bound on the "Next
  *                        page" click specifically (see "Does page_switch
  *                        move or get covered?" above).
@@ -237,12 +262,22 @@ const HANG_ACTOR_ID = process.env.SOAK_HANG_ACTOR_ID
   : null;
 const HANG_STEP = process.env.SOAK_HANG_STEP || null;
 const HANG_PAGE_SWITCH_PHASE = process.env.SOAK_HANG_PAGE_SWITCH_PHASE || null;
+const HANG_LIFECYCLE = process.env.SOAK_HANG_LIFECYCLE || null;
 const PAGE_SWITCH_HANG_PHASES = new Set(["activate_document_widget"]);
+const HANG_LIFECYCLES = new Set<SoakLifecycleState>(["transition", "intercycle_wait"]);
 if (HANG_PAGE_SWITCH_PHASE && HANG_ACTOR_ID === null) {
   throw new Error("SOAK_HANG_PAGE_SWITCH_PHASE requires SOAK_HANG_ACTOR_ID.");
 }
 if (HANG_PAGE_SWITCH_PHASE && !PAGE_SWITCH_HANG_PHASES.has(HANG_PAGE_SWITCH_PHASE)) {
-  throw new Error(`SOAK_HANG_PAGE_SWITCH_PHASE must be one of ${[...PAGE_SWITCH_HANG_PHASES].join(", ")}.`);
+  throw new Error(
+    `SOAK_HANG_PAGE_SWITCH_PHASE must be one of ${[...PAGE_SWITCH_HANG_PHASES].join(", ")}.`,
+  );
+}
+if (HANG_LIFECYCLE && HANG_ACTOR_ID === null) {
+  throw new Error("SOAK_HANG_LIFECYCLE requires SOAK_HANG_ACTOR_ID.");
+}
+if (HANG_LIFECYCLE && !HANG_LIFECYCLES.has(HANG_LIFECYCLE as SoakLifecycleState)) {
+  throw new Error(`SOAK_HANG_LIFECYCLE must be one of ${[...HANG_LIFECYCLES].join(", ")}.`);
 }
 const RUN_ID = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const ARTIFACT_DIR = join(process.cwd(), process.env.SOAK_ARTIFACT_DIR || "soak-artifacts", RUN_ID);
@@ -295,6 +330,10 @@ type Actor = {
    * this is what a stuck actor's row is still holding when the artifact is
    * written. See this file's header, "What 'last step' does NOT tell you". */
   inFlightStep: string | null;
+  /** Explicit current state while no step is in flight. This is not inferred
+   * from a completed cycle: the watchdog needs to know whether the actor is
+   * selecting its next step or deliberately waiting between cycles. */
+  lifecycle: SoakLifecycleState;
   /** Set when this actor's loop has run its course. A finished actor stops
    * sending heartbeats, which is not the same as going silent. */
   finished: boolean;
@@ -357,6 +396,7 @@ type WatchdogViolation = {
   /** The step the actor was in the middle of when this violation fired --
    * NIL-330's actual ask: not just that it stalled, but where. */
   inFlightStep: string | null;
+  lifecycle: SoakLifecycleState;
 };
 type ServerHealthEntry = { ts: number; code: number; latencyMs: number };
 
@@ -492,7 +532,11 @@ const decideStep = (actor: Actor, roll: number): string => {
  * the only way to see where the button actually was during it, including on
  * the timeout path where the click itself never tells us.
  */
-const clickPageSwitchButton = async (actor: Actor, next: Locator, trace: PageSwitchTrace): Promise<void> => {
+const clickPageSwitchButton = async (
+  actor: Actor,
+  next: Locator,
+  trace: PageSwitchTrace,
+): Promise<void> => {
   const samples: ButtonSample[] = [];
   const startedAt = Date.now();
   const sample = async () => {
@@ -606,28 +650,30 @@ const performStep = async (actor: Actor, step: string): Promise<void> => {
           // The deterministic regression recreates NIL-694's original
           // unbounded activation wait so the watchdog, not the phase limit,
           // must name the active phase. Ordinary soaks retain the 8s budget.
-          timeout: actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget"
-            ? 0
-            : PAGE_SWITCH_PHASE_TIMEOUT_MS,
-          blockActivation: actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget",
+          timeout:
+            actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget"
+              ? 0
+              : PAGE_SWITCH_PHASE_TIMEOUT_MS,
+          blockActivation:
+            actor.id === HANG_ACTOR_ID && HANG_PAGE_SWITCH_PHASE === "activate_document_widget",
         });
-      // Paging backward sometimes, not just forward: both buttons stay
-      // mounted (disabled, not hidden) at either end of the document, so an
-      // actor that only ever goes forward eventually parks on the last page
-      // and this step turns into a permanent no-op that tests nothing
-      // (NIL-330 follow-up). 20% backward is enough to keep actors cycling
-      // through the interior of a multi-page document instead of draining
-      // to one end and staying there.
-      const goBack = Math.random() < 0.2;
-      const button = actor.page.getByRole("button", {
-        name: goBack ? "Previous page" : "Next page",
-      });
-      // isEnabled(), not isVisible(): the button renders on every page --
-      // disabled, never unmounted -- at the start/end of the document
-      // (TextDocumentWidget.tsx, PdfWidget.tsx). isVisible() is true for a
-      // disabled button too, so the precheck was passing right into the
-      // actionability wait it was meant to avoid. See this file's header,
-      // "Bounded is not the same as correct".
+        // Paging backward sometimes, not just forward: both buttons stay
+        // mounted (disabled, not hidden) at either end of the document, so an
+        // actor that only ever goes forward eventually parks on the last page
+        // and this step turns into a permanent no-op that tests nothing
+        // (NIL-330 follow-up). 20% backward is enough to keep actors cycling
+        // through the interior of a multi-page document instead of draining
+        // to one end and staying there.
+        const goBack = Math.random() < 0.2;
+        const button = actor.page.getByRole("button", {
+          name: goBack ? "Previous page" : "Next page",
+        });
+        // isEnabled(), not isVisible(): the button renders on every page --
+        // disabled, never unmounted -- at the start/end of the document
+        // (TextDocumentWidget.tsx, PdfWidget.tsx). isVisible() is true for a
+        // disabled button too, so the precheck was passing right into the
+        // actionability wait it was meant to avoid. See this file's header,
+        // "Bounded is not the same as correct".
         await enterPhase("button_enabled");
         const enabled = await button.isEnabled({ timeout: PAGE_SWITCH_PHASE_TIMEOUT_MS });
         if (!enabled) {
@@ -706,10 +752,11 @@ const runCycle = async (actor: Actor) => {
   const forcedHangStep =
     actor.id === HANG_ACTOR_ID && HANG_STEP && actor.cycles === 0 ? HANG_STEP : null;
   const step = forcedHangStep ?? decideStep(actor, Math.random());
-  actor.inFlightStep = step;
+  beginInFlightStep(actor, step);
 
   const shouldHang =
-    actor.id === HANG_ACTOR_ID && !HANG_PAGE_SWITCH_PHASE &&
+    actor.id === HANG_ACTOR_ID &&
+    !HANG_PAGE_SWITCH_PHASE &&
     (forcedHangStep !== null || (!HANG_STEP && actor.cycles >= 1));
 
   try {
@@ -722,7 +769,7 @@ const runCycle = async (actor: Actor) => {
     await performStep(actor, step);
     actor.cycles += 1;
     actor.lastStep = step;
-    actor.inFlightStep = null;
+    finishInFlightStep(actor);
     actor.lastHeartbeatAt = Date.now();
     actor.heartbeats.push({
       ts: actor.lastHeartbeatAt,
@@ -735,7 +782,7 @@ const runCycle = async (actor: Actor) => {
   } catch (error) {
     actor.errors.push(String(error));
     actor.lastStep = `${step}_error`;
-    actor.inFlightStep = null;
+    finishInFlightStep(actor);
     actor.lastHeartbeatAt = Date.now();
     actor.heartbeats.push({
       ts: actor.lastHeartbeatAt,
@@ -848,7 +895,8 @@ const writeArtifact = (params: {
         : violations
             .map(
               (v) =>
-                `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms, stuck in step "${v.inFlightStep ?? "unknown"}"`,
+                `actor ${v.actorId} (${v.engine}) silent ${v.sinceMs}ms, stuck in step "${v.inFlightStep ?? "unknown"}" ` +
+                `(lifecycle=${v.lifecycle})`,
             )
             .join("; ")
     }`,
@@ -858,7 +906,8 @@ const writeArtifact = (params: {
       (a) =>
         `  actor ${a.id} (${a.engine}, board=${a.boardId === actors[0].boardId ? "shared" : "isolated"}): ` +
         `${a.cycles} cycles, last completed step "${a.lastStep}" ${Math.round((now - a.lastHeartbeatAt) / 1000)}s ago, ` +
-        `in-flight step: ${a.inFlightStep === null ? "none (idle between cycles)" : `"${a.inFlightStep}"`}, ${a.errors.length} errors`,
+        `in-flight step: ${a.inFlightStep === null ? "none" : `"${a.inFlightStep}"`}, ` +
+        `lifecycle: ${a.lifecycle}, ${a.errors.length} errors`,
     ),
     "",
     `server /health: ${serverHealth.length} samples, codes=${JSON.stringify(healthCodeCounts)}`,
@@ -940,6 +989,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           lastHeartbeatAt: Date.now(),
           lastStep: "setup",
           inFlightStep: null,
+          lifecycle: "transition",
           finished: false,
           cycles: 0,
           errors: [],
@@ -997,19 +1047,13 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           for (const actor of actors) {
             if (actor.finished) continue;
             if (now - actor.lastHeartbeatAt > STALE_MS) {
-              const activePageSwitch = [...actor.pageSwitchTraces]
-                .reverse()
-                .find((trace) => trace.outcome === "started");
-              // An unfinished trace is more precise than the outer step. It
-              // exists only while page_switch is in flight, so prefer it.
-              const diagnosticStep = actor.inFlightStep === "page_switch" && activePageSwitch
-                ? `page_switch.${activePageSwitch.phase}`
-                : actor.inFlightStep ?? "unknown";
+              const diagnosticStep = watchdogDiagnosticStep(actor);
               violations.push({
                 actorId: actor.id,
                 engine: actor.engine,
                 sinceMs: now - actor.lastHeartbeatAt,
                 inFlightStep: diagnosticStep,
+                lifecycle: actor.lifecycle,
               });
               if (!tripped) {
                 tripped = true;
@@ -1036,7 +1080,15 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
         // is the whole point of this hook. This loop does not special-case
         // it at all; the actor's own runCycle call below decides.
         while (Date.now() - startedAt < DURATION_MS) {
+          enterTransition(actor);
+          if (actor.id === HANG_ACTOR_ID && HANG_LIFECYCLE === "transition") {
+            await new Promise<never>(() => {});
+          }
           await runCycle(actor);
+          enterIntercycleWait(actor);
+          if (actor.id === HANG_ACTOR_ID && HANG_LIFECYCLE === "intercycle_wait") {
+            await new Promise<never>(() => {});
+          }
           await actor.page.waitForTimeout(CYCLE_MS + Math.random() * CYCLE_MS * 0.5);
           // The pause between cycles is by design, not a symptom. Without this
           // heartbeat it counted against STALE_MS, which left far less headroom
@@ -1051,6 +1103,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           // 43-46 s gaps while sitting at cycles=0 or 1 -- none of them stuck,
           // all of them merely mid-cycle (NIL-563).
           actor.lastHeartbeatAt = Date.now();
+          enterTransition(actor);
         }
         // End the run online, so the final connectivity check below reflects
         // recovery, not a deliberately-offline actor.
@@ -1111,6 +1164,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           cycles: a.cycles,
           lastStep: a.lastStep,
           inFlightStep: a.inFlightStep,
+          lifecycle: a.lifecycle,
           errors: a.errors,
         })),
         watchdogViolations: violations,
@@ -1169,6 +1223,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
             cycles: a.cycles,
             lastStep: a.lastStep,
             inFlightStep: a.inFlightStep,
+            lifecycle: a.lifecycle,
             errors: a.errors,
           })),
           watchdogViolations: violations,
