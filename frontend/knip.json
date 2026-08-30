@@ -4,6 +4,7 @@
     "src/**/*.{test,spec}.{ts,tsx}"
   ],
   "ignoreDependencies": ["decode-named-character-reference"],
+  "ignoreDependencies": [],
   "ignore": ["public/runtime-config.js"],
   "project": [
     "**/*.{js,jsx,ts,tsx,mjs,cjs,css}",
