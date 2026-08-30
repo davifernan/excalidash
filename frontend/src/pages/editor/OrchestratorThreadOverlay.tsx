@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bot, Layers3, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Bot,
+  Layers3,
+  Lock,
+  Send,
+  Users,
+  X,
+} from "lucide-react";
+import type { AgentThreadEventDTO } from "../../api/orchestratorThreads";
+import type { PublicDispatchReceipt } from "../../api/orchestratorThreads";
+import type { AgentRuntimeConnection } from "../../api/agentRuntime";
+import type { InstructionContext } from "../../api/instructionApprovals";
 import type {
   ClusterNavigation,
   ProjectedThreadAnchor,
@@ -25,6 +40,40 @@ export type OrchestratorThreadSurface = {
   };
 };
 
+export type OrchestratorThreadPanelView = {
+  readonly threadId: string;
+  readonly audience: "private" | "drawing";
+  readonly events: readonly AgentThreadEventDTO[];
+  readonly loading: boolean;
+  readonly sending: boolean;
+  readonly canWrite: boolean;
+  readonly error: string | null;
+  readonly receipts: readonly PublicDispatchReceipt[];
+  readonly publicThreads: readonly { readonly id: string; readonly title: string }[];
+  readonly dispatch: {
+    readonly contexts: readonly InstructionContext[];
+    readonly connections: readonly AgentRuntimeConnection[];
+    readonly submitting: boolean;
+    readonly blocked: boolean;
+  } | null;
+};
+
+const receiptLabel = (receipt: PublicDispatchReceipt): string => {
+  if (receipt.effect === "committed") return "Effect confirmed on the board";
+  if (["failed", "rejected"].includes(receipt.effect)) {
+    return "Board effect failed · publication not completed";
+  }
+  if (receipt.execution === "outcome_unknown") return "Outcome unknown · runtime not observable";
+  if (["failed", "cancelled"].includes(receipt.execution)) return "Execution failed";
+  if (receipt.execution === "succeeded" && receipt.effect === "pending") {
+    return "Execution finished · publication pending";
+  }
+  if (receipt.execution === "running") return "Running · last confirmed by runtime";
+  if (receipt.execution === "blocked") return "Runtime blocked";
+  if (receipt.execution === "runtime_acknowledged") return "Runtime acknowledged";
+  return "Dispatch durably accepted";
+};
+
 const directionIcon = (direction: ThreadPanelPlacement["direction"]) => {
   if (direction === "left") return <ArrowLeft size={15} />;
   if (direction === "right") return <ArrowRight size={15} />;
@@ -40,6 +89,11 @@ export const OrchestratorThreadOverlay = ({
   onClose,
   onJump,
   onClusterNavigate,
+  panelView,
+  onCreateLocal,
+  onSwitchAudience,
+  onSendMessage,
+  onDispatch,
 }: {
   readonly surface: OrchestratorThreadSurface;
   readonly onCreate: () => void;
@@ -47,8 +101,28 @@ export const OrchestratorThreadOverlay = ({
   readonly onClose: () => void;
   readonly onJump: (elementId: string) => void;
   readonly onClusterNavigate: (action: ClusterNavigation) => void;
+  readonly panelView?: OrchestratorThreadPanelView | null;
+  readonly onCreateLocal?: () => void;
+  readonly onSwitchAudience?: (audience: "private" | "drawing") => void;
+  readonly onSendMessage?: (text: string) => Promise<void> | void;
+  readonly onDispatch?: (input: {
+    publicThreadId: string;
+    objectiveSummary: string;
+    targetContextId: string;
+    connectionId: string;
+    profileId: string;
+  }) => Promise<void> | void;
 }) => {
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [dispatchSummary, setDispatchSummary] = useState("");
+  const [dispatchComposerOpen, setDispatchComposerOpen] = useState(false);
+  // A public effect always requires an explicit target confirmation. Even a
+  // single available thread stays unselected: availability is not approval.
+  const [publicThreadId, setPublicThreadId] = useState("");
+  const [targetContextId, setTargetContextId] = useState("");
+  const [connectionId, setConnectionId] = useState("");
+  const [profileId, setProfileId] = useState("");
   const byElementId = useMemo(
     () => new Map(surface.anchors.map((item) => [item.elementId, item] as const)),
     [surface.anchors],
@@ -63,6 +137,21 @@ export const OrchestratorThreadOverlay = ({
       setExpandedClusterId(null);
     }
   }, [expandedClusterId, surface.clusters, surface.offscreenLocators]);
+
+  useEffect(() => {
+    // A draft belongs to the immutable thread/audience it was composed for.
+    // Carrying local text into a Multiplayer composer would turn switching
+    // into an implicit publication affordance even though histories remain
+    // separate on the server.
+    setDraft("");
+    setDispatchSummary("");
+    setDispatchComposerOpen(false);
+    setPublicThreadId("");
+  }, [panelView?.threadId]);
+
+  const selectedConnection = panelView?.dispatch?.connections.find(
+    (connection) => connection.id === connectionId,
+  );
 
   return (
     <div className="orchestrator-thread-layer" data-testid="orchestrator-thread-layer">
@@ -86,8 +175,17 @@ export const OrchestratorThreadOverlay = ({
             <span>Result</span>
           </div>
           <button type="button" onClick={onCreate}>
-            Place thread here
+            Place shared thread here
           </button>
+          {onCreateLocal ? (
+            <button
+              type="button"
+              className="orchestrator-thread-invitation__local"
+              onClick={onCreateLocal}
+            >
+              Start a local thread
+            </button>
+          ) : null}
           <small>Messages and dispatch are added only through their explicit contracts.</small>
         </section>
       ) : null}
@@ -259,6 +357,30 @@ export const OrchestratorThreadOverlay = ({
             </button>
           </header>
 
+          {panelView ? (
+            <div className="orchestrator-thread-panel__audiences" aria-label="Thread audience">
+              <button
+                type="button"
+                aria-pressed={panelView.audience === "private"}
+                onClick={() => onSwitchAudience?.("private")}
+              >
+                <Lock size={13} /> Local
+              </button>
+              <button
+                type="button"
+                aria-pressed={panelView.audience === "drawing"}
+                onClick={() => onSwitchAudience?.("drawing")}
+              >
+                <Users size={13} /> Multiplayer
+              </button>
+              <small>
+                {panelView.audience === "private"
+                  ? "Only you can read this server-saved history. Switching opens another thread; it never publishes this one."
+                  : "Everyone with Board access can read this history. It is a separate thread, not a visibility toggle."}
+              </small>
+            </div>
+          ) : null}
+
           {surface.active.placement.mode === "docked" ? (
             <button
               type="button"
@@ -278,15 +400,265 @@ export const OrchestratorThreadOverlay = ({
             </div>
           )}
 
-          <div className="orchestrator-thread-panel__empty">
-            <Layers3 size={24} />
-            <strong>No orchestrator events yet</strong>
-            <p>
-              This shared anchor keeps the thread at the place it coordinates. Message audience,
-              Dispatch and Lease effects arrive through their own contracts, never through visual
-              proximity.
-            </p>
-          </div>
+          {panelView ? (
+            <>
+              <div className="orchestrator-thread-panel__events" aria-live="polite">
+                {panelView.loading ? <p>Loading history…</p> : null}
+                {!panelView.loading && panelView.events.length === 0 ? (
+                  <div className="orchestrator-thread-panel__empty">
+                    <Layers3 size={24} />
+                    <strong>No orchestrator events yet</strong>
+                    <p>
+                      This {panelView.audience === "private" ? "local" : "shared"} thread has its
+                      own immutable audience. Visual proximity never changes it.
+                    </p>
+                  </div>
+                ) : null}
+                {panelView.events.map((event) => (
+                  <article key={event.id} data-kind={event.kind}>
+                    <header>
+                      <strong>{event.actor.displayName}</strong>
+                      <time dateTime={event.createdAt}>
+                        {new Date(event.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                    </header>
+                    <p>
+                      {typeof event.payload.text === "string"
+                        ? event.payload.text
+                        : typeof event.payload.title === "string"
+                          ? event.payload.title
+                          : event.kind}
+                    </p>
+                  </article>
+                ))}
+                {panelView.error ? <p role="alert">{panelView.error}</p> : null}
+              </div>
+              {(panelView.receipts ?? []).length > 0 ? (
+                <section
+                  className="orchestrator-thread-panel__receipts"
+                  aria-label="Public dispatch receipts"
+                >
+                  <strong>
+                    {panelView.audience === "private"
+                      ? "Public effects on this board"
+                      : "Public responsibility"}
+                  </strong>
+                  {panelView.audience === "private" ? (
+                    <small>
+                      These board-wide receipts are not part of this private thread history.
+                    </small>
+                  ) : null}
+                  {(panelView.receipts ?? []).map((receipt) => (
+                    <article
+                      key={receipt.id}
+                      data-execution={receipt.execution}
+                      data-effect={receipt.effect}
+                    >
+                      <span>{receipt.objectiveSummary}</span>
+                      <strong>{receiptLabel(receipt)}</strong>
+                      <small>
+                        Public thread:{" "}
+                        {panelView.publicThreads.find(
+                          (thread) => thread.id === receipt.publicThreadId,
+                        )?.title ?? "Unavailable thread"}
+                      </small>
+                      <small>
+                        Accepted{" "}
+                        {new Date(receipt.acceptedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </small>
+                    </article>
+                  ))}
+                </section>
+              ) : null}
+              {panelView.canWrite && panelView.dispatch && !dispatchComposerOpen ? (
+                <button
+                  type="button"
+                  className="orchestrator-thread-panel__dispatch-toggle"
+                  onClick={() => setDispatchComposerOpen(true)}
+                >
+                  <Bot size={14} /> Approve a public effect
+                </button>
+              ) : null}
+              {panelView.canWrite && panelView.dispatch && dispatchComposerOpen ? (
+                <form
+                  className="orchestrator-thread-panel__dispatch"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (
+                      panelView.dispatch?.submitting ||
+                      panelView.dispatch?.blocked ||
+                      !publicThreadId ||
+                      !dispatchSummary.trim() ||
+                      !targetContextId ||
+                      !connectionId ||
+                      !profileId
+                    )
+                      return;
+                    void Promise.resolve(
+                      onDispatch?.({
+                        publicThreadId,
+                        objectiveSummary: dispatchSummary.trim(),
+                        targetContextId,
+                        connectionId,
+                        profileId,
+                      }),
+                    ).then(
+                      () => {
+                        setDispatchSummary("");
+                        setDispatchComposerOpen(false);
+                      },
+                      () => undefined,
+                    );
+                  }}
+                >
+                  <strong>Approve a public effect</strong>
+                  <small>
+                    Only this summary becomes shared responsibility. Local messages are never
+                    published.
+                  </small>
+                  <label>
+                    Public responsibility thread
+                    <select
+                      aria-label="Public responsibility thread"
+                      value={publicThreadId}
+                      onChange={(event) => setPublicThreadId(event.target.value)}
+                    >
+                      <option value="">Choose a shared thread…</option>
+                      {panelView.publicThreads.map((thread) => (
+                        <option key={thread.id} value={thread.id}>
+                          {thread.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {panelView.dispatch.blocked ? (
+                    <p role="status">Dispatch paused: the Board thread view is saturated.</p>
+                  ) : null}
+                  <textarea
+                    aria-label="Approved public objective"
+                    placeholder="What may the agent make public?"
+                    value={dispatchSummary}
+                    onChange={(event) => setDispatchSummary(event.target.value)}
+                    maxLength={2_000}
+                    rows={2}
+                  />
+                  <select
+                    aria-label="Public effect Context"
+                    value={targetContextId}
+                    onChange={(event) => setTargetContextId(event.target.value)}
+                  >
+                    <option value="">Choose Context…</option>
+                    {panelView.dispatch.contexts.map((context) => (
+                      <option key={context.id} value={context.id}>
+                        {context.frameElementId}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Agent runtime connection"
+                    value={connectionId}
+                    onChange={(event) => {
+                      setConnectionId(event.target.value);
+                      setProfileId("");
+                    }}
+                  >
+                    <option value="">Choose runtime…</option>
+                    {panelView.dispatch.connections
+                      .filter((connection) => connection.health.connected)
+                      .map((connection) => (
+                        <option key={connection.id} value={connection.id}>
+                          {connection.label}
+                        </option>
+                      ))}
+                  </select>
+                  <select
+                    aria-label="Agent runtime profile"
+                    value={profileId}
+                    onChange={(event) => setProfileId(event.target.value)}
+                  >
+                    <option value="">Choose profile…</option>
+                    {selectedConnection?.profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={
+                      panelView.dispatch.submitting ||
+                      panelView.dispatch.blocked ||
+                      !publicThreadId ||
+                      !dispatchSummary.trim() ||
+                      !targetContextId ||
+                      !connectionId ||
+                      !profileId
+                    }
+                  >
+                    {panelView.dispatch.submitting ? "Dispatching…" : "Dispatch publicly"}
+                  </button>
+                  <button
+                    type="button"
+                    className="orchestrator-thread-panel__dispatch-cancel"
+                    onClick={() => {
+                      setDispatchComposerOpen(false);
+                      setDispatchSummary("");
+                    }}
+                  >
+                    Cancel public approval
+                  </button>
+                </form>
+              ) : null}
+              {panelView.canWrite ? (
+                <form
+                  className="orchestrator-thread-panel__composer"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const text = draft.trim();
+                    if (!text || panelView.sending) return;
+                    void Promise.resolve(onSendMessage?.(text)).then(
+                      () => setDraft(""),
+                      () => undefined,
+                    );
+                  }}
+                >
+                  <label htmlFor="orchestrator-thread-message">Message this audience</label>
+                  <div>
+                    <textarea
+                      id="orchestrator-thread-message"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      maxLength={10_000}
+                      rows={1}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!draft.trim() || panelView.sending}
+                      aria-label="Send message"
+                    >
+                      <Send size={15} />
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+            </>
+          ) : (
+            <div className="orchestrator-thread-panel__empty">
+              <Layers3 size={24} />
+              <strong>No orchestrator events yet</strong>
+              <p>
+                This shared anchor keeps the thread at the place it coordinates. Message audience,
+                Dispatch and Lease effects arrive through their own contracts, never through visual
+                proximity.
+              </p>
+            </div>
+          )}
         </aside>
       ) : null}
     </div>

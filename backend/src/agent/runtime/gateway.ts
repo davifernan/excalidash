@@ -4,6 +4,7 @@ import { resolveAgentRuntimeCapabilities, runtimeSubject } from "../../authz/age
 import {
   AgentRuntimeError,
   type AgentRuntimeCapability,
+  type RuntimeStartInput,
   type RuntimeStatusEvent,
   type RuntimeSubscription,
 } from "./contracts";
@@ -40,6 +41,42 @@ export class AgentRuntimeGateway {
     );
   }
 
+  /**
+   * Resolve the exact capability intersection without contacting the foreign
+   * runtime. DispatchReceipt persists this result before its outbox crosses
+   * the runtime boundary, so the public promise cannot be wider than the run
+   * that is subsequently started.
+   */
+  planStart(params: {
+    access: DrawingAccess;
+    principal: DrawingPrincipal;
+    connectionId: string;
+    profileId: string;
+    approvedCapabilities: readonly string[];
+  }): { effectiveCapabilities: AgentRuntimeCapability[] } {
+    const resolved = this.registry.resolve(params.connectionId, params.principal.userId);
+    if (!resolved.connection.profiles.some((profile) => profile.id === params.profileId)) {
+      throw new AgentRuntimeError(
+        "RUNTIME_PROFILE_NOT_FOUND",
+        "The selected runtime profile is not available.",
+      );
+    }
+    const effectiveCapabilities = resolveAgentRuntimeCapabilities({
+      access: params.access,
+      principal: params.principal,
+      approvedDispatch: params.approvedCapabilities,
+      contextPolicy: CONTEXT_POLICY,
+      runtimePolicy: resolved.connection.policyCapabilities,
+    });
+    if (!effectiveCapabilities.includes("agent:run")) {
+      throw new AgentRuntimeError(
+        "RUN_CAPABILITY_FORBIDDEN",
+        "The effective capability set does not grant agent:run.",
+      );
+    }
+    return { effectiveCapabilities };
+  }
+
   async start(params: {
     drawingId: string;
     access: DrawingAccess;
@@ -49,29 +86,22 @@ export class AgentRuntimeGateway {
     displayName: string;
     initialPrompt?: string;
     approvedCapabilities: readonly string[];
+    runId?: string;
+    dispatchId?: string;
+    boardMount?: RuntimeStartInput["boardMount"];
   }) {
     const resolved = this.registry.resolve(params.connectionId, params.principal.userId);
-    const capabilities = resolveAgentRuntimeCapabilities({
-      access: params.access,
-      principal: params.principal,
-      approvedDispatch: params.approvedCapabilities,
-      contextPolicy: CONTEXT_POLICY,
-      runtimePolicy: resolved.connection.policyCapabilities,
-    });
-    if (!capabilities.includes("agent:run")) {
-      throw new AgentRuntimeError(
-        "RUN_CAPABILITY_FORBIDDEN",
-        "The effective capability set does not grant agent:run.",
-      );
-    }
+    const { effectiveCapabilities: capabilities } = this.planStart(params);
 
-    const runId = crypto.randomUUID();
+    const runId = params.runId ?? crypto.randomUUID();
     const runtimeRun = await resolved.adapter.start(resolved.connection, {
       profileId: params.profileId,
       displayName: params.displayName,
       initialPrompt: params.initialPrompt,
       runId,
       drawingId: params.drawingId,
+      dispatchId: params.dispatchId,
+      boardMount: params.boardMount,
     });
     const issued = issueAgentRunCapability({
       secret: this.capabilitySecret,

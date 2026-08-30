@@ -1,7 +1,7 @@
 # Orchestrator Thread: Board-Anker und Darstellungszustände
 
-Status: implementierter UI-Vertrag für NIL-678. Nachrichten-Audience und `DispatchReceipt`
-gehören NIL-679; Lease-CAS und öffentliche Wirkung gehören NIL-680.
+Status: implementierter UI-Vertrag für NIL-678 und NIL-679. Lease-CAS und öffentliche
+Wirkung stammen aus NIL-680 und werden vom `DispatchReceipt` gebunden.
 
 ## Warum kein Sidebar-Faden
 
@@ -19,8 +19,10 @@ Auf einem wirklich leeren, editierbaren Board steht vor dem ersten Faden eine ru
 bildschirmfeste Einladung. Sie ist kein vierter Fadenzustand: „Place thread here“ erzeugt die
 erste gemeinsame Board Card an dieser Stelle und die Einladung verschwindet. Auf einem bereits
 befüllten Board wird sie bewusst nicht über die Arbeit gelegt; dort bleibt der explizite
-Menübefehl. Ein Prompt-Feld wird in NIL-678 nicht vorgetäuscht, weil Nachrichten-Audience erst
-mit NIL-679 verbindlich wird.
+Menübefehl. Ein Prompt-Feld wurde in NIL-678 nicht vorgetäuscht. NIL-679 führt stattdessen zwei
+unvertauschbare, serverseitig gefilterte Audiences ein: einen privaten, kontogebundenen Faden
+und einen boardweiten Multiplayer-Faden. Umschalten öffnet eine andere Historie; es
+veröffentlicht nie die lokale.
 
 ## Die drei Zustände
 
@@ -78,10 +80,33 @@ Ab 35 Prozent wird die Surface-Admission `blocked`. Die UI zeigt dann dauerhaft 
 
 > Board thread view is saturated — public coordination waits for visible room.
 
-Read-only-Arbeit bleibt ausdrücklich möglich. NIL-678 enthält noch keine öffentliche
-Dispatch- oder Lease-Aktion, die warten könnte; es definiert und zeigt deren Admission-Grenze.
-NIL-680 muss diese Grenze beim Einbau öffentlicher Wirkung konsumieren. Eine künftige Aktion,
-die den Zustand nur versteckt oder ignoriert, würde diesen Vertrag brechen.
+Read-only-Arbeit bleibt ausdrücklich möglich. NIL-679 konsumiert diese Grenze: Der öffentliche
+Dispatch ist bei Sättigung deaktiviert und nennt den Grund sichtbar. Eine Aktion, die den
+Zustand nur versteckt oder ignoriert, würde diesen Vertrag brechen.
+
+## DispatchReceipt: Verantwortung statt Erfolgsbadge
+
+Ein lokaler Faden kann öffentliche Arbeit nur durch eine zweite, sichtbare Freigabe auslösen.
+Vor dem ersten Runtime-Aufruf wird im Multiplayer-Faden ein dauerhaftes `DispatchReceipt`
+geschrieben und ausgespielt. Öffentlich werden nur die genehmigte Zusammenfassung, Ziel-
+Contexts, gepinnte Revision, effektive Capabilities, Budget, erwartete Artefakte und die exakten
+Lease-Generationen — niemals private Nachrichten oder eine navigierbare private Thread-ID.
+
+Die Quittung belegt daher nicht, dass etwas zugestellt oder gelungen ist. Sie trennt drei
+Zustandsachsen:
+
+1. `admission`: ExcaliDash hat den Auftrag dauerhaft angenommen.
+2. `execution`: die fremde Runtime hat bestätigt, arbeitet, endet ausdrücklich oder ist nach
+   einer begrenzten Beobachtungsfrist `outcome_unknown`.
+3. `effect`: die öffentliche Wirkung ist erst `committed`, wenn dieselbe Datenbanktransaktion
+   den Board-Stand schreibt und Mount plus exakte Lease-Generationen erneut prüft.
+
+Ein Runtime-`done` bei ausstehender Wirkung erscheint deshalb als „Execution finished ·
+publication pending“, nie grün als Erfolg. Schweigen, Stream-Abbruch und ein Prozessabbruch
+zwischen Fremdstart und lokaler Bestätigung werden nie wiederholt und nie als Erfolg gelesen;
+sie enden sichtbar in `outcome_unknown`. Solange eine frische, autorisierte Runtime-Beobachtung
+innerhalb der Frist vorliegt, ist die Arbeit offen. Danach ist ihr Ergebnis unbekannt, bis ein
+autoritativer Nachweis eintrifft.
 
 ## Prüfbare Nähte
 

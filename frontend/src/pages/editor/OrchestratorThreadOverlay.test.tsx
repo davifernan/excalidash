@@ -59,8 +59,245 @@ describe("OrchestratorThreadOverlay", () => {
       "Where should we coordinate?",
     );
     expect(screen.queryByRole("textbox")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Place thread here" }));
+    fireEvent.click(screen.getByRole("button", { name: "Place shared thread here" }));
     expect(callbacks.onCreate).toHaveBeenCalledOnce();
+  });
+
+  it("switches between two audiences without presenting the action as publication", () => {
+    const callbacks = {
+      ...handlers(),
+      onSwitchAudience: vi.fn(),
+      onSendMessage: vi.fn(),
+    };
+    const openSurface = surface({
+      clusters: [],
+      active: {
+        anchor: anchor("local-alpha", 100, "private-thread:local-alpha"),
+        placement: {
+          mode: "anchored",
+          panelRect: { left: 340, top: 100, right: 700, bottom: 500 },
+          direction: null,
+          distance: 0,
+        },
+      },
+    });
+    const localPanelView = {
+      threadId: "local-alpha",
+      audience: "private" as const,
+      loading: false,
+      sending: false,
+      canWrite: true,
+      error: null,
+      publicThreads: [],
+      receipts: [],
+      dispatch: null,
+      events: [
+        {
+          id: "local-message",
+          threadId: "local-alpha",
+          sequence: 1,
+          actor: { kind: "user" as const, id: "owner", displayName: "Owner" },
+          kind: "message" as const,
+          payload: { text: "Only on my local history" },
+          createdAt: "2026-08-30T02:00:00.000Z",
+        },
+      ],
+    };
+    const rendered = render(
+      <OrchestratorThreadOverlay surface={openSurface} panelView={localPanelView} {...callbacks} />,
+    );
+
+    expect(screen.getByText("Only on my local history")).toBeVisible();
+    expect(
+      screen.getByText(/Switching opens another thread; it never publishes this one/),
+    ).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "private draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Multiplayer" }));
+    expect(callbacks.onSwitchAudience).toHaveBeenCalledWith("drawing");
+    expect(callbacks.onCreate).not.toHaveBeenCalled();
+
+    rendered.rerender(
+      <OrchestratorThreadOverlay
+        surface={openSurface}
+        panelView={{ ...localPanelView, threadId: "shared-alpha", audience: "drawing", events: [] }}
+        {...callbacks}
+      />,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("");
+  });
+
+  it("never renders runtime completion as confirmed public effect and exposes visible backpressure", () => {
+    const callbacks = { ...handlers(), onDispatch: vi.fn() };
+    const openSurface = surface({
+      clusters: [],
+      active: {
+        anchor: anchor("shared-alpha", 100),
+        placement: {
+          mode: "anchored",
+          panelRect: { left: 340, top: 100, right: 700, bottom: 650 },
+          direction: null,
+          distance: 0,
+        },
+      },
+      backpressure: { blocked: true, occupiedRatio: 0.72, message: "Too many visible anchors" },
+    });
+    render(
+      <OrchestratorThreadOverlay
+        surface={openSurface}
+        panelView={{
+          threadId: "local-alpha",
+          audience: "private",
+          loading: false,
+          sending: false,
+          canWrite: true,
+          error: null,
+          events: [],
+          publicThreads: [
+            { id: "shared-alpha", title: "Release coordination" },
+            { id: "shared-beta", title: "Deployment coordination" },
+          ],
+          receipts: [
+            {
+              id: "receipt-1",
+              drawingId: "drawing-1",
+              publicThreadId: "shared-alpha",
+              originVisibility: "private",
+              objectiveSummary: "Publish the approved comparison",
+              targetContextIds: ["context-1"],
+              revisionId: "revision-1",
+              effectiveCapabilities: ["agent:run", "board:write"],
+              expectedArtifacts: ["Board update"],
+              runId: "run-1",
+              admission: "accepted",
+              execution: "succeeded",
+              effect: "pending",
+              acceptedAt: "2026-08-30T02:00:00.000Z",
+              lastObservedAt: "2026-08-30T02:01:00.000Z",
+              effectEvidence: null,
+              updatedAt: "2026-08-30T02:01:00.000Z",
+            },
+            {
+              id: "receipt-2",
+              drawingId: "drawing-1",
+              publicThreadId: "shared-alpha",
+              originVisibility: "private",
+              objectiveSummary: "Publish a Board result that never committed",
+              targetContextIds: ["context-1"],
+              revisionId: "revision-1",
+              effectiveCapabilities: ["agent:run", "board:write"],
+              expectedArtifacts: ["Board update"],
+              runId: "run-2",
+              admission: "accepted",
+              execution: "succeeded",
+              effect: "failed",
+              acceptedAt: "2026-08-30T02:02:00.000Z",
+              lastObservedAt: "2026-08-30T02:03:00.000Z",
+              effectEvidence: null,
+              updatedAt: "2026-08-30T02:04:00.000Z",
+            },
+          ],
+          dispatch: {
+            contexts: [{ id: "context-1", frameElementId: "frame-1" }],
+            connections: [],
+            submitting: false,
+            blocked: true,
+          },
+        }}
+        {...callbacks}
+      />,
+    );
+
+    expect(screen.getByText("Execution finished · publication pending")).toBeVisible();
+    expect(screen.getByText("Board effect failed · publication not completed")).toBeVisible();
+    expect(screen.getByText("Public effects on this board")).toBeVisible();
+    expect(screen.getByText(/not part of this private thread history/)).toBeVisible();
+    expect(screen.queryByText("Effect confirmed on the board")).toBeNull();
+    expect(screen.queryByText("Dispatch durably accepted")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Approve a public effect" }));
+    expect(screen.getByText(/Dispatch paused: the Board thread view is saturated/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeDisabled();
+  });
+
+  it("keeps message and public-effect drafts when their requests fail", async () => {
+    const callbacks = {
+      ...handlers(),
+      onSendMessage: vi.fn().mockRejectedValue(new Error("message rejected")),
+      onDispatch: vi.fn().mockRejectedValue(new Error("dispatch rejected")),
+    };
+    const openSurface = surface({
+      clusters: [],
+      active: {
+        anchor: anchor("shared-alpha", 100),
+        placement: {
+          mode: "anchored",
+          panelRect: { left: 340, top: 100, right: 700, bottom: 650 },
+          direction: null,
+          distance: 0,
+        },
+      },
+    });
+    render(
+      <OrchestratorThreadOverlay
+        surface={openSurface}
+        panelView={{
+          threadId: "shared-alpha",
+          audience: "drawing",
+          loading: false,
+          sending: false,
+          canWrite: true,
+          error: null,
+          events: [],
+          publicThreads: [{ id: "shared-alpha", title: "Release coordination" }],
+          receipts: [],
+          dispatch: {
+            contexts: [{ id: "context-1", frameElementId: "frame-1" }],
+            connections: [
+              {
+                id: "runtime-1",
+                label: "Runtime",
+                audience: { kind: "installation" },
+                profiles: [{ id: "profile-1", label: "Profile" }],
+                health: { connected: true, status: "connected" },
+              },
+            ],
+            submitting: false,
+            blocked: false,
+          },
+        }}
+        {...callbacks}
+      />,
+    );
+
+    const message = screen.getByLabelText("Message this audience");
+    fireEvent.change(message, { target: { value: "Do not lose this message" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await expect(callbacks.onSendMessage).toHaveBeenCalledWith("Do not lose this message");
+    expect(message).toHaveValue("Do not lose this message");
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve a public effect" }));
+    const objective = screen.getByLabelText("Approved public objective");
+    expect(screen.getByLabelText("Public responsibility thread")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Public responsibility thread"), {
+      target: { value: "shared-alpha" },
+    });
+    fireEvent.change(objective, { target: { value: "Do not lose this objective" } });
+    fireEvent.change(screen.getByLabelText("Public effect Context"), {
+      target: { value: "context-1" },
+    });
+    fireEvent.change(screen.getByLabelText("Agent runtime connection"), {
+      target: { value: "runtime-1" },
+    });
+    fireEvent.change(screen.getByLabelText("Agent runtime profile"), {
+      target: { value: "profile-1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dispatch publicly" }));
+    await expect(callbacks.onDispatch).toHaveBeenCalledOnce();
+    expect(callbacks.onDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ publicThreadId: "shared-alpha" }),
+    );
+    expect(objective).toHaveValue("Do not lose this objective");
+    expect(screen.getByRole("button", { name: "Dispatch publicly" })).toBeVisible();
   });
 
   it("renders Board Cards as the closed state and opens the selected identity", () => {

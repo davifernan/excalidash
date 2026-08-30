@@ -13,6 +13,7 @@ import { registerDrawingInstructionApprovalRoutes } from "./drawingInstructionAp
 import { registerDrawingRuntimeRoutes } from "./drawingRuntimeRoutes";
 import { registerDrawingLeaseRoutes } from "./drawingLeaseRoutes";
 import { registerElementGuestProvenanceRoutes } from "./elementGuestProvenanceRoutes";
+import { registerDrawingOrchestratorThreadRoutes } from "./drawingOrchestratorThreadRoutes";
 import { registerCommentRoutes } from "./commentRoutes";
 import { registerInboxRoutes } from "./inboxRoutes";
 import { registerActivityRoutes } from "./activityRoutes";
@@ -35,6 +36,7 @@ export const registerDrawingRoutes = (app: express.Express, deps: DashboardRoute
   registerDrawingRuntimeRoutes(app, context);
   registerDrawingLeaseRoutes(app, context);
   registerElementGuestProvenanceRoutes(app, context);
+  registerDrawingOrchestratorThreadRoutes(app, context);
   registerCommentRoutes(app, context);
   registerInboxRoutes(app, context);
   registerActivityRoutes(app, context);

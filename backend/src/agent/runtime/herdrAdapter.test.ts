@@ -68,4 +68,39 @@ describe("Herdr runtime adapter", () => {
       status: "disconnected",
     });
   });
+
+  it("hands the stable DispatchReceipt and immutable Board mount to the foreign runtime", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        type: "workspace_created",
+        workspace: { workspace_id: "w1" },
+        root_pane: { pane_id: "w1:p1" },
+      })
+      .mockResolvedValueOnce({
+        type: "agent_started",
+        agent: { name: "Research", agent_status: "working" },
+      });
+    const adapter = new HerdrAgentRuntimeAdapter({ request, subscribe: vi.fn() });
+    await adapter.start(connection, {
+      profileId: "review",
+      displayName: "Research",
+      runId: "run-public",
+      drawingId: "drawing-1",
+      dispatchId: "dispatch-1",
+      boardMount: {
+        revisionId: "revision-7",
+        capabilityToken: "exd_mount_secret",
+        allowedContextIds: ["context-b", "context-a"],
+      },
+    });
+    expect(request.mock.calls[0][2].env).toEqual({
+      EXCALIDASH_RUN_ID: "run-public",
+      EXCALIDASH_DRAWING_ID: "drawing-1",
+      EXCALIDASH_DISPATCH_ID: "dispatch-1",
+      EXCALIDASH_REVISION_ID: "revision-7",
+      EXCALIDASH_MOUNT_TOKEN: "exd_mount_secret",
+      EXCALIDASH_ALLOWED_CONTEXT_IDS: JSON.stringify(["context-b", "context-a"]),
+    });
+  });
 });

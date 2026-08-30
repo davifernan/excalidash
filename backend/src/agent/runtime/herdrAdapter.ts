@@ -99,6 +99,14 @@ export class HerdrAgentRuntimeAdapter implements AgentRuntimeAdapter {
       env: {
         EXCALIDASH_RUN_ID: input.runId,
         EXCALIDASH_DRAWING_ID: input.drawingId,
+        ...(input.dispatchId ? { EXCALIDASH_DISPATCH_ID: input.dispatchId } : {}),
+        ...(input.boardMount
+          ? {
+              EXCALIDASH_REVISION_ID: input.boardMount.revisionId,
+              EXCALIDASH_MOUNT_TOKEN: input.boardMount.capabilityToken,
+              EXCALIDASH_ALLOWED_CONTEXT_IDS: JSON.stringify(input.boardMount.allowedContextIds),
+            }
+          : {}),
       },
     });
     const workspace = workspaceResult.workspace as Record<string, unknown> | undefined;

@@ -131,6 +131,8 @@ model Drawing {
   favoritedBy                        DrawingFavorite[]
   apiKeys                            ApiKey[]
   agentContexts                      AgentContext[]
+  agentThreads                       AgentThread[]
+  agentDispatchReceipts              AgentDispatchReceipt[]
   agentRevisions                     AgentBoardRevision[]
   agentRunMounts                     AgentRunMount[]
   agentSemanticRelations             AgentSemanticRelation[]
@@ -185,32 +187,68 @@ model DrawingSnapshot {
 /// Excalidraw element id rather than a foreign key because elements live in
 /// Drawing.elements JSON. A frame can identify at most one Context.
 model AgentContext {
-  id                String   @id @default(uuid())
-  drawingId         String
-  frameElementId    String
-  pinned            Boolean  @default(false)
-  nextEventSequence Int      @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id             String   @id @default(uuid())
+  drawingId      String
+  frameElementId String
+  pinned         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   drawing              Drawing                    @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  threadEvents         AgentContextEvent[]
+  thread               AgentThread?
   semanticRelations    AgentSemanticRelation[]
   instructionApprovals AgentInstructionApproval[]
   lease                ContextLease?
   leaseEvents          ContextLeaseEvent[]
+  dispatchLeases       AgentDispatchLease[]
 
   @@unique([drawingId, frameElementId])
   @@index([drawingId, createdAt])
 }
 
-/// Server-ordered, append-only history for one Agent Context. The actor is
+/// One immutable-audience conversation. Context and orchestrator histories use
+/// the same ordered event domain; audience/owner are properties of the thread,
+/// never per-message flags that a later toggle could reinterpret.
+model AgentThread {
+  id                String   @id @default(uuid())
+  drawingId         String
+  threadKind        String
+  audienceKind      String
+  /// Server-authenticated subject id. Deliberately not a User FK: the
+  /// supported auth-disabled bootstrap identity has no User row, but is still
+  /// stable across devices and must be able to own a local thread.
+  audienceUserId    String?
+  contextId         String?  @unique
+  anchorElementId   String?
+  title             String
+  anchorX           Float?
+  anchorY           Float?
+  nextEventSequence Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  drawing          Drawing                @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  context          AgentContext?          @relation(fields: [contextId], references: [id], onDelete: Cascade)
+  events           AgentThreadEvent[]
+  dispatchOrigins  AgentDispatchReceipt[] @relation("DispatchOriginThread")
+  dispatchReceipts AgentDispatchReceipt[] @relation("DispatchPublicThread")
+
+  // SQLite and PostgreSQL both allow multiple NULLs here: there can be many
+  // drawing-audience Context/shared threads, but only one private orchestrator
+  // thread per account and board.
+  @@unique([drawingId, threadKind, audienceUserId])
+  @@unique([drawingId, anchorElementId])
+  @@index([drawingId, audienceKind, createdAt])
+  @@index([audienceUserId, updatedAt])
+}
+
+/// Server-ordered, append-only history for any AgentThread. The actor is
 /// deliberately polymorphic: agents and system events are not fake User rows.
-/// `payload` is an event-kind-specific JSON object; clients never overwrite or
-/// delete an event after it has been appended.
-model AgentContextEvent {
+/// `payload` is event-kind-specific JSON; clients never overwrite or delete a
+/// row after append.
+model AgentThreadEvent {
   id               String   @id @default(uuid())
-  contextId        String
+  threadId         String
   sequence         Int
   actorKind        String
   actorId          String?
@@ -219,10 +257,10 @@ model AgentContextEvent {
   payload          String
   createdAt        DateTime @default(now())
 
-  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
-  @@unique([contextId, sequence])
-  @@index([contextId, createdAt])
+  @@unique([threadId, sequence])
+  @@index([threadId, createdAt])
 }
 
 /// A full, immutable source image for agent exploration. Unlike ordinary
@@ -325,8 +363,109 @@ model ContextLease {
   @@index([contextId, expiresAt])
 }
 
+/// Durable responsibility record for one approved dispatch whose result may
+/// become visible to the whole drawing. Admission, execution and effect are
+/// deliberately separate: accepting work is never represented as completing
+/// it, and a finished runtime is not proof that a Board write was committed.
+model AgentDispatchReceipt {
+  id                    String    @id @default(uuid())
+  drawingId             String
+  originThreadId        String
+  publicThreadId        String
+  /// Publicly projectable as `private|drawing`; the private thread id itself
+  /// is never included in a drawing-audience DTO.
+  originAudienceKind    String
+  initiatedByUserId     String
+  objectiveSummary      String
+  targetContextIds      String
+  revisionId            String
+  effectiveCapabilities String
+  budget                String
+  expectedArtifacts     String
+  runId                 String    @unique
+  admissionStatus       String    @default("accepted")
+  executionStatus       String    @default("queued")
+  effectStatus          String    @default("pending")
+  runtimeCapability     String?
+  runtimeAcknowledgedAt DateTime?
+  lastObservedAt        DateTime?
+  executionTerminalAt   DateTime?
+  effectTerminalAt      DateTime?
+  effectEvidence        String?
+  startDeadlineAt       DateTime
+  livenessDeadlineAt    DateTime
+  effectDeadlineAt      DateTime
+  nextEventSequence     Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  drawing      Drawing                     @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  originThread AgentThread                 @relation("DispatchOriginThread", fields: [originThreadId], references: [id], onDelete: Cascade)
+  publicThread AgentThread                 @relation("DispatchPublicThread", fields: [publicThreadId], references: [id], onDelete: Cascade)
+  mount        AgentRunMount               @relation(fields: [runId], references: [runId], onDelete: Cascade)
+  leases       AgentDispatchLease[]
+  events       AgentDispatchReceiptEvent[]
+  outbox       AgentDispatchOutbox?
+
+  @@index([drawingId, publicThreadId, createdAt])
+  @@index([executionStatus, startDeadlineAt])
+  @@index([effectStatus, effectDeadlineAt])
+}
+
+/// The exact Context Lease generations admitted for a DispatchReceipt. A
+/// ContextLease row is reused, so the generation (not merely contextId) is the
+/// immutable proof of which grant the dispatch consumed.
+model AgentDispatchLease {
+  dispatchId      String
+  contextId       String
+  leaseGeneration String
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  context  AgentContext         @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@id([dispatchId, contextId])
+  @@index([contextId, leaseGeneration])
+}
+
+/// Append-only evidence behind the receipt projection. Delayed observations
+/// cannot overwrite terminal state: transitions update the receipt and append
+/// one monotonically ordered event in the same transaction.
+model AgentDispatchReceiptEvent {
+  id         String   @id @default(uuid())
+  dispatchId String
+  sequence   Int
+  kind       String
+  payload    String
+  createdAt  DateTime @default(now())
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@unique([dispatchId, sequence])
+  @@index([dispatchId, createdAt])
+}
+
+/// Transactional outbox for crossing from the ExcaliDash database to a
+/// foreign runtime. `sending` is intentionally not blindly retried: after a
+/// crash it is unknown whether the remote runtime started, and a duplicate
+/// agent is worse than an explicit `outcome_unknown` receipt.
+model AgentDispatchOutbox {
+  dispatchId       String    @id
+  state            String    @default("pending")
+  /// Canonical runtime request plus its one-use mount capability. Cleared
+  /// after the only allowed delivery attempt reaches a terminal outbox state.
+  payload          String?
+  attemptStartedAt DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  dispatch AgentDispatchReceipt @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@index([state, createdAt])
+}
+
 /// NIL-680's own coordination trace -- deliberately separate from
-/// AgentContextEvent/contextThread.ts's narrative log (message/tool/status/
+/// AgentThreadEvent/contextThread.ts's narrative log (message/tool/status/
 /// artifact/dispatch), which has its own closed event-kind union and its own
 /// per-context sequence counter that this module has no reason to couple
 /// into. This is lower-level protocol bookkeeping: every acquire attempt,
@@ -368,9 +507,10 @@ model AgentRunMount {
   audienceUserId      String?
   createdAt           DateTime @default(now())
 
-  drawing  Drawing            @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  revision AgentBoardRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
-  audits   AgentToolAudit[]
+  drawing         Drawing               @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  revision        AgentBoardRevision    @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  audits          AgentToolAudit[]
+  dispatchReceipt AgentDispatchReceipt?
 
   @@index([drawingId, createdAt])
   @@index([revisionId])

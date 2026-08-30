@@ -49,6 +49,14 @@ export type RuntimeStartInput = {
   initialPrompt?: string;
   runId: string;
   drawingId: string;
+  /** Stable public responsibility id; absent for an ordinary private run. */
+  dispatchId?: string;
+  /** Runtime-neutral mount handoff. Adapters decide how their transport carries it. */
+  boardMount?: {
+    revisionId: string;
+    capabilityToken: string;
+    allowedContextIds: readonly string[];
+  };
 };
 
 export type RuntimeRun = {

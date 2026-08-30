@@ -1,5 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
+import type { Socket } from "socket.io-client";
+import {
+  appendOrchestratorThreadMessage,
+  createPublicDispatch,
+  getOrCreateLocalOrchestratorThread,
+  getOrchestratorThreadEvents,
+  getOrchestratorThreads,
+  getPublicDispatchReceipts,
+  registerSharedOrchestratorThread,
+  type AgentThreadEventDTO,
+  type PublicDispatchReceipt,
+  type OrchestratorThreadDTO,
+} from "../../api/orchestratorThreads";
+import { getAgentRuntimeConnections, type AgentRuntimeConnection } from "../../api/agentRuntime";
+import { getInstructionContexts, type InstructionContext } from "../../api/instructionApprovals";
 import {
   readOrchestratorThreadAnchor,
   withExcalidashData,
@@ -28,6 +44,8 @@ import {
 
 const CARD_WIDTH = 260;
 const CARD_HEIGHT = 156;
+const MAX_SHARED_THREAD_REGISTRATION_ATTEMPTS = 4;
+const privateElementId = (threadId: string) => `private-thread:${threadId}`;
 
 const projectRect = (adapter: ExcalidrawAdapter, element: ElementSummary): ScreenRect | null => {
   const centre = { x: element.x + element.width / 2, y: element.y + element.height / 2 };
@@ -63,6 +81,26 @@ const emptySurface: OrchestratorThreadSurface = {
   showInvitation: false,
   active: null,
   backpressure: { blocked: false, occupiedRatio: 0, message: null },
+};
+
+const mergeReceiptLists = (
+  current: readonly PublicDispatchReceipt[],
+  incoming: readonly PublicDispatchReceipt[],
+): PublicDispatchReceipt[] => {
+  const byId = new Map(current.map((receipt) => [receipt.id, receipt] as const));
+  let changed = false;
+  for (const receipt of incoming) {
+    const existing = byId.get(receipt.id);
+    if (!existing || Date.parse(receipt.updatedAt) >= Date.parse(existing.updatedAt)) {
+      if (existing !== receipt) changed = true;
+      byId.set(receipt.id, receipt);
+    }
+  }
+  if (!changed) return current as PublicDispatchReceipt[];
+  return [...byId.values()].sort(
+    (left, right) =>
+      Date.parse(left.acceptedAt) - Date.parse(right.acceptedAt) || left.id.localeCompare(right.id),
+  );
 };
 
 const sameRect = (left: ScreenRect, right: ScreenRect) =>
@@ -138,15 +176,176 @@ export const useOrchestratorThreadFeature = ({
   adapter,
   canEdit,
   isReady,
+  drawingId,
+  socketRef,
+  currentUserId,
 }: {
   readonly adapter: ExcalidrawAdapter;
   readonly canEdit: boolean;
   readonly isReady: boolean;
+  readonly drawingId?: string;
+  readonly socketRef?: MutableRefObject<Socket | null>;
+  readonly currentUserId?: string | null;
 }) => {
   const [activeElementId, setActiveElementId] = useState<string | null>(null);
   const [surface, setSurface] = useState<OrchestratorThreadSurface>(emptySurface);
+  const [threads, setThreads] = useState<OrchestratorThreadDTO[]>([]);
+  const [eventsByThread, setEventsByThread] = useState<Record<string, AgentThreadEventDTO[]>>({});
+  const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
+  const [sendingThreadIds, setSendingThreadIds] = useState<ReadonlySet<string>>(new Set());
+  const [threadError, setThreadError] = useState<string | null>(null);
+  const [actionErrorsByThread, setActionErrorsByThread] = useState<Record<string, string | null>>(
+    {},
+  );
+  const [receiptsByThread, setReceiptsByThread] = useState<Record<string, PublicDispatchReceipt[]>>(
+    {},
+  );
+  const [dispatchContexts, setDispatchContexts] = useState<InstructionContext[]>([]);
+  const [dispatchConnections, setDispatchConnections] = useState<AgentRuntimeConnection[]>([]);
+  const [dispatchingThreadIds, setDispatchingThreadIds] = useState<ReadonlySet<string>>(new Set());
   const previousMode = useRef<ThreadPanelMode>("closed");
   const pendingCreatedElementId = useRef<string | null>(null);
+  const requestedThreadIds = useRef(new Set<string>());
+  const lastDrawingThreadId = useRef<string | null>(null);
+  const pendingMessageThreadIds = useRef(new Set<string>());
+  const pendingDispatchThreadIds = useRef(new Set<string>());
+  const sharedRegistrationAttempts = useRef(new Map<string, number>());
+  const failedSharedRegistrationIds = useRef(new Set<string>());
+
+  const upsertThread = useCallback((incoming: OrchestratorThreadDTO) => {
+    setThreads((current) => {
+      const index = current.findIndex((thread) => thread.id === incoming.id);
+      if (index < 0) return [...current, incoming];
+      const next = [...current];
+      next[index] = incoming;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    // Editor can move between route ids without a full page reload. No local
+    // cache, open identity or already-requested marker may cross that Board
+    // boundary even though thread ids are globally generated.
+    setActiveElementId(null);
+    setEventsByThread({});
+    setLoadingThreadId(null);
+    setSendingThreadIds(new Set());
+    setThreadError(null);
+    setActionErrorsByThread({});
+    setReceiptsByThread({});
+    setDispatchContexts([]);
+    setDispatchConnections([]);
+    setDispatchingThreadIds(new Set());
+    pendingMessageThreadIds.current.clear();
+    pendingDispatchThreadIds.current.clear();
+    sharedRegistrationAttempts.current.clear();
+    failedSharedRegistrationIds.current.clear();
+    requestedThreadIds.current.clear();
+    lastDrawingThreadId.current = null;
+    previousMode.current = "closed";
+  }, [drawingId]);
+
+  useEffect(() => {
+    if (!drawingId || !isReady) {
+      setThreads([]);
+      return;
+    }
+    let cancelled = false;
+    void getOrchestratorThreads(drawingId)
+      .then((loaded) => {
+        if (!cancelled) setThreads(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setThreadError("Thread audiences could not be loaded.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drawingId, isReady]);
+
+  useEffect(() => {
+    const socket = socketRef?.current;
+    if (!socket || !drawingId) return;
+    const onThread = (thread: OrchestratorThreadDTO) => {
+      if (thread.drawingId === drawingId) upsertThread(thread);
+    };
+    const onEvent = (payload: { threadId: string; event: AgentThreadEventDTO }) => {
+      setEventsByThread((current) => {
+        const existing = current[payload.threadId] ?? [];
+        if (existing.some((event) => event.id === payload.event.id)) return current;
+        return { ...current, [payload.threadId]: [...existing, payload.event] };
+      });
+    };
+    const onReceipt = (receipt: PublicDispatchReceipt) => {
+      if (receipt.drawingId !== drawingId) return;
+      setReceiptsByThread((current) => {
+        const existing = current[receipt.publicThreadId] ?? [];
+        const merged = mergeReceiptLists(existing, [receipt]);
+        return merged === existing ? current : { ...current, [receipt.publicThreadId]: merged };
+      });
+    };
+    socket.on("agent.thread.updated", onThread);
+    socket.on("agent.thread.event.appended", onEvent);
+    socket.on("agent.dispatch.receipt.updated", onReceipt);
+    return () => {
+      socket.off("agent.thread.updated", onThread);
+      socket.off("agent.thread.event.appended", onEvent);
+      socket.off("agent.dispatch.receipt.updated", onReceipt);
+    };
+  }, [drawingId, socketRef, upsertThread]);
+
+  // Registration waits for the ordinary autosave path to persist the Board
+  // Card. Retries cover that bounded window; a permanent rejection stops and
+  // becomes visible instead of silently polling for the rest of the session.
+  // Raw client customData never becomes shared authority: only the server's
+  // persisted card can create the drawing-audience thread.
+  useEffect(() => {
+    if (!drawingId || !canEdit || !isReady) return;
+    let cancelled = false;
+    let busy = false;
+    const reconcile = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const summaries = adapter.scene.summaries();
+        if (!summaries.ok) return;
+        const registered = new Set(
+          threads
+            .filter((thread) => thread.anchor.kind === "drawing")
+            .map((thread) => (thread.anchor.kind === "drawing" ? thread.anchor.elementId : "")),
+        );
+        for (const element of summaries.value) {
+          if (cancelled || element.isDeleted || registered.has(element.id)) continue;
+          if (failedSharedRegistrationIds.current.has(element.id)) continue;
+          if (!readOrchestratorThreadAnchor({ customData: element.customData })) continue;
+          try {
+            const thread = await registerSharedOrchestratorThread(drawingId, element.id);
+            sharedRegistrationAttempts.current.delete(element.id);
+            if (!cancelled) upsertThread(thread);
+          } catch {
+            const attempts = (sharedRegistrationAttempts.current.get(element.id) ?? 0) + 1;
+            sharedRegistrationAttempts.current.set(element.id, attempts);
+            if (attempts >= MAX_SHARED_THREAD_REGISTRATION_ATTEMPTS) {
+              failedSharedRegistrationIds.current.add(element.id);
+              notify("error", "A shared thread card could not be registered.", {
+                key: "orchestrator-thread-registration:" + element.id,
+                detail:
+                  "The server rejected the card after the autosave window. Reload after correcting or replacing it.",
+              });
+            }
+          }
+        }
+      } finally {
+        busy = false;
+      }
+    };
+    void reconcile();
+    const interval = window.setInterval(() => void reconcile(), 1_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [adapter, canEdit, drawingId, isReady, threads, upsertThread]);
 
   useEffect(() => {
     if (!isReady) {
@@ -172,12 +371,41 @@ export const useOrchestratorThreadFeature = ({
         if (!record) continue;
         const rect = projectRect(adapter, element);
         if (!rect) continue;
+        const registered = threads.find(
+          (thread) => thread.anchor.kind === "drawing" && thread.anchor.elementId === element.id,
+        );
         anchors.push({
-          threadId: record.threadId,
+          // customData.threadId survives duplicate/copy-paste and therefore
+          // cannot address server history. Until registration succeeds it is
+          // display-only; the element id is the unique Board address.
+          threadId: registered?.id ?? `unregistered:${element.id}`,
           elementId: element.id,
-          title: record.title,
+          title: registered?.title ?? record.title,
           rect,
         });
+      }
+
+      const privateThread = threads.find(
+        (thread) => thread.audience.kind === "private" && thread.anchor.kind === "private",
+      );
+      if (privateThread?.anchor.kind === "private") {
+        const projected = adapter.viewport.toViewport({
+          x: privateThread.anchor.x,
+          y: privateThread.anchor.y,
+        });
+        if (projected.ok) {
+          anchors.push({
+            threadId: privateThread.id,
+            elementId: privateElementId(privateThread.id),
+            title: privateThread.title,
+            rect: {
+              left: projected.value.x - 90,
+              top: projected.value.y - 30,
+              right: projected.value.x + 90,
+              bottom: projected.value.y + 30,
+            },
+          });
+        }
       }
 
       const activeAnchor = activeElementId
@@ -246,7 +474,7 @@ export const useOrchestratorThreadFeature = ({
       unsubscribeScene();
       unsubscribeScroll();
     };
-  }, [activeElementId, adapter, canEdit, isReady]);
+  }, [activeElementId, adapter, canEdit, isReady, threads]);
 
   const createThread = useCallback(() => {
     if (!canEdit || !isReady) return;
@@ -319,18 +547,267 @@ export const useOrchestratorThreadFeature = ({
     setActiveElementId(elementId);
   }, [adapter, canEdit, isReady]);
 
+  const createLocalThread = useCallback(async () => {
+    if (!drawingId || !currentUserId || !isReady) {
+      notify("error", "Sign in to start a local orchestrator thread.");
+      return;
+    }
+    const viewport = adapter.viewport.read();
+    if (!viewport.ok) return;
+    const at = adapter.viewport.toScene({
+      x: viewport.value.width / 2,
+      y: viewport.value.height / 2,
+    });
+    if (!at.ok) return;
+    try {
+      const thread = await getOrCreateLocalOrchestratorThread(drawingId, at.value);
+      upsertThread(thread);
+      previousMode.current = "closed";
+      setActiveElementId(privateElementId(thread.id));
+    } catch {
+      notify("error", "The local thread could not be opened.");
+    }
+  }, [adapter, currentUserId, drawingId, isReady, upsertThread]);
+
   const openThread = useCallback((elementId: string) => {
     previousMode.current = "closed";
     setActiveElementId((current) => selectOpenThread(current, elementId));
   }, []);
 
+  const activeThread = useMemo(
+    () =>
+      surface.active
+        ? (threads.find((thread) => thread.id === surface.active!.anchor.threadId) ?? null)
+        : null,
+    [surface.active, threads],
+  );
+
+  useEffect(() => {
+    // Loading/action failures describe the panel that initiated them. Cached
+    // histories do not start a new fetch that could otherwise clear a stale
+    // error after the user switches to a different thread.
+    setThreadError(null);
+  }, [activeThread?.id]);
+
+  const publicThreads = useMemo(
+    () => threads.filter((thread) => thread.audience.kind === "drawing"),
+    [threads],
+  );
+  const receiptThreads = useMemo(
+    // A shared panel shows its anchored responsibility. A private panel has
+    // no public receipt history of its own, so it explicitly presents the
+    // Board-wide public-effect ledger without exposing private origin ids.
+    () =>
+      activeThread?.audience.kind === "drawing"
+        ? [activeThread]
+        : activeThread
+          ? publicThreads
+          : [],
+    [activeThread, publicThreads],
+  );
+
+  useEffect(() => {
+    if (!drawingId || !activeThread || receiptThreads.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      receiptThreads.map(async (thread) => ({
+        threadId: thread.id,
+        receipts: await getPublicDispatchReceipts(drawingId, thread.id),
+      })),
+    )
+      .then((snapshots) => {
+        if (cancelled) return;
+        setReceiptsByThread((current) => {
+          let changed = false;
+          const next = { ...current };
+          for (const snapshot of snapshots) {
+            const existing = current[snapshot.threadId] ?? [];
+            const merged = mergeReceiptLists(existing, snapshot.receipts);
+            if (merged !== existing) {
+              next[snapshot.threadId] = merged;
+              changed = true;
+            }
+          }
+          return changed ? next : current;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setThreadError("Public dispatch receipts could not be loaded.");
+      });
+    if (canEdit) {
+      void Promise.all([getInstructionContexts(drawingId), getAgentRuntimeConnections(drawingId)])
+        .then(([contexts, connections]) => {
+          if (cancelled) return;
+          setDispatchContexts(contexts);
+          setDispatchConnections(connections);
+        })
+        .catch(() => {
+          if (!cancelled) setThreadError("Public dispatch options could not be loaded.");
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThread, canEdit, drawingId, receiptThreads]);
+
+  useEffect(() => {
+    if (activeThread?.audience.kind === "drawing") {
+      lastDrawingThreadId.current = activeThread.id;
+    }
+  }, [activeThread]);
+
+  useEffect(() => {
+    if (
+      !drawingId ||
+      !activeThread ||
+      eventsByThread[activeThread.id] ||
+      requestedThreadIds.current.has(activeThread.id)
+    ) {
+      return;
+    }
+    let cancelled = false;
+    requestedThreadIds.current.add(activeThread.id);
+    setLoadingThreadId(activeThread.id);
+    setThreadError(null);
+    void getOrchestratorThreadEvents(drawingId, activeThread.id)
+      .then((events) => {
+        if (!cancelled) setEventsByThread((current) => ({ ...current, [activeThread.id]: events }));
+      })
+      .catch(() => {
+        if (!cancelled) setThreadError("This thread history could not be loaded.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingThreadId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThread, drawingId, eventsByThread]);
+
+  const switchAudience = useCallback(
+    (audience: "private" | "drawing") => {
+      const target =
+        audience === "drawing"
+          ? (threads.find((thread) => thread.id === lastDrawingThreadId.current) ??
+            threads.find((thread) => thread.audience.kind === "drawing"))
+          : threads.find((thread) => thread.audience.kind === "private");
+      if (!target) {
+        if (audience === "private") void createLocalThread();
+        else if (canEdit) createThread();
+        return;
+      }
+      const elementId =
+        target.anchor.kind === "private" ? privateElementId(target.id) : target.anchor.elementId;
+      previousMode.current = "closed";
+      setActiveElementId(elementId);
+    },
+    [canEdit, createLocalThread, createThread, threads],
+  );
+
+  const sendMessage = useCallback(
+    async (text: string) => {
+      if (!drawingId || !activeThread) throw new Error("No active thread");
+      const threadId = activeThread.id;
+      if (pendingMessageThreadIds.current.has(threadId)) throw new Error("Message already pending");
+      pendingMessageThreadIds.current.add(threadId);
+      setSendingThreadIds((current) => new Set(current).add(threadId));
+      setActionErrorsByThread((current) => ({ ...current, [threadId]: null }));
+      try {
+        const event = await appendOrchestratorThreadMessage(drawingId, threadId, text);
+        setEventsByThread((current) => {
+          const existing = current[threadId] ?? [];
+          return existing.some((candidate) => candidate.id === event.id)
+            ? current
+            : { ...current, [threadId]: [...existing, event] };
+        });
+      } catch (error) {
+        setActionErrorsByThread((current) => ({
+          ...current,
+          [threadId]: "The message was not accepted. Nothing was published.",
+        }));
+        throw error;
+      } finally {
+        pendingMessageThreadIds.current.delete(threadId);
+        setSendingThreadIds((current) => {
+          const next = new Set(current);
+          next.delete(threadId);
+          return next;
+        });
+      }
+    },
+    [activeThread, drawingId],
+  );
+
+  const dispatchPublicEffect = useCallback(
+    async (input: {
+      publicThreadId: string;
+      objectiveSummary: string;
+      targetContextId: string;
+      connectionId: string;
+      profileId: string;
+    }) => {
+      const publicThread = publicThreads.find((thread) => thread.id === input.publicThreadId);
+      if (!drawingId || !activeThread || !publicThread || surface.backpressure.blocked)
+        throw new Error("Public dispatch is unavailable");
+      const originThreadId = activeThread.id;
+      const publicThreadId = publicThread.id;
+      if (pendingDispatchThreadIds.current.has(originThreadId)) {
+        throw new Error("Dispatch already pending");
+      }
+      pendingDispatchThreadIds.current.add(originThreadId);
+      setDispatchingThreadIds((current) => new Set(current).add(originThreadId));
+      setActionErrorsByThread((current) => ({ ...current, [originThreadId]: null }));
+      try {
+        const receipt = await createPublicDispatch(drawingId, originThreadId, {
+          publicThreadId,
+          objectiveSummary: input.objectiveSummary,
+          targetContextIds: [input.targetContextId],
+          connectionId: input.connectionId,
+          profileId: input.profileId,
+          displayName: "Board orchestrator",
+        });
+        setReceiptsByThread((current) => ({
+          ...current,
+          [publicThreadId]: mergeReceiptLists(current[publicThreadId] ?? [], [receipt]),
+        }));
+      } catch (error) {
+        setActionErrorsByThread((current) => ({
+          ...current,
+          [originThreadId]: "The public dispatch was not accepted. No public work started.",
+        }));
+        throw error;
+      } finally {
+        pendingDispatchThreadIds.current.delete(originThreadId);
+        setDispatchingThreadIds((current) => {
+          const next = new Set(current);
+          next.delete(originThreadId);
+          return next;
+        });
+      }
+    },
+    [activeThread, drawingId, publicThreads, surface.backpressure.blocked],
+  );
+
   const jumpToThread = useCallback(
     (elementId: string) => {
       const anchor = surface.anchors.find((item) => item.elementId === elementId);
       if (!anchor) return;
+      const thread = threads.find((candidate) => candidate.id === anchor.threadId);
+      if (thread?.anchor.kind === "private") {
+        adapter.viewport.showBounds(
+          [
+            thread.anchor.x - 120,
+            thread.anchor.y - 80,
+            thread.anchor.x + 120,
+            thread.anchor.y + 80,
+          ],
+          { animate: true },
+        );
+        return;
+      }
       adapter.viewport.scrollToElement(anchor.elementId as ElementId);
     },
-    [adapter, surface.anchors],
+    [adapter, surface.anchors, threads],
   );
 
   const root = adapter.ui.overlayRoot();
@@ -339,8 +816,42 @@ export const useOrchestratorThreadFeature = ({
     orchestratorThreadOverlay: root.ok
       ? createPortal(
           <OrchestratorThreadOverlay
+            key={activeThread?.id ?? "closed"}
             surface={surface}
             onCreate={createThread}
+            onCreateLocal={drawingId && currentUserId ? () => void createLocalThread() : undefined}
+            panelView={
+              activeThread
+                ? {
+                    threadId: activeThread.id,
+                    audience: activeThread.audience.kind,
+                    events: eventsByThread[activeThread.id] ?? [],
+                    loading: loadingThreadId === activeThread.id,
+                    sending: sendingThreadIds.has(activeThread.id),
+                    canWrite:
+                      Boolean(currentUserId) &&
+                      (activeThread.audience.kind === "private" || canEdit),
+                    error: actionErrorsByThread[activeThread.id] ?? threadError,
+                    publicThreads: publicThreads.map((thread) => ({
+                      id: thread.id,
+                      title: thread.title,
+                    })),
+                    receipts: receiptThreads.flatMap((thread) => receiptsByThread[thread.id] ?? []),
+                    dispatch:
+                      publicThreads.length > 0 && canEdit
+                        ? {
+                            contexts: dispatchContexts,
+                            connections: dispatchConnections,
+                            submitting: dispatchingThreadIds.has(activeThread.id),
+                            blocked: surface.backpressure.blocked,
+                          }
+                        : null,
+                  }
+                : null
+            }
+            onSwitchAudience={switchAudience}
+            onSendMessage={sendMessage}
+            onDispatch={dispatchPublicEffect}
             onOpen={openThread}
             onClose={() => {
               previousMode.current = "closed";

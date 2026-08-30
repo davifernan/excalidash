@@ -26,6 +26,29 @@ const settle = async (page: Page) => {
   await page.waitForTimeout(400);
 };
 
+const clickFreeCanvasPoint = async (page: Page) => {
+  const canvas = page.locator("canvas").last();
+  const position = await canvas.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const fractions = [0.5, 0.25, 0.75, 0.125, 0.875];
+    for (const yFraction of fractions) {
+      for (const xFraction of fractions) {
+        const clientX = bounds.left + bounds.width * xFraction;
+        const clientY = bounds.top + bounds.height * yFraction;
+        if (document.elementFromPoint(clientX, clientY) === element) {
+          return { x: clientX - bounds.left, y: clientY - bounds.top };
+        }
+      }
+    }
+    throw new Error("No unobstructed point on the interactive canvas");
+  });
+
+  // A fixed coordinate silently changes meaning whenever new board chrome is
+  // added. Hit-testing first makes this click mean "focus the canvas" rather
+  // than "click wherever x/y happens to point in today's layout".
+  await canvas.click({ position });
+};
+
 test.describe("the note tool in the toolbar", () => {
   let drawingId: string;
   let api: APIRequestContext;
@@ -49,10 +72,7 @@ test.describe("the note tool in the toolbar", () => {
 
   test("answers to its key", async ({ page }) => {
     await openEditor(page, drawingId);
-    await page
-      .locator("canvas")
-      .last()
-      .click({ position: { x: 700, y: 500 } });
+    await clickFreeCanvasPoint(page);
     await page.keyboard.press("n");
     await page.waitForFunction(
       () => (window as any).__EXCALIDASH_TEST__.getAppState().activeTool?.customType === "sticky",

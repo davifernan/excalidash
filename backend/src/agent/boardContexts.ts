@@ -182,6 +182,19 @@ export const registerAgentContext = async (params: {
       },
       select: { id: true, frameElementId: true, pinned: true },
     });
+    await tx.agentThread.create({
+      data: {
+        // Context ids were also used as thread ids by the one-time NIL-679
+        // migration. Keeping the same invariant for new Contexts makes their
+        // history address deterministic without exposing another identity.
+        id: created.id,
+        drawingId: params.drawingId,
+        threadKind: "context",
+        audienceKind: "drawing",
+        contextId: created.id,
+        title: "Context thread",
+      },
+    });
     const contextElementIds = elementIdsInContextFrame(elements, params.frameElementId);
     const provenance = await readElementGuestProvenance(tx, params.drawingId, contextElementIds);
     const unknownElementIds = provenance
