@@ -30,18 +30,36 @@ test("all successful required parts are passed", () => {
   );
 });
 
-test("the enforcement command exits non-zero for skipped required parts", () => {
-  const result = spawnSync(
+function runEnforcement(result) {
+  return spawnSync(
     process.execPath,
     [path.join(__dirname, "soak-required-part-result.cjs"), "--enforce"],
     {
       env: {
         ...process.env,
-        NEEDS_JSON: JSON.stringify({ part_1: { result: "skipped" } }),
+        NEEDS_JSON: JSON.stringify({ part_1: { result } }),
       },
       encoding: "utf8",
     },
   );
+}
+
+test("the enforcement command describes skipped required parts as skipped", () => {
+  const result = runEnforcement("skipped");
+  assert.strictEqual(result.status, 1);
+  assert.match(result.stderr, /required soak part was skipped/i);
+  assert.doesNotMatch(result.stderr, /indeterminate, not passed/);
+});
+
+test("the enforcement command describes failed required parts as failed", () => {
+  const result = runEnforcement("failure");
+  assert.strictEqual(result.status, 1);
+  assert.match(result.stderr, /required soak part failed/i);
+  assert.doesNotMatch(result.stderr, /indeterminate, not passed/);
+});
+
+test("the enforcement command treats cancelled required parts as indeterminate", () => {
+  const result = runEnforcement("cancelled");
   assert.strictEqual(result.status, 1);
   assert.match(result.stderr, /indeterminate, not passed/);
 });

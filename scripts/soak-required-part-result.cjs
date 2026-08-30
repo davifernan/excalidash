@@ -6,6 +6,13 @@
 // executable and shared so those two consequences cannot drift apart.
 
 const NON_PASSING_RESULTS = new Set(["failure", "cancelled", "skipped"]);
+const RESULT_DIAGNOSTICS = {
+  failure:
+    "A required soak part failed: inspect that part's logs before treating the aggregate as healthy.",
+  skipped: "A required soak part was skipped: inspect why the required coverage did not run.",
+  cancelled:
+    "A cancelled part is indeterminate, not passed: check whether a newer run for the same SHA superseded it before diagnosing a product failure.",
+};
 
 function requiredPartStatus(needs) {
   const results = Object.values(needs || {}).map((job) => job && job.result);
@@ -30,9 +37,10 @@ function main(args = process.argv.slice(2), needsJson = process.env.NEEDS_JSON) 
   const status = requiredPartStatus(needs);
   if (enforce && status === "failed") {
     console.error(`Required soak part result: ${JSON.stringify(needs)}`);
-    console.error(
-      "A cancelled part is indeterminate, not passed: check whether a newer run for the same SHA superseded it before diagnosing a product failure.",
-    );
+    const results = new Set(Object.values(needs).map((job) => job && job.result));
+    for (const result of NON_PASSING_RESULTS) {
+      if (results.has(result)) console.error(RESULT_DIAGNOSTICS[result]);
+    }
     return 1;
   }
   process.stdout.write(`${status}\n`);
@@ -41,4 +49,4 @@ function main(args = process.argv.slice(2), needsJson = process.env.NEEDS_JSON) 
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { NON_PASSING_RESULTS, requiredPartStatus, main };
+module.exports = { NON_PASSING_RESULTS, RESULT_DIAGNOSTICS, requiredPartStatus, main };
