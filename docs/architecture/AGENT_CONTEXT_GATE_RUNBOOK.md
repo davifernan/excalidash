@@ -78,6 +78,15 @@ Open one board view for Davi and one authenticated foreign-observer socket. Capt
 only the four `privateEventNames` from that socket. Prepare a Markdown file that
 contains the same three public mappings and no extra information.
 
+`backend/scripts/gate-run/setup-gate2.ts` builds exactly this state against a real
+running instance in one command; `e2e/tests/gate-run/gate2-record.spec.ts` opens the
+foreign-observer socket and takes the six screenshots automatically. See
+`e2e/tests/gate-run/README.md` for both, and its flagged finding first: the board's
+real status vocabulary cannot render the fixture's "working"/"waiting" words as
+written (`working | idle | blocked | done | unknown` on the wire, and the on-canvas
+label only ever shows `reading`/`blocked`/`done`) -- resolve that wording question
+before running this gate for real.
+
 ### Fixed procedure
 
 1. Start the 30-second clock when all four runs are visible to their authorized
@@ -109,6 +118,10 @@ Use `gate3BoardThreadFixture`. Place each task's identical context, status, and
 result once in the Board thread and once in a linear terminal transcript. The
 operator checks each surface against the fixed answer key before Davi sees either.
 
+`backend/scripts/gate-run/setup-gate3.ts` seeds the real shared orchestrator thread
+with all four tasks in one command; `e2e/tests/gate-run/materials/gate3-terminal-transcript.txt`
+is the fixed terminal-transcript side. See `e2e/tests/gate-run/README.md`.
+
 ### Fixed procedure
 
 1. Run the two fixture sessions in their exact crossed order.
@@ -135,6 +148,9 @@ the representative Board-thread/external-adapter case with the terminal tab
 disabled, plus the ten-item cost/risk checklist. This gate is not observable in
 the current state until the three prerequisite results exist; it must not be
 declared passed from preparation alone.
+
+`e2e/tests/gate-run/materials/gate4-checklist.md` is the ten-item template; there is
+no setup script, since this gate's fixture is a written decision, not board state.
 
 ### Fixed procedure
 

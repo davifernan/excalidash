@@ -1,0 +1,6 @@
+$ agent-status --all
+[Atlas]  context=Atlas research        status=working   result="three sources linked"
+[Beacon] context=Beacon design         status=waiting   result="wireframe awaiting review"
+[Cobalt] context=Cobalt verification   status=working   result="two checks remaining"
+[Delta]  context=Delta rollout         status=done      result="release note drafted"
+$
