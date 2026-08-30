@@ -51,6 +51,18 @@ test("flags each npx call independently on the same line", () => {
   assert.match(offenders[0], /npx prisma generate/);
 });
 
+test("flags an unprotected second npx call after a protected first call", () => {
+  const offenders = findMissingNoInstall("npx --no-install foo && npx bar");
+  assert.deepEqual(offenders, ["npx bar"]);
+});
+
+test("accepts two separately protected npx calls on the same line", () => {
+  assert.deepEqual(
+    findMissingNoInstall("npx --no-install foo && npx --no-install bar"),
+    [],
+  );
+});
+
 test("does not flag the word 'npx' as a substring of another word", () => {
   assert.deepEqual(findMissingNoInstall("echo unnpxpected"), []);
 });

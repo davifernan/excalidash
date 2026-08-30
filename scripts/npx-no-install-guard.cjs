@@ -34,7 +34,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const NPX_CALL = /(?:^|[|&;(]|\s)npx(?=\s)([^\n]*)/g;
+// Stop before, rather than consume through, the next shell operator. The
+// global scan can then find another npx invocation later on the same line.
+const NPX_CALL = /(?:^|[|&;(]|\s)npx(?=\s)(.*?)(?=&&|\|\||[|;]|\n|$)/g;
 
 /**
  * Find every `npx` invocation in a shell command string that is missing
@@ -59,12 +61,7 @@ function findMissingNoInstall(command) {
   let match;
   NPX_CALL.lastIndex = 0;
   while ((match = NPX_CALL.exec(logicalCommands))) {
-    const rest = match[1];
-    const stopIndex = (() => {
-      const m = rest.match(/&&|\|\||[|;]/);
-      return m ? m.index : rest.length;
-    })();
-    const scope = rest.slice(0, stopIndex);
+    const scope = match[1];
     if (!/--no-install\b/.test(scope)) {
       const snippet = `npx${scope}`.trim().slice(0, 80);
       offenders.push(snippet);
