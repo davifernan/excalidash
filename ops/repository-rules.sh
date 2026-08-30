@@ -78,6 +78,7 @@ ruleset_payload() {
           { "context": "Delivery Contract Tests" },
           { "context": "E2E Browser Tests" },
           { "context": "E2E Built Image Smoke (NIL-649)" },
+          { "context": "E2E Typecheck" },
           { "context": "Frontend Format" },
           { "context": "Frontend Typecheck" },
           { "context": "Frontend Unit Tests" },

@@ -76,7 +76,7 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
         `(shared 150ms publisher; ceiling 7 packets/s)`,
     );
 
-    await source.evaluate((editor) => {
+    await source.evaluate((editor: HTMLTextAreaElement) => {
       editor.focus();
       const start = editor.value.indexOf("Live");
       editor.setSelectionRange(start, start + 4);
@@ -86,7 +86,7 @@ test("Markdown edit is durable and a second browser is explicitly locked out", a
     const formattingBounds = await formattingToolbar.boundingBox();
     expect(formattingBounds).not.toBeNull();
     await formattingToolbar.getByRole("button", { name: "Bold" }).click();
-    const focusMeasurement = await source.evaluate((editor) => ({
+    const focusMeasurement = await source.evaluate((editor: HTMLTextAreaElement) => ({
       retained: document.activeElement === editor,
       selection: [editor.selectionStart, editor.selectionEnd],
     }));
