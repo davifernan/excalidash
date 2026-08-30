@@ -41,6 +41,7 @@ import { resolveStoragePath } from "./assets/assetStorage";
 import { sweepUnclaimed, collectExpired } from "./assets/assetService";
 import { describeShrink, shrinkPdf } from "./assets/pdfShrink";
 import { prisma, configureSqlite, reclaimSqliteFreeSpace } from "./db/prisma";
+import { MAX_DRAWING_NAME_LENGTH } from "@excalidash/domain/collaboration";
 import { createDrawingsCacheStore } from "./server/drawingsCache";
 import { registerCsrfProtection } from "./server/csrf";
 import { registerSocketHandlers } from "./server/socket";
@@ -308,8 +309,13 @@ const filesFieldSchema = z
   .union([z.record(z.string(), z.unknown()), z.null()])
   .optional()
   .transform((value) => (value === null ? undefined : value));
-const drawingBaseSchema = z.object({
-  name: z.string().trim().min(1).max(255).optional(),
+export const drawingBaseSchema = z.object({
+  // MAX_DRAWING_NAME_LENGTH, not a literal 255: shared with the
+  // drawing-name-update socket contract (@excalidash/domain/collaboration)
+  // so this REST-side limit and the live-update side can't silently drift
+  // the way they already had -- this schema's own 255 and the frontend's
+  // separately-declared 255 agreed only by coincidence (NIL-637).
+  name: z.string().trim().min(1).max(MAX_DRAWING_NAME_LENGTH).optional(),
   collectionId: z.union([z.string().trim().min(1), z.null()]).optional(),
   preview: z.string().nullable().optional(),
 });

@@ -1,13 +1,11 @@
 import type { Socket } from "socket.io-client";
+import {
+  DRAWING_NAME_EVENT,
+  MAX_DRAWING_NAME_LENGTH,
+  type DrawingNameUpdate,
+} from "@excalidash/domain/collaboration";
 
-const DRAWING_NAME_EVENT = "drawing-name-update";
-const MAX_DRAWING_NAME_LENGTH = 255;
-
-export type DrawingNameUpdate = {
-  drawingId: string;
-  name: string;
-  revision: number;
-};
+export { type DrawingNameUpdate } from "@excalidash/domain/collaboration";
 
 export const parseDrawingNameUpdate = (
   value: unknown,

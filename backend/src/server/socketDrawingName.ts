@@ -1,14 +1,9 @@
 import type { PrismaClient } from "../generated/client";
 import type { Server } from "socket.io";
 import { logger } from "../logger";
+import { DRAWING_NAME_EVENT, type DrawingNameUpdate } from "@excalidash/domain/collaboration";
 
-export const DRAWING_NAME_EVENT = "drawing-name-update";
-
-export type DrawingNameUpdate = {
-  drawingId: string;
-  name: string;
-  revision: number;
-};
+export { DRAWING_NAME_EVENT, type DrawingNameUpdate } from "@excalidash/domain/collaboration";
 
 const roomName = (drawingId: string) => `drawing_${drawingId}`;
 
