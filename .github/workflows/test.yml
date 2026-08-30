@@ -32,6 +32,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Install delivery contract dependencies
+        run: npm ci
       - run: node --test scripts/*.test.cjs
       - run: node scripts/delivery-routing-probe.cjs
       # Named explicitly rather than left to the counterprobe, same reasoning
@@ -53,6 +55,18 @@ jobs:
       # NIL-636).
       - name: Check Docker build contexts against their Dockerfile's COPY sources
         run: node scripts/docker-build-context-guard.cjs
+      # A workflow whose local install is missing or broken must fail loudly
+      # at that point, not have `npx` silently fetch an arbitrary version
+      # from the registry and run that instead: `_soak-part.yml` did exactly
+      # that after NIL-636's root-Workspace restructuring left it running
+      # `cd backend && npm ci` against a lockfile that no longer exists
+      # there, and the resulting `npx prisma generate` quietly downloaded a
+      # `-rc` prerelease with a different CLI instead of failing on the
+      # missing install (NIL-636 soak incident).
+      - name: Check every workflow npx call carries --no-install
+        run: node scripts/npx-no-install-guard.cjs
+      - name: Prove the npx --no-install guard rejects what it claims to
+        run: node scripts/npx-no-install-guard.test.cjs
       # Runs against the real GitHub API (main's own tip and its real
       # check-runs), not a fixture -- Davi, PR #79: a test that only covers
       # the single-page case would stay green and prove nothing, since the
@@ -147,7 +161,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Typecheck backend
         run: npm run typecheck --prefix backend
@@ -402,7 +416,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
           node -e 'const fs = require("node:fs"); fs.writeFileSync(`${process.env.RUNNER_TEMP}/nil-703-prisma-generate.json`, `${JSON.stringify({ finishedAt: new Date().toISOString(), pid: process.pid, cwd: process.cwd() })}\n`);'
 
       # NIL-703: this job crashed twice with "Failed Suites 1" naming an
@@ -531,7 +545,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Setup backend database
         run: |
@@ -547,7 +561,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium --with-deps
+          npx --no-install playwright install chromium --with-deps
 
       - name: Start servers and run E2E tests
         run: |
@@ -622,7 +636,7 @@ jobs:
           cd e2e
           TEST_EXIT_CODE=0
           NO_SERVER=true CI=true timeout --signal=INT --kill-after=30s --preserve-status 720 \
-            npx playwright test --project=chromium --shard=${{ matrix.shard }}/2 \
+            npx --no-install playwright test --project=chromium --shard=${{ matrix.shard }}/2 \
             || TEST_EXIT_CODE=$?
           cd ..
 
@@ -707,7 +721,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Setup backend database
         run: |
@@ -723,7 +737,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install ${{ matrix.browser }} --with-deps
+          npx --no-install playwright install ${{ matrix.browser }} --with-deps
 
       - name: Start servers and run E2E tests
         run: |
@@ -804,7 +818,7 @@ jobs:
           cd e2e
           TEST_EXIT_CODE=0
           NO_SERVER=true CI=true timeout --signal=INT --kill-after=30s --preserve-status 660 \
-            npx playwright test --project=${{ matrix.project }} \
+            npx --no-install playwright test --project=${{ matrix.project }} \
             || TEST_EXIT_CODE=$?
           cd ..
 
@@ -864,7 +878,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Setup backend database
         run: |
@@ -881,7 +895,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium --with-deps
+          npx --no-install playwright install chromium --with-deps
 
       - name: Start servers and run E2E tests
         run: |
@@ -955,7 +969,7 @@ jobs:
             BASE_URL="http://localhost:6842" \
             E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
             timeout --signal=INT --kill-after=30s --preserve-status 720 \
-            npx playwright test --project=two-account \
+            npx --no-install playwright test --project=two-account \
             || TEST_EXIT_CODE=$?
           cd ..
 
@@ -1015,7 +1029,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Setup backend database
         run: |
@@ -1032,7 +1046,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium --with-deps
+          npx --no-install playwright install chromium --with-deps
 
       - name: Start servers and run E2E tests
         run: |
@@ -1106,7 +1120,7 @@ jobs:
             BASE_URL="http://localhost:6853" \
             E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
             timeout --signal=INT --kill-after=30s --preserve-status 720 \
-            npx playwright test --project=permission-matrix \
+            npx --no-install playwright test --project=permission-matrix \
             || TEST_EXIT_CODE=$?
           cd ..
 
@@ -1156,7 +1170,7 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Setup backend database
         run: |
@@ -1173,7 +1187,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium --with-deps
+          npx --no-install playwright install chromium --with-deps
 
       - name: Start servers and run E2E tests
         run: |
@@ -1231,7 +1245,7 @@ jobs:
             BASE_URL="http://localhost:6863" \
             E2E_BACKEND_LOG_FILE="$BACKEND_LOG" \
             timeout --signal=INT --kill-after=30s --preserve-status 720 \
-            npx playwright test --project=presence-two-account \
+            npx --no-install playwright test --project=presence-two-account \
             || TEST_EXIT_CODE=$?
           cd ..
 
@@ -1343,7 +1357,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd e2e
-          npx playwright install chromium --with-deps
+          npx --no-install playwright install chromium --with-deps
 
       - name: Run the built-image smoke spec
         run: |
@@ -1353,7 +1367,7 @@ jobs:
             API_URL="http://localhost:16767/api" \
             BASE_URL="http://localhost:16767" \
             timeout --signal=INT --kill-after=30s --preserve-status 300 \
-            npx playwright test --project=built-image \
+            npx --no-install playwright test --project=built-image \
             || TEST_EXIT_CODE=$?
           exit "$TEST_EXIT_CODE"
 
@@ -1440,12 +1454,12 @@ jobs:
       - name: Generate Prisma client
         run: |
           cd backend
-          npx prisma generate
+          npx --no-install prisma generate
 
       - name: Run security tests
         run: |
           cd backend
-          npx ts-node src/securityTest.ts
+          npx --no-install ts-node src/securityTest.ts
 
   # NIL-667: nginx only inherits a parent block's `add_header` directives when
   # the current `location` has none of its own -- add even one, and every
