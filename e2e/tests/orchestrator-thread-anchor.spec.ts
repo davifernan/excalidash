@@ -6,11 +6,32 @@ const openMenu = async (page: Page) => {
   await page.getByTestId("main-menu-trigger").click();
 };
 
+/**
+ * NIL-718: the old version of this check folded two different failure
+ * modes into one boolean and one message ("must settle inside the event
+ * list for two animation frames"), because a single `stableFrames`
+ * counter was incremented only when BOTH stability and containment held
+ * at once. That made "never stopped moving" and "stopped moving but
+ * overflowed" produce the identical result -- a load-timing problem on
+ * a busy CI runner and a real layout overflow the old pixel tolerance
+ * (removed in #295/NIL-716) used to hide were indistinguishable.
+ *
+ * This tracks stability on its own. Once two consecutive frames agree
+ * (regardless of containment), containment is checked exactly once more
+ * and the loop stops either way -- a geometry that is genuinely stable
+ * is not going to un-overflow by waiting longer, so there is nothing to
+ * gain by continuing to poll.
+ */
+type SettleResult =
+  | { kind: "settled" }
+  | { kind: "never-stable"; attempts: number; lastMaxDeltaPx: number }
+  | { kind: "stable-but-overflowing"; overflowTopPx: number; overflowBottomPx: number };
+
 const expectInside = async (inner: Locator, outer: Locator) => {
   const outerElement = await outer.elementHandle();
   if (!outerElement) throw new Error("outer containment element is not attached");
 
-  const settled = await inner.evaluate(async (innerElement, outerElement) => {
+  const result: SettleResult = await inner.evaluate(async (innerElement, outerElement) => {
     await document.fonts.ready;
 
     const measure = () => {
@@ -23,31 +44,61 @@ const expectInside = async (inner: Locator, outer: Locator) => {
         outerBottom: outerRect.bottom,
       };
     };
-    const isSameGeometry = (
-      previous: ReturnType<typeof measure>,
-      current: ReturnType<typeof measure>,
-    ) =>
-      (["innerTop", "innerBottom", "outerTop", "outerBottom"] as const).every(
-        (key) => Math.abs(previous[key] - current[key]) < 0.01,
-      );
-    const isContained = (geometry: ReturnType<typeof measure>) =>
-      geometry.innerTop >= geometry.outerTop && geometry.innerBottom <= geometry.outerBottom;
+    type Geometry = ReturnType<typeof measure>;
+    const GEOMETRY_KEYS = ["innerTop", "innerBottom", "outerTop", "outerBottom"] as const;
+
+    const maxDelta = (previous: Geometry, current: Geometry) =>
+      Math.max(...GEOMETRY_KEYS.map((key) => Math.abs(previous[key] - current[key])));
+    const isSameGeometry = (previous: Geometry, current: Geometry) =>
+      maxDelta(previous, current) < 0.01;
+    const overflow = (geometry: Geometry) => ({
+      overflowTopPx: Math.max(0, geometry.outerTop - geometry.innerTop),
+      overflowBottomPx: Math.max(0, geometry.innerBottom - geometry.outerBottom),
+    });
 
     let previous = measure();
     let stableFrames = 0;
+    let attempts = 0;
+    let lastMaxDeltaPx = Infinity;
     const deadline = performance.now() + 2_000;
     while (performance.now() < deadline) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      attempts += 1;
       const current = measure();
-      stableFrames =
-        isSameGeometry(previous, current) && isContained(current) ? stableFrames + 1 : 0;
-      if (stableFrames >= 2) return true;
+      lastMaxDeltaPx = maxDelta(previous, current);
+      stableFrames = lastMaxDeltaPx < 0.01 ? stableFrames + 1 : 0;
+      if (stableFrames >= 2) {
+        const { overflowTopPx, overflowBottomPx } = overflow(current);
+        if (overflowTopPx === 0 && overflowBottomPx === 0) {
+          return { kind: "settled" } satisfies SettleResult;
+        }
+        return {
+          kind: "stable-but-overflowing",
+          overflowTopPx,
+          overflowBottomPx,
+        } satisfies SettleResult;
+      }
       previous = current;
     }
-    return false;
+    return { kind: "never-stable", attempts, lastMaxDeltaPx } satisfies SettleResult;
   }, outerElement);
 
-  expect(settled, "message must settle inside the event list for two animation frames").toBe(true);
+  if (result.kind === "settled") return;
+  if (result.kind === "never-stable") {
+    expect(
+      false,
+      `geometry never stabilized within ${result.attempts} animation-frame attempts (2s budget); ` +
+        `the largest per-edge change between the final two frames was ${result.lastMaxDeltaPx.toFixed(3)}px ` +
+        `(need <0.01px for two consecutive frames). This is a timing/load failure, not a layout one.`,
+    ).toBe(true);
+    return;
+  }
+  expect(
+    false,
+    `geometry stabilized but overflowed its container: ${result.overflowTopPx.toFixed(2)}px ` +
+      `above the top edge, ${result.overflowBottomPx.toFixed(2)}px below the bottom edge. ` +
+      `This is a real layout overflow, not a timing issue.`,
+  ).toBe(true);
 };
 
 test.describe("Orchestrator Thread Board Card (NIL-678)", () => {
