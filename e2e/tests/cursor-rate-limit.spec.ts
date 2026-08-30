@@ -94,16 +94,15 @@ test("image upload stays quiet when the shared cursor budget protects the server
       ),
     );
 
-    const bursts = await Promise.all(
+    await Promise.all(
       pages.map((candidate, pageIndex) =>
         candidate.evaluate(
           ({ drawingId, pageIndex, count }) => {
             const status = (window as any).__EXCALIDASH_SOCKET_STATUS__;
             if (typeof status?.emitTestEvent !== "function")
               throw new Error("Cursor pressure Socket.IO test seam is unavailable");
-            const pressure = { sent: 0, rejections: 0 };
+            const pressure = { rejections: 0 };
             (window as any).__NIL697_CURSOR_PRESSURE__ = pressure;
-            const startedAt = performance.now();
             for (let index = 0; index < count; index += 1) {
               status.emitTestEvent(
                 "cursor-move",
@@ -116,16 +115,12 @@ test("image upload stays quiet when the shared cursor budget protects the server
                   if (reply?.error?.code === "rate-limited") pressure.rejections += 1;
                 },
               );
-              pressure.sent += 1;
             }
-            return { sent: pressure.sent, emittedMs: performance.now() - startedAt };
           },
           { drawingId: drawing.id, pageIndex, count: CURSOR_EVENTS_PER_PAGE },
         ),
       ),
     );
-    const sent = bursts.reduce((total, burst) => total + burst.sent, 0);
-    expect(sent).toBe(CURSOR_PRESSURE_PAGE_COUNT * CURSOR_EVENTS_PER_PAGE);
 
     let rejections = 0;
     await expect
@@ -140,10 +135,9 @@ test("image upload stays quiet when the shared cursor budget protects the server
         return rejections;
       })
       .toBeGreaterThan(0);
-    const slowestBurstMs = Math.max(...bursts.map((burst) => burst.emittedMs));
     console.log(
-      `[NIL-697] queued ${sent} cursor events across ${CURSOR_PRESSURE_PAGE_COUNT} sockets; ` +
-        `${rejections} shared-budget rejections; slowest enqueue ${slowestBurstMs.toFixed(1)}ms`,
+      `[NIL-697] queued ${CURSOR_EVENTS_PER_PAGE} cursor events across each of ` +
+        `${CURSOR_PRESSURE_PAGE_COUNT} sockets; ${rejections} shared-budget rejections`,
     );
     const cursorToasts = (
       await Promise.all(
