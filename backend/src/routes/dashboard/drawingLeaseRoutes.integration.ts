@@ -120,7 +120,11 @@ describe("Context Lease HTTP routes (NIL-680)", () => {
     expect(statuses).toEqual([201, 409]);
     const busy = a.status === 409 ? a : b;
     expect(busy.body.code).toBe("CONTEXT_LEASE_HELD");
-    expect(busy.body.heldBy.runId).toMatch(/^run-http-[ab]$/);
+    // No `runId` in the busy body -- it would double as a bearer credential
+    // for release/renew/transfer, which is exactly what NIL-680's review
+    // flagged. Only a display label and the expiry are exposed.
+    expect(busy.body.heldBy.runId).toBeUndefined();
+    expect(busy.body.heldBy.holderOrchestratorId).toMatch(/^orchestrator-run-http-[ab]$/);
   });
 
   it("returns 404 for a lease request against a drawing that does not exist, for an authenticated caller", async () => {
@@ -161,7 +165,6 @@ describe("Context Lease HTTP routes (NIL-680)", () => {
     const denied = await memberReq((req) =>
       req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/transfer`).send({
         leaseGeneration,
-        fromRunId: "not-the-holder",
         toOrchestratorId: "orchestrator-member",
         toRunId: "run-member",
         ttlMs: 60_000,
@@ -174,7 +177,6 @@ describe("Context Lease HTTP routes (NIL-680)", () => {
     const consented = await ownerReq((req) =>
       req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/transfer`).send({
         leaseGeneration,
-        fromRunId: "run-owner",
         toOrchestratorId: "orchestrator-member",
         toRunId: "run-member",
         ttlMs: 60_000,
@@ -182,5 +184,60 @@ describe("Context Lease HTTP routes (NIL-680)", () => {
     );
     expect(consented.status).toBe(200);
     expect(consented.body.lease.runId).toBe("run-member");
+  });
+
+  it("denies a non-holder, non-owner editor from releasing another member's lease, even knowing its leaseGeneration and runId off the GET endpoint", async () => {
+    const { drawingId, contextId } = await buildContext("http-release-auth-frame");
+    await prisma.drawingPermission.create({
+      data: { drawingId, granteeUserId: member.id, permission: "edit", createdByUserId: owner.id },
+    });
+    const ownerReq = authedRequest(owner);
+    const memberReq = authedRequest(member);
+    const endHorizonAt = new Date(Date.now() + 300_000).toISOString();
+
+    const acquired = await ownerReq((req) =>
+      req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/acquire`).send({
+        holderOrchestratorId: "orchestrator-owner",
+        runId: "run-owner",
+        ttlMs: 60_000,
+        endHorizonAt,
+      }),
+    );
+    expect(acquired.status).toBe(201);
+
+    // member has mere edit access, not owner and not the lease's initiator.
+    // Reading the lease off GET does not hand out leaseGeneration/runId to
+    // them (only the initiator/owner get the privileged shape) -- but even
+    // if it somehow leaked, release must still refuse them.
+    const memberView = await memberReq((req) =>
+      req.get(`/drawings/${drawingId}/agent/contexts/${contextId}/lease`),
+    );
+    expect(memberView.status).toBe(200);
+    expect(memberView.body.lease.leaseGeneration).toBeUndefined();
+    expect(memberView.body.lease.runId).toBeUndefined();
+
+    const leaseGeneration = acquired.body.lease.leaseGeneration;
+    const denied = await memberReq((req) =>
+      req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/release`).send({
+        leaseGeneration,
+        runId: "run-owner",
+      }),
+    );
+    expect(denied.status).toBe(409);
+    expect(denied.body.code).toBe("CONTEXT_LEASE_NOT_HELD");
+
+    // The board owner may release it too -- the route grants
+    // allowOwnerOverride from isOwnerAccess unconditionally, exercised here
+    // even though in this fixture the owner also happens to be the one who
+    // acquired it (the override path itself, for a genuinely different
+    // initiator, is red-probed at the module level in
+    // contextLease.integration.ts).
+    const ownerReleased = await ownerReq((req) =>
+      req.post(`/drawings/${drawingId}/agent/contexts/${contextId}/lease/release`).send({
+        leaseGeneration,
+        runId: "run-owner",
+      }),
+    );
+    expect(ownerReleased.status).toBe(204);
   });
 });

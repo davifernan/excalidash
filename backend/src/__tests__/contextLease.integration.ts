@@ -22,6 +22,7 @@ import { getTestPrisma, setupTestDb } from "./testUtils";
 describe("Context Lease (NIL-680)", () => {
   let prisma: PrismaClient;
   let userId: string;
+  let otherUserId: string;
 
   const horizon = (ms: number) => new Date(Date.now() + ms);
 
@@ -60,6 +61,10 @@ describe("Context Lease (NIL-680)", () => {
       data: { email: "lease-owner@example.com", passwordHash: "x", name: "Owner" },
     });
     userId = user.id;
+    const other = await prisma.user.create({
+      data: { email: "lease-other@example.com", passwordHash: "x", name: "Other" },
+    });
+    otherUserId = other.id;
   });
 
   afterAll(async () => {
@@ -116,7 +121,7 @@ describe("Context Lease (NIL-680)", () => {
   });
 
   it("frees a crashed orchestrator's Context by expiry, and the Context becomes usable again", async () => {
-    const { contextId, drawingId } = await newContext("expiry-frame");
+    const { contextId } = await newContext("expiry-frame");
     const now = new Date();
 
     await acquireContextLease({
@@ -250,26 +255,32 @@ describe("Context Lease (NIL-680)", () => {
       endHorizonAt: horizon(300_000),
     });
 
-    // A third party without override cannot force a takeover.
+    // A different human, not the one who initiated the lease, cannot force
+    // a takeover just by presenting the right leaseGeneration (public via
+    // GET) without an override.
     await expect(
       transferContextLease({
         prisma,
         contextId,
         leaseGeneration: lease.leaseGeneration,
-        fromRunId: "someone-else",
+        callerUserId: otherUserId,
         toOrchestratorId: "orchestrator-b",
         toRunId: "run-b",
-        toInitiatedByUserId: userId,
+        toInitiatedByUserId: otherUserId,
         authorizedAsOverride: false,
         ttlMs: 60_000,
       }),
     ).rejects.toBeInstanceOf(ContextLeaseTransferDeniedError);
+    await expect(isContextLeaseHeldByRun({ prisma, contextId, runId: "run-a" })).resolves.toBe(
+      true,
+    );
 
+    // The lease's own initiator consents to the handoff.
     const transferred = await transferContextLease({
       prisma,
       contextId,
       leaseGeneration: lease.leaseGeneration,
-      fromRunId: "run-a",
+      callerUserId: userId,
       toOrchestratorId: "orchestrator-b",
       toRunId: "run-b",
       toInitiatedByUserId: userId,
@@ -286,6 +297,107 @@ describe("Context Lease (NIL-680)", () => {
     expect(events).toHaveLength(1);
     const payload = JSON.parse(events[0]!.payload);
     expect(payload).toMatchObject({ fromRunId: "run-a", toRunId: "run-b", viaOverride: false });
+  });
+
+  it("denies release to a caller who is neither the lease's initiator nor an owner override, even knowing leaseGeneration and runId", async () => {
+    const { contextId } = await newContext("release-auth-frame");
+    const lease = await acquireContextLease({
+      prisma,
+      contextId,
+      holderOrchestratorId: "orchestrator-a",
+      initiatedByUserId: userId,
+      runId: "run-a",
+      ttlMs: 60_000,
+      endHorizonAt: horizon(300_000),
+    });
+
+    // otherUserId has read the lease's leaseGeneration/runId (e.g. off the
+    // GET endpoint) and tries to end it -- must fail, atomically, not as a
+    // separate check the CAS could race past.
+    await expect(
+      releaseContextLease({
+        prisma,
+        contextId,
+        leaseGeneration: lease.leaseGeneration,
+        runId: "run-a",
+        callerUserId: otherUserId,
+        allowOwnerOverride: false,
+      }),
+    ).rejects.toBeInstanceOf(ContextLeaseNotHeldError);
+    await expect(isContextLeaseHeldByRun({ prisma, contextId, runId: "run-a" })).resolves.toBe(
+      true,
+    );
+
+    // An explicit owner override succeeds even though otherUserId never initiated it.
+    await releaseContextLease({
+      prisma,
+      contextId,
+      leaseGeneration: lease.leaseGeneration,
+      runId: "run-a",
+      callerUserId: otherUserId,
+      allowOwnerOverride: true,
+    });
+    await expect(isContextLeaseHeldByRun({ prisma, contextId, runId: "run-a" })).resolves.toBe(
+      false,
+    );
+
+    // And the lease's own initiator can release their own lease normally.
+    const own = await acquireContextLease({
+      prisma,
+      contextId,
+      holderOrchestratorId: "orchestrator-b",
+      initiatedByUserId: userId,
+      runId: "run-b",
+      ttlMs: 60_000,
+      endHorizonAt: horizon(300_000),
+    });
+    await releaseContextLease({
+      prisma,
+      contextId,
+      leaseGeneration: own.leaseGeneration,
+      runId: "run-b",
+      callerUserId: userId,
+      allowOwnerOverride: false,
+    });
+    await expect(isContextLeaseHeldByRun({ prisma, contextId, runId: "run-b" })).resolves.toBe(
+      false,
+    );
+  });
+
+  it("denies renew to a caller who is neither the lease's initiator nor an owner override", async () => {
+    const { contextId } = await newContext("renew-auth-frame");
+    const lease = await acquireContextLease({
+      prisma,
+      contextId,
+      holderOrchestratorId: "orchestrator-a",
+      initiatedByUserId: userId,
+      runId: "run-a",
+      ttlMs: 60_000,
+      endHorizonAt: horizon(300_000),
+    });
+
+    await expect(
+      renewContextLease({
+        prisma,
+        contextId,
+        leaseGeneration: lease.leaseGeneration,
+        runId: "run-a",
+        callerUserId: otherUserId,
+        allowOwnerOverride: false,
+        ttlMs: 60_000,
+      }),
+    ).rejects.toBeInstanceOf(ContextLeaseTransferDeniedError);
+
+    const renewed = await renewContextLease({
+      prisma,
+      contextId,
+      leaseGeneration: lease.leaseGeneration,
+      runId: "run-a",
+      callerUserId: userId,
+      allowOwnerOverride: false,
+      ttlMs: 60_000,
+    });
+    expect(renewed.runId).toBe("run-a");
   });
 
   it("never renews past the human-approved end horizon", async () => {
@@ -309,6 +421,8 @@ describe("Context Lease (NIL-680)", () => {
       contextId,
       leaseGeneration: lease.leaseGeneration,
       runId: "run-a",
+      callerUserId: userId,
+      allowOwnerOverride: false,
       ttlMs: 60_000, // far beyond the horizon
       now: new Date(now.getTime() + 500),
     });
@@ -331,6 +445,8 @@ describe("Context Lease (NIL-680)", () => {
       contextId,
       leaseGeneration: lease.leaseGeneration,
       runId: "run-a",
+      callerUserId: userId,
+      allowOwnerOverride: false,
     });
     await expect(
       renewContextLease({
@@ -338,8 +454,57 @@ describe("Context Lease (NIL-680)", () => {
         contextId,
         leaseGeneration: lease.leaseGeneration,
         runId: "run-a",
+        callerUserId: userId,
+        allowOwnerOverride: false,
         ttlMs: 60_000,
       }),
     ).rejects.toBeInstanceOf(ContextLeaseNotHeldError);
+  });
+
+  it("keeps a successfully granted lease intact even when appending its coordination-trace event fails", async () => {
+    const { contextId } = await newContext("event-failure-frame");
+    let failNextEventInsert = false;
+    const flakyPrisma = new Proxy(prisma, {
+      get(target, prop, receiver) {
+        if (prop === "contextLeaseEvent") {
+          const real = Reflect.get(target, prop, receiver);
+          return new Proxy(real, {
+            get(eventTarget, eventProp, eventReceiver) {
+              if (eventProp === "create") {
+                return async (...args: unknown[]) => {
+                  if (failNextEventInsert) {
+                    failNextEventInsert = false;
+                    throw new Error("simulated transient DB contention on event insert");
+                  }
+                  return (eventTarget as any).create(...args);
+                };
+              }
+              return Reflect.get(eventTarget, eventProp, eventReceiver);
+            },
+          });
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+
+    failNextEventInsert = true;
+    const lease = await acquireContextLease({
+      prisma: flakyPrisma,
+      contextId,
+      holderOrchestratorId: "orchestrator-a",
+      initiatedByUserId: userId,
+      runId: "run-a",
+      ttlMs: 60_000,
+      endHorizonAt: horizon(300_000),
+    });
+
+    // The grant itself must not have thrown, and the database must agree
+    // the lease is genuinely held -- a caller retrying after a false
+    // failure here would otherwise collide with its own already-granted lease.
+    expect(lease.runId).toBe("run-a");
+    await expect(isContextLeaseHeldByRun({ prisma, contextId, runId: "run-a" })).resolves.toBe(
+      true,
+    );
+    expect(failNextEventInsert).toBe(false);
   });
 });

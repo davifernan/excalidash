@@ -32,13 +32,15 @@ const renewSchema = z.object({
 });
 const transferSchema = z.object({
   leaseGeneration: z.string().min(1).max(200),
-  fromRunId: z.string().min(1).max(200),
   toOrchestratorId: z.string().min(1).max(200),
   toRunId: z.string().min(1).max(200),
   ttlMs: z.number().int().positive().max(MAX_TTL_MS),
   // A caller may only ASK for the override; whether it is actually granted
   // is decided below from the authenticated principal's own access, never
-  // trusted from the request body.
+  // trusted from the request body. Consent from the actual current holder
+  // is decided server-side too -- from the authenticated caller's user id
+  // against the lease's own `initiatedByUserId`, never from a client-sent
+  // "I am the holder" claim.
   requestOverride: z.boolean().optional(),
 });
 const releaseSchema = z.object({
@@ -52,9 +54,11 @@ const leaseErrorResponse = (res: express.Response, error: unknown): boolean => {
       error: "Context busy",
       code: "CONTEXT_LEASE_HELD",
       message: error.message,
+      // Deliberately no `runId`: it would double as a bearer credential for
+      // the very release/renew/transfer calls this file gates on identity,
+      // not on knowing an identifier that leaked through a busy response.
       heldBy: {
         holderOrchestratorId: error.heldBy.holderOrchestratorId,
-        runId: error.heldBy.runId,
         expiresAt: error.heldBy.expiresAt.toISOString(),
       },
     });
@@ -75,7 +79,7 @@ const leaseErrorResponse = (res: express.Response, error: unknown): boolean => {
   return false;
 };
 
-const snapshotJson = (lease: {
+type LeaseRow = {
   contextId: string;
   leaseGeneration: string;
   holderOrchestratorId: string;
@@ -84,16 +88,35 @@ const snapshotJson = (lease: {
   acquiredAt: Date;
   expiresAt: Date;
   endHorizonAt: Date;
-}) => ({
-  contextId: lease.contextId,
-  leaseGeneration: lease.leaseGeneration,
-  holderOrchestratorId: lease.holderOrchestratorId,
-  initiatedByUserId: lease.initiatedByUserId,
-  runId: lease.runId,
-  acquiredAt: lease.acquiredAt.toISOString(),
-  expiresAt: lease.expiresAt.toISOString(),
-  endHorizonAt: lease.endHorizonAt.toISOString(),
-});
+};
+
+/**
+ * `leaseGeneration` and `runId` are the compare keys renew/transfer/release
+ * take back from a caller -- but `contextLease.ts`'s own CAS now folds
+ * caller identity into the WHERE clause too, so knowing them is no longer
+ * sufficient to act on someone else's lease. They are still not hidden from
+ * every viewer for free: only the lease's own initiator, or the board
+ * owner, gets the full shape. Anyone else with mere view access sees only
+ * that the Context is held, by whom (a display label, not a credential),
+ * and when it frees up.
+ */
+const leaseJson = (lease: LeaseRow, viewer: { userId: string; isOwner: boolean }) => {
+  const isPrivileged = viewer.isOwner || lease.initiatedByUserId === viewer.userId;
+  const base = {
+    contextId: lease.contextId,
+    holderOrchestratorId: lease.holderOrchestratorId,
+    acquiredAt: lease.acquiredAt.toISOString(),
+    expiresAt: lease.expiresAt.toISOString(),
+    endHorizonAt: lease.endHorizonAt.toISOString(),
+  };
+  if (!isPrivileged) return base;
+  return {
+    ...base,
+    leaseGeneration: lease.leaseGeneration,
+    initiatedByUserId: lease.initiatedByUserId,
+    runId: lease.runId,
+  };
+};
 
 /**
  * NIL-680. This is the ONLY write surface for a Context's public-effect
@@ -144,14 +167,15 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
     "/drawings/:id/agent/contexts/:contextId/lease",
     optionalAuth,
     asyncHandler(async (req, res) => {
-      if (!(await load(req, res, false))) return;
+      const loaded = await load(req, res, false);
+      if (!loaded) return;
       const lease = await prisma.contextLease.findUnique({
         where: { contextId: req.params.contextId },
       });
       if (!lease || lease.releasedAt || lease.expiresAt.getTime() < Date.now()) {
         return res.json({ lease: null });
       }
-      return res.json({ lease: snapshotJson(lease) });
+      return res.json({ lease: leaseJson(lease, loaded) });
     }),
   );
 
@@ -177,7 +201,7 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
           ttlMs: parsed.data.ttlMs,
           endHorizonAt: new Date(parsed.data.endHorizonAt),
         });
-        return res.status(201).json({ lease: snapshotJson(lease) });
+        return res.status(201).json({ lease: leaseJson(lease, loaded) });
       } catch (error) {
         if (leaseErrorResponse(res, error)) return;
         throw error;
@@ -189,7 +213,8 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
     "/drawings/:id/agent/contexts/:contextId/lease/renew",
     optionalAuth,
     asyncHandler(async (req, res) => {
-      if (!(await load(req, res, true))) return;
+      const loaded = await load(req, res, true);
+      if (!loaded) return;
       const parsed = renewSchema.safeParse(req.body);
       if (!parsed.success) {
         return res
@@ -202,9 +227,11 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
           contextId: req.params.contextId,
           leaseGeneration: parsed.data.leaseGeneration,
           runId: parsed.data.runId,
+          callerUserId: loaded.userId,
+          allowOwnerOverride: loaded.isOwner,
           ttlMs: parsed.data.ttlMs,
         });
-        return res.json({ lease: snapshotJson(lease) });
+        return res.json({ lease: leaseJson(lease, loaded) });
       } catch (error) {
         if (leaseErrorResponse(res, error)) return;
         throw error;
@@ -229,7 +256,7 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
           prisma,
           contextId: req.params.contextId,
           leaseGeneration: parsed.data.leaseGeneration,
-          fromRunId: parsed.data.fromRunId,
+          callerUserId: loaded.userId,
           toOrchestratorId: parsed.data.toOrchestratorId,
           toRunId: parsed.data.toRunId,
           toInitiatedByUserId: loaded.userId,
@@ -238,7 +265,7 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
           authorizedAsOverride: Boolean(parsed.data.requestOverride) && loaded.isOwner,
           ttlMs: parsed.data.ttlMs,
         });
-        return res.json({ lease: snapshotJson(lease) });
+        return res.json({ lease: leaseJson(lease, loaded) });
       } catch (error) {
         if (leaseErrorResponse(res, error)) return;
         throw error;
@@ -250,7 +277,8 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
     "/drawings/:id/agent/contexts/:contextId/lease/release",
     optionalAuth,
     asyncHandler(async (req, res) => {
-      if (!(await load(req, res, true))) return;
+      const loaded = await load(req, res, true);
+      if (!loaded) return;
       const parsed = releaseSchema.safeParse(req.body);
       if (!parsed.success) {
         return res
@@ -263,6 +291,8 @@ export const registerDrawingLeaseRoutes = (app: express.Express, context: Drawin
           contextId: req.params.contextId,
           leaseGeneration: parsed.data.leaseGeneration,
           runId: parsed.data.runId,
+          callerUserId: loaded.userId,
+          allowOwnerOverride: loaded.isOwner,
         });
         return res.status(204).send();
       } catch (error) {
