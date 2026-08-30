@@ -168,11 +168,13 @@
   overflow-wrap: anywhere;
 }
 
-.text-document-widget__markdown > :first-child {
+.text-document-widget__markdown > :first-child,
+.text-document-widget__markdown-content > :first-child {
   margin-top: 0;
 }
 
-.text-document-widget__markdown > :last-child {
+.text-document-widget__markdown > :last-child,
+.text-document-widget__markdown-content > :last-child {
   margin-bottom: 0;
 }
 

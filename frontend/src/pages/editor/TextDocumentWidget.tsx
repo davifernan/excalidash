@@ -14,8 +14,6 @@ import {
   Save,
   X,
 } from "lucide-react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   getDocumentAsset,
   getDocumentContent,
@@ -34,25 +32,8 @@ import type { DocumentEditLock, DocumentEditResult } from "./documentEditLocks";
 import type { DocumentAssetReplacement } from "./documentAssetReplacement";
 import type { DocumentEditDraft } from "./documentEditDrafts";
 import { applyMarkdownFormat, type MarkdownFormatAction } from "./markdownFormatting";
+import { MarkdownDocumentView } from "./MarkdownDocumentView";
 import "./TextDocumentWidget.css";
-
-const markdownComponents: Components = {
-  a: ({ node: _node, href, children, ...props }) => {
-    const safeHref = href && /^(?:https?:|mailto:)/i.test(href) ? href : undefined;
-    const external = safeHref && /^https?:/i.test(safeHref);
-    return (
-      <a
-        {...props}
-        href={safeHref}
-        rel={external ? "noopener noreferrer" : undefined}
-        target={external ? "_blank" : undefined}
-      >
-        {children}
-      </a>
-    );
-  },
-  img: () => null,
-};
 
 type TextDocumentWidgetProps = {
   assetId: string;
@@ -154,7 +135,12 @@ export const TextDocumentWidget = ({
     const controller = new AbortController();
     setPages(null);
     void paginateDocumentOffThread(loaded.content, loaded.asset.kind, controller.signal)
-      .then(setPages)
+      .then((preparedPages) => {
+        // Pagination makes document navigation possible. Markdown rendering is
+        // intentionally owned by MarkdownDocumentView so a slow or failed
+        // parser cannot hide the page controls or its own visible error state.
+        setPages(preparedPages);
+      })
       .catch((paginationError: unknown) => {
         if (paginationError instanceof DOMException && paginationError.name === "AbortError")
           return;
@@ -363,19 +349,12 @@ export const TextDocumentWidget = ({
               />
             </div>
             <span className="text-document-widget__edit-divider" aria-hidden="true" />
-            {/*
-             * Same ReactMarkdown + markdownComponents pipeline as the view-mode
-             * render below -- no new sanitization surface. The content is a
-             * deferred copy of the draft (see useDeferredValue above), never
-             * the draft itself, so this pane can never race the save path.
-             */}
+            {/* The preview and view mode share the same off-thread parser and sanitizer. */}
             <div
               className="text-document-widget__markdown text-document-widget__edit-preview"
               aria-label="Markdown preview"
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                {deferredDraft}
-              </ReactMarkdown>
+              <MarkdownDocumentView source={deferredDraft} />
             </div>
           </div>
         ) : null}
@@ -384,9 +363,7 @@ export const TextDocumentWidget = ({
         ) : null}
         {!editing && pages && loaded?.asset.kind === "MARKDOWN" ? (
           <div className="text-document-widget__markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {deferredLiveDraft ?? page}
-            </ReactMarkdown>
+            <MarkdownDocumentView source={deferredLiveDraft ?? page} />
           </div>
         ) : null}
       </div>
