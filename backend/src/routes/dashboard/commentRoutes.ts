@@ -6,7 +6,6 @@ import {
   getDrawingAccess,
 } from "../../authz/sharing";
 import { getDrawingCapabilities } from "../../authz/capabilities";
-import { drawingCommentsRoomName } from "../../server/socketRoomNames";
 import {
   CommentDomainError,
   createComment,
@@ -17,6 +16,11 @@ import {
   reopenThread,
   resolveThread,
 } from "../../comments/commentsDomain";
+import {
+  publishCommentCreated,
+  publishCommentDeleted,
+  publishCommentUpdated,
+} from "../../comments/commentEvents";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 
 /**
@@ -169,7 +173,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           anchorX: req.body?.anchorX,
           anchorY: req.body?.anchorY,
         });
-        io.to(drawingCommentsRoomName(id)).emit("comment-created", comment);
+        publishCommentCreated(io, id, comment);
         notifyRecipients(recipients, activityEventId);
         return res.status(201).json({ comment });
       } catch (error) {
@@ -211,7 +215,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           actorUserId: req.user.id,
           rawBody: req.body?.body,
         });
-        io.to(drawingCommentsRoomName(id)).emit("comment-updated", comment);
+        publishCommentUpdated(io, id, comment);
         if (activityEventId) notifyRecipients(recipients, activityEventId);
         return res.json({ comment });
       } catch (error) {
@@ -254,7 +258,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           actorUserId: req.user.id,
           actorCanModerate: canEditDrawing(access),
         });
-        io.to(drawingCommentsRoomName(id)).emit("comment-deleted", { id: commentId });
+        publishCommentDeleted(io, id, commentId);
         return res.json({ success: true });
       } catch (error) {
         if (handleDomainError(res, error)) return;
@@ -284,7 +288,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           rootId: commentId,
           actorUserId: req.user.id,
         });
-        io.to(drawingCommentsRoomName(id)).emit("comment-updated", comment);
+        publishCommentUpdated(io, id, comment);
         if (activityEventId) notifyRecipients(recipients, activityEventId);
         return res.json({ comment });
       } catch (error) {
@@ -315,7 +319,7 @@ export const registerCommentRoutes = (app: express.Express, context: DrawingRout
           rootId: commentId,
           actorUserId: req.user.id,
         });
-        io.to(drawingCommentsRoomName(id)).emit("comment-updated", comment);
+        publishCommentUpdated(io, id, comment);
         if (activityEventId) notifyRecipients(recipients, activityEventId);
         return res.json({ comment });
       } catch (error) {
