@@ -17,6 +17,25 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.16.0 -- 2026-08-30
+
+### Added
+
+- Agent-run conversations can now stay anchored on the board where the work happens, so the
+  team can follow their context without leaving the canvas.
+- Public actions carried out by an agent are recorded with an outcome, and only the authorized
+  run can carry one out at a time.
+
+### Fixed
+
+- Large Markdown documents no longer freeze the board after changing pages in Safari/WebKit.
+- If a Markdown document cannot be rendered, it now shows the error instead of loading forever.
+
+### Changed
+
+- Private local agent work and the shared multiplayer conversation are kept separate, so a
+  board's team-visible context does not get mixed with a user's local thread.
+
 ## v0.15.0 -- 2026-08-30
 
 This release lays the groundwork for agents on the board: an agent can now read a bounded
