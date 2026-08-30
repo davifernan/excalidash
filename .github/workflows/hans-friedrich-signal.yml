@@ -12,8 +12,12 @@ permissions:
   contents: read
   pull-requests: write
 
+# Keep this expression identical to hans-friedrich.yml. Both workflows can
+# write the same intentional-skip comment, so they must serialize the
+# read-then-write check for one PR state and head. The draft/ready partition
+# is deliberate: a ready admission must not queue behind a draft skip.
 concurrency:
-  group: hans-review-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: hans-review-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.event.pull_request.draft && 'draft' || 'ready' }}
   cancel-in-progress: false
 
 jobs:
