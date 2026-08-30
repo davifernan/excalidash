@@ -63,23 +63,23 @@ model Team {
 }
 
 model SystemConfig {
-  id                               String    @id @default("default")
-  authEnabled                      Boolean   @default(false)
-  authOnboardingCompleted          Boolean   @default(false)
-  registrationEnabled              Boolean   @default(false)
-  guestUploadEnabled               Boolean   @default(false)
-  guestCommentVisibilityEnabled    Boolean   @default(true)
-  guestAgentContextContributeEnabled Boolean @default(false)
-  oidcJitProvisioningEnabled       Boolean?
-  authLoginRateLimitEnabled        Boolean   @default(true)
-  authLoginRateLimitWindowMs       Int       @default(900000)
-  authLoginRateLimitMax            Int       @default(20)
-  bootstrapSetupCodeHash           String?
-  bootstrapSetupCodeIssuedAt       DateTime?
-  bootstrapSetupCodeExpiresAt      DateTime?
-  bootstrapSetupCodeFailedAttempts Int       @default(0)
-  createdAt                        DateTime  @default(now())
-  updatedAt                        DateTime  @updatedAt
+  id                                 String    @id @default("default")
+  authEnabled                        Boolean   @default(false)
+  authOnboardingCompleted            Boolean   @default(false)
+  registrationEnabled                Boolean   @default(false)
+  guestUploadEnabled                 Boolean   @default(false)
+  guestCommentVisibilityEnabled      Boolean   @default(true)
+  guestAgentContextContributeEnabled Boolean   @default(false)
+  oidcJitProvisioningEnabled         Boolean?
+  authLoginRateLimitEnabled          Boolean   @default(true)
+  authLoginRateLimitWindowMs         Int       @default(900000)
+  authLoginRateLimitMax              Int       @default(20)
+  bootstrapSetupCodeHash             String?
+  bootstrapSetupCodeIssuedAt         DateTime?
+  bootstrapSetupCodeExpiresAt        DateTime?
+  bootstrapSetupCodeFailedAttempts   Int       @default(0)
+  createdAt                          DateTime  @default(now())
+  updatedAt                          DateTime  @updatedAt
 }
 
 model Collection {
@@ -96,49 +96,49 @@ model Collection {
 }
 
 model Drawing {
-  id                            String               @id @default(uuid())
-  name                          String
-  elements                      String
-  appState                      String
-  files                         String               @default("{}")
-  preview                       String?
-  version                       Int                  @default(1)
-  guestUploadEnabled            Boolean              @default(false)
-  guestCommentVisibilityEnabled Boolean              @default(true)
-  guestAgentContextContributeEnabled Boolean         @default(false)
+  id                                 String                          @id @default(uuid())
+  name                               String
+  elements                           String
+  appState                           String
+  files                              String                          @default("{}")
+  preview                            String?
+  version                            Int                             @default(1)
+  guestUploadEnabled                 Boolean                         @default(false)
+  guestCommentVisibilityEnabled      Boolean                         @default(true)
+  guestAgentContextContributeEnabled Boolean                         @default(false)
   /// Monotonic ordering marker for persisted name snapshots and broadcasts.
-  nameRevision                  Int                  @default(1)
+  nameRevision                       Int                             @default(1)
   /// Who controls the board: shares it, moves it, deletes it, and carries its
   /// storage quota. For a board drawn inside someone else's collection this is
   /// the collection's owner, not the person who drew it.
-  userId                        String
-  user                          User                 @relation("DrawingOwner", fields: [userId], references: [id], onDelete: Cascade)
+  userId                             String
+  user                               User                            @relation("DrawingOwner", fields: [userId], references: [id], onDelete: Cascade)
   /// Who drew it. Kept apart from control so a team board can say where it came
   /// from without that deciding who may give it away.
-  createdByUserId               String?
-  createdBy                     User?                @relation("DrawingCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  collectionId                  String?
-  collection                    Collection?          @relation(fields: [collectionId], references: [id])
-  permissions                   DrawingPermission[]
-  linkShares                    DrawingLinkShare[]
-  snapshots                     DrawingSnapshot[]
-  assets                        DrawingAsset[]
-  pageViews                     DocumentPageView[]
-  elementGuestProvenance        DrawingElementGuestProvenance[]
-  comments                      Comment[]
-  activityEvents                ActivityEvent[]
-  visits                        DrawingVisit[]
-  favoritedBy                   DrawingFavorite[]
-  apiKeys                       ApiKey[]
-  agentContexts                 AgentContext[]
-  agentRevisions                AgentBoardRevision[]
-  agentRunMounts                AgentRunMount[]
-  agentSemanticRelations        AgentSemanticRelation[]
-  agentInstructionApprovals     AgentInstructionApproval[]
+  createdByUserId                    String?
+  createdBy                          User?                           @relation("DrawingCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  collectionId                       String?
+  collection                         Collection?                     @relation(fields: [collectionId], references: [id])
+  permissions                        DrawingPermission[]
+  linkShares                         DrawingLinkShare[]
+  snapshots                          DrawingSnapshot[]
+  assets                             DrawingAsset[]
+  pageViews                          DocumentPageView[]
+  elementGuestProvenance             DrawingElementGuestProvenance[]
+  comments                           Comment[]
+  activityEvents                     ActivityEvent[]
+  visits                             DrawingVisit[]
+  favoritedBy                        DrawingFavorite[]
+  apiKeys                            ApiKey[]
+  agentContexts                      AgentContext[]
+  agentRevisions                     AgentBoardRevision[]
+  agentRunMounts                     AgentRunMount[]
+  agentSemanticRelations             AgentSemanticRelation[]
+  agentInstructionApprovals          AgentInstructionApproval[]
   /// Not named `files` -- the scalar `files` column below is Drawing's own
   /// JSON blob of embedded Excalidraw file entries, an unrelated field this
   /// relation would collide with.
-  drawingFiles                  DrawingFile[]
+  drawingFiles                       DrawingFile[]
   /// Set when the board is archived (NIL-365): excluded from Team Home, the
   /// default drawing lists, and search by default, but not deleted -- an
   /// authorized viewer can still find and restore it from the Archive view.
@@ -147,7 +147,7 @@ model Drawing {
   /// staging for permanent deletion by the board's own owner, Archive is a
   /// reversible team-visible lifecycle state that does not change ownership
   /// or collection membership.
-  archivedAt                    DateTime?
+  archivedAt                         DateTime?
   /// Denormalized, lowercased plain text extracted from the board's name and
   /// its visible text-element content, recomputed on every save
   /// (`searchIndex.ts`). Existing purely so `contains` search has one column
@@ -156,9 +156,9 @@ model Drawing {
   /// is). SQLite `LIKE`-based, not FTS5: at ~10 accounts and their boards
   /// this is cheap enough that a second, rebuildable virtual index is not
   /// worth the dual-write hazard it would add.
-  searchText                    String               @default("")
-  createdAt                     DateTime             @default(now())
-  updatedAt                     DateTime             @updatedAt
+  searchText                         String                          @default("")
+  createdAt                          DateTime                        @default(now())
+  updatedAt                          DateTime                        @updatedAt
 
   @@index([userId, updatedAt])
   @@index([userId, collectionId, updatedAt])
@@ -195,8 +195,10 @@ model AgentContext {
 
   drawing              Drawing                    @relation(fields: [drawingId], references: [id], onDelete: Cascade)
   threadEvents         AgentContextEvent[]
-  semanticRelations AgentSemanticRelation[]
+  semanticRelations    AgentSemanticRelation[]
   instructionApprovals AgentInstructionApproval[]
+  lease                ContextLease?
+  leaseEvents          ContextLeaseEvent[]
 
   @@unique([drawingId, frameElementId])
   @@index([drawingId, createdAt])
@@ -254,15 +256,15 @@ model AgentBoardRevision {
 /// Excalidraw arrow geometry or `customData`: only a human-authorized route
 /// may create it, and it is separately captured in AgentBoardRevision.
 model AgentSemanticRelation {
-  id            String   @id @default(uuid())
-  drawingId     String
-  contextId     String
-  fromElementId String
-  toElementId   String
-  kind          String
+  id              String   @id @default(uuid())
+  drawingId       String
+  contextId       String
+  fromElementId   String
+  toElementId     String
+  kind            String
   createdByUserId String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   drawing Drawing      @relation(fields: [drawingId], references: [id], onDelete: Cascade)
   context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
@@ -294,6 +296,58 @@ model AgentInstructionApproval {
   @@index([drawingId, contextId, approvedAt])
 }
 
+/// NIL-680. The single, reusable row of public-effect exclusivity for one
+/// Context. There is deliberately no read lease -- any number of read-only
+/// runs may explore a Context in parallel; this row exists only to answer
+/// "which run may currently cause a shared, board-visible effect through
+/// this Context." One row is created once per Context and then mutated in
+/// place by every later acquire/renew/transfer -- `leaseGeneration` is the
+/// opaque token a caller must present back for renew/transfer/release to
+/// prove it still addresses the lease it thinks it holds, not a stale one.
+/// A lease with `releasedAt` set or `expiresAt` in the past is not held by
+/// anyone; acquiring against it is a fresh grant, not a hostile takeover.
+model ContextLease {
+  id                   String    @id @default(uuid())
+  contextId            String    @unique
+  leaseGeneration      String
+  holderOrchestratorId String
+  initiatedByUserId    String
+  runId                String
+  acquiredAt           DateTime
+  expiresAt            DateTime
+  endHorizonAt         DateTime
+  releasedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@index([contextId, expiresAt])
+}
+
+/// NIL-680's own coordination trace -- deliberately separate from
+/// AgentContextEvent/contextThread.ts's narrative log (message/tool/status/
+/// artifact/dispatch), which has its own closed event-kind union and its own
+/// per-context sequence counter that this module has no reason to couple
+/// into. This is lower-level protocol bookkeeping: every acquire attempt,
+/// grant, busy rejection, transfer, expiry, and release, in the order the
+/// server observed them. Append-only, never mutated -- there is no
+/// edit/retract concept for a Lease's own history.
+model ContextLeaseEvent {
+  id                   String   @id @default(uuid())
+  contextId            String
+  kind                 String
+  holderOrchestratorId String?
+  initiatedByUserId    String?
+  runId                String?
+  payload              String
+  createdAt            DateTime @default(now())
+
+  context AgentContext @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@index([contextId, createdAt])
+}
+
 /// The per-run pin. The opaque capability token is returned once and only its
 /// SHA-256 is stored; every tool request must present it as well as pass the
 /// normal board authorization boundary.
@@ -305,13 +359,13 @@ model AgentRunMount {
   capabilities        String
   capabilityTokenHash String   @unique
   /// Board-facing participant identity, fixed for the run.
-  displayName          String   @default("Agent")
+  displayName         String   @default("Agent")
   /// `private` reaches only audienceUserId; `drawing` reaches authorized
   /// human sockets currently present on the board.
-  audienceKind         String   @default("private")
+  audienceKind        String   @default("private")
   /// Derived from the authenticated mount issuer, never supplied as an id by
   /// the caller.
-  audienceUserId       String?
+  audienceUserId      String?
   createdAt           DateTime @default(now())
 
   drawing  Drawing            @relation(fields: [drawingId], references: [id], onDelete: Cascade)
@@ -827,12 +881,12 @@ model Asset {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  owner          User                      @relation("AssetOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  uploadedBy     User?                     @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
-  blob           StoredBlob                @relation(fields: [blobId], references: [id], onDelete: Restrict)
-  drawings       DrawingAsset[]
-  snapshots      DrawingSnapshotAsset[]
-  pageViews      DocumentPageView[]
+  owner      User                   @relation("AssetOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  uploadedBy User?                  @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  blob       StoredBlob             @relation(fields: [blobId], references: [id], onDelete: Restrict)
+  drawings   DrawingAsset[]
+  snapshots  DrawingSnapshotAsset[]
+  pageViews  DocumentPageView[]
 
   @@index([ownerUserId, createdAt])
   @@index([blobId])
