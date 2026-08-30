@@ -76,6 +76,14 @@ function parsePartJobs(workflowSource) {
   return jobs;
 }
 
+function workflowStep(workflowSource, name) {
+  const start = workflowSource.indexOf(`      - name: ${name}\n`);
+  assert.notStrictEqual(start, -1, `missing workflow step: ${name}`);
+  const rest = workflowSource.slice(start);
+  const nextStep = rest.slice(1).search(/\n      - name: /);
+  return nextStep === -1 ? rest : rest.slice(0, nextStep + 1);
+}
+
 test("every part_N>1's board_id input references a job listed in that same job's own needs:", () => {
   const workflowSource = fs.readFileSync(WORKFLOW_PATH, "utf8");
   const jobs = parsePartJobs(workflowSource);
@@ -98,4 +106,30 @@ test("every part_N>1's board_id input references a job listed in that same job's
         `of reusing the shared one.`,
     );
   }
+});
+
+test("aggregate fails rather than reporting success when any required part failed, was cancelled, or was skipped", () => {
+  const workflowSource = fs.readFileSync(WORKFLOW_PATH, "utf8");
+  const enforcementStep = workflowStep(
+    workflowSource,
+    "Fail the aggregate when a required soak part did not pass",
+  );
+  const notificationStep = workflowStep(
+    workflowSource,
+    "Comment nightly result (pass or fail) on the tracking issue",
+  );
+  assert.ok(
+    /run: node scripts\/soak-required-part-result\.cjs --enforce/.test(enforcementStep),
+    "Aggregate + report must execute the required-part enforcement helper",
+  );
+  assert.ok(
+    /env:[\s\S]*?NEEDS_JSON: \$\{\{ toJSON\(needs\) \}\}[\s\S]*?status="\$\(node scripts\/soak-required-part-result\.cjs\)"[\s\S]*?--status="\$status"/.test(
+      notificationStep,
+    ),
+    "the tracking-issue notification must use the required-part helper status",
+  );
+  assert.ok(
+    !/continue-on-error:\s*true/.test(enforcementStep),
+    "the required-part enforcement step must not be neutralized with continue-on-error",
+  );
 });
