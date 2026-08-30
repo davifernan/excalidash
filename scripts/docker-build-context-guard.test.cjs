@@ -16,7 +16,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { checkBuild, findComposeBuildBlocks } = require("./docker-build-context-guard.cjs");
+const {
+  checkBuild,
+  findComposeBuildBlocks,
+  relFiles,
+} = require("./docker-build-context-guard.cjs");
 
 function makeSandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "docker-context-guard-probe-"));
@@ -130,6 +134,35 @@ test("parses a compose build: block's context and dockerfile", () => {
   assert.equal(blocks.length, 1);
   assert.equal(blocks[0].context, ".");
   assert.equal(blocks[0].dockerfile, "backend/Dockerfile");
+});
+
+test("discovers a compose file at an arbitrary, unlisted path -- not a hand-maintained list (NIL-636)", () => {
+  // The real incident: local/oidc-sandbox.yml had two ./backend-context
+  // build blocks and was never on any hardcoded file list, so the guard
+  // that shipped alongside this exact bug passed clean regardless. This
+  // proves discovery is a real filesystem walk: a compose file nested three
+  // directories deep, under a name nobody could have hardcoded in advance,
+  // must still turn up.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "docker-context-guard-discovery-"));
+  try {
+    const nested = path.join(root, "ops", "sandboxes", "totally-unlisted");
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(path.join(nested, "whatever-name.yml"), "services:\n  x: {}\n");
+    fs.mkdirSync(path.join(root, "node_modules", "some-pkg"), { recursive: true });
+    fs.writeFileSync(path.join(root, "node_modules", "some-pkg", "compose.yml"), "services: {}\n");
+
+    const found = relFiles(root, ".");
+    assert.ok(
+      found.includes("ops/sandboxes/totally-unlisted/whatever-name.yml"),
+      `expected the nested, unlisted file to be discovered; got ${JSON.stringify(found)}`,
+    );
+    assert.ok(
+      !found.some((rel) => rel.startsWith("node_modules/")),
+      `node_modules must stay excluded; got ${JSON.stringify(found)}`,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("end-to-end: the real repo's current build sites all pass", () => {

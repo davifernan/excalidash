@@ -143,23 +143,53 @@ function findShellDockerBuilds(text) {
     const fm = args.match(/-f\s+(\S+)/);
     const dockerfile = fm ? fm[1] : "Dockerfile";
     const rest = args.replace(/-f\s+\S+/, "").trim();
-    const tokens = rest.split(/\s+/).filter((t) => !t.startsWith("-t") && !t.startsWith("excalidash"));
+    const tokens = rest
+      .split(/\s+/)
+      .filter((t) => !t.startsWith("-t") && !t.startsWith("excalidash"));
     const context = tokens[tokens.length - 1];
     if (context) blocks.push({ line: i + 1, context, dockerfile });
   }
   return blocks;
 }
 
-const COMPOSE_FILES = [
-  "docker-compose.yml",
-  "docker-compose.lab.yml",
-  "docker-compose.local-multi.yml",
-  "docker-compose.pg-test.yml",
-  "docker-compose.e2e-smoke.yml",
-  "e2e/docker-compose.e2e.yml",
-];
+// A hand-maintained file list is exactly the shape of gap this guard exists
+// to close: `local/oidc-sandbox.yml` (two build blocks, still `context:
+// ../backend`) was never on the original six-file list because nobody
+// thought to add it, and the guard passed clean anyway. Discovering every
+// `.yml`/`.yaml` file in the repo -- not a list of the ones someone already
+// knew about -- is what "the class, not the eight known spots" has to mean
+// in code, not just in the commit message.
+const EXCLUDED_DIR_NAMES = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  "coverage",
+  ".vite",
+  ".vite-temp",
+]);
 
-const WORKFLOW_FILES = [".github/workflows/release.yml", ".github/workflows/publish-images.yml"];
+const walkYamlFiles = (dir, out = []) => {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return out;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (EXCLUDED_DIR_NAMES.has(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkYamlFiles(full, out);
+    else if (/\.ya?ml$/.test(entry.name)) out.push(full);
+  }
+  return out;
+};
+
+const relFiles = (repoRoot, dir) =>
+  walkYamlFiles(path.join(repoRoot, dir))
+    .map((abs) => path.relative(repoRoot, abs).split(path.sep).join("/"))
+    .sort();
 
 const SHELL_BUILD_FILES = [".github/workflows/test.yml"];
 
@@ -167,7 +197,13 @@ function main() {
   const repoRoot = path.resolve(__dirname, "..");
   const problems = [];
 
-  for (const rel of COMPOSE_FILES) {
+  // Workflow YAML is walked and checked separately below (different build
+  // syntax entirely -- `with: {context, file}` on a build-push-action step,
+  // not a compose `build: {context, dockerfile}` block), so it is excluded
+  // here rather than risk two passes disagreeing about the same file.
+  const composeFiles = relFiles(repoRoot, ".").filter((rel) => !rel.startsWith(".github/"));
+
+  for (const rel of composeFiles) {
     const abs = path.join(repoRoot, rel);
     if (!fs.existsSync(abs)) continue;
     const composeDir = path.dirname(abs);
@@ -184,7 +220,9 @@ function main() {
     }
   }
 
-  for (const rel of WORKFLOW_FILES) {
+  const workflowFiles = relFiles(repoRoot, ".github/workflows");
+
+  for (const rel of workflowFiles) {
     const abs = path.join(repoRoot, rel);
     if (!fs.existsSync(abs)) continue;
     const text = fs.readFileSync(abs, "utf8");
@@ -231,6 +269,8 @@ module.exports = {
   findComposeBuildBlocks,
   findWorkflowBuildPushSteps,
   findShellDockerBuilds,
+  walkYamlFiles,
+  relFiles,
 };
 
 if (require.main === module) main();

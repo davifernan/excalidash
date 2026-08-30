@@ -13,8 +13,8 @@ services:
 
   backend-local:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
     environment:
       - DATABASE_URL=file:/app/prisma/dev.db
       - PORT=8000
@@ -46,8 +46,8 @@ services:
 
   backend-oidc:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
     environment:
       - DATABASE_URL=file:/app/prisma/dev.db
       - PORT=8000
