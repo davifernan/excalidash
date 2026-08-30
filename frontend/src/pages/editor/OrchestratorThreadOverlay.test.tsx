@@ -145,8 +145,8 @@ describe("OrchestratorThreadOverlay", () => {
       <OrchestratorThreadOverlay
         surface={openSurface}
         panelView={{
-          threadId: "shared-alpha",
-          audience: "drawing",
+          threadId: "local-alpha",
+          audience: "private",
           loading: false,
           sending: false,
           canWrite: true,
@@ -209,6 +209,8 @@ describe("OrchestratorThreadOverlay", () => {
 
     expect(screen.getByText("Execution finished · publication pending")).toBeVisible();
     expect(screen.getByText("Board effect failed · publication not completed")).toBeVisible();
+    expect(screen.getByText("Public effects on this board")).toBeVisible();
+    expect(screen.getByText(/not part of this private thread history/)).toBeVisible();
     expect(screen.queryByText("Effect confirmed on the board")).toBeNull();
     expect(screen.queryByText("Dispatch durably accepted")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Approve a public effect" }));

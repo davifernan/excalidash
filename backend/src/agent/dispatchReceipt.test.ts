@@ -272,6 +272,19 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
 
   it("marks public effect committed only inside an authorized mounted write transaction", async () => {
     const receipt = await accept();
+    await expect(
+      prisma.$transaction((tx) =>
+        commitDispatchBoardEffect({
+          tx,
+          drawingId,
+          dispatchId: receipt.id,
+          runId,
+          mountCapabilityToken: "wrong-token",
+          drawingVersion: 2,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "DISPATCH_EFFECT_NOT_ALLOWED" });
+
     const committed = await prisma.$transaction((tx) =>
       commitDispatchBoardEffect({
         tx,
@@ -295,11 +308,33 @@ describe("DispatchReceipt: honest public-effect evidence (NIL-679)", () => {
           drawingId,
           dispatchId: receipt.id,
           runId,
-          mountCapabilityToken: "wrong-token",
+          mountCapabilityToken: mountToken,
           drawingVersion: 3,
         }),
       ),
     ).rejects.toMatchObject({ code: "DISPATCH_EFFECT_NOT_ALLOWED" });
+  });
+
+  it("rejects a Board effect after the admitted Lease generation changes", async () => {
+    const receipt = await accept();
+    await prisma.contextLease.update({
+      where: { contextId },
+      data: { leaseGeneration: "replacement-generation" },
+    });
+
+    await expect(
+      prisma.$transaction((tx) =>
+        commitDispatchBoardEffect({
+          tx,
+          drawingId,
+          dispatchId: receipt.id,
+          runId,
+          mountCapabilityToken: mountToken,
+          drawingVersion: 2,
+          now: new Date(acceptedAt.getTime() + 100),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "DISPATCH_LEASE_NOT_HELD" });
   });
 
   it("never interprets a closed runtime stream as success", async () => {

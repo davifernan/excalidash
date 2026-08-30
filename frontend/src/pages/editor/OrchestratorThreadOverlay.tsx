@@ -441,7 +441,16 @@ export const OrchestratorThreadOverlay = ({
                   className="orchestrator-thread-panel__receipts"
                   aria-label="Public dispatch receipts"
                 >
-                  <strong>Public responsibility</strong>
+                  <strong>
+                    {panelView.audience === "private"
+                      ? "Public effects on this board"
+                      : "Public responsibility"}
+                  </strong>
+                  {panelView.audience === "private" ? (
+                    <small>
+                      These board-wide receipts are not part of this private thread history.
+                    </small>
+                  ) : null}
                   {(panelView.receipts ?? []).map((receipt) => (
                     <article
                       key={receipt.id}

@@ -18,6 +18,9 @@ export type DispatchExecutionStatus =
 export type DispatchEffectStatus =
   "not_requested" | "pending" | "committed" | "rejected" | "failed";
 
+// Drawing-audience projection only. The persisted originThreadId and
+// initiatedByUserId remain server-internal audit/authorization facts: a
+// private thread address or account id is never public receipt metadata.
 export type DispatchReceiptProjection = {
   id: string;
   drawingId: string;

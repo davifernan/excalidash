@@ -582,11 +582,21 @@ export const useOrchestratorThreadFeature = ({
     [surface.active, threads],
   );
 
+  useEffect(() => {
+    // Loading/action failures describe the panel that initiated them. Cached
+    // histories do not start a new fetch that could otherwise clear a stale
+    // error after the user switches to a different thread.
+    setThreadError(null);
+  }, [activeThread?.id]);
+
   const publicThreads = useMemo(
     () => threads.filter((thread) => thread.audience.kind === "drawing"),
     [threads],
   );
   const receiptThreads = useMemo(
+    // A shared panel shows its anchored responsibility. A private panel has
+    // no public receipt history of its own, so it explicitly presents the
+    // Board-wide public-effect ledger without exposing private origin ids.
     () =>
       activeThread?.audience.kind === "drawing"
         ? [activeThread]

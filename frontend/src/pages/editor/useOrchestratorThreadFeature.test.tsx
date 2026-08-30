@@ -498,6 +498,62 @@ describe("useOrchestratorThreadFeature", () => {
     expect(screen.getByLabelText("Message this audience")).toHaveValue("");
   });
 
+  it("clears a thread-history error when switching back to a cached thread", async () => {
+    const local = {
+      id: "server-local",
+      drawingId: "drawing-1",
+      audience: { kind: "private" as const, userId: "owner-1" },
+      title: "Local orchestrator thread",
+      anchor: { kind: "private" as const, x: 850, y: 140 },
+      createdAt: "2026-08-30T02:00:00.000Z",
+      updatedAt: "2026-08-30T02:00:00.000Z",
+    };
+    const shared = {
+      id: "server-shared",
+      drawingId: "drawing-1",
+      audience: { kind: "drawing" as const },
+      title: "Release coordination",
+      anchor: { kind: "drawing" as const, elementId: "element-alpha" },
+      createdAt: "2026-08-30T02:00:00.000Z",
+      updatedAt: "2026-08-30T02:00:00.000Z",
+    };
+    vi.mocked(threadApi.getOrchestratorThreads).mockResolvedValue([local, shared]);
+    vi.mocked(threadApi.registerSharedOrchestratorThread).mockResolvedValue(shared);
+    vi.mocked(threadApi.getOrchestratorThreadEvents).mockImplementation(async (_drawing, id) => {
+      if (id === shared.id) throw new Error("shared history unavailable");
+      return [
+        {
+          id: "local-event",
+          threadId: local.id,
+          sequence: 1,
+          actor: { kind: "user", id: "owner-1", displayName: "Owner" },
+          kind: "message",
+          payload: { text: "cached private history" },
+          createdAt: "2026-08-30T02:00:00.000Z",
+        },
+      ];
+    });
+
+    render(
+      <Harness
+        adapter={makeAdapter(root, [persistedAnchor()])}
+        drawingId="drawing-1"
+        currentUserId="owner-1"
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open Local orchestrator thread" }));
+    expect(await screen.findByText("cached private history")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Multiplayer" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This thread history could not be loaded.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Local" }));
+    expect(await screen.findByText("cached private history")).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("keeps dispatch pending state attached to the origin thread whose request owns it", async () => {
     const local = {
       id: "server-local",
