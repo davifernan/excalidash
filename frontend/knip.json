@@ -3,6 +3,7 @@
   "entry": [
     "src/**/*.{test,spec}.{ts,tsx}"
   ],
+  "ignoreDependencies": ["decode-named-character-reference"],
   "ignore": ["public/runtime-config.js"],
   "project": [
     "**/*.{js,jsx,ts,tsx,mjs,cjs,css}",
