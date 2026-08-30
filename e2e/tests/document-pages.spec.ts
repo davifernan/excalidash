@@ -199,6 +199,17 @@ export const passesResponsivenessBudget = (
   trials.every((trial) => trialHasNoFreeze(trial, maxFreezeGapMs)) &&
   trials.filter(trialHasHealthyP95).length >= RESPONSIVENESS_TRIALS_REQUIRED;
 
+const shouldRunAnotherResponsivenessTrial = (
+  trials: readonly ResponsivenessTrial[],
+  passes: number,
+  fails: number,
+  maxFreezeGapMs: number,
+): boolean =>
+  trials.length < RESPONSIVENESS_TRIALS &&
+  passes < RESPONSIVENESS_TRIALS_REQUIRED &&
+  fails <= RESPONSIVENESS_TRIALS - RESPONSIVENESS_TRIALS_REQUIRED &&
+  trials.every((trial) => trialHasNoFreeze(trial, maxFreezeGapMs));
+
 test.describe("responsiveness budget: two of three trials, not one absolute sample (NIL-592)", () => {
   test("stays green on the actual incident measurement (509.9 ms) alongside two ordinary trials", () => {
     const trials: ResponsivenessTrial[] = [
@@ -216,6 +227,11 @@ test.describe("responsiveness budget: two of three trials, not one absolute samp
       { samples: 39, p95GapMs: 11, maxGapMs: 130 },
     ];
     expect(passesResponsivenessBudget(trials)).toBe(false);
+  });
+
+  test("does not schedule a recovery trial after a terminal freeze", () => {
+    const freeze: ResponsivenessTrial = { samples: 40, p95GapMs: 12, maxGapMs: 900 };
+    expect(shouldRunAnotherResponsivenessTrial([freeze], 0, 1, 800)).toBe(false);
   });
 
   test("allows the measured CI WebKit gap but still rejects a larger WebKit freeze", () => {
@@ -256,21 +272,15 @@ test("a collaborator stays responsive while a pathological 2 MiB document is pag
   request,
 }) => {
   const maxFreezeGapMs = maxFreezeGapMsForEngine(browser.browserType().name());
-  const maxAllowedFails = RESPONSIVENESS_TRIALS - RESPONSIVENESS_TRIALS_REQUIRED;
   const trials: ResponsivenessTrial[] = [];
   let passes = 0;
   let fails = 0;
 
-  // Early exit both ways: stop the moment 2 passes are in hand (the common
-  // case -- most runs need only 2 of the 3 expensive trials), and stop the
-  // moment a 3rd trial could no longer reach 2 passes, rather than paying
-  // for a pathological 2 MiB paste-and-measure cycle that cannot change the
-  // outcome.
-  while (
-    trials.length < RESPONSIVENESS_TRIALS &&
-    passes < RESPONSIVENESS_TRIALS_REQUIRED &&
-    fails <= maxAllowedFails
-  ) {
+  // p95 is recoverable by the two-of-three rule, but a freeze is terminal:
+  // `passesResponsivenessBudget` rejects any trial over its engine ceiling.
+  // Stop whenever either outcome is already decided rather than paginate a
+  // further pathological 2 MiB document that cannot change it.
+  while (shouldRunAnotherResponsivenessTrial(trials, passes, fails, maxFreezeGapMs)) {
     const trial = await runResponsivenessTrial(browser, request);
     trials.push(trial);
     expect(trial.samples).toBeGreaterThan(0);
