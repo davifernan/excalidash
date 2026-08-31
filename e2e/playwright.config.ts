@@ -376,6 +376,11 @@ export default defineConfig({
         CSRF_MAX_REQUESTS: "100000",
         RATE_LIMIT_MAX_REQUESTS: "100000",
         CSRF_SECRET: "e2e-csrf-secret",
+        // The suite exercises agent panels, board threads and the instruction
+        // toolbar. Those surfaces follow the agent runtime, and this server
+        // configures none -- without this switch the specs would test a
+        // deployment that deliberately hides what they assert on.
+        AGENT_FEATURES_ENABLED: "true",
         // Uploaded documents otherwise default to the path they live at inside
         // the container, which nothing outside it may create. The CI workflow
         // has always set this; the local server did not, so every document test

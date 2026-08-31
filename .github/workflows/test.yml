@@ -589,6 +589,7 @@ jobs:
             FRONTEND_URL="http://localhost:6767" \
             CSRF_MAX_REQUESTS=100000 \
             RATE_LIMIT_MAX_REQUESTS=100000 \
+            AGENT_FEATURES_ENABLED=true \
             ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-assets" \
             npm run dev &
           BACKEND_PID=$!
@@ -765,6 +766,7 @@ jobs:
             FRONTEND_URL="http://localhost:6767" \
             CSRF_MAX_REQUESTS=100000 \
             RATE_LIMIT_MAX_REQUESTS=100000 \
+            AGENT_FEATURES_ENABLED=true \
             ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-cross-assets" \
             npm run dev &
           BACKEND_PID=$!
@@ -923,6 +925,7 @@ jobs:
             CSRF_SECRET="e2e-two-account-csrf" \
             CSRF_MAX_REQUESTS=100000 \
             RATE_LIMIT_MAX_REQUESTS=100000 \
+            AGENT_FEATURES_ENABLED=true \
             ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-two-account-assets" \
             npm run dev > "$BACKEND_LOG" 2>&1 &
           BACKEND_PID=$!
@@ -1074,6 +1077,7 @@ jobs:
             CSRF_SECRET="e2e-permission-matrix-csrf" \
             CSRF_MAX_REQUESTS=100000 \
             RATE_LIMIT_MAX_REQUESTS=100000 \
+            AGENT_FEATURES_ENABLED=true \
             ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-permission-matrix-assets" \
             npm run dev > "$BACKEND_LOG" 2>&1 &
           BACKEND_PID=$!
@@ -1213,6 +1217,7 @@ jobs:
             CSRF_SECRET="e2e-presence-two-account-csrf" \
             CSRF_MAX_REQUESTS=100000 \
             RATE_LIMIT_MAX_REQUESTS=100000 \
+            AGENT_FEATURES_ENABLED=true \
             ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-presence-two-account-assets" \
             npm run dev > "$BACKEND_LOG" 2>&1 &
           BACKEND_PID=$!

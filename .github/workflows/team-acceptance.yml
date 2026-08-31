@@ -94,6 +94,7 @@ jobs:
             CSRF_SECRET="e2e-team-acceptance-csrf" \
             CSRF_MAX_REQUESTS=100000 \
             RATE_LIMIT_MAX_REQUESTS=100000 \
+            AGENT_FEATURES_ENABLED=true \
             ASSET_STORAGE_DIR="${{ github.workspace }}/backend/prisma/e2e-team-acceptance-assets" \
             npm run dev > "$BACKEND_LOG" 2>&1 &
           BACKEND_PID=$!

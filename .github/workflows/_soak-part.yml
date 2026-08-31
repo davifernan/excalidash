@@ -151,6 +151,7 @@ jobs:
           cd backend
           CSRF_MAX_REQUESTS=1000000 \
             RATE_LIMIT_MAX_REQUESTS=1000000 \
+            AGENT_FEATURES_ENABLED=true \
             npm run dev &
           echo $! > /tmp/backend.pid
           cd ..
