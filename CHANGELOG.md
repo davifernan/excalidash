@@ -19,14 +19,14 @@ Release tags follow `vX.Y.Z` -- see
 
 ## v0.18.1 -- 2026-08-31
 
-<!-- release-source: #PRNUM -->
+<!-- release-source: #307 -->
 An instance that has not configured an agent runtime now shows nothing about agents at all. The
 panel, the board threads, the instruction toolbar and the agent-context guest capability were
 visible on every deployment, but without a runtime behind them each one only led to a dead end.
 
 ### Fixed
 
-<!-- release-source: #PRNUM -->
+<!-- release-source: #307 -->
 - **No agent surfaces without an agent runtime.** Boards on an instance with no
   `AGENT_RUNTIME_HERDR_*` configuration no longer show the agent panel, its menu entry, board
   threads, the instruction toolbar or the Agent Contexts guest capability, and they stop
