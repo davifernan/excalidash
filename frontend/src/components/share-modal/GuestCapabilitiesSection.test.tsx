@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { GuestCapabilitiesSection } from "./GuestCapabilitiesSection";
 import type { GuestCapabilitySettings } from "../../api";
+import { FeatureFlagsProvider } from "../../context/FeatureFlagsContext";
+
+const withAgents = (ui: React.ReactNode, agents = true) => (
+  <FeatureFlagsProvider value={{ agents }}>{ui}</FeatureFlagsProvider>
+);
 
 const settingsWith = (
   overrides: Partial<GuestCapabilitySettings> = {},
@@ -120,12 +125,14 @@ describe("GuestCapabilitiesSection", () => {
 
   it("shows that a guest's own content stays out of Agent Contexts by default", () => {
     render(
-      <GuestCapabilitiesSection
-        settings={settingsWith({
-          instance: { uploadFiles: true, viewComments: true, agentContextContribute: true },
-        })}
-        {...noopHandlers}
-      />,
+      withAgents(
+        <GuestCapabilitiesSection
+          settings={settingsWith({
+            instance: { uploadFiles: true, viewComments: true, agentContextContribute: true },
+          })}
+          {...noopHandlers}
+        />,
+      ),
     );
 
     expect(
@@ -136,13 +143,15 @@ describe("GuestCapabilitiesSection", () => {
   it("lets the owner turn on Agent Context contribution and calls the right handler", () => {
     const onToggleAgentContextContribute = vi.fn();
     render(
-      <GuestCapabilitiesSection
-        settings={settingsWith({
-          instance: { uploadFiles: true, viewComments: true, agentContextContribute: true },
-        })}
-        {...noopHandlers}
-        onToggleAgentContextContribute={onToggleAgentContextContribute}
-      />,
+      withAgents(
+        <GuestCapabilitiesSection
+          settings={settingsWith({
+            instance: { uploadFiles: true, viewComments: true, agentContextContribute: true },
+          })}
+          {...noopHandlers}
+          onToggleAgentContextContribute={onToggleAgentContextContribute}
+        />,
+      ),
     );
 
     const offTriggers = screen.getAllByRole("button", { name: /off/i });
@@ -151,5 +160,26 @@ describe("GuestCapabilitiesSection", () => {
     fireEvent.click(onOptions[onOptions.length - 1]!);
 
     expect(onToggleAgentContextContribute).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the Agent Contexts capability on a deployment without an agent runtime", () => {
+    render(
+      withAgents(
+        <GuestCapabilitiesSection
+          settings={settingsWith({
+            instance: { uploadFiles: true, viewComments: true, agentContextContribute: true },
+          })}
+          {...noopHandlers}
+        />,
+        false,
+      ),
+    );
+
+    // The other two capabilities still render -- this hides one row, not the section.
+    expect(screen.getByText("Upload files")).toBeInTheDocument();
+    expect(screen.queryByText("Contribute to Agent Contexts")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/read by an agent working in this board's Agent Contexts/i),
+    ).not.toBeInTheDocument();
   });
 });

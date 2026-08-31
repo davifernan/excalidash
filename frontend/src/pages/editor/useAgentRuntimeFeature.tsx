@@ -9,9 +9,12 @@ import { AgentRuntimePanel } from "./AgentRuntimePanel";
 export const useAgentRuntimeFeature = ({
   adapter,
   drawingId,
+  enabled,
 }: {
   adapter: ExcalidrawAdapter;
   drawingId?: string;
+  /** Deployments without an agent runtime render no panel at all. */
+  enabled: boolean;
 }) => {
   const [isAgentRuntimeOpen, setIsAgentRuntimeOpen] = useState(false);
   const toggleAgentRuntime = useCallback(() => setIsAgentRuntimeOpen((current) => !current), []);
@@ -21,13 +24,14 @@ export const useAgentRuntimeFeature = ({
     isAgentRuntimeOpen,
     toggleAgentRuntime,
     openAgentRuntime,
-    agentRuntimeOverlay: root.ok ? (
-      <AgentRuntimePanel
-        container={root.value}
-        drawingId={drawingId}
-        open={isAgentRuntimeOpen}
-        onClose={() => setIsAgentRuntimeOpen(false)}
-      />
-    ) : null,
+    agentRuntimeOverlay:
+      enabled && root.ok ? (
+        <AgentRuntimePanel
+          container={root.value}
+          drawingId={drawingId}
+          open={isAgentRuntimeOpen}
+          onClose={() => setIsAgentRuntimeOpen(false)}
+        />
+      ) : null,
   };
 };

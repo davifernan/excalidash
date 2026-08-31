@@ -34,6 +34,7 @@ import { useEditorAddFilesBridge } from "./editor/useEditorAddFilesBridge";
 import { useEditorFileUploads } from "./editor/useEditorFileUploads";
 import { useCommentsFeature } from "./editor/comments/useCommentsFeature";
 import { useOffscreenPresence } from "./editor/useOffscreenPresence";
+import { useFeatureFlags } from "../context/FeatureFlagsContext";
 import { useAgentPresenceOverlay } from "./editor/useAgentPresenceOverlay";
 import { useAgentRuntimeFeature } from "./editor/useAgentRuntimeFeature";
 import { useOrchestratorThreadFeature } from "./editor/useOrchestratorThreadFeature";
@@ -678,11 +679,20 @@ export const Editor: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { offscreenPresenceOverlay } = useOffscreenPresence({ adapter });
-  const { agentPresenceOverlay } = useAgentPresenceOverlay({ adapter, presence: agentPresence });
+  // One deployment-level answer drives every agent surface below. An instance
+  // that never configured a runtime shows none of them, because each would only
+  // lead to a dead end.
+  const { agents: agentsEnabled } = useFeatureFlags();
+  const { agentPresenceOverlay } = useAgentPresenceOverlay({
+    adapter,
+    presence: agentPresence,
+    enabled: agentsEnabled,
+  });
   const { agentRuntimeOverlay, isAgentRuntimeOpen, toggleAgentRuntime, openAgentRuntime } =
     useAgentRuntimeFeature({
       adapter,
       drawingId: id,
+      enabled: agentsEnabled,
     });
   const { orchestratorThreadOverlay, createThread: createOrchestratorThread } =
     useOrchestratorThreadFeature({
@@ -696,6 +706,7 @@ export const Editor: React.FC = () => {
       // value only enables local UI; every API call derives the real owner id
       // server-side and never trusts it.
       currentUserId: user?.id ?? (authEnabled === false ? "bootstrap" : null),
+      enabled: agentsEnabled,
     });
   const { commentsOverlay, isCommentsOpen, toggleComments, unresolvedCommentCount } =
     useCommentsFeature({
@@ -801,6 +812,7 @@ export const Editor: React.FC = () => {
         onToggleAgentRuntime={toggleAgentRuntime}
         onOpenAgentRuntime={openAgentRuntime}
         onCreateOrchestratorThread={createOrchestratorThread}
+        agentsEnabled={agentsEnabled}
         onCanvasDropCapture={handleCanvasDropCapture}
         onExportClick={handleExportClick}
         onLibraryChange={handleLibraryChange}

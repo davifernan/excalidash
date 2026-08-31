@@ -96,6 +96,7 @@ const Harness: React.FC<{
   drawingId?: string;
   currentUserId?: string | null;
   socketRef?: any;
+  enabled?: boolean;
 }> = ({
   adapter,
   canEdit = true,
@@ -104,6 +105,7 @@ const Harness: React.FC<{
   drawingId,
   currentUserId = null,
   socketRef,
+  enabled = true,
 }) => {
   onRender?.();
   const { orchestratorThreadOverlay, createThread } = useOrchestratorThreadFeature({
@@ -113,6 +115,7 @@ const Harness: React.FC<{
     drawingId,
     currentUserId,
     socketRef: socketRef ?? (createRef() as any),
+    enabled,
   });
   return (
     <>
@@ -673,5 +676,32 @@ describe("useOrchestratorThreadFeature", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Approve a public effect" })).toBeVisible(),
     );
+  });
+
+  it("renders no thread surface and asks the server for nothing when agents are disabled", async () => {
+    // A deployment without an agent runtime cannot act on a thread. The point
+    // is not only that the overlay stays empty -- it is that a disabled
+    // instance stops talking to endpoints whose answers it would discard.
+    vi.mocked(threadApi.getOrchestratorThreads).mockResolvedValue([
+      {
+        id: "thread-hidden",
+        drawingId: "drawing-1",
+        elementId: "el-1",
+        audience: { kind: "drawing" },
+      } as never,
+    ]);
+
+    render(
+      <Harness
+        adapter={makeAdapter(root, [persistedAnchor()])}
+        drawingId="drawing-1"
+        currentUserId="owner-1"
+        enabled={false}
+      />,
+    );
+
+    await waitFor(() => expect(threadApi.getOrchestratorThreads).not.toHaveBeenCalled());
+    expect(screen.queryByTestId("orchestrator-thread-surface")).not.toBeInTheDocument();
+    expect(document.querySelector(".orchestrator-thread-card")).toBeNull();
   });
 });

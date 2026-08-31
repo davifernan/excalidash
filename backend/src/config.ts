@@ -163,6 +163,19 @@ interface Config {
   apiKeyHashPepper: string;
   updateCheck: UpdateCheckConfig;
   agentRuntime: AgentRuntimeConfig;
+  features: FeatureConfig;
+}
+
+/**
+ * What the frontend is allowed to show. An instance that never configured an
+ * agent runtime has no way to start an agent, so every agent surface -- panel,
+ * board threads, instruction toolbar, the guest capability for agent contexts --
+ * would only offer dead ends. Those surfaces stay hidden unless this says
+ * otherwise.
+ */
+export interface FeatureConfig {
+  /** Agent panel, board threads, instruction toolbar, agent-context sharing. */
+  agents: boolean;
 }
 
 export type LogLevel = "silent" | "info" | "debug";
@@ -557,6 +570,25 @@ const resolveS3Config = (): S3Config => ({
   keyPrefix: (getOptionalEnv("S3_KEY_PREFIX", "excalidash") || "excalidash").replace(/\/+$/, ""),
 });
 
+/**
+ * Agent surfaces follow the runtime by default: no `AGENT_RUNTIME_HERDR_*`
+ * configuration means no way to start an agent, so showing the surfaces would
+ * only promise something the instance cannot deliver. `AGENT_FEATURES_ENABLED`
+ * overrides it in both directions -- an operator who has a runtime but is not
+ * ready to expose it sets `false`, and one who drives agents through another
+ * path sets `true`.
+ */
+const resolveFeatureConfig = (agentRuntime: AgentRuntimeConfig): FeatureConfig => {
+  const raw = getOptionalTrimmedEnv("AGENT_FEATURES_ENABLED");
+  if (raw === null) {
+    return { agents: agentRuntime.herdr !== null };
+  }
+  const normalized = raw.toLowerCase();
+  if (["true", "1", "yes"].includes(normalized)) return { agents: true };
+  if (["false", "0", "no"].includes(normalized)) return { agents: false };
+  throw new Error("AGENT_FEATURES_ENABLED must be one of true/false/1/0/yes/no");
+};
+
 const resolveAgentRuntimeConfig = (): AgentRuntimeConfig => {
   const daemonMinimumVersion =
     getOptionalTrimmedEnv("AGENT_RUNTIME_DAEMON_MIN_VERSION") ?? "0.16.0";
@@ -633,6 +665,8 @@ const resolveAgentRuntimeConfig = (): AgentRuntimeConfig => {
   };
 };
 
+const resolvedAgentRuntime = resolveAgentRuntimeConfig();
+
 export const config: Config = {
   port: getRequiredEnvNumber("PORT", 8000),
   nodeEnv: getOptionalEnv("NODE_ENV", "development"),
@@ -664,7 +698,8 @@ export const config: Config = {
     githubToken:
       getOptionalTrimmedEnv("UPDATE_CHECK_GITHUB_TOKEN") ?? getOptionalTrimmedEnv("GITHUB_TOKEN"),
   },
-  agentRuntime: resolveAgentRuntimeConfig(),
+  agentRuntime: resolvedAgentRuntime,
+  features: resolveFeatureConfig(resolvedAgentRuntime),
   oidc: resolveOidcConfig(resolvedAuthMode),
   enablePasswordReset: getOptionalBoolean("ENABLE_PASSWORD_RESET", false),
   enableRefreshTokenRotation: getOptionalBoolean("ENABLE_REFRESH_TOKEN_ROTATION", true),

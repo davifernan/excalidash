@@ -179,6 +179,7 @@ export const useOrchestratorThreadFeature = ({
   drawingId,
   socketRef,
   currentUserId,
+  enabled,
 }: {
   readonly adapter: ExcalidrawAdapter;
   readonly canEdit: boolean;
@@ -186,6 +187,12 @@ export const useOrchestratorThreadFeature = ({
   readonly drawingId?: string;
   readonly socketRef?: MutableRefObject<Socket | null>;
   readonly currentUserId?: string | null;
+  /**
+   * Deployments without an agent runtime render no board threads and issue no
+   * thread requests. Gating the effects too, not just the overlay, keeps a
+   * disabled instance from polling endpoints whose results it would discard.
+   */
+  readonly enabled: boolean;
 }) => {
   const [activeElementId, setActiveElementId] = useState<string | null>(null);
   const [surface, setSurface] = useState<OrchestratorThreadSurface>(emptySurface);
@@ -246,7 +253,7 @@ export const useOrchestratorThreadFeature = ({
   }, [drawingId]);
 
   useEffect(() => {
-    if (!drawingId || !isReady) {
+    if (!enabled || !drawingId || !isReady) {
       setThreads([]);
       return;
     }
@@ -261,11 +268,11 @@ export const useOrchestratorThreadFeature = ({
     return () => {
       cancelled = true;
     };
-  }, [drawingId, isReady]);
+  }, [drawingId, enabled, isReady]);
 
   useEffect(() => {
     const socket = socketRef?.current;
-    if (!socket || !drawingId) return;
+    if (!enabled || !socket || !drawingId) return;
     const onThread = (thread: OrchestratorThreadDTO) => {
       if (thread.drawingId === drawingId) upsertThread(thread);
     };
@@ -292,7 +299,7 @@ export const useOrchestratorThreadFeature = ({
       socket.off("agent.thread.event.appended", onEvent);
       socket.off("agent.dispatch.receipt.updated", onReceipt);
     };
-  }, [drawingId, socketRef, upsertThread]);
+  }, [drawingId, enabled, socketRef, upsertThread]);
 
   // Registration waits for the ordinary autosave path to persist the Board
   // Card. Retries cover that bounded window; a permanent rejection stops and
@@ -300,7 +307,7 @@ export const useOrchestratorThreadFeature = ({
   // Raw client customData never becomes shared authority: only the server's
   // persisted card can create the drawing-audience thread.
   useEffect(() => {
-    if (!drawingId || !canEdit || !isReady) return;
+    if (!enabled || !drawingId || !canEdit || !isReady) return;
     let cancelled = false;
     let busy = false;
     const reconcile = async () => {
@@ -345,10 +352,10 @@ export const useOrchestratorThreadFeature = ({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [adapter, canEdit, drawingId, isReady, threads, upsertThread]);
+  }, [adapter, canEdit, drawingId, enabled, isReady, threads, upsertThread]);
 
   useEffect(() => {
-    if (!isReady) {
+    if (!enabled || !isReady) {
       setSurface(emptySurface);
       return;
     }
@@ -474,7 +481,7 @@ export const useOrchestratorThreadFeature = ({
       unsubscribeScene();
       unsubscribeScroll();
     };
-  }, [activeElementId, adapter, canEdit, isReady, threads]);
+  }, [activeElementId, adapter, canEdit, enabled, isReady, threads]);
 
   const createThread = useCallback(() => {
     if (!canEdit || !isReady) return;
@@ -813,70 +820,75 @@ export const useOrchestratorThreadFeature = ({
   const root = adapter.ui.overlayRoot();
   return {
     createThread,
-    orchestratorThreadOverlay: root.ok
-      ? createPortal(
-          <OrchestratorThreadOverlay
-            key={activeThread?.id ?? "closed"}
-            surface={surface}
-            onCreate={createThread}
-            onCreateLocal={drawingId && currentUserId ? () => void createLocalThread() : undefined}
-            panelView={
-              activeThread
-                ? {
-                    threadId: activeThread.id,
-                    audience: activeThread.audience.kind,
-                    events: eventsByThread[activeThread.id] ?? [],
-                    loading: loadingThreadId === activeThread.id,
-                    sending: sendingThreadIds.has(activeThread.id),
-                    canWrite:
-                      Boolean(currentUserId) &&
-                      (activeThread.audience.kind === "private" || canEdit),
-                    error: actionErrorsByThread[activeThread.id] ?? threadError,
-                    publicThreads: publicThreads.map((thread) => ({
-                      id: thread.id,
-                      title: thread.title,
-                    })),
-                    receipts: receiptThreads.flatMap((thread) => receiptsByThread[thread.id] ?? []),
-                    dispatch:
-                      publicThreads.length > 0 && canEdit
-                        ? {
-                            contexts: dispatchContexts,
-                            connections: dispatchConnections,
-                            submitting: dispatchingThreadIds.has(activeThread.id),
-                            blocked: surface.backpressure.blocked,
-                          }
-                        : null,
-                  }
-                : null
-            }
-            onSwitchAudience={switchAudience}
-            onSendMessage={sendMessage}
-            onDispatch={dispatchPublicEffect}
-            onOpen={openThread}
-            onClose={() => {
-              previousMode.current = "closed";
-              setActiveElementId(null);
-            }}
-            onJump={jumpToThread}
-            onClusterNavigate={(action) => {
-              const cluster = surface.clusters.find((candidate) =>
-                candidate.members.some((member) => member.elementId === action.elementId),
-              );
-              const locator = surface.offscreenLocators.find((candidate) =>
-                candidate.members.some((member) => member.elementId === action.elementId),
-              );
-              if (
-                (!cluster || !activateClusterMember(cluster, action.elementId)) &&
-                !locator?.members.some((member) => member.elementId === action.elementId)
-              ) {
-                return;
+    orchestratorThreadOverlay:
+      enabled && root.ok
+        ? createPortal(
+            <OrchestratorThreadOverlay
+              key={activeThread?.id ?? "closed"}
+              surface={surface}
+              onCreate={createThread}
+              onCreateLocal={
+                drawingId && currentUserId ? () => void createLocalThread() : undefined
               }
-              jumpToThread(action.elementId);
-              openThread(action.elementId);
-            }}
-          />,
-          root.value,
-        )
-      : null,
+              panelView={
+                activeThread
+                  ? {
+                      threadId: activeThread.id,
+                      audience: activeThread.audience.kind,
+                      events: eventsByThread[activeThread.id] ?? [],
+                      loading: loadingThreadId === activeThread.id,
+                      sending: sendingThreadIds.has(activeThread.id),
+                      canWrite:
+                        Boolean(currentUserId) &&
+                        (activeThread.audience.kind === "private" || canEdit),
+                      error: actionErrorsByThread[activeThread.id] ?? threadError,
+                      publicThreads: publicThreads.map((thread) => ({
+                        id: thread.id,
+                        title: thread.title,
+                      })),
+                      receipts: receiptThreads.flatMap(
+                        (thread) => receiptsByThread[thread.id] ?? [],
+                      ),
+                      dispatch:
+                        publicThreads.length > 0 && canEdit
+                          ? {
+                              contexts: dispatchContexts,
+                              connections: dispatchConnections,
+                              submitting: dispatchingThreadIds.has(activeThread.id),
+                              blocked: surface.backpressure.blocked,
+                            }
+                          : null,
+                    }
+                  : null
+              }
+              onSwitchAudience={switchAudience}
+              onSendMessage={sendMessage}
+              onDispatch={dispatchPublicEffect}
+              onOpen={openThread}
+              onClose={() => {
+                previousMode.current = "closed";
+                setActiveElementId(null);
+              }}
+              onJump={jumpToThread}
+              onClusterNavigate={(action) => {
+                const cluster = surface.clusters.find((candidate) =>
+                  candidate.members.some((member) => member.elementId === action.elementId),
+                );
+                const locator = surface.offscreenLocators.find((candidate) =>
+                  candidate.members.some((member) => member.elementId === action.elementId),
+                );
+                if (
+                  (!cluster || !activateClusterMember(cluster, action.elementId)) &&
+                  !locator?.members.some((member) => member.elementId === action.elementId)
+                ) {
+                  return;
+                }
+                jumpToThread(action.elementId);
+                openThread(action.elementId);
+              }}
+            />,
+            root.value,
+          )
+        : null,
   };
 };

@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { Bot, MessageSquare, ShieldAlert, Upload } from "lucide-react";
 import type { GuestCapabilitySettings } from "../../api";
 import { CustomSelect } from "./CustomSelect";
+import { useFeatureFlags } from "../../context/FeatureFlagsContext";
 
 type Props = {
   settings: GuestCapabilitySettings | null;
@@ -101,6 +102,10 @@ export const GuestCapabilitiesSection: React.FC<Props> = ({
   onToggleViewComments,
   onToggleAgentContextContribute,
 }) => {
+  // The agent-context row describes what an agent may read. On a deployment
+  // with no agent runtime nothing can read it, so the row would only offer a
+  // choice without consequence.
+  const { agents: agentsEnabled } = useFeatureFlags();
   if (!settings) return null;
 
   return (
@@ -129,16 +134,18 @@ export const GuestCapabilitiesSection: React.FC<Props> = ({
           ineffectiveLabel="Guests cannot see comments on this board."
           onToggle={onToggleViewComments}
         />
-        <CapabilityRow
-          icon={<Bot size={16} strokeWidth={2.5} />}
-          title="Contribute to Agent Contexts"
-          board={settings.board.agentContextContribute}
-          instanceAllowed={settings.instance.agentContextContribute}
-          effective={settings.effective.agentContextContribute}
-          effectiveLabel="A guest's own board content may be read by an agent working in this board's Agent Contexts."
-          ineffectiveLabel="A guest's own board content is never read by an agent working in this board's Agent Contexts, even if it ends up inside one."
-          onToggle={onToggleAgentContextContribute}
-        />
+        {agentsEnabled ? (
+          <CapabilityRow
+            icon={<Bot size={16} strokeWidth={2.5} />}
+            title="Contribute to Agent Contexts"
+            board={settings.board.agentContextContribute}
+            instanceAllowed={settings.instance.agentContextContribute}
+            effective={settings.effective.agentContextContribute}
+            effectiveLabel="A guest's own board content may be read by an agent working in this board's Agent Contexts."
+            ineffectiveLabel="A guest's own board content is never read by an agent working in this board's Agent Contexts, even if it ends up inside one."
+            onToggle={onToggleAgentContextContribute}
+          />
+        ) : null}
       </div>
     </section>
   );

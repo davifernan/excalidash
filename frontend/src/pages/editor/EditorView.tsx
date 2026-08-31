@@ -103,6 +103,8 @@ type EditorViewProps = {
   unresolvedCommentCount: number;
   onToggleComments: () => void;
   isAgentRuntimeOpen: boolean;
+  /** Deployment-level switch: false hides every agent surface. */
+  agentsEnabled: boolean;
   onToggleAgentRuntime: () => void;
   onOpenAgentRuntime: () => void;
   onCreateOrchestratorThread: () => void;
@@ -217,6 +219,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   unresolvedCommentCount,
   onToggleComments,
   isAgentRuntimeOpen,
+  agentsEnabled,
   onToggleAgentRuntime,
   onOpenAgentRuntime,
   onCreateOrchestratorThread,
@@ -288,9 +291,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
     onHistoryOpen,
     onSetLangCode,
     onToggleComments,
+    agentsEnabled,
     onToggleAgentRuntime,
     orchestratorThreads: {
-      canCreate: canEdit,
+      canCreate: canEdit && agentsEnabled,
       onCreate: onCreateOrchestratorThread,
     },
   };
@@ -438,14 +442,16 @@ export const EditorView: React.FC<EditorViewProps> = ({
             onStartVote={voting.openCompose}
             onOpenComments={onToggleComments}
           />
-          <InstructionApprovalToolbar
-            drawingId={id}
-            canEdit={canEdit}
-            host={excalidrawRoot}
-            elements={approvalScene.elements}
-            appState={approvalScene.appState}
-            onOpenDispatch={onOpenAgentRuntime}
-          />
+          {agentsEnabled ? (
+            <InstructionApprovalToolbar
+              drawingId={id}
+              canEdit={canEdit}
+              host={excalidrawRoot}
+              elements={approvalScene.elements}
+              appState={approvalScene.appState}
+              onOpenDispatch={onOpenAgentRuntime}
+            />
+          ) : null}
           <ConnectionStatusBadge container={excalidrawRoot} status={connectionStatus} />
           <PresentationOverlay container={excalidrawRoot} frames={frames} presenting={presenting} />
           <VotingOverlay container={excalidrawRoot} voting={voting} />

@@ -17,6 +17,22 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.18.1 -- 2026-08-31
+
+<!-- release-source: #PRNUM -->
+An instance that has not configured an agent runtime now shows nothing about agents at all. The
+panel, the board threads, the instruction toolbar and the agent-context guest capability were
+visible on every deployment, but without a runtime behind them each one only led to a dead end.
+
+### Fixed
+
+<!-- release-source: #PRNUM -->
+- **No agent surfaces without an agent runtime.** Boards on an instance with no
+  `AGENT_RUNTIME_HERDR_*` configuration no longer show the agent panel, its menu entry, board
+  threads, the instruction toolbar or the Agent Contexts guest capability, and they stop
+  requesting thread data the instance cannot act on. `AGENT_FEATURES_ENABLED` overrides the rule
+  in both directions.
+
 ## v0.18.0 -- 2026-08-30
 
 <!-- release-source: #288 -->

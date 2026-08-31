@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import { ThemeProvider } from "./context/ThemeContext";
 import { UploadProvider } from "./context/UploadContext";
 import { AuthProvider } from "./context/AuthContext";
+import { FeatureFlagsProvider } from "./context/FeatureFlagsContext";
 import { CommandPaletteProvider } from "./context/CommandPaletteContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Loader2 } from "lucide-react";
@@ -42,102 +43,104 @@ function App() {
     <ThemeProvider>
       <Router>
         <AuthProvider>
-          <UploadProvider>
-            <CommandPaletteProvider>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/register" element={<Register />} />
-                  <Route path="/reset-password" element={<PasswordResetRequest />} />
-                  <Route path="/reset-password-confirm" element={<PasswordResetConfirm />} />
-                  <Route path="/auth-setup" element={<AuthSetupChoice />} />
-                  <Route path="/" element={<Navigate to="/team" replace />} />
-                  <Route
-                    path="/team"
-                    element={
-                      <ProtectedRoute>
-                        <TeamHome />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/collections"
-                    element={
-                      <ProtectedRoute>
-                        <Dashboard />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/settings"
-                    element={
-                      <ProtectedRoute>
-                        <Settings />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/profile"
-                    element={
-                      <ProtectedRoute>
-                        <Profile />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin"
-                    element={
-                      <ProtectedRoute>
-                        <Admin />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/inbox"
-                    element={
-                      <ProtectedRoute>
-                        <Inbox />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/activity"
-                    element={
-                      <ProtectedRoute>
-                        <Activity />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/search"
-                    element={
-                      <ProtectedRoute>
-                        <SearchPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/library"
-                    element={
-                      <ProtectedRoute>
-                        <TeamLibrary />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/editor/:id"
-                    element={
-                      <ProtectedRoute>
-                        <Editor />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route path="/shared/:id" element={<Editor />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </Suspense>
-            </CommandPaletteProvider>
-          </UploadProvider>
+          <FeatureFlagsProvider>
+            <UploadProvider>
+              <CommandPaletteProvider>
+                <Suspense fallback={<PageLoader />}>
+                  <Routes>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
+                    <Route path="/reset-password" element={<PasswordResetRequest />} />
+                    <Route path="/reset-password-confirm" element={<PasswordResetConfirm />} />
+                    <Route path="/auth-setup" element={<AuthSetupChoice />} />
+                    <Route path="/" element={<Navigate to="/team" replace />} />
+                    <Route
+                      path="/team"
+                      element={
+                        <ProtectedRoute>
+                          <TeamHome />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/collections"
+                      element={
+                        <ProtectedRoute>
+                          <Dashboard />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings"
+                      element={
+                        <ProtectedRoute>
+                          <Settings />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/profile"
+                      element={
+                        <ProtectedRoute>
+                          <Profile />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin"
+                      element={
+                        <ProtectedRoute>
+                          <Admin />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/inbox"
+                      element={
+                        <ProtectedRoute>
+                          <Inbox />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/activity"
+                      element={
+                        <ProtectedRoute>
+                          <Activity />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/search"
+                      element={
+                        <ProtectedRoute>
+                          <SearchPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/library"
+                      element={
+                        <ProtectedRoute>
+                          <TeamLibrary />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/editor/:id"
+                      element={
+                        <ProtectedRoute>
+                          <Editor />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route path="/shared/:id" element={<Editor />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Suspense>
+              </CommandPaletteProvider>
+            </UploadProvider>
+          </FeatureFlagsProvider>
         </AuthProvider>
       </Router>
     </ThemeProvider>

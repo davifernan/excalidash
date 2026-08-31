@@ -43,9 +43,12 @@ const statusLabel = (status: BoardAgentVisualSnapshot["status"]): string => {
 export const useAgentPresenceOverlay = ({
   adapter,
   presence,
+  enabled,
 }: {
   adapter: ExcalidrawAdapter;
   presence: readonly BoardAgentVisualSnapshot[];
+  /** Deployments without an agent runtime draw no agent highlight boxes. */
+  enabled: boolean;
 }): { agentPresenceOverlay: React.ReactNode } => {
   const [boxes, setBoxes] = useState<readonly BoardAgentHighlightBox[]>([]);
 
@@ -101,8 +104,7 @@ export const useAgentPresenceOverlay = ({
 
   const root = adapter.ui.overlayRoot();
   return {
-    agentPresenceOverlay: root.ok
-      ? createPortal(<AgentPresenceOverlay boxes={boxes} />, root.value)
-      : null,
+    agentPresenceOverlay:
+      enabled && root.ok ? createPortal(<AgentPresenceOverlay boxes={boxes} />, root.value) : null,
   };
 };

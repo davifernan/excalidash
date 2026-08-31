@@ -1,5 +1,6 @@
 import express from "express";
 import { registerUpdateRoutes } from "./update";
+import { registerFeatureRoutes } from "./features";
 
 export type SystemRouteDeps = {
   asyncHandler: <T = void>(
@@ -10,4 +11,5 @@ export type SystemRouteDeps = {
 
 export const registerSystemRoutes = (app: express.Express, deps: SystemRouteDeps) => {
   registerUpdateRoutes(app, deps);
+  registerFeatureRoutes(app, deps);
 };

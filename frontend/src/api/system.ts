@@ -19,3 +19,12 @@ export const getUpdateInfo = async (channel: UpdateChannel): Promise<UpdateInfo>
   });
   return response.data;
 };
+
+export type FeatureFlags = {
+  agents: boolean;
+};
+
+export const getFeatureFlags = async (): Promise<FeatureFlags> => {
+  const response = await api.get<FeatureFlags>("/system/features");
+  return response.data;
+};

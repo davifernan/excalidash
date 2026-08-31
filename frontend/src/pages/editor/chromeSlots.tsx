@@ -183,6 +183,8 @@ export type ChromeSlotContext = {
   onSetLangCode: (langCode: string) => void;
   onToggleComments: () => void;
   isAgentRuntimeOpen: boolean;
+  /** Deployment-level switch: false removes the agent entries entirely. */
+  agentsEnabled: boolean;
   onToggleAgentRuntime: () => void;
   /**
    * NIL-678's shared Board Card creation route. Optional so a non-editor
@@ -377,7 +379,7 @@ export const MAIN_MENU_ENTRIES: MainMenuSlotEntry[] = [
     // Runtime actions are board content work, not collaboration chrome. The
     // panel itself is an overlay; this menu entry is its mobile-safe route.
     render: (ctx) =>
-      ctx.canEdit && ctx.id ? (
+      ctx.agentsEnabled && ctx.canEdit && ctx.id ? (
         <MainMenu.Item
           onSelect={ctx.onToggleAgentRuntime}
           icon={<Bot size={16} />}
