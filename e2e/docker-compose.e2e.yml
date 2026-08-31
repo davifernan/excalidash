@@ -26,6 +26,10 @@ services:
       - DATABASE_URL=file:/app/prisma/e2e-test.db
       - PORT=8000
       - NODE_ENV=test
+      # The docker path runs the whole suite, including the agent specs. Without
+      # this it would measure a deployment that deliberately hides what they
+      # assert on -- the same reason every dev-server job sets it.
+      - AGENT_FEATURES_ENABLED=true
       # Include both with and without :80 because browsers omit default ports in Origin.
       - FRONTEND_URL=http://frontend,http://frontend:80,http://localhost:5173
     ports:

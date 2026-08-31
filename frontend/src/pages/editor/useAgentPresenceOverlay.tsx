@@ -53,6 +53,12 @@ export const useAgentPresenceOverlay = ({
   const [boxes, setBoxes] = useState<readonly BoardAgentHighlightBox[]>([]);
 
   useEffect(() => {
+    // Not only the portal: without this the hook still subscribes to every
+    // scene change and scroll frame to recompute boxes it will never render.
+    if (!enabled) {
+      setBoxes((current) => (current.length === 0 ? current : []));
+      return;
+    }
     const recompute = () => {
       const next: BoardAgentHighlightBox[] = [];
       const activeLabelsByTarget = new Map<string, number>();
@@ -100,7 +106,7 @@ export const useAgentPresenceOverlay = ({
       unsubscribeScene();
       unsubscribeScroll();
     };
-  }, [adapter, presence]);
+  }, [adapter, enabled, presence]);
 
   const root = adapter.ui.overlayRoot();
   return {
