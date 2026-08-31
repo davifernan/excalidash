@@ -379,6 +379,27 @@ UPDATE_CHECK_OUTBOUND=false
 </details>
 
 <details>
+<summary>Agent surfaces</summary>
+
+The agent panel, its menu entry, board orchestrator threads, the instruction toolbar and the Agent Contexts capability (in both the share dialog and the admin area) are hidden unless this instance can actually run an agent. By default that follows the runtime configuration: with no `AGENT_RUNTIME_HERDR_*` values set, none of those surfaces appear, because each would only offer something the instance cannot deliver -- opening the panel would say "Runtime not connected", and the share dialog would ask owners to decide whether guests may contribute to contexts nothing could read.
+
+Override the rule in either direction:
+
+```bash
+# Keep the surfaces hidden on an instance that does have a runtime
+AGENT_FEATURES_ENABLED=false
+
+# Show them where agents are driven through another path
+AGENT_FEATURES_ENABLED=true
+```
+
+Accepted values are `true`/`false`, `1`/`0`, `yes`/`no`. Anything else is refused at startup rather than guessed: a guessed direction is either a silent leak or a silent outage, and both look like the operator got what they asked for.
+
+The frontend asks `GET /system/features` once and treats every flag as off until the server answers, so a backend that cannot answer shows the quieter board rather than surfaces it cannot serve.
+
+</details>
+
+<details>
 <summary>Password policy, preferences, and backups</summary>
 
 Local authentication defaults to the previous strong policy: 12-100 characters with uppercase, lowercase, number, and symbol requirements. Internal deployments can relax it with environment variables:
