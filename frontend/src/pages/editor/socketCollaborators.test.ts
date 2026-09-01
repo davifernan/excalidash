@@ -51,6 +51,7 @@ const fakeCollaboration = (initial: Record<string, any> = {}) => {
           selectionAllSelected: peer.selectionAllSelected === true,
           color: peer.color ?? null,
           pointerButton: peer.pointerButton ?? null,
+          pointerTool: peer.pointerTool ?? null,
           isSelf: peer.isSelf === true,
         })),
       }),
@@ -494,6 +495,76 @@ describe("socket collaborators", () => {
       expect(peers.get("peer")?.pointer).toEqual({ x: 100, y: 40 });
 
       vi.useRealTimers();
+    });
+  });
+
+  describe("a remote laser reaches the other side", () => {
+    // Patches are written on the next animation frame, so the assertion has to
+    // wait for one -- the same shape the cursor-smoothing tests above use.
+    const runOneFrame = () => {
+      let pending: (() => void) | null = null;
+      vi.stubGlobal(
+        "requestAnimationFrame",
+        vi.fn((cb: () => void) => {
+          pending = cb;
+          return 1;
+        }),
+      );
+      vi.stubGlobal("cancelAnimationFrame", vi.fn());
+      return () => {
+        const cb = pending;
+        pending = null;
+        cb?.();
+      };
+    };
+
+    it("carries the pointer tool from the wire into the collaborator patch", () => {
+      const frame = runOneFrame();
+      // The server sends the tool and even refuses a cursor payload without
+      // it; this map used to read only x and y, so a remote laser arrived as
+      // an ordinary cursor. Only the person holding it ever saw a trail.
+      const socket = new FakeSocket();
+      const { peers, capability } = fakeCollaboration();
+      bindSocketCollaborators({
+        socket: socket as any,
+        collaboration: capability,
+        onPeersChange: vi.fn(),
+      });
+
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 10, y: 20, tool: "laser" },
+        button: "up",
+        username: "Peer",
+        color: "#123456",
+      });
+
+      frame();
+      expect(peers.get("peer")?.pointerTool).toBe("laser");
+    });
+
+    it("reports an ordinary pointer as an ordinary pointer", () => {
+      // The other half: a gate that let everything through would pass the
+      // assertion above while telling us nothing.
+      const frame = runOneFrame();
+      const socket = new FakeSocket();
+      const { peers, capability } = fakeCollaboration();
+      bindSocketCollaborators({
+        socket: socket as any,
+        collaboration: capability,
+        onPeersChange: vi.fn(),
+      });
+
+      socket.trigger("cursor-move", {
+        presenceId: "peer",
+        pointer: { x: 10, y: 20, tool: "pointer" },
+        button: "up",
+        username: "Peer",
+        color: "#123456",
+      });
+
+      frame();
+      expect(peers.get("peer")?.pointerTool).toBe("pointer");
     });
   });
 });
