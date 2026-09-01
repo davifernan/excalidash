@@ -56,11 +56,20 @@ test.describe("a laser pointer reaches the other people on the board", () => {
       // `browserContext.close` in teardown, which points at the wrong thing
       // entirely. A bounded expectation turns "we waited two minutes" into
       // "the button was not there".
-      const laserButton = holder.locator(".App-toolbar").getByTestId("toolbar-LaserPointer");
-      await expect(laserButton, "the toolbar laser button never appeared").toBeVisible({
+      //
+      // Clicked through the LABEL, not the test id. The id sits on a hidden
+      // `<input type="checkbox">` whose icon overlay swallows pointer events,
+      // so clicking the input itself retries until it gives up -- exactly what
+      // a person does not do. Playwright said so once the wait was bounded:
+      // "<div class=\"ToolIcon__icon\"> intercepts pointer events".
+      const laserInput = holder.locator(".App-toolbar").getByTestId("toolbar-LaserPointer");
+      await expect(laserInput, "the toolbar laser control never appeared").toBeAttached({
         timeout: 15_000,
       });
-      await laserButton.click({ timeout: 10_000 });
+      await holder
+        .locator(".App-toolbar")
+        .locator("label", { has: holder.getByTestId("toolbar-LaserPointer") })
+        .click({ timeout: 10_000 });
       const canvas = holder.locator("canvas.excalidraw__canvas.interactive");
       const box = await canvas.boundingBox();
       if (!box) throw new Error("interactive canvas is not available");
