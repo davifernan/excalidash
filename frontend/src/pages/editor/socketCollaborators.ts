@@ -105,6 +105,14 @@ type CursorAnim = {
   button: string;
   username: string;
   color: string | null;
+  /**
+   * Which tool is at that position.
+   *
+   * The server sends it and even refuses a cursor payload without it, but this
+   * map used to read only x and y -- so a remote laser arrived as an ordinary
+   * cursor and only the person holding it ever saw a trail.
+   */
+  tool: "pointer" | "laser" | null;
 };
 
 /** Where this cursor actually is right now: mid-glide, or already arrived. */
@@ -218,6 +226,7 @@ export const bindSocketCollaborators = ({
         socketId: presenceId as SocketId,
         pointer: pointAt(anim, now),
         pointerButton: anim.button === "down" ? "down" : "up",
+        pointerTool: anim.tool,
         color: away ? awayCursorColor(anim.color) : anim.color,
         name: withAwayStatus(
           withLargeSelectionStatus(
@@ -336,6 +345,7 @@ export const bindSocketCollaborators = ({
       // object into a field `applyPatch` treats as a single colour string,
       // silently producing a malformed nested colour on every remote cursor.
       color: typeof data.color === "string" ? data.color : null,
+      tool: target.tool === "laser" ? "laser" : target.tool === "pointer" ? "pointer" : null,
     });
     wake();
   };

@@ -169,9 +169,11 @@ export const bindRemoteSelection = ({
         selectedIds: patch.selectedIds ?? previous?.selectedIds ?? [],
         selectionAllSelected: patch.selectionAllSelected ?? previous?.selectionAllSelected ?? false,
         // Carried, not decided: this path only writes the selection. Colour,
-        // button and the self-flag belong to whoever set them.
+        // pointer button, pointer tool and the self-flag belong to whoever set
+        // them.
         color: previous?.color ?? null,
         pointerButton: previous?.pointerButton ?? null,
+        pointerTool: previous?.pointerTool ?? null,
         isSelf: previous?.isSelf ?? false,
       });
     }

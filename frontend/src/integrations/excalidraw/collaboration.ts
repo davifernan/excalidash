@@ -50,6 +50,13 @@ const point = (value: unknown): ScenePoint | null => {
   return typeof x === "number" && typeof y === "number" ? { x, y } : null;
 };
 
+/** The editor keeps the tool on its own pointer record, next to x and y. */
+const pointerToolOf = (value: unknown): "pointer" | "laser" | null => {
+  if (!value || typeof value !== "object") return null;
+  const tool = (value as { tool?: unknown }).tool;
+  return tool === "laser" ? "laser" : tool === "pointer" ? "pointer" : null;
+};
+
 export const readCollaborator = (id: string, raw: RawCollaborator): CollaboratorInfo => ({
   socketId: id as SocketId,
   name: typeof raw.username === "string" ? raw.username : null,
@@ -64,6 +71,7 @@ export const readCollaborator = (id: string, raw: RawCollaborator): Collaborator
       ? ((raw.color as any).background as string)
       : null,
   pointerButton: raw.button === "down" ? "down" : raw.button === "up" ? "up" : null,
+  pointerTool: pointerToolOf(raw.pointer),
   isSelf: raw.isCurrentUser === true,
 });
 
@@ -97,6 +105,17 @@ export const applyPatch = (
   }
   if (patch.pointerButton !== undefined) {
     next.button = patch.pointerButton ?? undefined;
+  }
+  if (patch.pointerTool !== undefined) {
+    // Merged onto the pointer rather than written beside it: the editor reads
+    // the tool from the pointer record itself, and writing `pointer` above
+    // would otherwise drop a tool set by an earlier patch.
+    const pointer = next.pointer as { x: number; y: number; tool?: string } | undefined;
+    if (pointer) {
+      next.pointer = patch.pointerTool
+        ? { ...pointer, tool: patch.pointerTool }
+        : { x: pointer.x, y: pointer.y };
+    }
   }
   if (patch.isSelf !== undefined) next.isCurrentUser = patch.isSelf;
   return next;
