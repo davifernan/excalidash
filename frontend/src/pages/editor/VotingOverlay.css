@@ -179,3 +179,16 @@
   font: 600 12px/1.2 var(--ui-font);
   cursor: pointer;
 }
+
+/*
+ * How far along the room is, kept quiet on purpose: it is context for the
+ * person deciding whether to wait, not a call to action. Same muted treatment
+ * as the prompt above rather than a badge that competes with the ballot.
+ */
+.voting-overlay__cast-count {
+  margin: 0.5rem 0 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-align: center;
+  opacity: 0.6;
+}

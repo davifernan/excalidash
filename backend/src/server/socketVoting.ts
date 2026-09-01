@@ -188,10 +188,22 @@ export const createSocketVotingManager = ({
         );
         return;
       }
-      // Deliberately nothing is broadcast: even a "someone voted" pulse
-      // would leak participation timing while the round is meant to stay
-      // concealed. The caster gets their own ack; the room gets nothing
-      // until `reveal`.
+      // The room is told how many ballots are in -- and nothing else. The
+      // snapshot's `tally` stays null until `reveal`, so what is broadcast is
+      // progress, never a running result.
+      //
+      // This replaces a deliberate silence, and the trade it makes is real:
+      // the previous comment here refused even a "someone voted" pulse
+      // because it leaks PARTICIPATION TIMING. It still does. In a room where
+      // you can see who is present, a count that moves right after somebody
+      // acts tells you who just voted -- not what they voted for, but that
+      // they did.
+      //
+      // Accepted knowingly (Davi, 01.09.2026): knowing how far along the room
+      // is, is what tells a moderator whether it is worth waiting. Anyone
+      // revisiting this should weigh that against the timing leak rather than
+      // assume the silence was an oversight.
+      emitState(parsed.drawingId, voting.snapshot(parsed.drawingId));
       castFeedback.succeeded(ack);
     });
   };

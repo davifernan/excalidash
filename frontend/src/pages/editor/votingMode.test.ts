@@ -46,7 +46,33 @@ describe("parseVotingSnapshot", () => {
     );
     expect(snapshot?.status).toBe("open");
     expect(snapshot?.tally).toBeNull();
+    // Absent on the wire stays absent here.
     expect(snapshot?.participantCount).toBeNull();
+  });
+
+  it("keeps the ballot count of a live round, while still refusing its tally", () => {
+    // The two used to be gated together, so a count sent during a live round
+    // was discarded on arrival -- carried the whole way and dropped by the
+    // reader. The tally is still refused while open; the count is not.
+    const snapshot = parseVotingSnapshot(
+      {
+        drawingId: "d1",
+        status: "open",
+        roundId: "r1",
+        prompt: "Ship it?",
+        options: [
+          { id: "0", label: "Yes" },
+          { id: "1", label: "No" },
+        ],
+        maxSelections: 1,
+        participantCount: 2,
+        tally: { "0": 2 },
+      },
+      "d1",
+    );
+
+    expect(snapshot?.participantCount).toBe(2);
+    expect(snapshot?.tally).toBeNull();
   });
 
   it("rejects a revealed round without a tally", () => {

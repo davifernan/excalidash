@@ -85,8 +85,11 @@ export const parseVotingSnapshot = (value: unknown, drawingId: string): VotingSn
     options,
     maxSelections: data.maxSelections,
     tally,
-    participantCount:
-      revealed && isFiniteNumber(data.participantCount) ? data.participantCount : null,
+    // Accepted while the round is still open, unlike `tally` above. The two
+    // used to be gated together, so the count the server now sends during a
+    // live round was discarded on arrival -- the same shape of bug as the
+    // laser pointer: carried the whole way, dropped by the reader.
+    participantCount: isFiniteNumber(data.participantCount) ? data.participantCount : null,
   };
 };
 

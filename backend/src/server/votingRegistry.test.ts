@@ -23,7 +23,10 @@ describe("VotingRegistry", () => {
     const snapshot = registry.snapshot("drawing-1");
     expect(snapshot.status).toBe("open");
     expect(snapshot.tally).toBeNull();
-    expect(snapshot.participantCount).toBeNull();
+    // Zero, not null: the round exists and nobody has voted yet. The overlay
+    // suppresses the line at zero rather than announcing an empty round, but
+    // that is a display choice and does not belong in the snapshot.
+    expect(snapshot.participantCount).toBe(0);
     expect(snapshot.options).toEqual([
       { id: "0", label: "Yes" },
       { id: "1", label: "No" },
@@ -42,14 +45,38 @@ describe("VotingRegistry", () => {
     });
   });
 
-  it("keeps cast() from ever revealing a running count while open", () => {
+  it("keeps cast() from ever revealing a running RESULT while open", () => {
     const registry = new VotingRegistry();
     registry.open("drawing-1", "Prompt", ["A", "B"], 1);
     const result = registry.cast("drawing-1", "voter-1", ["0"]);
-    // The only thing a caster learns is whether their OWN ballot was
-    // accepted -- nothing about anyone else's, nothing about a count.
+    // A caster learns whether their own ballot was accepted, and how far along
+    // the room is -- never how it is leaning.
+    //
+    // This test used to assert that `participantCount` stayed null while open
+    // too. That was a deliberate decision, reversed deliberately: the count is
+    // what tells someone whether it is worth waiting before revealing.
+    //
+    // The line that must not move is the tally. A visible running result
+    // changes how the people who have not voted yet will vote; a count does
+    // not disclose the outcome.
     expect(result).toEqual({ status: "applied" });
     expect(registry.snapshot("drawing-1").tally).toBeNull();
+    expect(registry.snapshot("drawing-1").participantCount).toBe(1);
+  });
+
+  it("counts voters, not ballots, so changing a vote does not inflate it", () => {
+    const registry = new VotingRegistry();
+    registry.open("drawing-1", "Prompt", ["A", "B"], 1);
+    registry.cast("drawing-1", "voter-1", ["0"]);
+    registry.cast("drawing-1", "voter-1", ["1"]);
+    registry.cast("drawing-1", "voter-2", ["0"]);
+
+    expect(registry.snapshot("drawing-1").participantCount).toBe(2);
+    expect(registry.snapshot("drawing-1").tally).toBeNull();
+  });
+
+  it("says nothing at all before a round exists", () => {
+    const registry = new VotingRegistry();
     expect(registry.snapshot("drawing-1").participantCount).toBeNull();
   });
 
