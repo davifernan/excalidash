@@ -286,4 +286,32 @@ test.describe("NIL-523: two-account presence delivery", () => {
       await observerContext.close();
     }
   });
+
+  test("Team Home names people without ranking them", async ({ browser }, testInfo) => {
+    // The admin account is exactly the one that used to carry a role label, so
+    // this is the view where a badge would show if it came back. A member
+    // account is signed in too, so the roster has more than one row and the
+    // absence is visible rather than vacuous.
+    const adminContext = await browser.newContext();
+    try {
+      const admin = await adminContext.newPage();
+      await loginViaUi(admin, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
+      await admin.goto("/team");
+      await expect(admin.getByText(MEMBER_NAME, { exact: false }).first()).toBeVisible();
+
+      // Anchored: a person legitimately named "Owner Something" must not fail
+      // this, and a restyled badge must not pass it under other capitalisation.
+      await expect(admin.getByText(/^owner$/i)).toHaveCount(0);
+      await expect(admin.getByText(/^admin$/i)).toHaveCount(0);
+
+      const shot = testInfo.outputPath("team-home-no-role-labels.png");
+      await admin.screenshot({ path: shot });
+      await testInfo.attach("team-home-no-role-labels", {
+        path: shot,
+        contentType: "image/png",
+      });
+    } finally {
+      await adminContext.close();
+    }
+  });
 });
