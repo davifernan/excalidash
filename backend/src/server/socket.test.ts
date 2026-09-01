@@ -538,12 +538,21 @@ describe("who the server decides someone is", () => {
     return ack;
   };
 
-  it("presents a signed-in account with link-only access as a guest", async () => {
-    // Holding an account is not the same as belonging to this board. Someone
-    // who only got here through a link is a visitor, and showing their real
-    // name to the room would say otherwise.
+  it("names a signed-in account that arrives through a link, at the link's level", async () => {
+    // This used to assert the opposite: an account reaching a board only
+    // through a link stayed anonymous, on the reasoning that holding an
+    // account is not the same as belonging to this board.
+    //
+    // Reversed deliberately. A board lives on seeing WHO is writing, and an
+    // unnamed cursor beside named ones makes the history unattributable --
+    // though the server knew the identity the whole time.
+    //
+    // What did not change is the ceiling: the link still decides what they may
+    // do. This decides whether they have a name while doing it, and the
+    // membership recorded below carries the link's own level, never more.
     const io = new FakeIo();
     const token = buildShareLinkToken();
+    const granted: unknown[] = [];
     const prisma = {
       drawing: {
         findUnique: async () => ({ userId: "owner-account-id", collectionId: null }),
@@ -557,7 +566,14 @@ describe("who the server decides someone is", () => {
       },
       collection: { findFirst: async () => null, findMany: async () => [] },
       collectionShare: { findFirst: async () => null, findMany: async () => [] },
-      drawingPermission: { findUnique: async () => null, findMany: async () => [] },
+      drawingPermission: {
+        findUnique: async () => null,
+        findMany: async () => [],
+        create: async (args: any) => {
+          granted.push(args.data);
+          return args.data;
+        },
+      },
       systemConfig: {
         findUnique: async () => ({
           guestUploadEnabled: false,
@@ -579,8 +595,18 @@ describe("who the server decides someone is", () => {
 
     const ack = await joinAs(socket, token);
 
-    expect(ack).toMatchObject({ ok: true, presence: { kind: "guest" } });
-    expect(ack.presence.name).not.toBe("Account Name");
+    expect(ack).toMatchObject({ ok: true, presence: { kind: "member" } });
+    expect(ack.presence.name).toBe("Account Name");
+    // The ceiling: a view link grants view, not more, and the row records
+    // itself as self-granted -- the marker that says "arrived through a link".
+    expect(granted).toEqual([
+      {
+        drawingId: "drawing-1",
+        granteeUserId: "link-account-id",
+        permission: "view",
+        createdByUserId: "link-account-id",
+      },
+    ]);
   });
 
   it("gates guest file deltas and the comment room with the same effective policies", async () => {

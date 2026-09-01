@@ -52,6 +52,7 @@ import {
   SOCKET_QUEUE_LIMITS,
 } from "./socketProtocol";
 import { ActiveAccountCache } from "./activeAccountCache";
+import { grantDrawingAccessFromLink } from "../authz/grants";
 import { getDrawingMembership } from "../authz/membership";
 import { ipKeyGenerator } from "express-rate-limit";
 import { resolveSocketClientAddress, type TrustProxySetting } from "./socketClientAddress";
@@ -625,13 +626,40 @@ export const registerSocketHandlers = ({
         let name = toPresenceName(clientUser.name);
         let color = derivePresenceColor(socket.id);
         let kind: PresenceKind = "guest";
-        const membershipLevel =
+        let membershipLevel =
           isAccount && principal
             ? access === "owner"
               ? "owner"
               : (await getDrawingMembership({ prisma, userId: principal.userId, drawingId }))?.level
             : null;
         if (!isCurrentJoin()) return;
+        // A signed-in person who arrives through a valid share link becomes a
+        // named member of this board, at the link's own level.
+        //
+        // Until now they stayed anonymous: the branch below gives an account
+        // reaching a board only through a link a per-connection guest identity,
+        // so their name never appeared next to their cursor and the history
+        // could not say who changed what -- though the server knew who they
+        // were the whole time.
+        //
+        // The link still decides what they may do. This only decides whether
+        // they have a name while doing it.
+        // "owner" is excluded by construction -- an owner already has a
+        // membership above, so this branch never sees one -- but the check is
+        // written out rather than assumed, because the day it stops being true
+        // is the day an owner's level would be rewritten to a link's.
+        const linkLevel =
+          access === "view" || access === "comment" || access === "edit" ? access : null;
+        if (isAccount && principal && shareToken && !membershipLevel && linkLevel) {
+          await grantDrawingAccessFromLink({
+            db: prisma,
+            drawingId,
+            userId: principal.userId,
+            permission: linkLevel,
+          });
+          if (!isCurrentJoin()) return;
+          membershipLevel = linkLevel;
+        }
         if (membershipLevel && principal) {
           // A standing membership has a name the server can check. An account
           // arriving only through a link is still a guest, so the server gives
