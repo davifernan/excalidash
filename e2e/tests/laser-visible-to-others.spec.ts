@@ -30,9 +30,12 @@ test.describe("a laser pointer reaches the other people on the board", () => {
       await openEditor(holder, drawing.id, { settleMs: 800 });
       await openEditor(observer, drawing.id, { settleMs: 800 });
 
-      // Arm the laser and move across the canvas, so a pointer update with
-      // tool "laser" is what goes out.
-      await holder.keyboard.press("k");
+      // Armed through the toolbar button, not the "k" shortcut. The first
+      // version of this spec pressed the key and the observer reported
+      // "pointer" -- which proved the plumbing worked and the test did not.
+      // The button is this application's own control (the native laser island
+      // is hidden), so clicking it is also what a person does.
+      await holder.getByTestId("toolbar-LaserPointer").click();
       const canvas = holder.locator("canvas.excalidraw__canvas.interactive");
       const box = await canvas.boundingBox();
       if (!box) throw new Error("interactive canvas is not available");
