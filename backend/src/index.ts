@@ -25,6 +25,10 @@ import { config } from "./config";
 import { authModeService, requireAuth, optionalAuth } from "./middleware/auth";
 import { errorHandler, asyncHandler } from "./middleware/errorHandler";
 import { installProcessGuards } from "./processGuards";
+import {
+  assertNoStrandedSqliteDatabase,
+  defaultSqliteCandidatePaths,
+} from "./db/strandedSqliteGuard";
 import { logger } from "./logger";
 import { requestLogger } from "./middleware/requestLog";
 import authRouter from "./auth";
@@ -159,6 +163,16 @@ if (trustProxyValue === true) {
   logger.info("trust proxy", { trustProxyValue });
 }
 installProcessGuards();
+
+// Before anything opens a connection: an instance configured for PostgreSQL
+// while its old SQLite database still holds data would come up looking wiped,
+// and nothing would say the boards are still on disk. Refusing to start is the
+// recoverable outcome.
+assertNoStrandedSqliteDatabase({
+  provider: config.databaseProvider,
+  candidatePaths: defaultSqliteCandidatePaths(path.resolve(__dirname, "..")),
+  allowOverride: process.env.EXCALIDASH_ALLOW_STRANDED_SQLITE,
+});
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {

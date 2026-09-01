@@ -70,4 +70,30 @@ describe("production operations defaults", () => {
     expect(restore).toContain(".migration-lock");
     expect(restore).toContain("prisma migrate resolve");
   });
+
+  it("ships PostgreSQL as the default database, with SQLite still reachable", async () => {
+    // The switch is a production decision, so it is asserted where production
+    // is described rather than left to whoever reads the compose file next.
+    //
+    // Both halves matter. Defaulting to PostgreSQL without keeping SQLite one
+    // override away would quietly drop the low-friction path people try the
+    // project with; keeping SQLite without a real PostgreSQL service would
+    // make "postgres first" a label.
+    const compose = await readRootFile("docker-compose.prod.yml");
+
+    expect(compose).toContain("  postgres:");
+    expect(compose).toContain("excalidash-postgres-data:");
+    expect(compose).toContain("DATABASE_PROVIDER=${DATABASE_PROVIDER:-postgresql}");
+    // Overridable, not hardcoded: an operator staying on SQLite sets the two
+    // variables and this file needs no edit.
+    expect(compose).toContain("DATABASE_URL=${DATABASE_URL:-postgresql://");
+    // The SQLite values stay written down rather than deleted, so the
+    // supported alternative is visible where somebody looks for it.
+    expect(compose).toContain("#   - DATABASE_PROVIDER=sqlite");
+
+    // Waiting for "healthy", not merely "started": a backend that opens a
+    // connection to an initialising database fails at boot in a way that reads
+    // like a misconfiguration.
+    expect(compose).toContain("condition: service_healthy");
+  });
 });

@@ -54,8 +54,22 @@ services:
     mem_limit: 1500m
     memswap_limit: 1500m
     environment:
-      - DATABASE_PROVIDER=sqlite
-      - DATABASE_URL=file:/app/prisma/dev.db
+      # PostgreSQL by default since 0.20.0. SQLite stays supported and is one
+      # override away -- set both variables to the commented values below.
+      #
+      # MEASURED before this switch (same machine, same transaction shape):
+      # concurrent writers on one board, SQLite vs PostgreSQL --
+      #   4 writers: 4/4 in 41ms      vs 4/4
+      #  12 writers: 3/12 in 5044ms   vs 12/12
+      # SQLite has one writer; more waiting only moves the failure.
+      #
+      #   - DATABASE_PROVIDER=sqlite
+      #   - DATABASE_URL=file:/app/prisma/dev.db
+      #
+      # An instance whose old SQLite file still holds data refuses to start
+      # rather than come up looking empty. See EXCALIDASH_ALLOW_STRANDED_SQLITE.
+      - DATABASE_PROVIDER=${DATABASE_PROVIDER:-postgresql}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://excalidash:${POSTGRES_PASSWORD:-excalidash}@postgres:5432/excalidash}
       - PORT=8000
       - NODE_ENV=production
       - AUTH_MODE=${AUTH_MODE:-local}
@@ -109,6 +123,12 @@ services:
       # - OIDC_CLIENT_ID=your-client-id
       # - OIDC_CLIENT_SECRET=your-client-secret
       # - OIDC_REDIRECT_URI=https://excalidash.example.com/api/auth/oidc/callback
+    depends_on:
+      postgres:
+        # Waits for the database to answer, not merely to exist. Starting the
+        # backend against a container that is still initialising produces a
+        # connection error at boot, which reads like a misconfiguration.
+        condition: service_healthy
     volumes:
       - backend-data:/app/prisma
       # Keep this bind-mounted directory in the off-site backup/snapshot job.
@@ -161,6 +181,34 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  postgres:
+    image: postgres:17.11-alpine
+    container_name: excalidash-postgres
+    # Not behind a profile: this is the default database now, so it comes up
+    # with `docker compose up` like the backend does. An instance that
+    # overrides DATABASE_URL back to SQLite simply leaves this container idle.
+    mem_limit: 512m
+    memswap_limit: 512m
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-excalidash}
+      - POSTGRES_USER=${POSTGRES_USER:-excalidash}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-excalidash}
+    volumes:
+      - excalidash-postgres-data:/var/lib/postgresql/data
+    networks:
+      - excalidash-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-excalidash} -d ${POSTGRES_DB:-excalidash}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   glitchtip-postgres:
     image: postgres:17.11-alpine
@@ -241,5 +289,6 @@ networks:
 
 volumes:
   backend-data:
+  excalidash-postgres-data:
   glitchtip-postgres-data:
   glitchtip-uploads:
