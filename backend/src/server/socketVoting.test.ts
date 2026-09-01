@@ -73,7 +73,7 @@ describe("voting command authorization (isolated manager)", () => {
     expect(stateEmissions(io)).toMatchObject([
       {
         scope: room("drawing-1"),
-        payload: { status: "open", tally: null, participantCount: null },
+        payload: { status: "open", tally: null, participantCount: 0 },
       },
     ]);
   });

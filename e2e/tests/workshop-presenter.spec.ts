@@ -146,10 +146,21 @@ test.describe("voting stays concealed until revealed", () => {
     await modPage.getByTestId("voting-option").first().click();
     await modPage.getByTestId("voting-cast-submit").click();
 
-    // Neither screen shows a number anywhere in the voting panel while open --
-    // the concealment this package's whole voting design exists to guarantee.
-    await expect(modPage.getByTestId("voting-overlay")).not.toContainText(/\b[12]\b/);
-    await expect(voterPage.getByTestId("voting-overlay")).not.toContainText(/\b[12]\b/);
+    // What stays concealed while open is the RESULT, not the progress.
+    //
+    // This used to assert that no number appeared in the panel at all. That was
+    // a deliberate guarantee and it was narrowed deliberately: how far along the
+    // room is tells someone whether it is worth waiting; how it is leaning
+    // changes how the people who have not voted yet will vote. Only the second
+    // one is the concealment this design exists for.
+    for (const page of [modPage, voterPage]) {
+      await expect(page.getByTestId("voting-cast-count")).toContainText("2 votes cast", {
+        timeout: 8000,
+      });
+      // No per-option numbers and no bars: the results block does not exist yet.
+      await expect(page.locator(".voting-overlay__results")).toHaveCount(0);
+      await expect(page.getByTestId("voting-overlay")).not.toContainText("people voted");
+    }
 
     await modPage.getByTestId("voting-reveal").click();
 

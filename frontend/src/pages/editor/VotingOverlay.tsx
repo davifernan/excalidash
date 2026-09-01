@@ -149,6 +149,18 @@ const Ballot = ({ voting }: { voting: VotingUiState }) => {
       >
         {submitted ? "Ballot recorded — change it?" : "Cast ballot"}
       </button>
+      {typeof snapshot.participantCount === "number" && snapshot.participantCount > 0 ? (
+        // How far along the room is -- never how it is leaning. Deliberately an
+        // absolute number and not a ratio: "7 of 9" plus a visible participant
+        // list lets anyone work out who has not voted yet, which puts pressure
+        // on individuals. Suppressed at zero so an untouched round does not
+        // announce its own emptiness.
+        <p className="voting-overlay__cast-count" data-testid="voting-cast-count">
+          {snapshot.participantCount === 1
+            ? "1 vote cast"
+            : `${snapshot.participantCount} votes cast`}
+        </p>
+      ) : null}
       {voting.canModerate ? (
         <button type="button" onClick={voting.reveal} data-testid="voting-reveal">
           <BarChart3 size={14} /> Reveal results
