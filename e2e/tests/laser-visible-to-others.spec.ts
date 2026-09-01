@@ -16,6 +16,11 @@ import { openEditor } from "./helpers/editor";
  * appear, and attaches the picture too.
  */
 test.describe("a laser pointer reaches the other people on the board", () => {
+  // Two full editors in two contexts, both loaded before the first gesture.
+  // The default 60s budget was not enough under CI load and the run died in
+  // teardown, which reads like a product failure and is not one.
+  test.setTimeout(120_000);
+
   test("the observer's collaborator record carries the laser tool", async ({
     browser,
     request,
@@ -27,8 +32,13 @@ test.describe("a laser pointer reaches the other people on the board", () => {
     try {
       const holder = await holderContext.newPage();
       const observer = await observerContext.newPage();
-      await openEditor(holder, drawing.id, { settleMs: 800 });
-      await openEditor(observer, drawing.id, { settleMs: 800 });
+      // Loaded together rather than one after the other: they are independent,
+      // and doing them in sequence spent most of the budget before the test
+      // had done anything.
+      await Promise.all([
+        openEditor(holder, drawing.id, { settleMs: 800 }),
+        openEditor(observer, drawing.id, { settleMs: 800 }),
+      ]);
 
       // Armed through the toolbar button, not the "k" shortcut. The first
       // version of this spec pressed the key and the observer reported
