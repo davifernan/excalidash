@@ -90,6 +90,7 @@ describe("reading a collaborator", () => {
       // raw handle.
       color: "#f00",
       pointerButton: null,
+      pointerTool: null,
       isSelf: false,
     });
   });
@@ -250,5 +251,41 @@ describe("two patches in the same tick, with somebody already in the room", () =
     const peer = read.ok ? read.value.find((c) => c.socketId === ("peer" as never)) : null;
     expect(peer?.color).toBe("#f00");
     expect(peer?.name).toBe("Grace");
+  });
+});
+
+describe("the pointer tool crosses the adapter seam", () => {
+  it("merges the tool onto the pointer the editor reads", () => {
+    // The editor keeps the tool on its own pointer record, next to x and y --
+    // writing it beside the pointer would leave a remote laser looking like an
+    // ordinary cursor.
+    const next = applyPatch(
+      { id: "peer" },
+      { socketId: "peer" as never, pointer: { x: 1, y: 2 }, pointerTool: "laser" },
+    );
+
+    expect(next.pointer).toEqual({ x: 1, y: 2, tool: "laser" });
+  });
+
+  it("clears the tool rather than leaving a stale one behind", () => {
+    const next = applyPatch(
+      { id: "peer", pointer: { x: 1, y: 2, tool: "laser" } },
+      { socketId: "peer" as never, pointerTool: "pointer" },
+    );
+    expect((next.pointer as { tool?: string }).tool).toBe("pointer");
+
+    const cleared = applyPatch(
+      { id: "peer", pointer: { x: 1, y: 2, tool: "laser" } },
+      { socketId: "peer" as never, pointerTool: null },
+    );
+    expect(cleared.pointer).toEqual({ x: 1, y: 2 });
+  });
+
+  it("reads the tool back off a raw collaborator", () => {
+    const info = readCollaborator("peer", { pointer: { x: 0, y: 0, tool: "laser" } });
+    expect(info.pointerTool).toBe("laser");
+
+    const plain = readCollaborator("peer", { pointer: { x: 0, y: 0 } });
+    expect(plain.pointerTool).toBeNull();
   });
 });

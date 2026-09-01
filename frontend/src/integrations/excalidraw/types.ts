@@ -309,6 +309,17 @@ export type CollaboratorInfo = {
    */
   readonly color: string | null;
   readonly pointerButton: "up" | "down" | null;
+  /**
+   * Which tool the pointer is, alongside where it is.
+   *
+   * Named separately from `pointer` for the same reason `pointerButton` is:
+   * `ScenePoint` is a position and stays one, while the editor keeps the tool
+   * on its own pointer record. Without it a remote laser arrives as an ordinary
+   * cursor -- the server sends the tool and even refuses a payload without it,
+   * but the contract had nowhere to put it, so it was dropped on arrival and
+   * nobody but the person holding the laser ever saw it.
+   */
+  readonly pointerTool: "pointer" | "laser" | null;
   readonly isSelf: boolean;
 };
 
