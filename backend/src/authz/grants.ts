@@ -182,6 +182,48 @@ export const issueDrawingLinkShare = async (params: {
   return { token, share };
 };
 
+/**
+ * Change what an already-issued link allows, without minting a new secret.
+ *
+ * Separate from `issueDrawingLinkShare` on purpose. Issuing rotates -- that is
+ * its contract, and withdrawing a leaked URL depends on it. But a permission
+ * change is not an issue: the link is an address, the permission is a setting
+ * at that address, and rotating on every setting change silently invalidated
+ * every URL that had already been handed out.
+ *
+ * `tokenHash` is deliberately absent from `data`: this function must never be
+ * able to change the secret, whatever a caller passes.
+ */
+export const updateDrawingLinkSharePermission = async (params: {
+  db: AuthzDb;
+  drawingId: string;
+  shareId: string;
+  permission: DrawingPermission;
+  expiresAt: Date | null;
+}): Promise<{
+  id: string;
+  permission: string;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+  createdAt: Date;
+} | null> => {
+  const updated = await params.db.drawingLinkShare.updateMany({
+    where: { id: params.shareId, drawingId: params.drawingId, revokedAt: null },
+    data: { permission: params.permission, expiresAt: params.expiresAt },
+  });
+  if (updated.count === 0) return null;
+  return params.db.drawingLinkShare.findFirst({
+    where: { id: params.shareId, drawingId: params.drawingId },
+    select: {
+      id: true,
+      permission: true,
+      expiresAt: true,
+      revokedAt: true,
+      createdAt: true,
+    },
+  });
+};
+
 /** Revoke one still-active link share. False when it was already revoked or absent. */
 export const revokeDrawingLinkShare = async (params: {
   db: AuthzDb;

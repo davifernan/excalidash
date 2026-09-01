@@ -215,6 +215,31 @@ export const createLinkShare = async (
   return response.data;
 };
 
+/**
+ * Change what the active link allows. The URL stays the same.
+ *
+ * Separate call from `createLinkShare` on purpose: creating rotates the secret,
+ * which is what withdrawing a leaked link depends on. Changing a setting is not
+ * creating, and routing both through the POST invalidated every URL that had
+ * already been handed out.
+ *
+ * No token comes back -- this endpoint cannot mint one.
+ */
+export const updateLinkShare = async (
+  drawingId: string,
+  shareId: string,
+  params: {
+    permission: "view" | "comment" | "edit";
+    expiresAt?: string | null;
+  },
+): Promise<{ share: DrawingLinkShareRow }> => {
+  const response = await api.patch<{ share: DrawingLinkShareRow }>(
+    `/drawings/${drawingId}/link-shares/${shareId}`,
+    params,
+  );
+  return response.data;
+};
+
 export const revokeLinkShare = async (
   drawingId: string,
   shareId: string,
