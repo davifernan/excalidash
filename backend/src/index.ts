@@ -171,7 +171,7 @@ installProcessGuards();
 assertNoStrandedSqliteDatabase({
   provider: config.databaseProvider,
   candidatePaths: defaultSqliteCandidatePaths(path.resolve(__dirname, "..")),
-  allowOverride: process.env.EXCALIDASH_ALLOW_STRANDED_SQLITE,
+  allowOverride: config.allowStrandedSqlite ? "true" : undefined,
 });
 
 const httpServer = createServer(app);

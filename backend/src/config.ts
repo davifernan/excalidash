@@ -123,6 +123,21 @@ interface Config {
   /** Sentry-compatible ingest DSN. Empty keeps error reporting completely disabled. */
   errorTrackerDsn: string | null;
   databaseUrl?: string;
+  /**
+   * Which engine this instance runs on.
+   *
+   * Read from the environment rather than inferred from the URL: the URL says
+   * what to connect to, the provider says what the schema and the generated
+   * client were built for, and the two disagreeing is exactly the state worth
+   * catching.
+   */
+  databaseProvider?: "sqlite" | "postgresql";
+  /**
+   * Stated consent to run on PostgreSQL while an old, populated SQLite file is
+   * still present. Read here rather than at the call site so it goes through
+   * the same door as every other setting.
+   */
+  allowStrandedSqlite: boolean;
   frontendUrl?: string;
   authMode: AuthMode;
   jwtSecret: string;
@@ -673,6 +688,15 @@ export const config: Config = {
   errorTrackerDsn: getOptionalTrimmedEnv("ERROR_TRACKER_DSN"),
   logLevel: resolveLogLevel(getOptionalEnv("NODE_ENV", "development")),
   databaseUrl: process.env.DATABASE_URL,
+  databaseProvider:
+    process.env.DATABASE_PROVIDER === "postgresql"
+      ? "postgresql"
+      : process.env.DATABASE_PROVIDER === "sqlite"
+        ? "sqlite"
+        : undefined,
+  allowStrandedSqlite: ["true", "1", "yes"].includes(
+    (getOptionalTrimmedEnv("EXCALIDASH_ALLOW_STRANDED_SQLITE") || "").toLowerCase(),
+  ),
   frontendUrl: parseFrontendUrl(process.env.FRONTEND_URL),
   authMode: resolvedAuthMode,
   jwtSecret: resolveJwtSecret(getOptionalEnv("NODE_ENV", "development")),
