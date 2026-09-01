@@ -12,6 +12,7 @@ const entry = (overrides: Partial<PresenceEntry>): PresenceEntry => ({
   kind: "member",
   isActive: true,
   selectedElementIds: {},
+  actor: "human",
   ...overrides,
 });
 

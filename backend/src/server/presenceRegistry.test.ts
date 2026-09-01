@@ -10,6 +10,7 @@ const entry = (overrides: Partial<PresenceEntry> = {}): PresenceEntry => ({
   kind: "member",
   isActive: true,
   selectedElementIds: {},
+  actor: "human",
   ...overrides,
 });
 
@@ -96,6 +97,8 @@ describe("what leaves the server", () => {
       color: "#10b981",
       kind: "owner",
       isActive: true,
+      selectedElementIds: {},
+      actor: "human",
     });
 
     const [entry] = registry.listPublic("d1");
@@ -115,5 +118,84 @@ describe("what leaves the server", () => {
 
     expect(publicEntry).not.toHaveProperty("selectedElementIds");
     expect(registry.get("d1", "s1")?.selectedElementIds).toEqual({ "element-1": true });
+  });
+
+  describe("automations are not people", () => {
+    // An API key carries its owner's name and colour, so an automation that
+    // reached a people-view would be indistinguishable from the person -- and
+    // several connections made that person appear several times.
+    const human = entry({ presenceId: "human-socket", accountId: "u1" });
+    const automation = entry({
+      presenceId: "mcp-socket",
+      accountId: "u1",
+      actor: "automation",
+    });
+
+    it("keeps an automation out of the board roster while the person stays", () => {
+      const registry = new PresenceRegistry();
+      registry.join("d1", human);
+      registry.join("d1", automation);
+
+      const roster = registry.listPublic("d1");
+      expect(roster).toHaveLength(1);
+      expect(roster[0]!.presenceId).toBe("human-socket");
+    });
+
+    it("does not report a person as present when only their key is", () => {
+      // Sharper than a duplicate: `summarise` groups by account, so an
+      // automation would fold silently into its owner and the board would
+      // claim the person is there.
+      const registry = new PresenceRegistry();
+      registry.join("d1", automation);
+
+      const summary = registry.summarise("d1");
+      expect(summary.members).toHaveLength(0);
+      expect(summary.guestCount).toBe(0);
+    });
+
+    it("does not draw an automation's selection as somebody's selection", () => {
+      const registry = new PresenceRegistry();
+      registry.join("d1", automation);
+      registry.setSelection("d1", "mcp-socket", ["el-1"], false);
+
+      expect(registry.selectionSnapshot("d1").selections).toHaveLength(0);
+    });
+
+    it("does not route agent events to an automation", () => {
+      const registry = new PresenceRegistry();
+      registry.join("d1", human);
+      registry.join("d1", automation);
+
+      expect(registry.agentRecipientIds("d1", { kind: "drawing" })).toEqual(["human-socket"]);
+    });
+
+    // The guard over this module's projections.
+    //
+    // It used to be called "EVERY people-facing view", which was not true: a
+    // local review found five live socket paths -- cursor-move, live
+    // selection-update, follow, invite-here and presenter -- that read a
+    // presence directly and put a name on other people's screens without ever
+    // reaching these projections. A guard that overstates its reach is worse
+    // than none: it answers a question it never asked.
+    //
+    // The name now says what it covers. The socket paths are closed at their
+    // own seam (`getSocialPresence` in socket.ts, and setSelection refusing an
+    // automation) and asserted in socketSocialPresence.test.ts.
+    it("keeps automations out of every projection this registry offers", () => {
+      const registry = new PresenceRegistry();
+      registry.join("d1", automation);
+      registry.setSelection("d1", "mcp-socket", ["el-1"], false);
+
+      const peopleViews: Record<string, () => unknown[]> = {
+        listPublic: () => registry.listPublic("d1"),
+        summariseMembers: () => registry.summarise("d1").members,
+        selectionSnapshot: () => registry.selectionSnapshot("d1").selections,
+        agentRecipientIds: () => registry.agentRecipientIds("d1", { kind: "drawing" }),
+      };
+
+      for (const [name, read] of Object.entries(peopleViews)) {
+        expect(read(), `${name} exposed an automation`).toHaveLength(0);
+      }
+    });
   });
 });

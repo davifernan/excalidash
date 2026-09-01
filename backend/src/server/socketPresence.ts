@@ -30,7 +30,7 @@ const emitAgentSnapshot = (
   emitEmpty = true,
 ): void => {
   const viewer = presences.get(drawingId, presenceId);
-  if (!viewer || viewer.receivesAgentEvents === false) return;
+  if (!viewer || viewer.actor !== "human") return;
   const snapshot = presences.listAgentsForViewer(drawingId, viewer.accountId);
   if (snapshot.length === 0 && !emitEmpty) return;
   io.to(presenceId).emit(BOARD_AGENT_PRESENCE_EVENT, snapshot);

@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { TeamHome } from "./TeamHome";
 
@@ -127,7 +127,14 @@ describe("TeamHome", () => {
     expect(screen.getByText("Owner Olga")).toBeInTheDocument();
     expect(screen.getByText("Member Max")).toBeInTheDocument();
     expect(screen.getByText("(you)")).toBeInTheDocument();
-    expect(screen.getByText("Owner")).toBeInTheDocument();
+    // The roster names people, not ranks. Scoped to the roster rather than the
+    // page: "Admin" is also a legitimate navigation label elsewhere. "Owner
+    // Olga" is a name and stays; a standalone role label does not -- anchored
+    // and case-insensitive so a restyled badge cannot return under different
+    // wording or capitalisation.
+    const roster = within(screen.getByTestId("team-roster"));
+    expect(roster.queryByText(/^owner$/i)).not.toBeInTheDocument();
+    expect(roster.queryByText(/^admin$/i)).not.toBeInTheDocument();
   });
 
   it("says which board a team member is currently on, but only for a member with a known location", () => {
