@@ -182,6 +182,91 @@ export const issueDrawingLinkShare = async (params: {
   return { token, share };
 };
 
+/**
+ * Record that a signed-in person reached this board through a share link.
+ *
+ * Without this they stay anonymous: the join path gives an account arriving
+ * only through a link a per-connection guest identity, so their name never
+ * appears next to their cursor and the history cannot say who changed what --
+ * even though the server knew who they were the whole time.
+ *
+ * Three limits, and each one is the point rather than a detail:
+ *
+ * - **Never above the link.** The grant is the link's own level. Holding an
+ *   account must not buy more than the URL was meant to hand out.
+ * - **Never downgrades.** An existing membership wins outright; someone who
+ *   was invited to edit does not lose that by opening a view link.
+ * - **`createdByUserId` is the grantee.** Nobody invites themselves, so a
+ *   self-granted row is exactly the record of "arrived through a link". That
+ *   is what lets an owner tidying the access list later tell the two apart,
+ *   without a column that would have to be migrated for both providers.
+ */
+export const grantDrawingAccessFromLink = async (params: {
+  db: AuthzDb;
+  drawingId: string;
+  userId: string;
+  permission: DrawingPermission;
+}): Promise<"granted" | "already-a-member"> => {
+  const existing = await params.db.drawingPermission.findUnique({
+    where: {
+      drawingId_granteeUserId: { drawingId: params.drawingId, granteeUserId: params.userId },
+    },
+    select: { id: true },
+  });
+  if (existing) return "already-a-member";
+  await params.db.drawingPermission.create({
+    data: {
+      drawingId: params.drawingId,
+      granteeUserId: params.userId,
+      permission: params.permission,
+      createdByUserId: params.userId,
+    },
+  });
+  return "granted";
+};
+
+/**
+ * Change what an already-issued link allows, without minting a new secret.
+ *
+ * Separate from `issueDrawingLinkShare` on purpose. Issuing rotates -- that is
+ * its contract, and withdrawing a leaked URL depends on it. But a permission
+ * change is not an issue: the link is an address, the permission is a setting
+ * at that address, and rotating on every setting change silently invalidated
+ * every URL that had already been handed out.
+ *
+ * `tokenHash` is deliberately absent from `data`: this function must never be
+ * able to change the secret, whatever a caller passes.
+ */
+export const updateDrawingLinkSharePermission = async (params: {
+  db: AuthzDb;
+  drawingId: string;
+  shareId: string;
+  permission: DrawingPermission;
+  expiresAt: Date | null;
+}): Promise<{
+  id: string;
+  permission: string;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+  createdAt: Date;
+} | null> => {
+  const updated = await params.db.drawingLinkShare.updateMany({
+    where: { id: params.shareId, drawingId: params.drawingId, revokedAt: null },
+    data: { permission: params.permission, expiresAt: params.expiresAt },
+  });
+  if (updated.count === 0) return null;
+  return params.db.drawingLinkShare.findFirst({
+    where: { id: params.shareId, drawingId: params.drawingId },
+    select: {
+      id: true,
+      permission: true,
+      expiresAt: true,
+      revokedAt: true,
+      createdAt: true,
+    },
+  });
+};
+
 /** Revoke one still-active link share. False when it was already revoked or absent. */
 export const revokeDrawingLinkShare = async (params: {
   db: AuthzDb;

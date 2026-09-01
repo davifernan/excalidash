@@ -73,12 +73,12 @@ describe("voting command authorization (isolated manager)", () => {
     expect(stateEmissions(io)).toMatchObject([
       {
         scope: room("drawing-1"),
-        payload: { status: "open", tally: null, participantCount: null },
+        payload: { status: "open", tally: null, participantCount: 0 },
       },
     ]);
   });
 
-  it("never broadcasts anything to the room when a ballot is cast", async () => {
+  it("tells the room how many ballots are in, and nothing else, when one is cast", async () => {
     const { socket, io, requireAccess } = setup("edit");
     await socket.trigger(VOTING_COMMAND_EVENT, openCommand());
     const roundId = stateEmissions(io).at(-1)?.payload.roundId;
@@ -93,9 +93,18 @@ describe("voting command authorization (isolated manager)", () => {
     );
 
     expect(acks).toEqual([{ ok: true }]);
-    // The only emission from a cast is the ack to the caster -- nothing goes
-    // to the room, not even a participation pulse.
-    expect(io.emissions).toHaveLength(0);
+    // This test used to assert that a cast broadcasts NOTHING -- "not even a
+    // participation pulse" -- and that silence was deliberate, because a
+    // moving count leaks participation timing. It was narrowed on purpose,
+    // not deleted: what the room may now learn is how far along it is.
+    //
+    // The line that has not moved is the tally.
+    const emitted = stateEmissions(io);
+    expect(emitted).toHaveLength(1);
+    const payload = emitted[0]!.payload as Record<string, unknown>;
+    expect(payload.participantCount).toBe(1);
+    expect(payload.tally).toBeNull();
+    expect(payload.status).toBe("open");
   });
 
   it("lets a view-only participant cast a ballot", async () => {

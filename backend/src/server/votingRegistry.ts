@@ -30,6 +30,12 @@ export type VotingSnapshot = {
   readonly maxSelections: number | null;
   /** Only ever populated once `status === "revealed"`. */
   readonly tally: Readonly<Record<string, number>> | null;
+  /**
+   * How many ballots are in, from the moment a round opens. Deliberately not
+   * gated on reveal the way `tally` is: the count says how far along the room
+   * is, the tally says who is winning, and only the second one changes how the
+   * remaining voters vote.
+   */
   readonly participantCount: number | null;
 };
 
@@ -105,7 +111,13 @@ export class VotingRegistry {
       options: round.options,
       maxSelections: round.maxSelections,
       tally: round.status === "revealed" ? round.revealedTally : null,
-      participantCount: round.status === "revealed" ? round.votesByVoterId.size : null,
+      // How many have voted, while the round is still open. The tally above
+      // stays null until reveal, and the two must never be freed together:
+      // a visible running result changes how the people who have not voted
+      // yet will vote. A count does not disclose the outcome.
+      // A round in this map is open or revealed -- an idle board has no round
+      // at all, and `idleSnapshot` answers with null for it.
+      participantCount: round.votesByVoterId.size,
     };
   }
 

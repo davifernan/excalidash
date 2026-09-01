@@ -1,11 +1,12 @@
 import express from "express";
-import { normalizeDrawingPermission } from "../../authz/sharing";
+import { normalizeDrawingPermission, type DrawingPermission } from "../../authz/sharing";
 import { controlsDrawing } from "../../authz/membership";
 import { getDrawingRosters } from "../../authz/roster";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import {
   grantDrawingPermission,
   issueDrawingLinkShare,
+  updateDrawingLinkSharePermission,
   listDrawingLinkShares,
   listDrawingPermissions,
   revokeDrawingLinkShare,
@@ -184,6 +185,62 @@ export const registerDrawingSharingRoutes = (
     }),
   );
 
+  /**
+   * How long a link may live, from the requested permission and body.
+   *
+   * Extracted rather than duplicated: the edit ceiling is a real limit, and a
+   * second copy of these rules is a second place for it to drift. Both the
+   * activation path and the permission-change path below resolve expiry through
+   * here, so raising a view link to "edit" cannot bypass the cap that creating an
+   * edit link directly would have applied.
+   */
+  const resolveLinkShareExpiry = (
+    permission: DrawingPermission,
+    body: unknown,
+  ): { expiresAt: Date | null } | { error: string } => {
+    const now = Date.now();
+    const maxTtlMs = resolveMaxTtlMs();
+    const defaultTtlMs = resolveDefaultTtlMs(permission);
+    const effectiveDefaultTtlMs =
+      permission === "edit" ? Math.min(defaultTtlMs, maxTtlMs) : defaultTtlMs;
+    const hasExpiresAtKey = Object.prototype.hasOwnProperty.call(body ?? {}, "expiresAt");
+    const rawExpiresAt = (body as { expiresAt?: unknown } | undefined)?.expiresAt;
+
+    let expiresAt: Date | null;
+    if (hasExpiresAtKey && rawExpiresAt === null) {
+      // Only "edit" is forced to expire. This line predates NIL-487's
+      // "comment" level and had not been re-audited for it: matched
+      // against "edit" rather than "view", it groups comment with edit
+      // here while resolveDefaultTtlMs (above) deliberately groups comment
+      // with view for the *duration* of that expiry. A leaked comment
+      // link cannot destroy work any more than a view link can, so the
+      // eternal-link allowance follows the same grouping here.
+      expiresAt = permission === "edit" ? new Date(now + effectiveDefaultTtlMs) : null;
+    } else {
+      const requestedExpiresAt =
+        typeof rawExpiresAt === "string" && rawExpiresAt.trim().length > 0
+          ? new Date(rawExpiresAt.trim())
+          : null;
+      const hasValidRequestedExpiry = Boolean(
+        requestedExpiresAt && Number.isFinite(requestedExpiresAt.getTime()),
+      );
+
+      if (hasValidRequestedExpiry && requestedExpiresAt) {
+        const candidateTtlMs = requestedExpiresAt.getTime() - now;
+        if (candidateTtlMs < 60_000) {
+          return { error: "Expiry must be at least 1 minute in the future" };
+        }
+        const ttlMs = permission === "edit" ? Math.min(candidateTtlMs, maxTtlMs) : candidateTtlMs;
+        expiresAt = new Date(now + ttlMs);
+      } else if (hasExpiresAtKey && rawExpiresAt !== undefined && rawExpiresAt !== null) {
+        return { error: "Invalid expiry" };
+      } else {
+        expiresAt = new Date(now + effectiveDefaultTtlMs);
+      }
+    }
+    return { expiresAt };
+  };
+
   app.post(
     "/drawings/:id/link-shares",
     requireAuth,
@@ -200,53 +257,11 @@ export const registerDrawingSharingRoutes = (
         return res.status(400).json({ error: "Validation error", message: "Invalid permission" });
       }
 
-      const now = Date.now();
-      const maxTtlMs = resolveMaxTtlMs();
-      const defaultTtlMs = resolveDefaultTtlMs(permission);
-      const effectiveDefaultTtlMs =
-        permission === "edit" ? Math.min(defaultTtlMs, maxTtlMs) : defaultTtlMs;
-      const hasExpiresAtKey = Object.prototype.hasOwnProperty.call(req.body ?? {}, "expiresAt");
-      const rawExpiresAt = req.body?.expiresAt;
-
-      let expiresAt: Date | null;
-      if (hasExpiresAtKey && rawExpiresAt === null) {
-        // Only "edit" is forced to expire. This line predates NIL-487's
-        // "comment" level and had not been re-audited for it: matched
-        // against "edit" rather than "view", it groups comment with edit
-        // here while resolveDefaultTtlMs (above) deliberately groups comment
-        // with view for the *duration* of that expiry. A leaked comment
-        // link cannot destroy work any more than a view link can, so the
-        // eternal-link allowance follows the same grouping here.
-        expiresAt = permission === "edit" ? new Date(now + effectiveDefaultTtlMs) : null;
-      } else {
-        const requestedExpiresAt =
-          typeof rawExpiresAt === "string" && rawExpiresAt.trim().length > 0
-            ? new Date(rawExpiresAt.trim())
-            : null;
-        const hasValidRequestedExpiry = Boolean(
-          requestedExpiresAt && Number.isFinite(requestedExpiresAt.getTime()),
-        );
-
-        if (hasValidRequestedExpiry && requestedExpiresAt) {
-          const candidateTtlMs = requestedExpiresAt.getTime() - now;
-          if (candidateTtlMs < 60_000) {
-            return res.status(400).json({
-              error: "Validation error",
-              message: "Expiry must be at least 1 minute in the future",
-            });
-          }
-          const ttlMs = permission === "edit" ? Math.min(candidateTtlMs, maxTtlMs) : candidateTtlMs;
-          expiresAt = new Date(now + ttlMs);
-        } else if (hasExpiresAtKey && rawExpiresAt !== undefined && rawExpiresAt !== null) {
-          return res.status(400).json({
-            error: "Validation error",
-            message: "Invalid expiry",
-          });
-        } else {
-          expiresAt = new Date(now + effectiveDefaultTtlMs);
-        }
+      const expiry = resolveLinkShareExpiry(permission, req.body);
+      if ("error" in expiry) {
+        return res.status(400).json({ error: "Validation error", message: expiry.error });
       }
-
+      const { expiresAt } = expiry;
       // A new activation always revokes the previous secret, in one
       // transaction. This makes a reissued link independent from every URL
       // that was shared before it, and leaves no window in which two secrets
@@ -283,6 +298,75 @@ export const registerDrawingSharingRoutes = (
       }
 
       return res.json({ share: created, token });
+    }),
+  );
+
+  /**
+   * Change what the active link allows. The URL stays the same.
+   *
+   * Deliberately not the POST above: issuing rotates the secret, which is what
+   * withdrawing a leaked link depends on. Changing a setting is not issuing,
+   * and rotating on every setting change invalidated every URL already handed
+   * out -- the link is an address, the permission is a setting at it.
+   *
+   * Expiry runs through the same `resolveLinkShareExpiry` the activation path
+   * uses, so raising a view link to "edit" cannot bypass the ceiling that
+   * creating an edit link directly would have applied.
+   */
+  app.patch(
+    "/drawings/:id/link-shares/:shareId",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const { id, shareId } = req.params;
+
+      if (!(await controlsDrawing({ prisma, userId: req.user.id, drawingId: id }))) {
+        return res.status(404).json({ error: "Drawing not found" });
+      }
+
+      const permission = normalizeDrawingPermission(req.body?.permission);
+      if (!permission) {
+        return res.status(400).json({ error: "Validation error", message: "Invalid permission" });
+      }
+
+      const expiry = resolveLinkShareExpiry(permission, req.body);
+      if ("error" in expiry) {
+        return res.status(400).json({ error: "Validation error", message: expiry.error });
+      }
+
+      const updated = await updateDrawingLinkSharePermission({
+        db: prisma,
+        drawingId: id,
+        shareId,
+        permission,
+        expiresAt: expiry.expiresAt,
+      });
+      if (!updated) {
+        return res.status(404).json({ error: "Link share not found" });
+      }
+
+      await collaborationAccess.recheckDrawingAccess(id);
+      invalidateDrawingsCache();
+
+      if (config.enableAuditLogging) {
+        await logAuditEvent({
+          userId: req.user.id,
+          action: "drawing_link_share_permission_changed",
+          resource: `drawing:${id}`,
+          ipAddress: req.ip || req.connection.remoteAddress || undefined,
+          userAgent: req.headers["user-agent"] || undefined,
+          details: {
+            drawingId: id,
+            shareId,
+            permission,
+            expiresAt: expiry.expiresAt ? expiry.expiresAt.toISOString() : null,
+          },
+        });
+      }
+
+      // No token: this endpoint cannot mint one, and the caller already holds
+      // the URL it is changing the terms of.
+      return res.json({ share: updated });
     }),
   );
 

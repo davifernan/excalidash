@@ -231,10 +231,25 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
         expiresAt = calculateExpiresAt(DEFAULT_EDIT_EXPIRY_OPTION);
         setExpiryOption(DEFAULT_EDIT_EXPIRY_OPTION);
       }
-      const created = await api.createLinkShare(drawingId, { permission: perm, expiresAt });
-      setCurrentLinkToken(created.token);
-      await refresh();
-      await handleCopy(api.buildShareLinkUrl(origin, drawingId, created.token));
+      if (activeLink) {
+        // A link already exists, so this is a settings change, not an
+        // activation. Changing the terms of an address must not change the
+        // address: routing this through createLinkShare rotated the secret and
+        // silently invalidated every URL already shared.
+        await api.updateLinkShare(drawingId, activeLink.id, { permission: perm, expiresAt });
+        await refresh();
+        // Only copy when this session actually holds the token. Reopening the
+        // dialog cannot recover it -- the server stores a hash -- and the link
+        // out there keeps working either way.
+        if (currentLinkToken) {
+          await handleCopy(api.buildShareLinkUrl(origin, drawingId, currentLinkToken));
+        }
+      } else {
+        const created = await api.createLinkShare(drawingId, { permission: perm, expiresAt });
+        setCurrentLinkToken(created.token);
+        await refresh();
+        await handleCopy(api.buildShareLinkUrl(origin, drawingId, created.token));
+      }
     } catch (err: unknown) {
       let message = "Failed to update link";
       if (api.isAxiosError(err)) {
