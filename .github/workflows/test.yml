@@ -381,7 +381,8 @@ jobs:
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Raised from 15: the suite now runs twice, once per database engine.
+    timeout-minutes: 25
 
     # NIL-494: real Postgres coverage for migration SQL that an in-process
     # emulator cannot faithfully run (the NIL-326 migration's `DO $$ ...
@@ -458,6 +459,42 @@ jobs:
           cd backend
           npm test
         env:
+          POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/excalidash_test
+          NIL703_PRISMA_GENERATE_MARKER: ${{ runner.temp }}/nil-703-prisma-generate.json
+          NIL703_PRISMA_INTEGRITY_MARKER: ${{ runner.temp }}/nil-703-prisma-integrity.json
+          NIL703_PRISMA_DIAGNOSTIC_DIR: ${{ runner.temp }}/nil-703-prisma-client-resolution
+
+      # The same suite, on the other engine.
+      #
+      # Until now Postgres was covered only by the migration tests above: they
+      # prove the SQL applies, and say nothing about whether queries,
+      # transactions and concurrency behave. An instance that switched provider
+      # would have been the first real run.
+      #
+      # Deliberately a second STEP in this already-required job rather than a
+      # new job -- the same reasoning the Postgres service block above states:
+      # a new job would not be in the branch ruleset, so it could go red
+      # without blocking anything.
+      #
+      # Isolation is per test process (`testUtils.ts` appends a unique
+      # `schema=`), so parallel workers do not tear down each other's tables.
+      - name: Generate the Prisma client for PostgreSQL
+        # The generated client carries its provider. Without this the suite
+        # fails on the first query with "the URL must start with the protocol
+        # `file:`" -- which reads like a configuration mistake and is a client
+        # built for the other engine.
+        run: |
+          cd backend
+          DATABASE_PROVIDER=postgresql \
+            DATABASE_URL=postgresql://postgres:postgres@localhost:5432/excalidash_test \
+            node scripts/provider-prisma.cjs generate
+
+      - name: Run backend tests against PostgreSQL
+        run: |
+          cd backend
+          npm test
+        env:
+          EXCALIDASH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/excalidash_test
           POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/excalidash_test
           NIL703_PRISMA_GENERATE_MARKER: ${{ runner.temp }}/nil-703-prisma-generate.json
           NIL703_PRISMA_INTEGRITY_MARKER: ${{ runner.temp }}/nil-703-prisma-integrity.json

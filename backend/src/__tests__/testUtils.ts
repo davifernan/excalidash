@@ -5,19 +5,51 @@ import { PrismaClient } from "../generated/client";
 import path from "path";
 import { execSync } from "child_process";
 
-const TEST_DB_FILENAME = `test.${process.pid}.${Math.random().toString(16).slice(2)}.db`;
+const TEST_ISOLATION_ID = `${process.pid}_${Math.random().toString(16).slice(2)}`;
+const TEST_DB_FILENAME = `test.${TEST_ISOLATION_ID}.db`;
 const TEST_DB_PATH = path.resolve(__dirname, "../../prisma", TEST_DB_FILENAME);
+
+/**
+ * Where this test process keeps its data, and on which engine.
+ *
+ * `EXCALIDASH_TEST_DATABASE_URL` points the whole suite at PostgreSQL. Without
+ * it nothing changes: every process still gets its own SQLite file.
+ *
+ * Isolation differs by engine and that is the point of doing it here rather
+ * than per suite. SQLite isolates by FILE -- a name nobody else uses. Postgres
+ * has one server, so it isolates by SCHEMA instead, named from the same id.
+ * Sharing one Postgres database between parallel workers without that would
+ * make them tear down each other's tables, and the failures would look like
+ * flaky product behaviour rather than a test-harness fault.
+ */
+const POSTGRES_TEST_SCHEMA = `test_${TEST_ISOLATION_ID}`;
+
+const resolveTestDatabase = (): { url: string; provider: "sqlite" | "postgresql" } => {
+  const configured = (process.env.EXCALIDASH_TEST_DATABASE_URL || "").trim();
+  if (!configured) return { url: `file:${TEST_DB_PATH}`, provider: "sqlite" };
+
+  const separator = configured.includes("?") ? "&" : "?";
+  return {
+    url: `${configured}${separator}schema=${POSTGRES_TEST_SCHEMA}`,
+    provider: "postgresql",
+  };
+};
+
+const testDatabase = resolveTestDatabase();
+
+/** Which engine the suite is running against, for tests that need to know. */
+export const testDatabaseProvider = testDatabase.provider;
 
 /**
  * Get a test Prisma client pointing to the test database
  */
 export const getTestPrisma = () => {
-  const databaseUrl = `file:${TEST_DB_PATH}`;
-  process.env.DATABASE_URL = databaseUrl;
+  process.env.DATABASE_URL = testDatabase.url;
+  process.env.DATABASE_PROVIDER = testDatabase.provider;
   return new PrismaClient({
     datasources: {
       db: {
-        url: databaseUrl,
+        url: testDatabase.url,
       },
     },
   });
@@ -27,19 +59,25 @@ export const getTestPrisma = () => {
  * Setup the test database by running migrations
  */
 export const setupTestDb = () => {
-  const databaseUrl = `file:${TEST_DB_PATH}`;
-  process.env.DATABASE_URL = databaseUrl;
+  process.env.DATABASE_URL = testDatabase.url;
+  process.env.DATABASE_PROVIDER = testDatabase.provider;
 
   try {
-    // Every test process owns a PID-and-random-suffixed SQLite file. Serializing
-    // db push across processes therefore protects no shared database; it only
-    // turns several independent setup jobs into one queue whose fixed wait
-    // budget expires on a loaded CI host.
-    execSync("npx prisma db push --skip-generate --force-reset", {
+    // Every test process owns its own SQLite file, or its own Postgres schema.
+    // Serializing db push across processes therefore protects no shared
+    // database; it only turns several independent setup jobs into one queue
+    // whose fixed wait budget expires on a loaded CI host.
+    //
+    // Routed through provider-prisma.cjs rather than calling prisma directly:
+    // the schema file names one provider, and that script is what rewrites it
+    // in a disposable workspace. Calling `npx prisma` here would push a SQLite
+    // schema into Postgres.
+    execSync("node scripts/provider-prisma.cjs db push --skip-generate --force-reset", {
       cwd: path.resolve(__dirname, "../../"),
       env: {
         ...process.env,
-        DATABASE_URL: databaseUrl,
+        DATABASE_URL: testDatabase.url,
+        DATABASE_PROVIDER: testDatabase.provider,
         RUST_LOG: "info",
       },
       stdio: "pipe",

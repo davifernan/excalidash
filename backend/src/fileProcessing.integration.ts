@@ -75,7 +75,12 @@ describe("processEmbeddedImages", () => {
     expect(warn).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('"code":"P2003"'));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('"modelName":"DrawingFile"'));
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"field_name":"foreign key"'));
+    // The engines word the violation differently -- SQLite reports a
+    // `field_name`, PostgreSQL names the constraint. The point of this test is
+    // that the WHOLE Prisma failure is logged rather than a summary, so it
+    // accepts either wording instead of pinning one engine's phrasing.
+    const logged = (warn.mock.calls[0]?.[0] ?? "") as string;
+    expect(logged).toMatch(/"field_name":"foreign key"|drawingId_fkey|constraint/i);
     warn.mockRestore();
   });
 

@@ -11,7 +11,12 @@ import { createAsset } from "../../assets/assetService";
 import { registerAssetRoutes } from "../../assets/assetRoutes";
 import { resolveStoragePath } from "../../assets/assetStorage";
 import { createSqliteBackup } from "../../backups/scheduler";
-import { createTestUser, getTestPrisma, setupTestDb } from "../../__tests__/testUtils";
+import {
+  createTestUser,
+  getTestPrisma,
+  setupTestDb,
+  testDatabaseProvider,
+} from "../../__tests__/testUtils";
 import { registerFileRoutes } from "../files";
 import { sanitizeText, validateImportedDrawing } from "../../security";
 import { encodeSnapshotField } from "../../snapshots/snapshotCodec";
@@ -448,58 +453,69 @@ describe("document backup and export round trip", () => {
     expect(Buffer.from(downloaded.body)).toEqual(imageBytes);
   });
 
-  it("scheduled backup stores SQLite and originals but excludes the render cache", async () => {
-    const user = await createTestUser(prisma, "scheduled@example.com");
-    const drawing = await prisma.drawing.create({
-      data: { name: "Scheduled", elements: "[]", appState: "{}", userId: user.id },
-    });
-    const bytes = Buffer.from("scheduled original");
-    const created = await createAsset(
-      { prisma, storageDir: assetStorageDir, maxUploadBytes: MIB, maxPerUserBytes: 5 * MIB },
-      {
-        ownerUserId: user.id,
-        uploadedByUserId: user.id,
-        drawingId: drawing.id,
-        kind: "PDF",
-        originalName: "scheduled.pdf",
-        mimeType: "application/pdf",
-        source: Readable.from([bytes]),
-      },
-    );
-    const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-    await request(fileRouteApp(user.id))
-      .put(`/files/${drawing.id}/scheduled-image`)
-      .set("Content-Type", "image/png")
-      .send(imageBytes)
-      .expect(200);
-    const imageFile = await prisma.drawingFile.findUnique({
-      where: {
-        drawingId_fileId: { drawingId: drawing.id, fileId: "scheduled-image" },
-      },
-      include: { blob: true },
-    });
-    expect(imageFile?.blob.purpose).toBe("IMAGE");
-    const cachePath = resolveStoragePath(assetStorageDir, "cache/asset/page.svg");
-    await fs.mkdir(join(assetStorageDir, "cache/asset"), { recursive: true });
-    await fs.writeFile(cachePath, "recomputable");
-    const backupDir = join(root, "backups");
+  // Scoped to SQLite because the scheduler only supports it. That is a REAL
+  // GAP, not a test detail: `backups/scheduler.ts:195` logs "scheduled backups
+  // currently support SQLite file DATABASE_URL values only" and returns null.
+  // An instance moved to PostgreSQL therefore has no scheduled backups at all,
+  // and says so only in a log line nobody reads.
+  //
+  // Skipping here records the boundary instead of hiding it; the gap itself is
+  // tracked as a 1.0 blocker. If it is ever closed, this skip must go with it.
+  it.skipIf(testDatabaseProvider !== "sqlite")(
+    "scheduled backup stores SQLite and originals but excludes the render cache",
+    async () => {
+      const user = await createTestUser(prisma, "scheduled@example.com");
+      const drawing = await prisma.drawing.create({
+        data: { name: "Scheduled", elements: "[]", appState: "{}", userId: user.id },
+      });
+      const bytes = Buffer.from("scheduled original");
+      const created = await createAsset(
+        { prisma, storageDir: assetStorageDir, maxUploadBytes: MIB, maxPerUserBytes: 5 * MIB },
+        {
+          ownerUserId: user.id,
+          uploadedByUserId: user.id,
+          drawingId: drawing.id,
+          kind: "PDF",
+          originalName: "scheduled.pdf",
+          mimeType: "application/pdf",
+          source: Readable.from([bytes]),
+        },
+      );
+      const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+      await request(fileRouteApp(user.id))
+        .put(`/files/${drawing.id}/scheduled-image`)
+        .set("Content-Type", "image/png")
+        .send(imageBytes)
+        .expect(200);
+      const imageFile = await prisma.drawingFile.findUnique({
+        where: {
+          drawingId_fileId: { drawingId: drawing.id, fileId: "scheduled-image" },
+        },
+        include: { blob: true },
+      });
+      expect(imageFile?.blob.purpose).toBe("IMAGE");
+      const cachePath = resolveStoragePath(assetStorageDir, "cache/asset/page.svg");
+      await fs.mkdir(join(assetStorageDir, "cache/asset"), { recursive: true });
+      await fs.writeFile(cachePath, "recomputable");
+      const backupDir = join(root, "backups");
 
-    const target = await createSqliteBackup({
-      prisma,
-      databaseUrl: process.env.DATABASE_URL,
-      backupDir,
-      assetStorageDir,
-      retentionDays: 14,
-    });
-    expect(target).toBeTruthy();
-    const archive = await JSZip.loadAsync(await fs.readFile(target!));
-    expect(archive.file("database.sqlite")).toBeTruthy();
-    expect(await archive.file(`assets/${created.blob.storageKey}`)!.async("nodebuffer")).toEqual(
-      bytes,
-    );
-    expect(await archive.file(`assets/${imageFile!.blob.storageKey}`)!.async("nodebuffer")).toEqual(
-      imageBytes,
-    );
-    expect(Object.keys(archive.files).some((name) => name.includes("/cache/"))).toBe(false);
-  });
+      const target = await createSqliteBackup({
+        prisma,
+        databaseUrl: process.env.DATABASE_URL,
+        backupDir,
+        assetStorageDir,
+        retentionDays: 14,
+      });
+      expect(target).toBeTruthy();
+      const archive = await JSZip.loadAsync(await fs.readFile(target!));
+      expect(archive.file("database.sqlite")).toBeTruthy();
+      expect(await archive.file(`assets/${created.blob.storageKey}`)!.async("nodebuffer")).toEqual(
+        bytes,
+      );
+      expect(
+        await archive.file(`assets/${imageFile!.blob.storageKey}`)!.async("nodebuffer"),
+      ).toEqual(imageBytes);
+      expect(Object.keys(archive.files).some((name) => name.includes("/cache/"))).toBe(false);
+    },
+  );
 });
