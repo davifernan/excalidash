@@ -35,7 +35,11 @@ test.describe("a laser pointer reaches the other people on the board", () => {
       // "pointer" -- which proved the plumbing worked and the test did not.
       // The button is this application's own control (the native laser island
       // is hidden), so clicking it is also what a person does.
-      await holder.getByTestId("toolbar-LaserPointer").click();
+      // Scoped to the toolbar: Excalidraw's own laser control carries the same
+      // test id and is only hidden by CSS, so an unscoped lookup matches two
+      // elements. This application's button is the one portalled into
+      // `.App-toolbar`.
+      await holder.locator(".App-toolbar").getByTestId("toolbar-LaserPointer").click();
       const canvas = holder.locator("canvas.excalidraw__canvas.interactive");
       const box = await canvas.boundingBox();
       if (!box) throw new Error("interactive canvas is not available");
