@@ -49,7 +49,18 @@ test.describe("a laser pointer reaches the other people on the board", () => {
       // test id and is only hidden by CSS, so an unscoped lookup matches two
       // elements. This application's button is the one portalled into
       // `.App-toolbar`.
-      await holder.locator(".App-toolbar").getByTestId("toolbar-LaserPointer").click();
+      //
+      // Asserted visible with its own bound BEFORE clicking. Two runs died at
+      // the test timeout instead of telling us anything: `click()` waits for a
+      // locator that never resolves, and the failure then surfaces as
+      // `browserContext.close` in teardown, which points at the wrong thing
+      // entirely. A bounded expectation turns "we waited two minutes" into
+      // "the button was not there".
+      const laserButton = holder.locator(".App-toolbar").getByTestId("toolbar-LaserPointer");
+      await expect(laserButton, "the toolbar laser button never appeared").toBeVisible({
+        timeout: 15_000,
+      });
+      await laserButton.click({ timeout: 10_000 });
       const canvas = holder.locator("canvas.excalidraw__canvas.interactive");
       const box = await canvas.boundingBox();
       if (!box) throw new Error("interactive canvas is not available");
