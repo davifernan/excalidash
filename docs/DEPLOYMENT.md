@@ -457,3 +457,38 @@ For Unraid or other Docker templates, map the host directory to container path `
 - **[excalidash-mcp](https://github.com/davifernan/excalidash-mcp)** — community MCP server that lets AI agents draw and edit ExcaliDash boards live.
 
 </details>
+
+<details>
+<summary>Moving an existing SQLite instance to PostgreSQL</summary>
+
+Switching `DATABASE_PROVIDER` does not carry data across. The instance would start against an
+empty database while every board is still in the SQLite file — so it refuses to start instead,
+naming the file (see `EXCALIDASH_ALLOW_STRANDED_SQLITE`).
+
+`backend/scripts/migrate-sqlite-to-postgres.cjs` copies the data across. It reads the SQLite
+file **read-only**, so a failed run leaves the old instance startable.
+
+```bash
+# 1. Create the schema in the empty PostgreSQL database
+cd backend
+DATABASE_PROVIDER=postgresql DATABASE_URL=postgresql://... \
+  node scripts/provider-prisma.cjs migrate deploy
+
+# 2. See what would move, without writing
+DATABASE_PROVIDER=postgresql DATABASE_URL=postgresql://... \
+  node scripts/migrate-sqlite-to-postgres.cjs --from /app/prisma/dev.db --dry-run
+
+# 3. Move it
+DATABASE_PROVIDER=postgresql DATABASE_URL=postgresql://... \
+  node scripts/migrate-sqlite-to-postgres.cjs --from /app/prisma/dev.db
+```
+
+It prints one line per table with the source and target counts side by side, and exits non-zero
+if any table did not arrive complete. "Succeeded" is not the result — the numbers are. It also
+refuses to run into a database that already holds rows, so a second run cannot mix two instances.
+
+Scheduled backups are SQLite-only. On PostgreSQL the database is the operator's to back up; the
+uploaded originals and the persisted secrets under the backend's data volume remain yours to
+keep.
+
+</details>
