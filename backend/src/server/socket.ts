@@ -643,7 +643,10 @@ export const registerSocketHandlers = ({
           isActive: true,
           selectedElementIds: {},
           allSelected: false,
-          receivesAgentEvents: !principal?.apiKey,
+          // The one place this is decided. Everything downstream -- the roster,
+          // the selection snapshot, the board summary, agent event routing --
+          // derives from it instead of re-deriving it from `principal.apiKey`.
+          actor: principal?.apiKey ? "automation" : "human",
         };
         drawingBySocket.set(socket.id, drawingId);
         joinedAsGuestBySocket.set(socket.id, decision.isGuest);

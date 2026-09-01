@@ -193,6 +193,7 @@ describe("private Agent Presence audience", () => {
       kind: "owner",
       isActive: true,
       selectedElementIds: {},
+      actor: "human",
     });
     const common = {
       agentId: "run-ordered",

@@ -127,7 +127,11 @@ describe("TeamHome", () => {
     expect(screen.getByText("Owner Olga")).toBeInTheDocument();
     expect(screen.getByText("Member Max")).toBeInTheDocument();
     expect(screen.getByText("(you)")).toBeInTheDocument();
-    expect(screen.getByText("Owner")).toBeInTheDocument();
+    // The roster names people, not ranks. "Owner Olga" is a name and stays; a
+    // standalone role label does not -- anchored and case-insensitive so a
+    // restyled badge cannot return under different wording or capitalisation.
+    expect(screen.queryByText(/^owner$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^admin$/i)).not.toBeInTheDocument();
   });
 
   it("says which board a team member is currently on, but only for a member with a known location", () => {

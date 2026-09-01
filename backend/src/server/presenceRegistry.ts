@@ -24,9 +24,25 @@ export type PresenceEntry = {
   isActive: boolean;
   selectedElementIds: Record<string, true>;
   allSelected?: boolean;
-  /** API-key sockets collaborate with data but do not receive social UI. */
-  receivesAgentEvents?: boolean;
+  /**
+   * Who is behind this connection: a person, or something acting on a person's
+   * behalf through an API key.
+   *
+   * One classification, set once at the join boundary, that every view below
+   * derives from. It replaces `receivesAgentEvents`, which answered only one of
+   * the questions the distinction governs -- and that is exactly how an
+   * automation ended up drawn as a participant: the routing side knew, the
+   * roster side did not. A second boolean per behaviour would repeat the
+   * mistake with more parts.
+   */
+  actor: PresenceActor;
 };
+
+/** A person, or an automation acting through someone's API key. */
+export type PresenceActor = "human" | "automation";
+
+/** Views that describe who is on a board show people; automations are not people. */
+const isHuman = (entry: PresenceEntry): boolean => entry.actor === "human";
 
 /**
  * What a presence looks like to the people sharing the board.
@@ -40,14 +56,14 @@ export type PresenceEntry = {
  */
 export type PublicPresenceEntry = Omit<
   PresenceEntry,
-  "accountId" | "selectedElementIds" | "allSelected" | "receivesAgentEvents"
+  "accountId" | "selectedElementIds" | "allSelected" | "actor"
 >;
 
 export const toPublicPresence = ({
   accountId: _accountId,
   selectedElementIds: _selectedElementIds,
   allSelected: _allSelected,
-  receivesAgentEvents: _receivesAgentEvents,
+  actor: _actor,
   ...rest
 }: PresenceEntry): PublicPresenceEntry => rest;
 
@@ -149,14 +165,21 @@ export class PresenceRegistry {
     return Array.from(this.byDrawing.get(drawingId)?.values() || []);
   }
 
-  /** The same list, with what the room has no business knowing removed. */
+  /**
+   * The people on this board, with what the room has no business knowing
+   * removed. Automations are absent: an API key carries its owner's name and
+   * colour, so one that appeared here would be indistinguishable from the
+   * person -- and several of them made that person appear several times.
+   */
   listPublic(drawingId: string): PublicPresenceEntry[] {
-    return this.list(drawingId).map(toPublicPresence);
+    return this.list(drawingId).filter(isHuman).map(toPublicPresence);
   }
 
   selectionSnapshot(drawingId: string): SelectionSnapshot {
     const selections: SelectionSnapshotEntry[] = [];
-    for (const entry of this.list(drawingId)) {
+    // Humans only: a selection is drawn as somebody's selection, and an
+    // automation's would be rendered under its key owner's name.
+    for (const entry of this.list(drawingId).filter(isHuman)) {
       if (entry.allSelected) {
         selections.push({ presenceId: entry.presenceId, allSelected: true });
         continue;
@@ -248,7 +271,7 @@ export class PresenceRegistry {
 
   agentRecipientIds(drawingId: string, audience: BoardAgentRunAudience): string[] {
     return this.list(drawingId)
-      .filter((entry) => entry.receivesAgentEvents !== false)
+      .filter(isHuman)
       .filter((entry) => audience.kind === "drawing" || entry.accountId === audience.userId)
       .map((entry) => entry.presenceId);
   }
@@ -298,11 +321,15 @@ export class PresenceRegistry {
    * per connection, because two tabs are still one colleague, and guests as a
    * number, because an unauthenticated visitor cannot be told apart from the
    * same visitor reconnecting.
+   *
+   * Automations are excluded, and here the stake is higher than a duplicate:
+   * grouping by account would fold an API key silently into its owner, so the
+   * board would report that a person is present when only their key is.
    */
   summarise(drawingId: string): PresenceSummary {
     const members = new Map<string, PresenceSummaryMember>();
     let guestCount = 0;
-    for (const entry of this.byDrawing.get(drawingId)?.values() || []) {
+    for (const entry of this.list(drawingId).filter(isHuman)) {
       if (entry.kind === "guest" || !entry.accountId) {
         guestCount += 1;
         continue;
