@@ -56,6 +56,17 @@ const MINIMAL_NO_LOGGING = `services:
     networks:
       - net
 
+  postgres:
+    image: postgres:17.11-alpine
+    mem_limit: 512m
+    memswap_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "20"
+        compress: "true"
+
   glitchtip-postgres:
     image: postgres:17.11-alpine
     profiles: ["observability"]
@@ -111,6 +122,17 @@ const MINIMAL_WITH_MATCHING_LOGGING = `services:
         compress: "true"
     networks:
       - net
+
+  postgres:
+    image: postgres:17.11-alpine
+    mem_limit: 512m
+    memswap_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "20"
+        compress: "true"
 
   glitchtip-postgres:
     image: postgres:17.11-alpine
@@ -315,6 +337,17 @@ test("does not cry wolf over the deliberate host-only differences in the real de
       - "127.0.0.1:6770:80"
     networks:
       - net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "20"
+        compress: "true"
+
+  postgres:
+    image: postgres:17.11-alpine
+    mem_limit: 512m
+    memswap_limit: 512m
     logging:
       driver: json-file
       options:
