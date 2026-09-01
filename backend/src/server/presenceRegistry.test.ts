@@ -169,11 +169,19 @@ describe("what leaves the server", () => {
       expect(registry.agentRecipientIds("d1", { kind: "drawing" })).toEqual(["human-socket"]);
     });
 
-    // The guard. The bug this replaces was not "somebody forgot listPublic" --
-    // it was that nothing reminded them. This enumerates every view that
-    // describes who is on a board, so a view added later has to be listed here
-    // and answer the question, instead of silently repeating the same gap.
-    it("keeps automations out of EVERY people-facing view", () => {
+    // The guard over this module's projections.
+    //
+    // It used to be called "EVERY people-facing view", which was not true: a
+    // local review found five live socket paths -- cursor-move, live
+    // selection-update, follow, invite-here and presenter -- that read a
+    // presence directly and put a name on other people's screens without ever
+    // reaching these projections. A guard that overstates its reach is worse
+    // than none: it answers a question it never asked.
+    //
+    // The name now says what it covers. The socket paths are closed at their
+    // own seam (`getSocialPresence` in socket.ts, and setSelection refusing an
+    // automation) and asserted in socketSocialPresence.test.ts.
+    it("keeps automations out of every projection this registry offers", () => {
       const registry = new PresenceRegistry();
       registry.join("d1", automation);
       registry.setSelection("d1", "mcp-socket", ["el-1"], false);

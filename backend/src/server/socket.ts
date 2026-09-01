@@ -234,6 +234,29 @@ export const registerSocketHandlers = ({
     return drawingId ? presences.get(drawingId, socketId) : null;
   };
 
+  /**
+   * The person behind a socket, or nothing.
+   *
+   * An automation may read and write board data; it does not act socially. The
+   * registry projections already exclude it, but the live socket paths -- the
+   * moving cursor, a live selection, follow, invite-here, presenter -- read a
+   * presence directly and put its name and colour on other people's screens
+   * without ever consulting those projections.
+   *
+   * Rather than a fifth `if (actor !== "human")` scattered across five
+   * handlers, the distinction lives here and the wiring below decides which
+   * modules get which accessor. Every one of those handlers already begins
+   * with `if (!presence) return;`, so nothing gains a branch -- and a module
+   * wired to the wrong accessor is visible at the wiring, in one place.
+   *
+   * Document edit locks deliberately keep `getPresence`: holding a lock is
+   * work, not a social act, and an agent editing a document must be able to.
+   */
+  const getSocialPresence = (socketId: string): PresenceEntry | null => {
+    const presence = getPresence(socketId);
+    return presence?.actor === "human" ? presence : null;
+  };
+
   const removeFromDrawing = async (socket: Socket, reason: string, leaveSocketRoom = true) => {
     const drawingId = drawingBySocket.get(socket.id);
     shareTokenBySocket.delete(socket.id);
@@ -328,20 +351,20 @@ export const registerSocketHandlers = ({
     io,
     connectedSockets,
     drawingBySocket,
-    getPresence,
+    getPresence: getSocialPresence,
     getAccess,
     requireAccess: (socket, drawingId) => requireAccess(socket, drawingId),
     removeFromDrawing: (socket, reason) => removeFromDrawing(socket, reason),
   });
   inviteHereManager = createSocketInviteHereManager({
     connectedSockets,
-    getPresence,
+    getPresence: getSocialPresence,
     requireAccess,
   });
   presenterManager = createSocketPresenterManager({
     io,
     presenters,
-    getPresence,
+    getPresence: getSocialPresence,
     requireAccess,
   });
   const votingManager = createSocketVotingManager({ io, voting, requireAccess });
@@ -406,7 +429,7 @@ export const registerSocketHandlers = ({
     votingManager.registerHandlers(socket, allowVotingCommand, allowVotingCast);
     registerCoreRoomEvents({
       socket,
-      getPresence,
+      getPresence: getSocialPresence,
       requireAccess,
       setActive: (drawingId, presenceId, active) =>
         presences.setActive(drawingId, presenceId, active),

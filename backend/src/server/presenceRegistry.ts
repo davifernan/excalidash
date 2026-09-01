@@ -155,7 +155,11 @@ export class PresenceRegistry {
     allSelected = false,
   ): boolean {
     const entry = this.byDrawing.get(drawingId)?.get(presenceId);
-    if (!entry || !entry.isActive) return false;
+    // Refused for an automation rather than filtered afterwards: the caller
+    // broadcasts a live `selection-update` to the room on a true return, and
+    // that path never consults the projections below. Saying no here keeps the
+    // handler's shape and closes the live path with it.
+    if (!entry || !entry.isActive || !isHuman(entry)) return false;
     entry.selectedElementIds = Object.fromEntries(elementIds.map((id) => [id, true]));
     entry.allSelected = allSelected;
     return true;
