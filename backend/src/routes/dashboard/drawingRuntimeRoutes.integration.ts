@@ -147,6 +147,7 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
     kind: "owner",
     isActive: true,
     selectedElementIds: {},
+    actor: "human",
   });
   presences.join("drawing-1", {
     presenceId: "foreign-socket",
@@ -157,6 +158,7 @@ const build = (params: { scopes: string[]; drawingAccess: "owner" | "view" | "no
     kind: "member",
     isActive: true,
     selectedElementIds: {},
+    actor: "human",
   });
   registerDrawingRuntimeRoutes(app, {
     prisma,

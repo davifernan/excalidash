@@ -52,6 +52,24 @@ describe("Link Sharing - Expiry Resolution", () => {
       .send(payload);
   };
 
+  const patchLinkShare = async (
+    drawingId: string,
+    shareId: string,
+    permission: "view" | "edit",
+    body?: { expiresAt?: string | null },
+  ) => {
+    const payload: Record<string, unknown> = { permission };
+    if (body && Object.prototype.hasOwnProperty.call(body, "expiresAt")) {
+      payload.expiresAt = body.expiresAt;
+    }
+    return ownerAgent
+      .patch(`/drawings/${drawingId}/link-shares/${shareId}`)
+      .set("User-Agent", userAgent)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .set(ownerCsrfHeaderName, ownerCsrfToken)
+      .send(payload);
+  };
+
   const createLinkShare = async (
     drawingId: string,
     permission: "view" | "edit",
@@ -200,5 +218,84 @@ describe("Link Sharing - Expiry Resolution", () => {
     expect(revoke.status).toBe(200);
 
     expect((await listBoard()).linkShared).toBe(false);
+  });
+
+  describe("changing the terms does not change the address", () => {
+    it("keeps the same secret when the permission changes", async () => {
+      const drawing = await createDrawing();
+      const created = await createLinkShare(drawing.id, "view");
+      const token: string = created.body.token;
+      const shareId: string = created.body.share.id;
+      const beforeHash = (
+        await prisma.drawingLinkShare.findUniqueOrThrow({
+          where: { id: shareId },
+          select: { tokenHash: true },
+        })
+      ).tokenHash;
+
+      const patched = await patchLinkShare(drawing.id, shareId, "edit");
+      expect(patched.status).toBe(200);
+      expect(patched.body.share.permission).toBe("edit");
+      // No token comes back, and none is minted: the URL already handed out
+      // is still the URL.
+      expect(patched.body.token).toBeUndefined();
+
+      const after = await prisma.drawingLinkShare.findUniqueOrThrow({
+        where: { id: shareId },
+        select: { tokenHash: true, revokedAt: true },
+      });
+      expect(after.tokenHash).toBe(beforeHash);
+      expect(after.revokedAt).toBeNull();
+      expect(token).toBeTruthy();
+    });
+
+    it("leaves no second live share behind", async () => {
+      // The rotation this replaces revoked the old row and created a new one.
+      // Changing terms must not grow the table.
+      const drawing = await createDrawing();
+      const created = await createLinkShare(drawing.id, "view");
+      await patchLinkShare(drawing.id, created.body.share.id, "comment" as "view");
+
+      const rows = await prisma.drawingLinkShare.findMany({
+        where: { drawingId: drawing.id },
+        select: { id: true, revokedAt: true },
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.revokedAt).toBeNull();
+    });
+
+    it("applies the edit ceiling when a view link is raised to edit", async () => {
+      // The reason the expiry rules were extracted rather than copied: an
+      // eternal view link raised to "edit" must land under the same cap that
+      // creating an edit link directly would have applied. A second copy of
+      // those rules is a second place for this to drift.
+      const drawing = await createDrawing();
+      const created = await createLinkShare(drawing.id, "view", { expiresAt: null });
+      expect(created.body.share.expiresAt).toBeNull();
+
+      const farFuture = new Date(Date.now() + 365 * DAY_MS).toISOString();
+      const patched = await patchLinkShare(drawing.id, created.body.share.id, "edit", {
+        expiresAt: farFuture,
+      });
+
+      expect(patched.status).toBe(200);
+      expect(patched.body.share.expiresAt).not.toBeNull();
+      const expiresInMs = new Date(patched.body.share.expiresAt).getTime() - Date.now();
+      expect(expiresInMs).toBeLessThan(365 * DAY_MS);
+    });
+
+    it("refuses to change a share that was already withdrawn", async () => {
+      const drawing = await createDrawing();
+      const created = await createLinkShare(drawing.id, "view");
+      const shareId: string = created.body.share.id;
+      await ownerAgent
+        .delete(`/drawings/${drawing.id}/link-shares/${shareId}`)
+        .set("User-Agent", userAgent)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .set(ownerCsrfHeaderName, ownerCsrfToken);
+
+      const patched = await patchLinkShare(drawing.id, shareId, "edit");
+      expect(patched.status).toBe(404);
+    });
   });
 });

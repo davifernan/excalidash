@@ -52,6 +52,7 @@ import {
   SOCKET_QUEUE_LIMITS,
 } from "./socketProtocol";
 import { ActiveAccountCache } from "./activeAccountCache";
+import { grantDrawingAccessFromLink } from "../authz/grants";
 import { getDrawingMembership } from "../authz/membership";
 import { ipKeyGenerator } from "express-rate-limit";
 import { resolveSocketClientAddress, type TrustProxySetting } from "./socketClientAddress";
@@ -234,6 +235,29 @@ export const registerSocketHandlers = ({
     return drawingId ? presences.get(drawingId, socketId) : null;
   };
 
+  /**
+   * The person behind a socket, or nothing.
+   *
+   * An automation may read and write board data; it does not act socially. The
+   * registry projections already exclude it, but the live socket paths -- the
+   * moving cursor, a live selection, follow, invite-here, presenter -- read a
+   * presence directly and put its name and colour on other people's screens
+   * without ever consulting those projections.
+   *
+   * Rather than a fifth `if (actor !== "human")` scattered across five
+   * handlers, the distinction lives here and the wiring below decides which
+   * modules get which accessor. Every one of those handlers already begins
+   * with `if (!presence) return;`, so nothing gains a branch -- and a module
+   * wired to the wrong accessor is visible at the wiring, in one place.
+   *
+   * Document edit locks deliberately keep `getPresence`: holding a lock is
+   * work, not a social act, and an agent editing a document must be able to.
+   */
+  const getSocialPresence = (socketId: string): PresenceEntry | null => {
+    const presence = getPresence(socketId);
+    return presence?.actor === "human" ? presence : null;
+  };
+
   const removeFromDrawing = async (socket: Socket, reason: string, leaveSocketRoom = true) => {
     const drawingId = drawingBySocket.get(socket.id);
     shareTokenBySocket.delete(socket.id);
@@ -328,20 +352,20 @@ export const registerSocketHandlers = ({
     io,
     connectedSockets,
     drawingBySocket,
-    getPresence,
+    getPresence: getSocialPresence,
     getAccess,
     requireAccess: (socket, drawingId) => requireAccess(socket, drawingId),
     removeFromDrawing: (socket, reason) => removeFromDrawing(socket, reason),
   });
   inviteHereManager = createSocketInviteHereManager({
     connectedSockets,
-    getPresence,
+    getPresence: getSocialPresence,
     requireAccess,
   });
   presenterManager = createSocketPresenterManager({
     io,
     presenters,
-    getPresence,
+    getPresence: getSocialPresence,
     requireAccess,
   });
   const votingManager = createSocketVotingManager({ io, voting, requireAccess });
@@ -406,7 +430,7 @@ export const registerSocketHandlers = ({
     votingManager.registerHandlers(socket, allowVotingCommand, allowVotingCast);
     registerCoreRoomEvents({
       socket,
-      getPresence,
+      getPresence: getSocialPresence,
       requireAccess,
       setActive: (drawingId, presenceId, active) =>
         presences.setActive(drawingId, presenceId, active),
@@ -602,13 +626,40 @@ export const registerSocketHandlers = ({
         let name = toPresenceName(clientUser.name);
         let color = derivePresenceColor(socket.id);
         let kind: PresenceKind = "guest";
-        const membershipLevel =
+        let membershipLevel =
           isAccount && principal
             ? access === "owner"
               ? "owner"
               : (await getDrawingMembership({ prisma, userId: principal.userId, drawingId }))?.level
             : null;
         if (!isCurrentJoin()) return;
+        // A signed-in person who arrives through a valid share link becomes a
+        // named member of this board, at the link's own level.
+        //
+        // Until now they stayed anonymous: the branch below gives an account
+        // reaching a board only through a link a per-connection guest identity,
+        // so their name never appeared next to their cursor and the history
+        // could not say who changed what -- though the server knew who they
+        // were the whole time.
+        //
+        // The link still decides what they may do. This only decides whether
+        // they have a name while doing it.
+        // "owner" is excluded by construction -- an owner already has a
+        // membership above, so this branch never sees one -- but the check is
+        // written out rather than assumed, because the day it stops being true
+        // is the day an owner's level would be rewritten to a link's.
+        const linkLevel =
+          access === "view" || access === "comment" || access === "edit" ? access : null;
+        if (isAccount && principal && shareToken && !membershipLevel && linkLevel) {
+          await grantDrawingAccessFromLink({
+            db: prisma,
+            drawingId,
+            userId: principal.userId,
+            permission: linkLevel,
+          });
+          if (!isCurrentJoin()) return;
+          membershipLevel = linkLevel;
+        }
         if (membershipLevel && principal) {
           // A standing membership has a name the server can check. An account
           // arriving only through a link is still a guest, so the server gives
@@ -643,7 +694,10 @@ export const registerSocketHandlers = ({
           isActive: true,
           selectedElementIds: {},
           allSelected: false,
-          receivesAgentEvents: !principal?.apiKey,
+          // The one place this is decided. Everything downstream -- the roster,
+          // the selection snapshot, the board summary, agent event routing --
+          // derives from it instead of re-deriving it from `principal.apiKey`.
+          actor: principal?.apiKey ? "automation" : "human",
         };
         drawingBySocket.set(socket.id, drawingId);
         joinedAsGuestBySocket.set(socket.id, decision.isGuest);
