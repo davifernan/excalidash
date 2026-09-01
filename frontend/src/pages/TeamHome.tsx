@@ -174,7 +174,7 @@ export const TeamHome: React.FC = () => {
               <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" aria-hidden="true" />
             </div>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-2" data-testid="team-roster">
               {team?.members.map((member) => {
                 const currentBoard = resolveMemberBoard(member, teamPresence, recentBoards);
                 return (

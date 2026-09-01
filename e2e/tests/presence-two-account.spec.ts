@@ -299,10 +299,16 @@ test.describe("NIL-523: two-account presence delivery", () => {
       await admin.goto("/team");
       await expect(admin.getByText(MEMBER_NAME, { exact: false }).first()).toBeVisible();
 
+      // Scoped to the roster, not the page: "Admin" is also the name of a
+      // legitimate navigation entry, and the first version of this test failed
+      // on it. What is asserted is that the roster ranks nobody -- not that the
+      // word is absent from the application.
+      const roster = admin.getByTestId("team-roster");
+      await expect(roster).toBeVisible();
       // Anchored: a person legitimately named "Owner Something" must not fail
       // this, and a restyled badge must not pass it under other capitalisation.
-      await expect(admin.getByText(/^owner$/i)).toHaveCount(0);
-      await expect(admin.getByText(/^admin$/i)).toHaveCount(0);
+      await expect(roster.getByText(/^owner$/i)).toHaveCount(0);
+      await expect(roster.getByText(/^admin$/i)).toHaveCount(0);
 
       const shot = testInfo.outputPath("team-home-no-role-labels.png");
       await admin.screenshot({ path: shot });
