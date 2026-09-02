@@ -41,6 +41,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
   const [customExpiry, setCustomExpiry] = useState("");
   const [isCopied, setIsCopied] = useState(false);
   const [currentLinkToken, setCurrentLinkToken] = useState<string | null>(null);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -131,8 +132,8 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     };
   }, [currentUserId, drawingId, isOpen, userQuery]);
 
-  const handleCopy = async (text: string) => {
-    if (!text) return;
+  const handleCopy = async (text: string): Promise<boolean> => {
+    if (!text) return false;
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -148,9 +149,22 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
         document.body.removeChild(textarea);
       }
       setIsCopied(true);
+      setCopyFailed(false);
       setTimeout(() => setIsCopied(false), 2000);
+      return true;
     } catch {
-      // Clipboard access can be denied by the browser; sharing still works via visible link text.
+      // A refused clipboard write used to be swallowed here, on the assumption
+      // that the link was visible as text anyway. It was not: the URL only ever
+      // reached the clipboard, so a refusal left the button looking dead and
+      // whatever was copied earlier still in the clipboard -- which is exactly
+      // how a stale link gets pasted to somebody.
+      //
+      // Browsers require a fresh user gesture for `writeText`, and the copy that
+      // follows link creation happens several awaits after the click, so this
+      // path is reached in normal use rather than only when permission is
+      // denied outright. Say so, and show the URL to copy by hand.
+      setCopyFailed(true);
+      return false;
     }
   };
 
@@ -361,6 +375,31 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
             handleUpdateLink={handleUpdateLink}
             handleRevokeLink={handleRevokeLink}
           />
+
+          {currentLinkUrl && (
+            <section className="space-y-2">
+              <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-neutral-500 px-1">
+                Link
+              </h3>
+              {/* Shown, not just copied. The URL used to exist only inside the
+                  clipboard call, so a refused write left nothing behind and the
+                  previous clipboard contents went out instead. */}
+              <input
+                readOnly
+                value={currentLinkUrl}
+                onFocus={(event) => event.currentTarget.select()}
+                onClick={(event) => event.currentTarget.select()}
+                aria-label="Share link"
+                className="w-full px-3 py-2 rounded-xl border-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 text-[11px] font-mono text-slate-700 dark:text-neutral-200 select-all"
+              />
+              {copyFailed && (
+                <p className="px-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                  The browser would not let the page write to your clipboard. Select the link above
+                  and copy it yourself.
+                </p>
+              )}
+            </section>
+          )}
 
           <GuestCapabilitiesSection
             settings={guestCapabilities}
