@@ -49,6 +49,47 @@ const force = has("--force");
  * than the back-reference. Self-references are ignored: a row pointing at its
  * own table cannot be ordered around, and the data has none that matter.
  */
+/**
+ * The model's single-column primary key, or null when it has none (composite
+ * key, or no id at all). Read from the schema rather than assumed, so a model
+ * that changes its key does not silently fall through the wrong branch.
+ */
+const singleIdField = (modelName) => {
+  const model = Prisma.dmmf.datamodel.models.find((candidate) => candidate.name === modelName);
+  if (!model) return null;
+  if (
+    model.primaryKey &&
+    Array.isArray(model.primaryKey.fields) &&
+    model.primaryKey.fields.length > 0
+  ) {
+    return model.primaryKey.fields.length === 1 ? model.primaryKey.fields[0] : null;
+  }
+  const idFields = model.fields.filter((field) => field.isId);
+  return idFields.length === 1 ? idFields[0].name : null;
+};
+
+// SQLite and PostgreSQL disagree about the JS type an id arrives as (a numeric
+// key comes back as a number from one and can be compared against a string
+// from the other). Comparing on a normalised string keeps that from reading as
+// "the source does not have this row".
+const normaliseId = (value) => (value === null || value === undefined ? value : String(value));
+
+const sourceIdSet = (source, modelName, idField) => {
+  try {
+    return new Set(
+      source
+        .prepare(`SELECT ${quoted(idField)} AS id FROM ${quoted(modelName)}`)
+        .all()
+        .map((row) => normaliseId(row.id)),
+    );
+  } catch (error) {
+    // A table the old database never had contributes no ids -- and then any
+    // row in the target is, correctly, unknown to the source.
+    if (!String(error?.message ?? error).includes("no such table")) throw error;
+    return new Set();
+  }
+};
+
 const insertOrder = () => {
   const models = Prisma.dmmf.datamodel.models;
   const dependsOn = new Map(
@@ -102,44 +143,149 @@ const main = async () => {
 
   const order = insertOrder();
   const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+
+  // A SQLite database in WAL mode keeps committed data in a `-wal` sidecar
+  // until it is checkpointed. Copy `dev.db` on its own and everything still in
+  // that sidecar is simply absent -- and this script cannot tell, because it
+  // compares the source it was given against the target and finds them equal.
+  //
+  // Measured 02.09.2026: a copy taken exactly as docs/DEPLOYMENT.md implied
+  // left a 1,030,032-byte `-wal` behind. The boards, collections and comments
+  // lived in it. The migration reported "Every table arrived with the same
+  // number of rows it left with" and exited 0, having moved a user and nothing
+  // else. Silent loss under a success message is the one outcome a migration
+  // tool must never produce, so this refuses instead.
+  const walPath = `${sourcePath}-wal`;
+  const journalMode = String(source.pragma("journal_mode", { simple: true }) || "").toLowerCase();
+  const walBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+  if (journalMode === "wal" && walBytes > 0 && !has("--accept-wal")) {
+    throw new Error(
+      `${sourcePath} is in WAL mode and its write-ahead log holds ${walBytes} bytes ` +
+        `(${walPath}). better-sqlite3 reads that log, so this run WOULD see the data -- ` +
+        "but a copy of the database file taken without its `-wal` and `-shm` sidecars " +
+        "would not, and this script cannot tell the difference afterwards. Either point " +
+        "--from at the live database directory with its sidecars intact (what you appear " +
+        "to be doing), and pass --accept-wal to say so, or checkpoint the source first " +
+        "(stop the instance, then `PRAGMA wal_checkpoint(TRUNCATE)`).",
+    );
+  }
+  if (journalMode === "wal" && walBytes === 0) {
+    console.log(
+      `Source is in WAL mode with an empty write-ahead log -- either checkpointed, or ` +
+        `copied without its sidecars. If ${path.basename(sourcePath)} was copied from a ` +
+        "running instance, verify the row counts below against the live instance before " +
+        "trusting them.",
+    );
+  }
+
   const target = new PrismaClient();
 
   const report = [];
   try {
-    const existing = [];
+    // What makes a target unsafe is rows this migration will NOT overwrite --
+    // another instance's data -- not rows as such.
+    //
+    // Counting any row at all was wrong and made the documented procedure
+    // impossible to complete (measured 02.09.2026): step 1 of
+    // docs/DEPLOYMENT.md creates the schema with `provider-prisma.cjs migrate
+    // deploy`, and migration `20260823211543_add_team` seeds
+    // `Team(id='default')` while doing so. A target prepared exactly as the
+    // runbook says therefore always held one row, this check always fired, and
+    // `--force` then died on that same row's unique id -- leaving no path at
+    // all for the release's headline feature.
+    //
+    // The rule now: every id already in the target must also exist in the
+    // source. Then the copy below overwrites it and nothing is mixed. A
+    // foreign instance's rows carry ids the source has never seen, so they are
+    // still refused -- and named, so the operator can look.
+    const foreign = [];
     for (const model of order) {
       const delegate = target[model.charAt(0).toLowerCase() + model.slice(1)];
-      const count = await delegate.count();
-      if (count > 0) existing.push(`${model}=${count}`);
+      const idField = singleIdField(model);
+      if (!idField) {
+        // Composite or missing primary key: no id to compare, so fall back to
+        // the strict reading rather than guessing.
+        const count = await delegate.count();
+        if (count > 0) foreign.push(`${model}=${count} (no single-column id to compare)`);
+        continue;
+      }
+      const targetRows = await delegate.findMany({ select: { [idField]: true } });
+      if (targetRows.length === 0) continue;
+      const sourceIds = sourceIdSet(source, model, idField);
+      const unknown = targetRows
+        .map((row) => row[idField])
+        .filter((id) => !sourceIds.has(normaliseId(id)));
+      if (unknown.length > 0) {
+        foreign.push(`${model}=${unknown.length} (e.g. ${JSON.stringify(unknown[0])})`);
+      }
     }
-    if (existing.length > 0 && !force && !dryRun) {
+    if (foreign.length > 0 && !force && !dryRun) {
       throw new Error(
-        `The target already holds rows (${existing.join(", ")}). ` +
+        `The target holds rows the source does not (${foreign.join(", ")}). ` +
           "Migrating into it would mix two instances. Use --force only if that is what you mean.",
       );
     }
 
-    for (const model of order) {
-      let rows = [];
-      try {
-        rows = source.prepare(`SELECT * FROM ${quoted(model)}`).all();
-      } catch (error) {
-        // A table the old database never had is not an error: the schema grew.
-        if (!String(error?.message ?? error).includes("no such table")) throw error;
-        report.push({ model, source: "-", target: "-", note: "table absent in source" });
-        continue;
-      }
-
-      const delegate = target[model.charAt(0).toLowerCase() + model.slice(1)];
-      if (!dryRun && rows.length > 0) {
-        // One row at a time on purpose: a createMany that rejects the batch
-        // says which table failed and not which row, and this runs once.
-        for (const row of rows) {
-          await delegate.create({ data: coerce(model, row) });
+    // One transaction around the whole copy. Without it a failure part-way
+    // left the target holding whatever had already been written -- measured
+    // 02.09.2026: a run that died on `Team` left `User=1` behind, the next
+    // attempt was refused because the target "already holds rows", and the
+    // only way forward was to drop the database, which nothing said. The
+    // script's one reassurance ("Nothing was removed from the source
+    // database") was true and beside the point.
+    //
+    // The timeout is deliberately far larger than Prisma's 5 s default: this
+    // runs once, over a whole instance, and a migration that gives up half way
+    // is the failure mode being fixed here.
+    const runCopy = async (tx) => {
+      for (const model of order) {
+        let rows = [];
+        try {
+          rows = source.prepare(`SELECT * FROM ${quoted(model)}`).all();
+        } catch (error) {
+          // A table the old database never had is not an error: the schema grew.
+          if (!String(error?.message ?? error).includes("no such table")) throw error;
+          report.push({ model, source: "-", target: "-", note: "table absent in source" });
+          continue;
         }
+
+        const delegate = tx[model.charAt(0).toLowerCase() + model.slice(1)];
+        if (!dryRun && rows.length > 0) {
+          const idField = singleIdField(model);
+          // One row at a time on purpose: a createMany that rejects the batch
+          // says which table failed and not which row, and this runs once.
+          //
+          // upsert, not create, wherever there is a single-column key: the
+          // schema itself seeds rows (`Team(id='default')`), so source and
+          // target legitimately share ids and a plain create dies on the first
+          // one. The source is authoritative, so its version wins.
+          for (const row of rows) {
+            const data = coerce(model, row);
+            if (idField && data[idField] !== undefined && data[idField] !== null) {
+              await delegate.upsert({
+                where: { [idField]: data[idField] },
+                create: data,
+                update: data,
+              });
+            } else {
+              await delegate.create({ data });
+            }
+          }
+        }
+        const after = dryRun ? "-" : await delegate.count();
+        report.push({ model, source: rows.length, target: after });
       }
-      const after = dryRun ? "-" : await delegate.count();
-      report.push({ model, source: rows.length, target: after });
+    };
+
+    if (dryRun) {
+      // Nothing is written, so there is nothing to roll back -- and wrapping a
+      // read-only pass in a transaction would only add a timeout to it.
+      await runCopy(target);
+    } else {
+      await target.$transaction(runCopy, {
+        maxWait: 60_000,
+        timeout: Number(process.env.MIGRATE_TRANSACTION_TIMEOUT_MS || 30 * 60 * 1000),
+      });
     }
   } finally {
     source.close();
@@ -209,6 +355,11 @@ main().catch((error) => {
   console.error("");
   console.error(String(error?.message ?? error));
   console.error("");
-  console.error("Nothing was removed from the source database.");
+  console.error("The source database was opened read-only and is unchanged.");
+  // Said explicitly because the previous wording ("nothing was removed from the
+  // source") was true while the target had been left half-filled, which is the
+  // state an operator actually needs to know about.
+  console.error("The target was rolled back: the copy runs in one transaction, so it holds");
+  console.error("whatever it held before this run. You can fix the cause and run again.");
   process.exit(1);
 });

@@ -110,11 +110,11 @@ decides the rollback/history window has ended.
 
 When running ExcaliDash behind Traefik, Nginx, or another reverse proxy, configure both containers so that API + WebSocket calls resolve correctly:
 
-| Variable                 | Purpose                                                                                                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FRONTEND_URL`           | Backend allowed origin(s). Must match the public URL users access (for example `https://excalidash.example.com`). Supports comma-separated values for multiple addresses. |
-| `TRUST_PROXY`            | Set to `1` when traffic passes through one trusted reverse-proxy hop (for example frontend nginx -> backend) and headers are sanitized.                                   |
-| `BACKEND_URL`            | Frontend container-to-backend target used by Nginx. Override when backend host differs from default service DNS/host.                                                     |
+| Variable                 | Purpose                                                                                                                                                                                                                                                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FRONTEND_URL`           | Backend allowed origin(s). Must match the public URL users access (for example `https://excalidash.example.com`). Supports comma-separated values for multiple addresses.                                                                                                                            |
+| `TRUST_PROXY`            | Set to `1` when traffic passes through one trusted reverse-proxy hop (for example frontend nginx -> backend) and headers are sanitized.                                                                                                                                                              |
+| `BACKEND_URL`            | Frontend container-to-backend target used by Nginx. Override when backend host differs from default service DNS/host.                                                                                                                                                                                |
 | `ENFORCE_HTTPS_REDIRECT` | When `FRONTEND_URL` uses `https://`, the backend automatically redirects plain-HTTP requests to HTTPS. Set to `false` if your outer gateway already enforces HTTPS and you want to disable the built-in redirect (avoids redirect loops when `X-Forwarded-Proto` is not forwarded). Default: `true`. |
 
 ```yaml
@@ -236,20 +236,20 @@ Copy one to `backend/.env`, update issuer/client/redirect values, then run `npm 
 
 Notes:
 
-| Topic                        | Notes                                                                                                                                                                                                                                                                                                                                 |
-|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| OIDC-only (`oidc_enforced`)  | You typically do not use local bootstrap admin registration; first admin can be created through your IdP depending on config.                                                                                                                                                                                                         |
-| Reverse proxy                | Set `FRONTEND_URL` and `TRUST_PROXY` correctly or auth + websockets may fail.                                                                                                                                                                                                                                                         |
-| ID token algorithm           | ExcaliDash defaults to `RS256`. If your IdP client is explicitly configured for another signed ID-token algorithm such as `HS256`, set `OIDC_ID_TOKEN_SIGNED_RESPONSE_ALG` to match that exact client setting. `none` is not allowed, and `HS*` requires `OIDC_CLIENT_SECRET`.                                                        |
-| Keycloak issuer format       | Use realm issuer URL: `https://<keycloak-host>/realms/<realm>`.                                                                                                                                                                                                                                                                       |
-| Authentik issuer format      | Use provider issuer URL: `https://<authentik-host>/application/o/<provider-slug>/`.                                                                                                                                                                                                                                                   |
-| Authentik `email_verified`   | If Authentik does not emit `email_verified=true`, either add the scope mapping or set `OIDC_REQUIRE_EMAIL_VERIFIED=false`.                                                                                                                                                                                                            |
-| Microsoft Entra `email_verified` | Entra ID often omits `email_verified`. Either add a claim mapping policy that emits `email_verified=true` for your service principal, or set `OIDC_REQUIRE_EMAIL_VERIFIED=false` for trusted internal deployments. |
-| Redirect URI                 | Must be exact callback: `https://<excalidash-host>/api/auth/oidc/callback`.                                                                                                                                                                                                                                                           |
-| Split-horizon IdP networking | Set `OIDC_ISSUER_URL` to the browser-reachable issuer and optionally `OIDC_DISCOVERY_URL` to a backend-reachable internal URL.                                                                                                                                                                                                        |
-| OIDC admin mapping           | If `OIDC_ADMIN_GROUPS` is set, admin role is reconciled on each authenticated request for OIDC users: users in those groups are promoted to `ADMIN`, users not in those groups are demoted to `USER`.                                                                                                                                 |
-| Legacy sessions              | Users with old sessions (issued before group claims were embedded) should sign out/in once so OIDC group claims are refreshed.                                                                                                                                                                                                        |
-| OIDC_DISCOVERY_URL           | In Docker Compose or Kubernetes the backend container may not be able to reach your IdP's public hostname. Set `OIDC_DISCOVERY_URL` to an internal URL so the backend can fetch `.well-known/openid-configuration` without changing `OIDC_ISSUER_URL`, which must stay as the public URL for issuer validation and browser redirects. |
+| Topic                            | Notes                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OIDC-only (`oidc_enforced`)      | You typically do not use local bootstrap admin registration; first admin can be created through your IdP depending on config.                                                                                                                                                                                                         |
+| Reverse proxy                    | Set `FRONTEND_URL` and `TRUST_PROXY` correctly or auth + websockets may fail.                                                                                                                                                                                                                                                         |
+| ID token algorithm               | ExcaliDash defaults to `RS256`. If your IdP client is explicitly configured for another signed ID-token algorithm such as `HS256`, set `OIDC_ID_TOKEN_SIGNED_RESPONSE_ALG` to match that exact client setting. `none` is not allowed, and `HS*` requires `OIDC_CLIENT_SECRET`.                                                        |
+| Keycloak issuer format           | Use realm issuer URL: `https://<keycloak-host>/realms/<realm>`.                                                                                                                                                                                                                                                                       |
+| Authentik issuer format          | Use provider issuer URL: `https://<authentik-host>/application/o/<provider-slug>/`.                                                                                                                                                                                                                                                   |
+| Authentik `email_verified`       | If Authentik does not emit `email_verified=true`, either add the scope mapping or set `OIDC_REQUIRE_EMAIL_VERIFIED=false`.                                                                                                                                                                                                            |
+| Microsoft Entra `email_verified` | Entra ID often omits `email_verified`. Either add a claim mapping policy that emits `email_verified=true` for your service principal, or set `OIDC_REQUIRE_EMAIL_VERIFIED=false` for trusted internal deployments.                                                                                                                    |
+| Redirect URI                     | Must be exact callback: `https://<excalidash-host>/api/auth/oidc/callback`.                                                                                                                                                                                                                                                           |
+| Split-horizon IdP networking     | Set `OIDC_ISSUER_URL` to the browser-reachable issuer and optionally `OIDC_DISCOVERY_URL` to a backend-reachable internal URL.                                                                                                                                                                                                        |
+| OIDC admin mapping               | If `OIDC_ADMIN_GROUPS` is set, admin role is reconciled on each authenticated request for OIDC users: users in those groups are promoted to `ADMIN`, users not in those groups are demoted to `USER`.                                                                                                                                 |
+| Legacy sessions                  | Users with old sessions (issued before group claims were embedded) should sign out/in once so OIDC group claims are refreshed.                                                                                                                                                                                                        |
+| OIDC_DISCOVERY_URL               | In Docker Compose or Kubernetes the backend container may not be able to reach your IdP's public hostname. Set `OIDC_DISCOVERY_URL` to an internal URL so the backend can fetch `.well-known/openid-configuration` without changing `OIDC_ISSUER_URL`, which must stay as the public URL for issuer validation and browser redirects. |
 
 </details>
 
@@ -305,27 +305,27 @@ docker compose -f docker-compose.oidc.yml down
 
 Base values are documented in `backend/.env.example`. Common ones to care about:
 
-| Variable                 | Default / Example         | Description                                                                         |
-| ------------------------ | ------------------------- | ----------------------------------------------------------------------------------- |
-| `DATABASE_PROVIDER`      | `sqlite`                  | Database provider: `sqlite` or `postgresql`. See Database provider below.           |
-| `DATABASE_URL`           | `file:/app/prisma/dev.db` | SQLite file or external DB URL.                                                     |
-| `FRONTEND_URL`           | `http://localhost:6767`   | Allowed frontend origin(s), comma-separated for multiple entries.                   |
-| `TRUST_PROXY`            | `false`                   | `false`, `true`, or hop count (for example `1`).                                    |
-| `JWT_SECRET`             | `change-this-secret...`   | Recommended in production so sessions remain stable across restarts and migrations. |
-| `CSRF_SECRET`            | `change-this-secret`      | Recommended in production so CSRF validation remains stable across restarts.        |
-| `AUTH_MODE`              | `local`                   | `local`, `hybrid`, `oidc_enforced`.                                                 |
-| `ENFORCE_HTTPS_REDIRECT` | `true`                    | Set to `false` to disable the built-in HTTP→HTTPS redirect when your outer gateway handles it. |
-| `PASSWORD_MIN_LENGTH` | `12` | Local-auth password minimum length. Combine with `PASSWORD_REQUIRE_*` flags to relax or enforce complexity. |
-| `BACKUP_SCHEDULE` | unset | Optional 5- or 6-field cron expression for scheduled SQLite backups, e.g. `0 0 4 * * *`. |
-| `BACKUP_DIR` | `/app/backups` | Directory where scheduled SQLite backup files are written. Mount this to persistent storage. |
-| `BACKUP_MAX_COUNT` | `7` | Maximum number of completed full-backup archives. Oldest archives are removed first. |
-| `BACKUP_MAX_TOTAL_MB` | `30720` | Maximum combined archive budget. A single backup that cannot fit is refused before its working copy is written. |
-| `BACKUP_MIN_FREE_DISK_PERCENT` | `20` | Free-space floor that must remain throughout creation of the SQLite copy and archive. |
-| `BACKUP_MAX_AGE_HOURS` | `48` | Age after which `/ready` warns that the latest completed scheduled backup is stale. |
-| `READINESS_CACHE_TTL_MS` | `30000` | Cache lifetime for the database-write, disk-space, and backup-age readiness checks. |
-| `AUTH_CLEANUP_SCHEDULE` | `0 0 3 * * *` | Daily maintenance schedule for expired/revoked auth tokens and audit retention. |
-| `AUTH_TOKEN_RETENTION_DAYS` | `30` | Keep expired/used/revoked auth-token records this many days before deletion. Live tokens are never deleted. |
-| `AUDIT_LOG_RETENTION_DAYS` | `365` | Keep audit events for this many days. Increase this to meet company or legal retention requirements. |
+| Variable                       | Default / Example         | Description                                                                                                     |
+| ------------------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_PROVIDER`            | `sqlite`                  | Database provider: `sqlite` or `postgresql`. See Database provider below.                                       |
+| `DATABASE_URL`                 | `file:/app/prisma/dev.db` | SQLite file or external DB URL.                                                                                 |
+| `FRONTEND_URL`                 | `http://localhost:6767`   | Allowed frontend origin(s), comma-separated for multiple entries.                                               |
+| `TRUST_PROXY`                  | `false`                   | `false`, `true`, or hop count (for example `1`).                                                                |
+| `JWT_SECRET`                   | `change-this-secret...`   | Recommended in production so sessions remain stable across restarts and migrations.                             |
+| `CSRF_SECRET`                  | `change-this-secret`      | Recommended in production so CSRF validation remains stable across restarts.                                    |
+| `AUTH_MODE`                    | `local`                   | `local`, `hybrid`, `oidc_enforced`.                                                                             |
+| `ENFORCE_HTTPS_REDIRECT`       | `true`                    | Set to `false` to disable the built-in HTTP→HTTPS redirect when your outer gateway handles it.                  |
+| `PASSWORD_MIN_LENGTH`          | `12`                      | Local-auth password minimum length. Combine with `PASSWORD_REQUIRE_*` flags to relax or enforce complexity.     |
+| `BACKUP_SCHEDULE`              | unset                     | Optional 5- or 6-field cron expression for scheduled SQLite backups, e.g. `0 0 4 * * *`.                        |
+| `BACKUP_DIR`                   | `/app/backups`            | Directory where scheduled SQLite backup files are written. Mount this to persistent storage.                    |
+| `BACKUP_MAX_COUNT`             | `7`                       | Maximum number of completed full-backup archives. Oldest archives are removed first.                            |
+| `BACKUP_MAX_TOTAL_MB`          | `30720`                   | Maximum combined archive budget. A single backup that cannot fit is refused before its working copy is written. |
+| `BACKUP_MIN_FREE_DISK_PERCENT` | `20`                      | Free-space floor that must remain throughout creation of the SQLite copy and archive.                           |
+| `BACKUP_MAX_AGE_HOURS`         | `48`                      | Age after which `/ready` warns that the latest completed scheduled backup is stale.                             |
+| `READINESS_CACHE_TTL_MS`       | `30000`                   | Cache lifetime for the database-write, disk-space, and backup-age readiness checks.                             |
+| `AUTH_CLEANUP_SCHEDULE`        | `0 0 3 * * *`             | Daily maintenance schedule for expired/revoked auth tokens and audit retention.                                 |
+| `AUTH_TOKEN_RETENTION_DAYS`    | `30`                      | Keep expired/used/revoked auth-token records this many days before deletion. Live tokens are never deleted.     |
+| `AUDIT_LOG_RETENTION_DAYS`     | `365`                     | Keep audit events for this many days. Increase this to meet company or legal retention requirements.            |
 
 </details>
 
@@ -468,20 +468,49 @@ naming the file (see `EXCALIDASH_ALLOW_STRANDED_SQLITE`).
 `backend/scripts/migrate-sqlite-to-postgres.cjs` copies the data across. It reads the SQLite
 file **read-only**, so a failed run leaves the old instance startable.
 
+**Run these from a repository checkout, not from the backend image.** Neither
+`provider-prisma.cjs` nor `migrate-sqlite-to-postgres.cjs` is shipped inside
+`ghcr.io/davifernan/excalidash-backend`; you need the repo and its `node_modules`. Point
+`--from` at the SQLite database on the host — wherever the backend's volume is mounted —
+not at the in-container path.
+
+**Take the whole database, not just one file.** SQLite runs in WAL mode here, so committed
+data lives in `dev.db-wal` until it is checkpointed. If you copy the database somewhere to
+migrate it, copy `dev.db`, `dev.db-wal` and `dev.db-shm` together. Copying `dev.db` alone
+silently leaves behind everything still in the log — and the migration would report every
+table as complete, because it compares the source it was given against the target. The
+script refuses a source whose write-ahead log holds data unless you pass `--accept-wal` to
+confirm the sidecars are present.
+
 ```bash
 # 1. Create the schema in the empty PostgreSQL database
 cd backend
 DATABASE_PROVIDER=postgresql DATABASE_URL=postgresql://... \
   node scripts/provider-prisma.cjs migrate deploy
 
-# 2. See what would move, without writing
+# 2. Generate the client for PostgreSQL. Step 1 migrates in a disposable
+#    workspace and does NOT regenerate the client you are about to run against;
+#    without this the next command dies with
+#    "the URL must start with the protocol `file:`".
 DATABASE_PROVIDER=postgresql DATABASE_URL=postgresql://... \
-  node scripts/migrate-sqlite-to-postgres.cjs --from /app/prisma/dev.db --dry-run
+  node scripts/provider-prisma.cjs generate
 
-# 3. Move it
+# 3. See what would move, without writing
 DATABASE_PROVIDER=postgresql DATABASE_URL=postgresql://... \
-  node scripts/migrate-sqlite-to-postgres.cjs --from /app/prisma/dev.db
+  node scripts/migrate-sqlite-to-postgres.cjs --from /srv/excalidash/prisma/dev.db \
+  --accept-wal --dry-run
+
+# 4. Move it
+DATABASE_PROVIDER=postgresql DATABASE_URL=postgresql://... \
+  node scripts/migrate-sqlite-to-postgres.cjs --from /srv/excalidash/prisma/dev.db \
+  --accept-wal
 ```
+
+Step 1 seeds one row of its own (`Team(id='default')`, from the `add_team` migration), so the
+target is never literally empty. The script accounts for that: it refuses only when the target
+holds rows whose ids the **source does not have** — another instance's data — and overwrites
+the seeded ones. The copy runs inside a single transaction, so a failure leaves the target as
+it was rather than half-filled.
 
 It prints one line per table with the source and target counts side by side, and exits non-zero
 if any table did not arrive complete. "Succeeded" is not the result — the numbers are. It also
