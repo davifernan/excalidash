@@ -65,7 +65,15 @@ describe("live socket paths do not let an automation act as a person", () => {
     // If this ever stops reading `actor`, the four assertions above still pass
     // while guarding nothing -- they only check which accessor is passed.
     expect(socketSource).toMatch(
-      /const getSocialPresence[\s\S]{0,400}presence\?\.actor === "human"/,
+      /const getSocialPresence[\s\S]{0,400}presence\?\.actor (===|!==) "human"/,
     );
+  });
+
+  it("also keeps it defined in terms of who currently stands for a person", () => {
+    // The accessor gained a second job: a connection the roster leaves out --
+    // a second tab, or one still being reaped -- must not act as a person
+    // either. Asserting only the actor half would let this half be dropped
+    // while the guard still reported green.
+    expect(socketSource).toMatch(/const getSocialPresence[\s\S]{0,900}representsItsPerson\(/);
   });
 });

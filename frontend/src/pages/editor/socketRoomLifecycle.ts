@@ -1,5 +1,6 @@
 import type { Socket } from "socket.io-client";
 import type { UserIdentity } from "../../utils/identity";
+import { getBrowserClientId } from "./browserClientId";
 
 type JoinedPresence = {
   presenceId: string;
@@ -79,29 +80,36 @@ export const bindSocketRoomLifecycle = ({
       joiningSocketId = null;
       scheduleRetry(socketId);
     }, JOIN_ACK_TIMEOUT_MS);
-    socket.emit("join-room", { drawingId, shareToken, user }, (payload: any) => {
-      if (settled || socket.id !== socketId) return;
-      settled = true;
-      clearTimer(ackTimer);
-      ackTimer = null;
-      joiningSocketId = null;
-      const presence = payload?.presence;
-      if (!presence || typeof presence.presenceId !== "string") {
-        if (payload?.error?.code !== "access-denied") scheduleRetry(socketId);
-        return;
-      }
-      joinedSocketId = socketId;
-      onJoined(presence);
-      const targetPresenceId = getFollowTargetPresenceId() || rememberedTarget;
-      rememberedTarget = null;
-      if (targetPresenceId) {
-        socket.emit("follow-user", {
-          drawingId,
-          targetPresenceId,
-          action: "FOLLOW",
-        });
-      }
-    });
+    socket.emit(
+      "join-room",
+      // The browser id rides along with the identity: it is what lets the
+      // server show one row for a visitor who reopened a link while their
+      // previous socket is still being reaped.
+      { drawingId, shareToken, user: { ...user, clientId: getBrowserClientId() } },
+      (payload: any) => {
+        if (settled || socket.id !== socketId) return;
+        settled = true;
+        clearTimer(ackTimer);
+        ackTimer = null;
+        joiningSocketId = null;
+        const presence = payload?.presence;
+        if (!presence || typeof presence.presenceId !== "string") {
+          if (payload?.error?.code !== "access-denied") scheduleRetry(socketId);
+          return;
+        }
+        joinedSocketId = socketId;
+        onJoined(presence);
+        const targetPresenceId = getFollowTargetPresenceId() || rememberedTarget;
+        rememberedTarget = null;
+        if (targetPresenceId) {
+          socket.emit("follow-user", {
+            drawingId,
+            targetPresenceId,
+            action: "FOLLOW",
+          });
+        }
+      },
+    );
   };
 
   const onDisconnect = () => {
