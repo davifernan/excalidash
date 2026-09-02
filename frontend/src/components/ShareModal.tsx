@@ -356,10 +356,12 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
   };
 
   if (!isOpen) return null;
+  // Prefer the token this session minted, then the one the server can read back
+  // for us. Before the server could do that, reopening the dialog on an existing
+  // link left nothing to copy and no way to say so.
+  const usableToken = currentLinkToken || activeLink?.token || null;
   const currentLinkUrl =
-    activeLink && currentLinkToken
-      ? api.buildShareLinkUrl(origin, drawingId, currentLinkToken)
-      : "";
+    activeLink && usableToken ? api.buildShareLinkUrl(origin, drawingId, usableToken) : "";
 
   return (
     <div className="excalidash-z-modal fixed inset-0 flex items-center justify-center p-4">

@@ -1,4 +1,5 @@
 import type { AuthzDb } from "./client";
+import { encryptShareLinkToken, decryptShareLinkToken } from "./shareLinkSecret";
 import { buildShareLinkToken, hashShareLinkToken, type DrawingPermission } from "./sharing";
 
 /**
@@ -87,8 +88,17 @@ export const revokeDrawingPermission = async (params: {
 };
 
 /** The board's link shares, secrets excluded -- `tokenHash` never leaves this file. */
-export const listDrawingLinkShares = async (params: { db: AuthzDb; drawingId: string }) =>
-  params.db.drawingLinkShare.findMany({
+export const listDrawingLinkShares = async (params: {
+  db: AuthzDb;
+  drawingId: string;
+  /**
+   * When given, each row carries the link's own `token` so the dialog can show
+   * the address instead of a button with nothing to copy. Callers that are not
+   * already authorised to manage this board's sharing must omit it.
+   */
+  shareLinkSecret?: string;
+}) => {
+  const rows = await params.db.drawingLinkShare.findMany({
     where: { drawingId: params.drawingId },
     select: {
       id: true,
@@ -98,9 +108,19 @@ export const listDrawingLinkShares = async (params: { db: AuthzDb; drawingId: st
       createdAt: true,
       updatedAt: true,
       lastUsedAt: true,
+      tokenCipher: true,
     },
     orderBy: { createdAt: "desc" },
   });
+  // `tokenCipher` itself never leaves the server: it is replaced by the token
+  // it decrypts to, or by nothing at all.
+  return rows.map(({ tokenCipher, ...row }) => ({
+    ...row,
+    token: params.shareLinkSecret
+      ? decryptShareLinkToken(tokenCipher, params.shareLinkSecret)
+      : null,
+  }));
+};
 
 /**
  * Which of these boards currently have an active (not revoked, not expired)
@@ -136,8 +156,15 @@ export const getBoardsWithActiveLinkShare = async (params: {
  * independent of every URL shared before it, and a crash between the revoke
  * and the create would leave two live secrets on one board.
  *
- * The clear-text token is returned once and never stored -- only its hash goes
- * to the database, so a database read cannot reconstruct a working URL.
+ * `tokenHash` is what access is checked against, and it is one-way: a database
+ * read cannot reconstruct a working URL from it.
+ *
+ * Alongside it, `tokenCipher` holds the token encrypted under a key the running
+ * instance derives (authz/shareLinkSecret.ts), so an authorised user can be
+ * shown the address again later. That is a deliberate, narrower exposure than
+ * plain text: reading a link back needs the instance, not merely a copy of its
+ * data. Omit `shareLinkSecret` and nothing is stored -- the link still works,
+ * it just cannot be shown again.
  */
 export const issueDrawingLinkShare = async (params: {
   db: AuthzDb;
@@ -145,6 +172,7 @@ export const issueDrawingLinkShare = async (params: {
   permission: DrawingPermission;
   expiresAt: Date | null;
   createdByUserId: string;
+  shareLinkSecret?: string;
 }): Promise<{
   token: string;
   share: {
@@ -165,6 +193,11 @@ export const issueDrawingLinkShare = async (params: {
       drawingId: params.drawingId,
       permission: params.permission,
       tokenHash: hashShareLinkToken(token),
+      // Stored so the address can be shown again later. `tokenHash` stays the
+      // lookup key; this is additional and never consulted for access.
+      tokenCipher: params.shareLinkSecret
+        ? encryptShareLinkToken(token, params.shareLinkSecret)
+        : null,
       // Passphrase support is currently disabled; the column stays nullable
       // for backwards compatibility.
       passphraseHash: null,

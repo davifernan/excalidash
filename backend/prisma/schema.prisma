@@ -608,6 +608,13 @@ model DrawingLinkShare {
   drawing         Drawing   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
   permission      String
   tokenHash       String    @unique
+  /// The token itself, AES-256-GCM encrypted under a key derived from the
+  /// instance's JWT secret, so an authorised user can read an existing link's
+  /// address back (authz/shareLinkSecret.ts). Null for rows written before this
+  /// existed, and unreadable after a JWT_SECRET rotation -- both degrade to
+  /// "address not available", never to lost access, because lookup is by
+  /// `tokenHash`.
+  tokenCipher     String?
   passphraseHash  String?
   expiresAt       DateTime?
   revokedAt       DateTime?

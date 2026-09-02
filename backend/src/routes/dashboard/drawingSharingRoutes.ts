@@ -2,6 +2,7 @@ import express from "express";
 import { normalizeDrawingPermission, type DrawingPermission } from "../../authz/sharing";
 import { controlsDrawing } from "../../authz/membership";
 import { getDrawingRosters } from "../../authz/roster";
+import { config as appConfig } from "../../config";
 import type { DrawingRouteContext } from "./drawingRouteContext";
 import {
   grantDrawingPermission,
@@ -75,7 +76,10 @@ export const registerDrawingSharingRoutes = (
 
       const [permissions, linkShares, rosters] = await Promise.all([
         listDrawingPermissions({ db: prisma, drawingId: id }),
-        listDrawingLinkShares({ db: prisma, drawingId: id }),
+        // The caller already passed `controlsDrawing` above, which is the same
+        // gate that lets them create and revoke links -- so they may also be
+        // shown the address of one that already exists.
+        listDrawingLinkShares({ db: prisma, drawingId: id, shareLinkSecret: appConfig.jwtSecret }),
         // NIL-291: `permissions` above is direct grants only, which is why
         // the Share dialog previously had no way to show that someone with
         // no direct grant still has access -- through the collection this
@@ -273,6 +277,7 @@ export const registerDrawingSharingRoutes = (
           permission,
           expiresAt,
           createdByUserId: req.user!.id,
+          shareLinkSecret: appConfig.jwtSecret,
         }),
       );
       await collaborationAccess.recheckDrawingAccess(id);

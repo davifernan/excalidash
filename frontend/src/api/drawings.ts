@@ -154,6 +154,14 @@ export type DrawingLinkShareRow = {
   createdAt: string | number | Date;
   updatedAt: string | number | Date;
   lastUsedAt: string | null;
+  /**
+   * The link's own address token. Present when the server can still read it
+   * back (see backend/src/authz/shareLinkSecret.ts); null for links issued
+   * before that existed, or after the instance's JWT secret was rotated. The
+   * link keeps working either way -- only the ability to show its address is
+   * lost.
+   */
+  token?: string | null;
 };
 
 /** NIL-291: who has a standing claim on this board, direct or via a collection. */
