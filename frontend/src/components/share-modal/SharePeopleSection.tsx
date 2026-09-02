@@ -99,7 +99,10 @@ export const SharePeopleSection: React.FC<Props> = ({
         <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-neutral-500 px-1">
           People with access
         </h3>
-        <div className="space-y-0">
+        {/* Capped and scrollable: every invited person adds a ~44px row, so a
+            board shared with a dozen people grew the dialog past the bottom of
+            a laptop screen and put the footer's buttons out of reach. */}
+        <div className="space-y-0 max-h-[min(38dvh,18rem)] overflow-y-auto overscroll-contain">
           <div className="flex items-center gap-3 px-1 py-1.5">
             <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-neutral-800 flex items-center justify-center text-slate-600 dark:text-neutral-300 font-black text-sm border-2 border-black dark:border-neutral-600 shrink-0">
               {user?.name?.charAt(0).toUpperCase() || "U"}
@@ -156,7 +159,7 @@ export const SharePeopleSection: React.FC<Props> = ({
           <h3 className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-neutral-500 px-1">
             <Users size={11} aria-hidden="true" /> Access via collection
           </h3>
-          <div className="space-y-0">
+          <div className="space-y-0 max-h-[min(24dvh,11rem)] overflow-y-auto overscroll-contain">
             {inherited.map((member) => (
               <div key={member.userId} className="flex items-center gap-3 px-1 py-1.5">
                 <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-neutral-800 flex items-center justify-center text-slate-500 dark:text-neutral-400 font-black text-sm border-2 border-slate-200 dark:border-neutral-700 shrink-0">

@@ -312,9 +312,9 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     <div className="excalidash-z-modal fixed inset-0 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-neutral-900/20 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-[420px] bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.08)] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-[420px] [@media(max-height:720px)]:max-w-[560px] max-h-[calc(100dvh-2rem)] bg-white dark:bg-neutral-900 rounded-2xl border-2 border-black dark:border-neutral-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.08)] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="px-6 py-4 flex items-center justify-between border-b-2 border-black dark:border-neutral-700">
+        <div className="shrink-0 px-6 py-4 flex items-center justify-between border-b-2 border-black dark:border-neutral-700">
           <h2
             className="text-base font-bold text-slate-800 dark:text-neutral-100 truncate pr-4"
             title={drawingName}
@@ -330,7 +330,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
         </div>
 
         {/* Content */}
-        <div className="flex-1 px-6 py-5 space-y-5 overflow-visible">
+        <div className="flex-1 min-h-0 px-6 py-5 space-y-5 overflow-y-auto overscroll-contain">
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-3">
               <AlertTriangle size={16} strokeWidth={2} />
@@ -371,7 +371,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 flex items-center justify-between border-t-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800/50 rounded-b-[14px]">
+        <div className="shrink-0 px-6 py-4 flex items-center justify-between border-t-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800/50 rounded-b-[14px]">
           <button
             onClick={() =>
               currentLinkUrl ? void handleCopy(currentLinkUrl) : void handleUpdateLink()
