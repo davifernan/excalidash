@@ -29,6 +29,7 @@ const fs = require("node:fs");
 
 const Database = require("better-sqlite3");
 const { PrismaClient, Prisma } = require("../src/generated/client");
+const { normaliseId, findForeignRows } = require("./migration-target-guard.cjs");
 
 const args = process.argv.slice(2);
 const valueOf = (flag) => {
@@ -67,12 +68,6 @@ const singleIdField = (modelName) => {
   const idFields = model.fields.filter((field) => field.isId);
   return idFields.length === 1 ? idFields[0].name : null;
 };
-
-// SQLite and PostgreSQL disagree about the JS type an id arrives as (a numeric
-// key comes back as a number from one and can be compared against a string
-// from the other). Comparing on a normalised string keeps that from reading as
-// "the source does not have this row".
-const normaliseId = (value) => (value === null || value === undefined ? value : String(value));
 
 const sourceIdSet = (source, modelName, idField) => {
   try {
@@ -198,30 +193,27 @@ const main = async () => {
     // source. Then the copy below overwrites it and nothing is mixed. A
     // foreign instance's rows carry ids the source has never seen, so they are
     // still refused -- and named, so the operator can look.
-    const foreign = [];
+    // Reading is here; the decision is in migration-target-guard.cjs, where a
+    // counterprobe can drive it without a database.
+    const entries = [];
     for (const model of order) {
       const delegate = target[model.charAt(0).toLowerCase() + model.slice(1)];
       const idField = singleIdField(model);
       if (!idField) {
-        // Composite or missing primary key: no id to compare, so fall back to
-        // the strict reading rather than guessing.
-        const count = await delegate.count();
-        if (count > 0) foreign.push(`${model}=${count} (no single-column id to compare)`);
+        entries.push({ model, comparable: false, targetCount: await delegate.count() });
         continue;
       }
       const targetRows = await delegate.findMany({ select: { [idField]: true } });
-      if (targetRows.length === 0) continue;
-      const sourceIds = sourceIdSet(source, model, idField);
-      const unknown = targetRows
-        .map((row) => row[idField])
-        .filter((id) => !sourceIds.has(normaliseId(id)));
-      if (unknown.length > 0) {
-        foreign.push(`${model}=${unknown.length} (e.g. ${JSON.stringify(unknown[0])})`);
-      }
+      entries.push({
+        model,
+        targetIds: targetRows.map((row) => row[idField]),
+        sourceIds: targetRows.length > 0 ? sourceIdSet(source, model, idField) : [],
+      });
     }
-    if (foreign.length > 0 && !force && !dryRun) {
+    const verdict = findForeignRows(entries);
+    if (!verdict.ok && !force && !dryRun) {
       throw new Error(
-        `The target holds rows the source does not (${foreign.join(", ")}). ` +
+        `The target holds rows the source does not (${verdict.findings.join(", ")}). ` +
           "Migrating into it would mix two instances. Use --force only if that is what you mean.",
       );
     }
@@ -351,15 +343,16 @@ function coerce(model, row) {
   return out;
 }
 
-main().catch((error) => {
-  console.error("");
-  console.error(String(error?.message ?? error));
-  console.error("");
-  console.error("The source database was opened read-only and is unchanged.");
-  // Said explicitly because the previous wording ("nothing was removed from the
-  // source") was true while the target had been left half-filled, which is the
-  // state an operator actually needs to know about.
-  console.error("The target was rolled back: the copy runs in one transaction, so it holds");
-  console.error("whatever it held before this run. You can fix the cause and run again.");
-  process.exit(1);
-});
+if (require.main === module)
+  main().catch((error) => {
+    console.error("");
+    console.error(String(error?.message ?? error));
+    console.error("");
+    console.error("The source database was opened read-only and is unchanged.");
+    // Said explicitly because the previous wording ("nothing was removed from the
+    // source") was true while the target had been left half-filled, which is the
+    // state an operator actually needs to know about.
+    console.error("The target was rolled back: the copy runs in one transaction, so it holds");
+    console.error("whatever it held before this run. You can fix the cause and run again.");
+    process.exit(1);
+  });
