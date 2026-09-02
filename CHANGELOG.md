@@ -17,6 +17,32 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.20.2 -- 2026-09-02
+
+<!-- release-source: #320 -->
+Scheduled backups are on by default, and since v0.20.0 PostgreSQL is the default database. Those
+two facts did not meet: the backup job ran every night and wrote nothing.
+
+### Fixed
+
+<!-- release-source: #320 -->
+- **Scheduled backups work on PostgreSQL.** `docker-compose.prod.yml` enables a nightly backup by
+  default, but the job only ever supported SQLite -- on any other database it gave up and returned
+  nothing, and the scheduler discarded that result. The only trace was one warning line per firing.
+  A stock installation therefore promised backups and never made one. Backups now snapshot
+  PostgreSQL with `pg_dump`, alongside the uploaded originals and the persisted secrets, exactly as
+  they always did for SQLite.
+<!-- release-source: #320 -->
+- **An instance that cannot write the backup it was configured for refuses to start.** A schedule
+  that silently does nothing reads as protection and only reveals itself when the archive is
+  needed. If `BACKUP_SCHEDULE` is set and no backup could possibly be written, the backend now
+  stops with a message naming the fix instead of starting and staying quiet.
+<!-- release-source: #320 -->
+- **The disaster runbook covers both databases.** `docs/RESTORE.md` now branches by provider and
+  tells you to read `databaseProvider` from the archive's manifest before choosing: restoring a
+  PostgreSQL dump as though it were a SQLite file produces an unreadable database, not an error
+  message.
+
 ## v0.20.1 -- 2026-09-02
 
 <!-- release-source: #318 -->
