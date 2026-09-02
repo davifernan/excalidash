@@ -438,21 +438,42 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
               <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-neutral-500 px-1">
                 Link
               </h3>
-              {/* Shown, not just copied. The URL used to exist only inside the
-                  clipboard call, so a refused write left nothing behind and the
-                  previous clipboard contents went out instead. */}
-              <input
-                readOnly
-                value={currentLinkUrl}
-                onFocus={(event) => event.currentTarget.select()}
-                onClick={(event) => event.currentTarget.select()}
-                aria-label="Share link"
-                className="w-full px-3 py-2 rounded-xl border-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 text-[11px] font-mono text-slate-700 dark:text-neutral-200 select-all"
-              />
+              {/* Shown and copyable right here. The URL used to exist only
+                  inside the clipboard call, so a refused write left nothing
+                  behind -- and the copy button sat in the footer, away from the
+                  thing it copies. */}
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={currentLinkUrl}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onClick={(event) => event.currentTarget.select()}
+                  aria-label="Share link"
+                  className="flex-1 min-w-0 px-3 py-2 rounded-xl border-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 text-[11px] font-mono text-slate-700 dark:text-neutral-200 select-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleCopy(currentLinkUrl)}
+                  aria-label="Copy share link"
+                  className={clsx(
+                    "shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 font-bold text-xs transition-all active:translate-x-[1px] active:translate-y-[1px]",
+                    isCopied
+                      ? "bg-emerald-500 text-white border-black shadow-none translate-x-[1px] translate-y-[1px]"
+                      : "bg-white dark:bg-neutral-900 border-black dark:border-neutral-600 text-indigo-600 dark:text-indigo-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.05)] hover:-translate-y-0.5",
+                  )}
+                >
+                  {isCopied ? (
+                    <Check size={14} strokeWidth={2.5} />
+                  ) : (
+                    <LinkIcon size={14} strokeWidth={2.5} />
+                  )}
+                  {isCopied ? "Copied" : "Copy"}
+                </button>
+              </div>
               {copyFailed && (
                 <p className="px-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                  The browser would not let the page write to your clipboard. Select the link above
-                  and copy it yourself.
+                  Your browser blocked the automatic copy. The link is right there -- select it and
+                  copy it, or press Copy again.
                 </p>
               )}
             </section>
