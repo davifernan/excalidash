@@ -255,7 +255,16 @@ export const registerSocketHandlers = ({
    */
   const getSocialPresence = (socketId: string): PresenceEntry | null => {
     const presence = getPresence(socketId);
-    return presence?.actor === "human" ? presence : null;
+    if (presence?.actor !== "human") return null;
+    // And only the connection currently standing for this person. The roster
+    // shows one row each; a connection it leaves out -- a second tab, or a
+    // socket still being reaped after a closed one -- must not paint a cursor
+    // or claim a follow either, or the board shows a pointer with nobody behind
+    // it. A lone connection is always its own representative, so this changes
+    // nothing for the ordinary case.
+    const drawingId = drawingBySocket.get(socketId);
+    if (!drawingId) return presence;
+    return presences.representsItsPerson(drawingId, socketId) ? presence : null;
   };
 
   const removeFromDrawing = async (socket: Socket, reason: string, leaveSocketRoom = true) => {

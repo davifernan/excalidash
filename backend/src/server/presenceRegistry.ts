@@ -201,7 +201,14 @@ export class PresenceRegistry {
    * -- a tab left open in the background must not be the row that represents
    * someone who is currently drawing.
    */
-  listPublic(drawingId: string): PublicPresenceEntry[] {
+  /**
+   * The connection that stands for each person right now.
+   *
+   * Shared with `listPublic` so the roster and the cursor stream cannot
+   * disagree: a connection the roster leaves out must not draw a pointer
+   * either, or a second tab paints a cursor with nobody behind it.
+   */
+  private representatives(drawingId: string): Map<string, PresenceEntry> {
     const winners = new Map<string, PresenceEntry>();
     for (const entry of this.list(drawingId).filter(isHuman)) {
       const held = winners.get(entry.identityKey);
@@ -215,7 +222,19 @@ export class PresenceRegistry {
       }
       if (entry.joinedAt > held.joinedAt) winners.set(entry.identityKey, entry);
     }
-    return Array.from(winners.values()).map(toPublicPresence);
+    return winners;
+  }
+
+  /** Whether this connection is the one currently standing for its person. */
+  representsItsPerson(drawingId: string, presenceId: string): boolean {
+    for (const entry of this.representatives(drawingId).values()) {
+      if (entry.presenceId === presenceId) return true;
+    }
+    return false;
+  }
+
+  listPublic(drawingId: string): PublicPresenceEntry[] {
+    return Array.from(this.representatives(drawingId).values()).map(toPublicPresence);
   }
 
   selectionSnapshot(drawingId: string): SelectionSnapshot {
