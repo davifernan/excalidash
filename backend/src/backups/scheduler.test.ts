@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import JSZip from "jszip";
-import { cleanupExpiredAuthData, createSqliteBackup, startScheduledMaintenance } from "./scheduler";
+import {
+  cleanupExpiredAuthData,
+  createDatabaseBackup,
+  startScheduledMaintenance,
+} from "./scheduler";
 
 const Database = require("better-sqlite3") as any;
 const tempDirs: string[] = [];
@@ -81,11 +85,14 @@ describe("scheduled backups", () => {
     );
     db.close();
 
-    const target = await createSqliteBackup({
+    const target = await createDatabaseBackup({
       // The checkpoint goes through queryRaw because the PRAGMA answers with a
       // row; a stub without it hides that the real client would refuse.
       prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
       databaseUrl: `file:${databasePath}`,
+      provider: "sqlite",
+      secretsDir: dirname(databasePath),
+      pgDumpPath: "pg_dump",
       backupDir,
       assetStorageDir,
       retentionDays: 14,
@@ -120,9 +127,12 @@ describe("scheduled backups", () => {
     }
     db.close();
 
-    const target = await createSqliteBackup({
+    const target = await createDatabaseBackup({
       prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
       databaseUrl: `file:${databasePath}`,
+      provider: "sqlite",
+      secretsDir: dirname(databasePath),
+      pgDumpPath: "pg_dump",
       backupDir,
       assetStorageDir,
       retentionDays: 14,
@@ -157,9 +167,12 @@ describe("scheduled backups", () => {
     db.exec('CREATE TABLE "StoredBlob" ("storageKey" TEXT NOT NULL, "state" TEXT NOT NULL)');
     db.close();
 
-    await createSqliteBackup({
+    await createDatabaseBackup({
       prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
       databaseUrl: `file:${databasePath}`,
+      provider: "sqlite",
+      secretsDir: dirname(databasePath),
+      pgDumpPath: "pg_dump",
       backupDir,
       assetStorageDir,
       retentionDays: 14,
@@ -187,9 +200,12 @@ describe("scheduled backups", () => {
       await fs.utimes(join(backupDir, name), when, when);
     }
 
-    await createSqliteBackup({
+    await createDatabaseBackup({
       prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
       databaseUrl: `file:${databasePath}`,
+      provider: "sqlite",
+      secretsDir: dirname(databasePath),
+      pgDumpPath: "pg_dump",
       backupDir,
       assetStorageDir,
       retentionDays: 365,
@@ -215,9 +231,12 @@ describe("scheduled backups", () => {
     db.close();
 
     await expect(
-      createSqliteBackup({
+      createDatabaseBackup({
         prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
         databaseUrl: `file:${databasePath}`,
+        provider: "sqlite",
+        secretsDir: dirname(databasePath),
+        pgDumpPath: "pg_dump",
         backupDir,
         assetStorageDir,
         retentionDays: 14,
@@ -243,9 +262,12 @@ describe("scheduled backups", () => {
     db.close();
 
     await expect(
-      createSqliteBackup({
+      createDatabaseBackup({
         prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([]) } as any,
         databaseUrl: `file:${databasePath}`,
+        provider: "sqlite",
+        secretsDir: dirname(databasePath),
+        pgDumpPath: "pg_dump",
         backupDir,
         assetStorageDir,
         retentionDays: 14,

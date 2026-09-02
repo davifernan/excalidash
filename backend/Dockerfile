@@ -24,7 +24,14 @@ RUN npm run build --workspace backend
 
 FROM node:24-alpine
 
-RUN apk add --no-cache openssl su-exec poppler-utils ghostscript imagemagick && \
+# postgresql-client supplies pg_dump, which the scheduled backup uses whenever
+# DATABASE_PROVIDER=postgresql -- the default since v0.20.0. Without it the
+# backup job cannot write anything, so the backend refuses to start when
+# BACKUP_SCHEDULE is set (see src/backups/backupCapability.ts).
+# Measured 02.09.2026 on node:24-alpine (Alpine 3.24.1): pg_dump 18.6. A client
+# newer than the server is supported; an older one refuses, so this must never
+# fall behind the postgres image pinned in docker-compose.prod.yml.
+RUN apk add --no-cache openssl su-exec poppler-utils ghostscript imagemagick postgresql-client && \
     addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 

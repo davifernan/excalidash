@@ -29,6 +29,7 @@ import {
   assertNoStrandedSqliteDatabase,
   defaultSqliteCandidatePaths,
 } from "./db/strandedSqliteGuard";
+import { assertBackupCapability } from "./backups/backupCapability";
 import { logger } from "./logger";
 import { requestLogger } from "./middleware/requestLog";
 import authRouter from "./auth";
@@ -172,6 +173,17 @@ assertNoStrandedSqliteDatabase({
   provider: config.databaseProvider,
   candidatePaths: defaultSqliteCandidatePaths(path.resolve(__dirname, "..")),
   allowOverride: config.allowStrandedSqlite ? "true" : undefined,
+});
+
+// A scheduled backup that cannot write is worse than none: the schedule reads
+// as protection, and the gap only surfaces when the archive is needed. The
+// scheduler discards its runner's result, so a failing backup never rises
+// above a log line -- this is where it becomes visible.
+assertBackupCapability({
+  provider: config.effectiveDatabaseProvider,
+  schedule: config.backups.schedule,
+  databaseUrl: config.databaseUrl,
+  pgDumpPath: config.backups.pgDumpPath,
 });
 
 const httpServer = createServer(app);
@@ -816,10 +828,13 @@ if (isMain) {
     startScheduledMaintenance({
       backups: {
         prisma,
+        provider: config.effectiveDatabaseProvider,
         databaseUrl: config.databaseUrl,
         schedule: config.backups.schedule,
         backupDir: config.backups.dir,
         assetStorageDir: config.assets.storageDir,
+        secretsDir: config.backups.secretsDir,
+        pgDumpPath: config.backups.pgDumpPath,
         retentionDays: config.backups.retentionDays,
       },
       authCleanup: {

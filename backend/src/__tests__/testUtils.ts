@@ -41,6 +41,14 @@ const testDatabase = resolveTestDatabase();
 export const testDatabaseProvider = testDatabase.provider;
 
 /**
+ * The fully resolved connection string, schema qualifier included. Tests that
+ * hand the database to an outside tool (`pg_dump`, `pg_restore`) need exactly
+ * this -- the raw EXCALIDASH_TEST_DATABASE_URL is missing the schema that keeps
+ * parallel workers apart, and using it would dump the wrong tables.
+ */
+export const testDatabaseUrl = testDatabase.url;
+
+/**
  * Get a test Prisma client pointing to the test database
  */
 export const getTestPrisma = () => {

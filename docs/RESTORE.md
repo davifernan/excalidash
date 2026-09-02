@@ -1,11 +1,20 @@
 # ExcaliDash disaster restore and upgrade recovery
 
-This runbook is for the single-VPS SQLite deployment in
-`docker-compose.prod.yml`. A server backup contains `database.sqlite`, all
+This runbook is for the single-VPS deployment in `docker-compose.prod.yml`,
+under either database provider. A server backup contains the database, all
 referenced files below `assets/originals/`, and the persisted `.jwt_secret` and
 `.csrf_secret`. It does **not** contain the Compose `.env`, TLS/reverse-proxy
 configuration, or external OIDC/SMTP credentials; keep those encrypted beside
 the off-site backup.
+
+**The database entry depends on the provider that produced the backup, and the
+archive states which.** `backup.manifest.json` carries `databaseProvider` plus
+the entry's own name: `database.dump` (a `pg_dump` custom-format archive, the
+default since v0.20.0) or `database.sqlite` (a copy of the SQLite file). Read
+the manifest before choosing a branch below rather than assuming -- restoring a
+PostgreSQL dump as though it were a SQLite file produces an unreadable database,
+not an error message. Archives written before v0.20.0 carry `formatVersion: 2`
+and no `databaseProvider`; those are always SQLite.
 
 Commands below assume a clean `/opt/excalidash` directory. Run one numbered
 step at a time and stop when its expected result is not true.
@@ -46,7 +55,8 @@ step at a time and stop when its expected result is not true.
    ```
 
    **Expected result:** the manifest says `excalidash-server-backup`; the list
-   contains `database.sqlite`, `assets/originals/...` when documents exist, and
+   contains the database entry the manifest names (`database.dump` or
+   `database.sqlite`), `assets/originals/...` when documents exist, and
    normally `secrets/.jwt_secret` plus `secrets/.csrf_secret`. Missing secret
    files are acceptable only when the production `.env` contains the exact
    original `JWT_SECRET` and `CSRF_SECRET` values.
@@ -89,8 +99,49 @@ step at a time and stop when its expected result is not true.
    **Expected result:** `restore/database.sqlite` exists and `BACKEND_VOLUME`
    is non-empty.
 
-7. Copy the database, originals, and secrets into the empty volume. The numeric
-   owner `1001` is the backend user from the pinned image.
+7. Restore the database, originals, and secrets. **Take the branch the manifest
+   named in step 3.** The numeric owner `1001` is the backend user from the
+   pinned image.
+
+   **7a -- PostgreSQL (`database.dump`).** Bring up only the database service,
+   then load the dump into the empty database. `pg_restore` must be at least the
+   major version of the server; the backend image ships a matching client.
+
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d postgres
+   docker compose -f docker-compose.prod.yml exec -T postgres \
+     psql -U "${POSTGRES_USER:-excalidash}" -d "${POSTGRES_DB:-excalidash}" -tAc \
+     "select count(*) from information_schema.tables where table_schema='public'"
+   docker compose -f docker-compose.prod.yml exec -T -i postgres \
+     pg_restore --no-owner --no-privileges -U "${POSTGRES_USER:-excalidash}" -d "${POSTGRES_DB:-excalidash}" \
+     < restore/database.dump
+   ```
+
+   **Expected result:** the count is `0` before the restore -- stop if it is
+   not, because `pg_restore` into a populated database leaves a half-merged
+   mixture rather than failing cleanly -- and `pg_restore` exits with status 0.
+
+   Then place only the files in the backend volume:
+
+   ```bash
+   docker run --rm \
+     -v "$BACKEND_VOLUME:/target" \
+     -v "$PWD/restore:/restore:ro" \
+     alpine:3.20 sh -ec '
+       mkdir -p /target/assets/originals
+       if [ -d /restore/assets/originals ]; then cp -a /restore/assets/originals/. /target/assets/originals/; fi
+       if [ -f /restore/secrets/.jwt_secret ]; then cp /restore/secrets/.jwt_secret /target/.jwt_secret; fi
+       if [ -f /restore/secrets/.csrf_secret ]; then cp /restore/secrets/.csrf_secret /target/.csrf_secret; fi
+       chown -R 1001:1001 /target
+       [ ! -f /target/.jwt_secret ] || chmod 600 /target/.jwt_secret
+       [ ! -f /target/.csrf_secret ] || chmod 600 /target/.csrf_secret
+     '
+   ```
+
+   **Expected result:** the command exits with status 0.
+
+   **7b -- SQLite (`database.sqlite`).** Copy the database, originals, and
+   secrets into the empty volume.
 
    ```bash
    docker run --rm \
@@ -114,7 +165,21 @@ step at a time and stop when its expected result is not true.
    already existed, it exits before overwriting anything; investigate instead
    of deleting it blindly.
 
-8. Check SQLite integrity before migrations or application startup.
+8. Check the restored database before migrations or application startup.
+
+   **8a -- PostgreSQL.** Count the rows the instance is supposed to have back.
+
+   ```bash
+   docker compose -f docker-compose.prod.yml exec -T postgres \
+     psql -U "${POSTGRES_USER:-excalidash}" -d "${POSTGRES_DB:-excalidash}" -tAc \
+     'select (select count(*) from "User"), (select count(*) from "Drawing")'
+   ```
+
+   **Expected result:** both counts match the instance you backed up. A restore
+   that silently loaded nothing reports `0|0` here, which is the failure this
+   step exists to catch.
+
+   **8b -- SQLite.** Check file integrity.
 
    ```bash
    docker compose -f docker-compose.prod.yml run --rm --no-deps --entrypoint node backend -e '
@@ -229,7 +294,7 @@ step at a time and stop when its expected result is not true.
    ```
 
    **Expected result:** Prisma names the failed migration. Use `prisma migrate
-   resolve --applied <name>` only when manual inspection proves every statement
+resolve --applied <name>` only when manual inspection proves every statement
    completed; use `prisma migrate resolve --rolled-back <name>` only after the
    migration's changes were actually reversed. Guessing here can corrupt the
    recovery point.

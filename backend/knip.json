@@ -12,7 +12,11 @@
     "scripts/gate-run/setup-gate2.ts",
     "scripts/gate-run/setup-gate3.ts"
   ],
-  "project": ["**/*.{js,jsx,ts,tsx,mjs,cjs}", "!node_modules/**", "!dist/**"],
+  "project": [
+    "**/*.{js,jsx,ts,tsx,mjs,cjs}",
+    "!node_modules/**",
+    "!dist/**"
+  ],
   "ignoreDependencies": [
     "@prisma/client",
     "@excalidash/domain",
@@ -21,5 +25,9 @@
     "prettier",
     "prisma",
     "ts-node"
+  ],
+  "ignoreBinaries": [
+    "psql",
+    "pg_restore"
   ]
 }

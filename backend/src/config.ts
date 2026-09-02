@@ -72,6 +72,8 @@ interface BackupConfig {
   maxCount: number;
   maxTotalBytes: number;
   minFreeDiskPercent: number;
+  secretsDir: string;
+  pgDumpPath: string;
 }
 
 interface ShareLinkConfig {
@@ -132,6 +134,8 @@ interface Config {
    * catching.
    */
   databaseProvider?: "sqlite" | "postgresql";
+  /** Resolved provider: unset falls back to sqlite, as the entrypoint does. */
+  effectiveDatabaseProvider: "sqlite" | "postgresql";
   /**
    * Stated consent to run on PostgreSQL while an old, populated SQLite file is
    * still present. Read here rather than at the call site so it goes through
@@ -545,6 +549,13 @@ const resolveBackupConfig = (): BackupConfig => {
     maxCount: getRequiredEnvNumber("BACKUP_MAX_COUNT", 7),
     maxTotalBytes: getRequiredEnvNumber("BACKUP_MAX_TOTAL_MB", 30 * 1024) * 1024 * 1024,
     minFreeDiskPercent: getRequiredEnvNumber("BACKUP_MIN_FREE_DISK_PERCENT", 20),
+    // The persisted secrets live at a fixed path next to the Prisma schema
+    // (docker-entrypoint.sh writes /app/prisma/.jwt_secret). Deriving their
+    // directory from the SQLite file only ever worked because that file
+    // happens to sit there too; PostgreSQL has no such file, so the location
+    // has to be stated rather than inferred.
+    secretsDir: getOptionalTrimmedEnv("BACKUP_SECRETS_DIR") || path.resolve(__dirname, "../prisma"),
+    pgDumpPath: getOptionalTrimmedEnv("BACKUP_PG_DUMP_PATH") || "pg_dump",
   };
 };
 
@@ -694,6 +705,13 @@ export const config: Config = {
       : process.env.DATABASE_PROVIDER === "sqlite"
         ? "sqlite"
         : undefined,
+  // `databaseProvider` stays optional on purpose: `strandedSqliteGuard` needs
+  // to tell "explicitly sqlite" from "not stated". Everything that must simply
+  // act on one provider reads this instead, so the fallback is written down
+  // once. It mirrors docker-entrypoint.sh ("DATABASE_PROVIDER not set,
+  // defaulting to sqlite") -- if that line ever changes, this changes with it.
+  effectiveDatabaseProvider:
+    process.env.DATABASE_PROVIDER === "postgresql" ? ("postgresql" as const) : ("sqlite" as const),
   allowStrandedSqlite: ["true", "1", "yes"].includes(
     (getOptionalTrimmedEnv("EXCALIDASH_ALLOW_STRANDED_SQLITE") || "").toLowerCase(),
   ),

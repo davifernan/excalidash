@@ -1,20 +1,31 @@
 import fs from "fs";
 import path from "path";
 import archiver from "archiver";
+import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { resolveStoragePath } from "../assets/assetStorage";
 import type { PrismaClient } from "../generated/client";
 import { logger } from "../logger";
-import { type BackupLimitOptions, enforceBackupLimits, prepareBackupSpace } from "./backupLimits";
+import type { BackupProvider } from "./backupCapability";
+import {
+  type BackupLimitOptions,
+  type BackupPolicy,
+  enforceBackupLimits,
+  prepareBackupSpace,
+} from "./backupLimits";
 
 const Database = require("better-sqlite3") as any;
 
 type BackupSchedulerOptions = BackupLimitOptions & {
   prisma: PrismaClient;
+  provider: BackupProvider;
   databaseUrl?: string;
   schedule: string | null;
   backupDir: string;
   assetStorageDir: string;
+  /** Where docker-entrypoint.sh persists `.jwt_secret` / `.csrf_secret`. */
+  secretsDir: string;
+  pgDumpPath: string;
   retentionDays: number;
 };
 
@@ -163,11 +174,11 @@ const pruneOldBackups = async (backupDir: string, retentionDays: number): Promis
   );
 };
 
-const backupSecrets = async (databasePath: string) => {
+const backupSecrets = async (secretsDir: string) => {
   const secretNames = [".jwt_secret", ".csrf_secret"];
   const secrets: Array<{ sourcePath: string; archivePath: string }> = [];
   for (const name of secretNames) {
-    const sourcePath = path.join(path.dirname(databasePath), name);
+    const sourcePath = path.join(secretsDir, name);
     try {
       const info = await fs.promises.lstat(sourcePath);
       if (!info.isFile() || info.isSymbolicLink()) {
@@ -181,73 +192,243 @@ const backupSecrets = async (databasePath: string) => {
   return secrets;
 };
 
-export const createSqliteBackup = async ({
+type DatabaseSnapshot = {
+  /** Local file holding the point-in-time copy that goes into the archive. */
+  filePath: string;
+  /** Name that file takes inside the archive. */
+  archiveName: string;
+  /** Storage keys whose originals belong to this snapshot. */
+  storageKeys: string[];
+  /** Files to remove once the archive is written, snapshot included. */
+  cleanup: string[];
+};
+
+/**
+ * Splits a PostgreSQL connection URL into the environment `pg_dump` reads.
+ *
+ * Deliberately env, not argv: a connection URI passed as an argument shows the
+ * password to every user who can run `ps`.
+ */
+export const pgDumpEnvironment = (
+  databaseUrl: string,
+): { env: Record<string, string>; schema: string | null } => {
+  const url = new URL(databaseUrl);
+  const env: Record<string, string> = {};
+  if (url.hostname) env.PGHOST = decodeURIComponent(url.hostname);
+  if (url.port) env.PGPORT = url.port;
+  if (url.username) env.PGUSER = decodeURIComponent(url.username);
+  if (url.password) env.PGPASSWORD = decodeURIComponent(url.password);
+  const database = url.pathname.replace(/^\//, "");
+  if (database) env.PGDATABASE = decodeURIComponent(database);
+  const sslmode = url.searchParams.get("sslmode");
+  if (sslmode) env.PGSSLMODE = sslmode;
+  return { env, schema: url.searchParams.get("schema") };
+};
+
+const snapshotPostgres = async ({
   prisma,
   databaseUrl,
   backupDir,
+  timestamp,
+  pgDumpPath,
+}: {
+  prisma: PrismaClient;
+  databaseUrl: string;
+  backupDir: string;
+  timestamp: string;
+  pgDumpPath: string;
+}): Promise<DatabaseSnapshot> => {
+  const filePath = path.join(backupDir, `.excalidash-${timestamp}-${process.pid}.dump.part`);
+  const { env, schema } = pgDumpEnvironment(databaseUrl);
+  // Custom format: compressed, and restorable with `pg_restore` into a fresh
+  // database without first hand-editing a SQL text file.
+  const args = ["--format=custom", "--no-owner", "--no-privileges", "--file", filePath];
+  if (schema) args.push("--schema", schema);
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(pgDumpPath, args, {
+      // Only the connection variables, never the parent environment. Measured
+      // 02.09.2026: `spawn` resolves the executable through the PARENT's PATH
+      // even when the child's environment omits it, so a minimal env costs
+      // nothing and keeps every unrelated secret out of the child.
+      env,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      // Bounded: a failing pg_dump can be chatty, and this string is only ever
+      // used to explain the failure.
+      if (stderr.length < 8192) stderr += String(chunk);
+    });
+    child.on("error", (error) =>
+      reject(new Error(`[backup] Could not run \`${pgDumpPath}\`: ${error.message}`)),
+    );
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`[backup] pg_dump exited with code ${code}: ${stderr.trim()}`));
+    });
+  });
+
+  // Listed after the dump completes, never before. Anything the dump contains
+  // was already READY when it ran, so this cannot miss an original that the
+  // database references -- the direction that would produce a restore with
+  // dangling assets. The reverse (an original added afterwards and archived
+  // without a row) is harmless.
+  let storageKeys: string[] = [];
+  try {
+    const rows = await prisma.storedBlob.findMany({
+      where: { state: "READY" },
+      select: { storageKey: true },
+      orderBy: { storageKey: "asc" },
+    });
+    storageKeys = rows.map((row) => row.storageKey);
+  } catch (error: any) {
+    // Databases from before document assets existed remain backupable.
+    if (!/does not exist|no such table/i.test(String(error?.message ?? error))) throw error;
+  }
+
+  return { filePath, archiveName: "database.dump", storageKeys, cleanup: [filePath] };
+};
+
+type SnapshotResult = { snapshot: DatabaseSnapshot; policy: BackupPolicy };
+
+const snapshotSqlite = async ({
+  prisma,
+  databasePath,
+  backupDir,
   assetStorageDir,
+  timestamp,
+  limits,
+}: {
+  prisma: PrismaClient;
+  databasePath: string;
+  backupDir: string;
+  assetStorageDir: string;
+  timestamp: string;
+  limits: BackupLimitOptions;
+}): Promise<SnapshotResult> => {
+  // Checkpoint before estimating the database copy. Otherwise pages still in
+  // the WAL could make the copy larger than the preflight calculation.
+  // queryRaw rather than executeRaw: this PRAGMA answers with a row, and
+  // SQLite refuses a statement that returns results through executeRaw.
+  await prisma.$queryRawUnsafe("PRAGMA wal_checkpoint(PASSIVE)");
+  // Preflight runs against the live file and BEFORE the copy exists, because
+  // the copy is the allocation this is meant to protect the disk from.
+  const policy = await prepareBackupSpace({
+    backupDir,
+    databasePath,
+    assetStorageDir,
+    ...limits,
+  });
+
+  const filePath = path.join(backupDir, `.excalidash-${timestamp}-${process.pid}.sqlite.part`);
+  const source = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    await source.backup(filePath);
+  } finally {
+    source.close();
+  }
+
+  let storageKeys: string[] = [];
+  const copied = new Database(filePath, { readonly: true, fileMustExist: true });
+  try {
+    try {
+      storageKeys = copied
+        .prepare('SELECT "storageKey" FROM "StoredBlob" WHERE "state" = ? ORDER BY "storageKey"')
+        .all("READY")
+        .map((row: { storageKey: string }) => row.storageKey);
+    } catch (error: any) {
+      // Databases from before document assets existed remain backupable.
+      if (!String(error?.message ?? error).includes("no such table")) throw error;
+    }
+  } finally {
+    copied.close();
+  }
+
+  return {
+    policy,
+    snapshot: {
+      filePath,
+      archiveName: "database.sqlite",
+      storageKeys,
+      // Reading the copy's blob table opens it read-only, and a read-only
+      // connection can neither checkpoint nor unlink the `-shm`/`-wal` it
+      // creates for a WAL-mode database. Dropping only the copy strands them.
+      cleanup: [filePath, `${filePath}-shm`, `${filePath}-wal`],
+    },
+  };
+};
+
+export const createDatabaseBackup = async ({
+  prisma,
+  provider,
+  databaseUrl,
+  backupDir,
+  assetStorageDir,
+  secretsDir,
+  pgDumpPath,
   retentionDays,
   maxCount,
   maxTotalBytes,
   minFreeDiskPercent,
-}: Omit<BackupSchedulerOptions, "schedule">): Promise<string | null> => {
-  const databasePath = parseDatabasePath(databaseUrl);
-  if (!databasePath) {
-    logger.warn("scheduled backups currently support SQLite file DATABASE_URL values only");
-    return null;
-  }
-
+}: Omit<BackupSchedulerOptions, "schedule">): Promise<string> => {
+  const limits = { maxCount, maxTotalBytes, minFreeDiskPercent };
   // Backups contain a full copy of the database (password hashes, API-key
   // hashes, OIDC secrets), so restrict the directory and files to the owner.
   await fs.promises.mkdir(backupDir, { recursive: true, mode: 0o700 });
   // Prune before allocating another complete copy. Otherwise a full disk can
   // make retention ineffective precisely when it is needed most.
   await pruneOldBackups(backupDir, retentionDays);
-  // Checkpoint before estimating the database copy. Otherwise pages still in
-  // the WAL could make the copy larger than the preflight calculation.
-  // queryRaw rather than executeRaw: this PRAGMA answers with a row, and
-  // SQLite refuses a statement that returns results through executeRaw.
-  await prisma.$queryRawUnsafe("PRAGMA wal_checkpoint(PASSIVE)");
-  const policy = await prepareBackupSpace({
-    backupDir,
-    databasePath,
-    assetStorageDir,
-    maxCount,
-    maxTotalBytes,
-    minFreeDiskPercent,
-  });
 
   const timestamp = timestampForFilename(new Date());
   const target = path.join(backupDir, `excalidash-backup-${timestamp}.zip`);
   const partialTarget = `${target}.part`;
-  const databaseCopy = path.join(backupDir, `.excalidash-${timestamp}-${process.pid}.sqlite.part`);
-  const source = new Database(databasePath, { readonly: true, fileMustExist: true });
-  try {
-    await source.backup(databaseCopy);
-  } finally {
-    source.close();
-  }
 
-  try {
-    const copied = new Database(databaseCopy, { readonly: true, fileMustExist: true });
-    let storageKeys: string[] = [];
-    try {
-      try {
-        storageKeys = copied
-          .prepare('SELECT "storageKey" FROM "StoredBlob" WHERE "state" = ? ORDER BY "storageKey"')
-          .all("READY")
-          .map((row: { storageKey: string }) => row.storageKey);
-      } catch (error: any) {
-        // Databases from before document assets existed remain backupable.
-        if (!String(error?.message ?? error).includes("no such table")) throw error;
-      }
-    } finally {
-      copied.close();
+  let result: SnapshotResult;
+  if (provider === "postgresql") {
+    if (!databaseUrl) throw new Error("[backup] PostgreSQL backups require DATABASE_URL.");
+    const snapshot = await snapshotPostgres({
+      prisma,
+      databaseUrl,
+      backupDir,
+      timestamp,
+      pgDumpPath,
+    });
+    // Unlike the SQLite branch, the preflight can only run once the dump
+    // exists -- its compressed size is the honest number, and the live
+    // database size would overstate it several-fold. The dump is written
+    // first and measured after; the completed-archive check below still
+    // enforces the ceiling on what is kept.
+    const policy = await prepareBackupSpace({
+      backupDir,
+      databasePath: snapshot.filePath,
+      assetStorageDir,
+      ...limits,
+    });
+    result = { snapshot, policy };
+  } else {
+    const databasePath = parseDatabasePath(databaseUrl);
+    if (!databasePath) {
+      throw new Error(
+        "[backup] DATABASE_PROVIDER=sqlite requires a `file:` DATABASE_URL; " +
+          `got ${databaseUrl ? JSON.stringify(databaseUrl) : "no value"}.`,
+      );
     }
+    result = await snapshotSqlite({
+      prisma,
+      databasePath,
+      backupDir,
+      assetStorageDir,
+      timestamp,
+      limits,
+    });
+  }
+  const { snapshot, policy } = result;
 
+  try {
     const originalsRoot = resolveStoragePath(assetStorageDir, "originals");
     const originals: Array<{ sourcePath: string; archivePath: string }> = [];
-    for (const storageKey of storageKeys) {
+    for (const storageKey of snapshot.storageKeys) {
       const sourcePath = resolveStoragePath(assetStorageDir, storageKey);
       const relative = path.relative(originalsRoot, sourcePath);
       if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -262,19 +443,23 @@ export const createSqliteBackup = async ({
         archivePath: `assets/originals/${relative.split(path.sep).join("/")}`,
       });
     }
-    const secrets = await backupSecrets(databasePath);
+    const secrets = await backupSecrets(secretsDir);
 
     const archive = archiver("zip", { zlib: { level: 6 } });
     const output = fs.createWriteStream(partialTarget, { mode: 0o600 });
     const writing = pipeline(archive, output);
-    archive.append(fs.createReadStream(databaseCopy), { name: "database.sqlite" });
+    archive.append(fs.createReadStream(snapshot.filePath), { name: snapshot.archiveName });
     archive.append(
       JSON.stringify(
         {
           format: "excalidash-server-backup",
-          formatVersion: 2,
+          // 3 adds `databaseProvider` and makes `database` provider-dependent.
+          // A reader that only knows 2 must not silently treat a PostgreSQL
+          // dump as a SQLite file, so the version moves with the shape.
+          formatVersion: 3,
           createdAt: new Date().toISOString(),
-          database: "database.sqlite",
+          databaseProvider: provider,
+          database: snapshot.archiveName,
           originals: originals.length,
           secrets: secrets.map((secret) => secret.archivePath),
         },
@@ -310,6 +495,7 @@ export const createSqliteBackup = async ({
     await pruneOldBackups(backupDir, retentionDays);
     await enforceBackupLimits(backupDir, policy.maxCount, policy.maxTotalBytes);
     logger.info("backup wrote database, originals, and secrets", {
+      provider,
       originals: originals.length,
       secrets: secrets.length,
       target,
@@ -319,14 +505,7 @@ export const createSqliteBackup = async ({
     await fs.promises.rm(partialTarget, { force: true });
     throw error;
   } finally {
-    // Reading the copy's blob table opens it read-only, and a read-only
-    // connection can neither checkpoint nor unlink the `-shm`/`-wal` it creates
-    // for a WAL-mode database. Dropping only the copy strands them for good.
-    await Promise.all(
-      [databaseCopy, `${databaseCopy}-shm`, `${databaseCopy}-wal`].map((file) =>
-        fs.promises.rm(file, { force: true }),
-      ),
-    );
+    await Promise.all(snapshot.cleanup.map((file) => fs.promises.rm(file, { force: true })));
   }
 };
 
@@ -394,7 +573,7 @@ export const startScheduledMaintenance = (
     }
   };
 
-  addJob("BACKUP_SCHEDULE", options.backups.schedule, () => createSqliteBackup(options.backups));
+  addJob("BACKUP_SCHEDULE", options.backups.schedule, () => createDatabaseBackup(options.backups));
   addJob("AUTH_CLEANUP_SCHEDULE", options.authCleanup.schedule, () =>
     cleanupExpiredAuthData(options.authCleanup),
   );
