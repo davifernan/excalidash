@@ -17,6 +17,63 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.20.0 -- 2026-09-02
+
+<!-- release-source: #315 -->
+PostgreSQL is now the database ExcaliDash runs on by default. An instance stopped working with
+four people on it: SQLite has exactly one writer, and the settings that soften that were already
+at their useful limit. Measured on one board, twelve concurrent write transactions finished 3 of
+12 under SQLite and 12 of 12 under PostgreSQL.
+
+<!-- release-source: #310 -->
+This release also changes who you see on a board, and what a share link does when its permission
+changes.
+
+### Added
+
+<!-- release-source: #316 -->
+- **Move an existing SQLite instance to PostgreSQL.** `backend/scripts/migrate-sqlite-to-postgres.cjs`
+  copies the data across. It opens the old file read-only, prints per-table counts side by side, and
+  exits non-zero if any table did not arrive complete -- "succeeded" is not the result, the numbers
+  are. It refuses to run into a database that already holds rows.
+
+<!-- release-source: #314 -->
+- **Someone signed in who opens your link gets a name.** Until now an account that reached a board
+  only through a share link stayed anonymous -- no name beside their cursor, and a history that
+  could not say who changed what. They now appear by name, with exactly the access the link grants
+  and never more. An existing invitation always wins.
+
+<!-- release-source: #312 -->
+- **A vote shows how far along the room is.** While a round is open the panel reports how many
+  ballots are in. What people voted for stays hidden until the results are revealed.
+
+### Changed
+
+<!-- release-source: #315 -->
+- **PostgreSQL by default.** `docker compose up` brings a PostgreSQL container with the backend.
+  SQLite remains fully supported and is one override away, and the values stay written in the
+  compose file where you look for them. An instance whose old SQLite database still holds data
+  refuses to start rather than coming up empty and letting you believe your boards are gone.
+  On PostgreSQL, scheduled backups are the operator's responsibility.
+
+<!-- release-source: #310 -->
+- **The board shows people.** An automation using somebody's API key appeared on the board as that
+  person -- an API key carries its owner's name and colour, so several connections made one
+  colleague show up several times. Participant lists, avatars, cursors, live selections, follow,
+  invite-here and the presenter banner now describe people. Agents stay visible on their own
+  channel. Team Home no longer marks who is an administrator.
+
+### Fixed
+
+<!-- release-source: #311 -->
+- **A share link keeps its address.** Changing what a link allows used to mint a new secret and
+  revoke the old one, so every URL already sent stopped working. Withdrawing a link is unchanged
+  and still its own action.
+
+<!-- release-source: #313 -->
+- **The laser pointer is visible to the people you are pointing at.** Only the person holding it
+  ever saw a trail; everyone else saw an ordinary cursor.
+
 ## v0.18.1 -- 2026-08-31
 
 <!-- release-source: #307 -->
