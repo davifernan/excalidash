@@ -17,6 +17,42 @@ Release tags follow `vX.Y.Z` -- see
 [docs/architecture/UPSTREAM_MAINTENANCE.md](docs/architecture/UPSTREAM_MAINTENANCE.md)
 ("Tag-Namensraum") for the collision check that makes a suffix unnecessary.
 
+## v0.20.1 -- 2026-09-02
+
+<!-- release-source: #318 -->
+A patch for one thing: the move from SQLite to PostgreSQL that v0.20.0 introduced could not be
+completed, and one of the ways it failed lost data quietly.
+
+### Fixed
+
+<!-- release-source: #318 -->
+- **The documented move to PostgreSQL now finishes.** Following `docs/DEPLOYMENT.md`, the
+  migration refused to start every time: creating the schema seeds one row of its own, so the
+  target was never empty, and `--force` then failed on that same row. The check now refuses only
+  rows the source does not have -- another instance's data -- and overwrites the ones the schema
+  seeds. Verified by running the runbook end to end: every populated table arrived with matching
+  counts, the migrated user signed in, and a board opened unchanged.
+
+<!-- release-source: #318 -->
+- **A truncated source is refused instead of migrating part of an instance.** SQLite keeps recent
+  writes in a `dev.db-wal` sidecar. A copy taken without it is missing whatever has not been
+  checkpointed -- and because the migration compares the source it was handed against the target,
+  it reported every table complete and exited successfully having moved almost nothing. Measured:
+  a 1,030,032-byte log holding every board, comment and collection. The migration now refuses such
+  a source unless you confirm the sidecars are there.
+
+<!-- release-source: #318 -->
+- **A failed migration no longer leaves the target half-filled.** The copy runs in one
+  transaction, and the error says the target was rolled back rather than only vouching for the
+  source. Previously a failed run left rows behind, and the next attempt was refused because of
+  them.
+
+<!-- release-source: #318 -->
+- **The runbook gained the step it was missing.** Without regenerating the Prisma client for
+  PostgreSQL, the migration died with "the URL must start with the protocol `file:`".
+  `docs/DEPLOYMENT.md` now includes that step, notes that the scripts are not shipped inside the
+  backend image, and says to take the WAL sidecars along.
+
 ## v0.20.0 -- 2026-09-02
 
 <!-- release-source: #315 -->
