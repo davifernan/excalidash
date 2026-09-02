@@ -230,6 +230,45 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
     }
   };
 
+  /**
+   * Mints a NEW link, invalidating the one already out there.
+   *
+   * Needed because the token only exists in the browser that created it -- the
+   * server keeps a hash, by design. Before v0.20.0 every settings change
+   * rotated the secret, so a token happened to be in hand whenever the dialog
+   * was open. Keeping the address stable (the right fix, #310) removed that
+   * side effect, and reopening the dialog on an existing link left "Copy Link"
+   * with nothing to copy and no way to say so: it read "Replace & Copy Link",
+   * replaced nothing, and copied nothing.
+   *
+   * Rotating is therefore an explicit, separately labelled action rather than
+   * something a copy button does behind your back.
+   */
+  const handleCreateNewLink = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const perm = linkPermission;
+      let expiresAt = calculateExpiresAt(expiryOption, customExpiry);
+      if (perm === "edit" && expiresAt === null) {
+        expiresAt = calculateExpiresAt(DEFAULT_EDIT_EXPIRY_OPTION);
+        setExpiryOption(DEFAULT_EDIT_EXPIRY_OPTION);
+      }
+      const created = await api.createLinkShare(drawingId, { permission: perm, expiresAt });
+      setCurrentLinkToken(created.token);
+      await refresh();
+      await handleCopy(api.buildShareLinkUrl(origin, drawingId, created.token));
+    } catch (err: unknown) {
+      const serverMessage =
+        api.isAxiosError(err) && typeof err.response?.data?.message === "string"
+          ? err.response.data.message
+          : null;
+      setError(serverMessage || "Failed to create a new link");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleUpdateLink = async (
     newPermission?: "view" | "comment" | "edit",
     newExpiry?: string | null,
@@ -376,6 +415,22 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
             handleRevokeLink={handleRevokeLink}
           />
 
+          {activeLink && !currentLinkUrl && (
+            <section className="space-y-2">
+              <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-neutral-500 px-1">
+                Link
+              </h3>
+              {/* The token lives only in the browser that created the link --
+                  the server stores a hash. Saying so beats a copy button that
+                  silently has nothing to copy. */}
+              <p className="px-1 text-[10px] font-bold text-slate-500 dark:text-neutral-400">
+                A link is active, but its address was only shown when it was created and this
+                browser does not have it. Anyone already holding it can still open the board. "New
+                Link & Copy" issues a fresh address and stops the old one working.
+              </p>
+            </section>
+          )}
+
           {currentLinkUrl && (
             <section className="space-y-2">
               <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-neutral-500 px-1">
@@ -413,7 +468,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
         <div className="shrink-0 px-6 py-4 flex items-center justify-between border-t-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800/50 rounded-b-[14px]">
           <button
             onClick={() =>
-              currentLinkUrl ? void handleCopy(currentLinkUrl) : void handleUpdateLink()
+              currentLinkUrl ? void handleCopy(currentLinkUrl) : void handleCreateNewLink()
             }
             disabled={!activeLink}
             className={clsx(
@@ -434,7 +489,7 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
               : currentLinkUrl
                 ? "Copy Link"
                 : activeLink
-                  ? "Replace & Copy Link"
+                  ? "New Link & Copy"
                   : "Copy Link"}
           </button>
 
