@@ -86,9 +86,20 @@ import {
  * Every run (pass, fail, or watchdog trip) writes `SOAK_ARTIFACT_DIR`
  * (default `<e2e>/soak-artifacts/<runId>/`):
  *   - `actor-heartbeats.csv`   -- ts,actorId,engine,boardId,cycle,step (one
- *     row per completed cycle, per actor; a gap in one actor's rows near the
- *     end while others keep rows coming is exactly "did the room stall, or
- *     just this one actor" made visible without re-running anything).
+ *     row per completed cycle, per actor, PLUS one `intercycle_wait_end` row
+ *     per cycle; a gap in one actor's rows near the end while others keep rows
+ *     coming is exactly "did the room stall, or just this one actor" made
+ *     visible without re-running anything).
+ *
+ *     **Both** kinds of row matter when reasoning about the watchdog. Every
+ *     row corresponds to a reset of `actor.lastHeartbeatAt`, so the silence
+ *     the watchdog measures is the gap between ADJACENT rows -- never a gap
+ *     that spans an `intercycle_wait_end`, which would add the deliberate
+ *     15-22.5 s pause to whatever the cycle itself took. Before 02.09.2026 the
+ *     post-wait reset left no row at all, and an analysis that spanned it
+ *     concluded the 45 s threshold was too tight. With the segments separated,
+ *     cycle work alone has p95 under 8 s -- the threshold is roughly six times
+ *     that, and a trip means a hang, not slowness.
  *   - `server-health.csv`     -- ts,code,latencyMs, once a second for the
  *     whole run (same shape as the health-poller.sh pattern this reuses).
  *   - `report.json`           -- the full structured report (also printed as
@@ -392,6 +403,12 @@ type PageSwitchTrace = {
 type WatchdogViolation = {
   actorId: number;
   engine: Engine;
+  /** Wall clock at which the watchdog OBSERVED the violation. Without it a
+   * violation cannot be placed in the run at all: `sinceMs` says how long the
+   * silence had lasted, never when. Measured 02.09.2026 -- an analysis of
+   * eight failing runs could not tell mid-run silences from teardown ones for
+   * exactly this reason, and drew the wrong conclusion from it. */
+  ts: number;
   sinceMs: number;
   /** The step the actor was in the middle of when this violation fired --
    * NIL-330's actual ask: not just that it stalled, but where. */
@@ -1051,6 +1068,7 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
               violations.push({
                 actorId: actor.id,
                 engine: actor.engine,
+                ts: now,
                 sinceMs: now - actor.lastHeartbeatAt,
                 inFlightStep: diagnosticStep,
                 lifecycle: actor.lifecycle,
@@ -1103,6 +1121,25 @@ test.describe("M0 Team-Readiness-Baseline-Lauf (NIL-330)", () => {
           // 43-46 s gaps while sitting at cycles=0 or 1 -- none of them stuck,
           // all of them merely mid-cycle (NIL-563).
           actor.lastHeartbeatAt = Date.now();
+          // Record this reset too, not just perform it. It used to move the
+          // watchdog's clock without leaving a row, which made
+          // `actor-heartbeats.csv` unusable for reconstructing what the
+          // watchdog actually measures: a gap between two recorded rows was
+          // `cycle work + this wait`, while the watchdog sees the two segments
+          // separately. Measured 02.09.2026 -- an analysis of eight failing
+          // runs compared those two different quantities, found 14 apparent
+          // threshold breaches against one recorded violation per run, and
+          // concluded the threshold was too tight. It is not: with this row
+          // present the two segments separate, and cycle work alone has a p95
+          // under 8 s against a 45 s threshold.
+          actor.heartbeats.push({
+            ts: actor.lastHeartbeatAt,
+            actorId: actor.id,
+            engine: actor.engine,
+            boardId: actor.boardId,
+            cycle: actor.cycles,
+            step: "intercycle_wait_end",
+          });
           enterTransition(actor);
         }
         // End the run online, so the final connectivity check below reflects
