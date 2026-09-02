@@ -488,33 +488,20 @@ export const ShareModal: React.FC<Props> = ({ drawingId, drawingName, isOpen, on
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 px-6 py-4 flex items-center justify-between border-t-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800/50 rounded-b-[14px]">
-          <button
-            onClick={() =>
-              currentLinkUrl ? void handleCopy(currentLinkUrl) : void handleCreateNewLink()
-            }
-            disabled={!activeLink}
-            className={clsx(
-              "flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-bold text-xs transition-all active:translate-x-[1px] active:translate-y-[1px]",
-              isCopied
-                ? "bg-emerald-500 text-white border-black shadow-none translate-x-[1px] translate-y-[1px]"
-                : "bg-white dark:bg-neutral-900 border-black dark:border-neutral-600 text-indigo-600 dark:text-indigo-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.05)] hover:-translate-y-0.5",
-              !activeLink && "opacity-40 grayscale cursor-not-allowed shadow-none",
-            )}
-          >
-            {isCopied ? (
-              <Check size={14} strokeWidth={2.5} />
-            ) : (
+        <div className="shrink-0 px-6 py-4 flex items-center justify-end gap-3 border-t-2 border-black dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800/50 rounded-b-[14px]">
+          {/* Only the case the Link section cannot serve: a link is active but
+              its address cannot be read back, so the way forward is a new one.
+              Copying a link you can see belongs next to the link, not down
+              here -- two buttons doing the same thing is clutter. */}
+          {activeLink && !currentLinkUrl && (
+            <button
+              onClick={() => void handleCreateNewLink()}
+              className="mr-auto flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-black dark:border-neutral-600 bg-white dark:bg-neutral-900 font-bold text-xs text-indigo-600 dark:text-indigo-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.05)] hover:-translate-y-0.5 transition-all active:translate-x-[1px] active:translate-y-[1px]"
+            >
               <LinkIcon size={14} strokeWidth={2.5} />
-            )}
-            {isCopied
-              ? "Copied"
-              : currentLinkUrl
-                ? "Copy Link"
-                : activeLink
-                  ? "New Link & Copy"
-                  : "Copy Link"}
-          </button>
+              New Link &amp; Copy
+            </button>
+          )}
 
           <button
             onClick={onClose}
