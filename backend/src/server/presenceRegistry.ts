@@ -36,6 +36,23 @@ export type PresenceEntry = {
    * mistake with more parts.
    */
   actor: PresenceActor;
+  /**
+   * Who this connection belongs to, across connections.
+   *
+   * Presence is keyed by socket, which is right for cursors and wrong for
+   * "who is here": one person legitimately holds several sockets at once. A
+   * closed tab is not noticed until the ping timeout, so reopening a board
+   * within that window showed the same person twice -- and a second tab showed
+   * them twice for as long as both were open.
+   *
+   * `account:<id>` for someone signed in, `client:<id>` for a visitor whose
+   * browser carries a stable id, and `socket:<id>` when there is nothing else
+   * to go on -- which collapses nothing, the honest answer for a connection we
+   * cannot tie to anything.
+   */
+  identityKey: string;
+  /** When this connection joined, so the newest of several wins. */
+  joinedAt: number;
 };
 
 /** A person, or an automation acting through someone's API key. */
@@ -175,8 +192,30 @@ export class PresenceRegistry {
    * colour, so one that appeared here would be indistinguishable from the
    * person -- and several of them made that person appear several times.
    */
+  /**
+   * One row per person, not per connection.
+   *
+   * `summarise` already collapsed by account; this did not, which is why the
+   * board's own participant list showed a duplicate while the summary did not.
+   * The newest connection wins, and an active one always beats an inactive one
+   * -- a tab left open in the background must not be the row that represents
+   * someone who is currently drawing.
+   */
   listPublic(drawingId: string): PublicPresenceEntry[] {
-    return this.list(drawingId).filter(isHuman).map(toPublicPresence);
+    const winners = new Map<string, PresenceEntry>();
+    for (const entry of this.list(drawingId).filter(isHuman)) {
+      const held = winners.get(entry.identityKey);
+      if (!held) {
+        winners.set(entry.identityKey, entry);
+        continue;
+      }
+      if (entry.isActive !== held.isActive) {
+        if (entry.isActive) winners.set(entry.identityKey, entry);
+        continue;
+      }
+      if (entry.joinedAt > held.joinedAt) winners.set(entry.identityKey, entry);
+    }
+    return Array.from(winners.values()).map(toPublicPresence);
   }
 
   selectionSnapshot(drawingId: string): SelectionSnapshot {

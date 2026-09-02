@@ -615,6 +615,17 @@ export const registerSocketHandlers = ({
             ? (payload.user as Record<string, unknown>)
             : {};
         const principal = principals.get(socket.id) || null;
+        // A browser-stable id the client keeps across reloads, so an anonymous
+        // visitor who reopens a link is recognised as the same visitor rather
+        // than counted twice. Untrusted by design: it decides only how rows are
+        // collapsed for display, never what anyone may do.
+        const clientIdentity = ((): string | null => {
+          const raw = clientUser.clientId;
+          if (typeof raw !== "string") return null;
+          const trimmed = raw.trim();
+          return /^[A-Za-z0-9_-]{8,64}$/.test(trimmed) ? trimmed : null;
+        })();
+
         // Auth switched off gives every visitor the same standing identity,
         // which is another way of saying nobody has one. That is the only case
         // where the browser's own name and colour are all anyone has -- and it
@@ -698,6 +709,23 @@ export const registerSocketHandlers = ({
           // the selection snapshot, the board summary, agent event routing --
           // derives from it instead of re-deriving it from `principal.apiKey`.
           actor: principal?.apiKey ? "automation" : "human",
+          // Ties this connection to the person behind it, so the participant
+          // list shows one of them however many tabs or half-closed sockets
+          // they hold. A signed-in account is the strongest handle; a visitor's
+          // browser-stable id is the next best; a bare socket id collapses
+          // nothing, which is the honest answer when there is nothing else.
+          // `isAccount`, not `principal?.userId`: with auth switched off every
+          // visitor carries the same bootstrap identity, so keying on the
+          // account would collapse a whole room into one person. That is the
+          // distinction `isSharedBootstrapIdentity` exists to draw, and the
+          // suite's "two tabs from one account" case is what caught it.
+          identityKey:
+            isAccount && principal
+              ? `account:${principal.userId}`
+              : clientIdentity
+                ? `client:${clientIdentity}`
+                : `socket:${socket.id}`,
+          joinedAt: Date.now(),
         };
         drawingBySocket.set(socket.id, drawingId);
         joinedAsGuestBySocket.set(socket.id, decision.isGuest);
