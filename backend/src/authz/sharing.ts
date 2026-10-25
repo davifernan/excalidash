@@ -1,6 +1,16 @@
 import type { PrismaClient } from "../generated/client";
 import crypto from "crypto";
 import { hashTokenForStorage } from "../auth/tokenSecurity";
+import {
+  ACCESS_RANK,
+  canCommentDrawing,
+  canEditDrawing,
+  canViewDrawing,
+  isOwnerAccess,
+} from "@excalidash/domain/authz";
+import type { DrawingAccess, DrawingPermission } from "@excalidash/domain/authz";
+
+export type { DrawingAccess, DrawingPermission };
 
 /**
  * The grantable levels, weakest first.
@@ -17,26 +27,15 @@ import { hashTokenForStorage } from "../auth/tokenSecurity";
  * out. Every reader has to understand a level before anything writes it.
  *
  * Nothing in this PR grants it. `"view"` and `"edit"` keep their exact meaning.
- */
-export type DrawingPermission = "view" | "comment" | "edit";
-export type DrawingAccess = "none" | DrawingPermission | "owner";
-
-/**
- * One ranking for the whole contract.
  *
- * membership.ts and roster.ts each carried their own copy of this table. Two
- * copies of an ordering means adding a level is a change in three files that
- * type-checks after the first -- and the missed copies sort a `"comment"` claim
- * as unknown, which `strongest()` then quietly loses against anything else.
- * A level is a property of the contract, so the ordering lives with it.
+ * `DrawingPermission`/`DrawingAccess`, `ACCESS_RANK`, and the four capability
+ * predicates below now live in `@excalidash/domain/authz` (NIL-637, comments/
+ * authz domain, slice 6): the frontend used to hand-derive `canEdit`/
+ * `canComment` from `accessLevel` instead of importing them -- see that
+ * module's own header comment for why that is the same shape of risk as
+ * NIL-624's pagination regression, not just a type-alphabet nicety.
  */
-export const ACCESS_RANK: Record<DrawingAccess, number> = {
-  none: 0,
-  view: 1,
-  comment: 2,
-  edit: 3,
-  owner: 4,
-};
+export { ACCESS_RANK };
 
 export type DrawingPrincipal = {
   kind: "user";
@@ -197,28 +196,7 @@ export const getDrawingAccess = async (params: {
   return maxAccess(baseAccess, linkAccess);
 };
 
-export const canViewDrawing = (access: DrawingAccess): access is Exclude<DrawingAccess, "none"> =>
-  access !== "none";
-
-/**
- * Unchanged by `"comment"`, and that is the whole point.
- *
- * Commenting is not a weak form of editing -- it must not open a single write
- * path that `"view"` does not already open. Written as an explicit membership
- * test rather than `rank >= edit` so that inserting a level below `edit` can
- * never widen it by arithmetic.
- */
-export const canEditDrawing = (
-  access: DrawingAccess,
-): access is Extract<DrawingAccess, "edit" | "owner"> => access === "edit" || access === "owner";
-
-/** May annotate without changing the drawing itself. Implied by edit and owner. */
-export const canCommentDrawing = (
-  access: DrawingAccess,
-): access is Extract<DrawingAccess, "comment" | "edit" | "owner"> =>
-  access === "comment" || access === "edit" || access === "owner";
-
-export const isOwnerAccess = (access: DrawingAccess): boolean => access === "owner";
+export { canViewDrawing, canEditDrawing, canCommentDrawing, isOwnerAccess };
 
 const getActiveLinkShareAccess = async (params: {
   prisma: PrismaClient;
